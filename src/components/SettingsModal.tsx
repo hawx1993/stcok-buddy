@@ -114,7 +114,7 @@ export function SettingsModal() {
                 <input id="api-key" type={showKey ? 'text' : 'password'} value={draft.model.apiKey} onChange={(event) => setDraft({ ...draft, model: { ...draft.model, apiKey: event.target.value } })} placeholder="sk-xxxxxxxxxxxx" />
                 <button className="toggle-vis" onClick={() => setShowKey((value) => !value)} type="button">{showKey ? '🙈' : '👁'}</button>
               </div>
-              <div className="hint">API Key 仅存储在本地设备中，不会上传到 StockSense 服务端</div>
+              <div className="hint">API Key 仅存储在本地设备中，不会上传到 StockBuddy 服务端</div>
             </div>
             <div className="settings-row">
               <label className="label" htmlFor="model-name">模型名称（可选）</label>

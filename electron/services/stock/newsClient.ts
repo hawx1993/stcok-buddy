@@ -7,7 +7,7 @@ export async function listMarketNews(query = '', page = 1, pageSize = 30): Promi
     // stock-sdk 2.2.2 has market data/events, but no direct market-news namespace.
     const response = await fetch('https://finance.eastmoney.com/yaowen.html', {
       signal: AbortSignal.timeout(6_000),
-      headers: { 'user-agent': 'Mozilla/5.0 StockSense/0.1' },
+      headers: { 'user-agent': 'Mozilla/5.0 StockBuddy/0.1' },
     });
     if (!response.ok) throw new Error(`news http ${response.status}`);
     const html = await response.text();

@@ -16,7 +16,7 @@ export async function runReportAgent(input: ReportInput): Promise<string> {
       {
         role: 'system',
         content:
-          '你是股察 StockSense 的 A 股投研助手。你只能基于提供的结构化数据做研究解读，不编造行情、新闻或财务数据。避免直接买卖建议，输出要包含风险提示。',
+          '你是股察 StockBuddy 的 A 股投研助手。你只能基于提供的结构化数据做研究解读，不编造行情、新闻或财务数据。避免直接买卖建议，输出要包含风险提示。',
       },
       {
         role: 'user',

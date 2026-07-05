@@ -1,7 +1,7 @@
 {
-  "name": "stocksense-desktop",
-  "version": "0.1.3",
-  "description": "StockSense - 对话式 A 股投研助手 Electron 桌面应用",
+  "name": "stockbuddy-desktop",
+  "version": "0.1.5",
+  "description": "StockBuddy - 对话式 A 股投研助手 Electron 桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
   "scripts": {
@@ -30,7 +30,7 @@
   "license": "MIT",
   "build": {
     "appId": "com.stocksense.desktop",
-    "productName": "StockSense",
+    "productName": "StockBuddy",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -68,10 +68,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "StockSense-${version}-${arch}-setup.${ext}"
+      "artifactName": "StockBuddy-${version}-${arch}-setup.${ext}"
     },
     "dmg": {
-      "artifactName": "StockSense-${version}-${arch}.dmg",
+      "artifactName": "StockBuddy-${version}-${arch}.dmg",
       "contents": [
         { "x": 130, "y": 220 },
         { "x": 410, "y": 220, "type": "link", "path": "/Applications" }

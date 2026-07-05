@@ -15,7 +15,7 @@ function createWindow() {
     height: 920,
     minWidth: 1024,
     minHeight: 720,
-    title: '股察 StockSense',
+    title: '股察 StockBuddy',
     icon: appIcon,
     backgroundColor: '#0B1426',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
