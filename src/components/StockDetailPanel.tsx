@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { useAppStore } from '../store/appStore';
 import { getStocksenseApi } from '../shared/stocksenseApi';
-import type { MarketNewsItem } from '../shared/types';
+import type { KlinePoint, MarketNewsItem } from '../shared/types';
 
 const NEWS_PAGE_SIZE = 30;
 
@@ -25,6 +25,7 @@ export function StockDetailPanel() {
   const [newsTotal, setNewsTotal] = useState(0);
   const [newsLoading, setNewsLoading] = useState(false);
   const [news, setNews] = useState<MarketNewsItem[]>([]);
+  const [kline, setKline] = useState<KlinePoint[]>([]);
   const selectedStock = useAppStore((state) => state.selectedStock);
   const theme = useAppStore((state) => state.config?.theme ?? 'dark');
 
@@ -42,9 +43,26 @@ export function StockDetailPanel() {
   }, [selectedStock?.code]);
 
   useEffect(() => {
+    if (!selectedStock) {
+      setKline([]);
+      return;
+    }
+    let alive = true;
+    const days = timeframes.find((item) => item.id === tf)?.days ?? 120;
+    getStocksenseApi().getKline(selectedStock.code, days).then((data) => {
+      if (alive) setKline(data);
+    }).catch(() => {
+      if (alive) setKline([]);
+    });
+    return () => { alive = false; };
+  }, [selectedStock?.code, tf]);
+
+  useEffect(() => {
     if (!selectedStock || !canvasRef.current) return;
-    drawKLine(canvasRef.current, Number(selectedStock.price) || 100, timeframes.find((item) => item.id === tf)?.days ?? 21, theme);
-  }, [selectedStock, tf, theme]);
+    const days = timeframes.find((item) => item.id === tf)?.days ?? 21;
+    const data = kline.length ? kline : makeKData(Number(selectedStock.price) || 100, days);
+    drawKLine(canvasRef.current, data, theme);
+  }, [selectedStock, tf, theme, kline]);
 
   useEffect(() => {
     if (selectedStock) return;
@@ -141,9 +159,9 @@ function Rating({ label, score, tone }: { label: string; score: string; tone: 'u
   return <div className="r"><div className={`s ${tone}`}>{score}</div><div className="l">{label}</div></div>;
 }
 
-function drawKLine(canvas: HTMLCanvasElement, basePrice: number, days: number, theme: string) {
+function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: string) {
   const ctx = canvas.getContext('2d');
-  if (!ctx) return;
+  if (!ctx || !data.length) return;
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.clientWidth || 316;
   const height = canvas.clientHeight || 190;
@@ -159,7 +177,6 @@ function drawKLine(canvas: HTMLCanvasElement, basePrice: number, days: number, t
   const labelColor = style.getPropertyValue('--kline-label').trim();
   const success = theme === 'light' ? '#16A34A' : '#22C55E';
   const danger = theme === 'light' ? '#DC2626' : '#EF4444';
-  const data = makeKData(basePrice, days);
   const chartTop = 8;
   const chartBottom = height - 42;
   const chartLeft = 60;
@@ -219,7 +236,7 @@ function drawKLine(canvas: HTMLCanvasElement, basePrice: number, days: number, t
   ctx.stroke();
 }
 
-function makeKData(basePrice: number, days: number) {
+function makeKData(basePrice: number, days: number): KlinePoint[] {
   let price = basePrice;
   return Array.from({ length: days }, (_, index) => {
     const wave = Math.sin(index / 4) * basePrice * 0.008;
@@ -230,11 +247,11 @@ function makeKData(basePrice: number, days: number) {
     const low = Math.min(open, close) * 0.994;
     const volume = 10000 + Math.abs(wave) * 2000 + (index % 7) * 1600;
     price = close;
-    return { open, close, high, low, volume };
+    return { time: String(index + 1), open, close, high, low, volume };
   });
 }
 
-function drawChips(ctx: CanvasRenderingContext2D, data: ReturnType<typeof makeKData>, top: number, bottom: number, low: number, high: number, theme: string) {
+function drawChips(ctx: CanvasRenderingContext2D, data: KlinePoint[], top: number, bottom: number, low: number, high: number, theme: string) {
   const levels = 36;
   const height = bottom - top;
   const range = high - low;

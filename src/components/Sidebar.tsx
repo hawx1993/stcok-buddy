@@ -16,9 +16,8 @@ const hotTabs: Array<{ id: HotSubTab; label: string }> = [
 
 export function Sidebar() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [hotItems, setHotItems] = useState<HotFocusItem[]>([]);
-  const [hotLoading, setHotLoading] = useState(false);
-  const [hotError, setHotError] = useState('');
+  const [hotItemsByTab, setHotItemsByTab] = useState<Partial<Record<HotSubTab, HotFocusItem[]>>>({});
+  const [hotLoadingTab, setHotLoadingTab] = useState<HotSubTab>();
   const conversations = useAppStore((state) => state.conversations);
   const activeConversationId = useAppStore((state) => state.activeConversationId);
   const search = useAppStore((state) => state.search);
@@ -36,21 +35,21 @@ export function Sidebar() {
   const setHotSubTab = useAppStore((state) => state.setHotSubTab);
 
   const loadHot = async (tab = hotSubTab) => {
-    setHotLoading(true);
-    setHotError('');
+    if (hotItemsByTab[tab] || hotLoadingTab === tab) return;
+    setHotLoadingTab(tab);
     try {
-      setHotItems(await getStocksenseApi().listHotFocus(tab));
-    } catch (error) {
-      setHotError(error instanceof Error ? error.message : '热点数据加载失败');
-      setHotItems([]);
+      const items = await getStocksenseApi().listHotFocus(tab);
+      setHotItemsByTab((current) => ({ ...current, [tab]: items }));
+    } catch {
+      setHotItemsByTab((current) => ({ ...current, [tab]: current[tab] ?? [] }));
     } finally {
-      setHotLoading(false);
+      setHotLoadingTab(undefined);
     }
   };
 
   useEffect(() => {
     if (sidebarMainTab === 'hot') void loadHot(hotSubTab);
-  }, [sidebarMainTab, hotSubTab]);
+  }, [sidebarMainTab, hotSubTab, hotItemsByTab, hotLoadingTab]);
 
   const createConversation = async () => {
     const item = await getStocksenseApi().createConversation();
@@ -73,15 +72,14 @@ export function Sidebar() {
 
   const switchMainTab = (tab: 'session' | 'hot') => {
     setSidebarMainTab(tab);
-    if (tab === 'hot') void loadHot(hotSubTab);
   };
 
   const switchHotTab = (tab: HotSubTab) => {
     setHotSubTab(tab);
-    void loadHot(tab);
   };
 
   const query = search.toLowerCase();
+  const hotItems = hotItemsByTab[hotSubTab] ?? [];
   const filteredConversations = conversations.filter((item) => !query || `${item.title}${item.preview}`.toLowerCase().includes(query));
   const filteredHotItems = hotItems.filter((item) => !query || `${item.title}${item.code ?? ''}${item.description ?? ''}`.toLowerCase().includes(query));
 
@@ -116,7 +114,7 @@ export function Sidebar() {
               <span className="label">{item.title}</span><span className="count">{item.count}</span>
             </button>
           )) : <div className="empty-list">无匹配对话</div>
-        ) : <HotContent items={filteredHotItems} loading={hotLoading} error={hotError} onStockClick={openHotStock} />}
+        ) : <HotContent items={filteredHotItems} loading={hotLoadingTab === hotSubTab && !hotItems.length} onStockClick={openHotStock} />}
       </div>
 
       <div className="sidebar-footer">
@@ -134,9 +132,8 @@ export function Sidebar() {
   );
 }
 
-function HotContent({ items, loading, error, onStockClick }: { items: HotFocusItem[]; loading: boolean; error: string; onStockClick(item: HotFocusItem): void }) {
-  if (loading) return <div className="empty-list">正在加载 stock-sdk 热点…</div>;
-  if (error) return <div className="empty-list">{error}</div>;
+function HotContent({ items, loading, onStockClick }: { items: HotFocusItem[]; loading: boolean; onStockClick(item: HotFocusItem): void }) {
+  if (loading) return <div className="empty-list">数据正在加载中…</div>;
   if (!items.length) return <div className="empty-list">暂无热点数据</div>;
   return <>{items.map((item) => <HotCard key={item.id} item={item} onStockClick={onStockClick} />)}</>;
 }

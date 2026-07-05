@@ -104,6 +104,15 @@ export interface StockDetail {
   summary?: string;
 }
 
+export interface KlinePoint {
+  time: string;
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+  volume: number;
+}
+
 export interface MarketNewsItem {
   id: string;
   time: string;
@@ -141,7 +150,7 @@ export interface AgentResultCard {
   title: string;
   subtitle?: string;
   metrics?: Array<{ label: string; value: string; tone?: 'up' | 'down' | 'warn' | 'neutral' }>;
-  rows?: Array<Record<string, string>>;
+  rows?: Array<Record<string, unknown>>;
   narrative?: string;
   stocks?: StockDetail[];
 }
@@ -156,6 +165,7 @@ export interface StocksenseApi {
   saveMessage(conversationId: string, message: ChatMessage): Promise<void>;
   sendChat(request: ChatRequest): Promise<ChatResponse>;
   getStockDetail(symbol: string): Promise<StockDetail>;
+  getKline(symbol: string, limit?: number): Promise<KlinePoint[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
 }

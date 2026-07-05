@@ -1,6 +1,6 @@
 {
   "name": "stocksense-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "股察 StockSense - 对话式 A 股投研助手 Electron 桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",

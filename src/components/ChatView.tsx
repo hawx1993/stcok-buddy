@@ -226,12 +226,28 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
   );
 }
 
-function renderCell(header: string, row: Record<string, string>, onStockClick: (stock: StockDetail) => void) {
-  const value = row[header];
-  if (header === '名称') return <button className="stock-link btn-link" onClick={() => onStockClick({ code: row.代码, name: value })} type="button">{value}</button>;
-  if (/涨跌幅|涨幅|涨跌/.test(header)) return <span className={getChinaMarketTone(value)}>{value}</span>;
-  if (/净流入|资金/.test(header)) return <span className={getChinaMarketTone(value)}>{formatChinaMoney(value)}</span>;
+function renderCell(header: string, row: Record<string, unknown>, onStockClick: (stock: StockDetail) => void) {
+  const value = stringifyCell(row[header]);
+  const name = pickCell(row, ['名称', 'name', 'title']);
+  const code = pickCell(row, ['代码', 'code', 'symbol']);
+  if (/^(名称|name|title)$/i.test(header) && code) return <button className="stock-link btn-link" onClick={() => onStockClick({ code, name: name || value })} type="button">{value}</button>;
+  if (/涨跌幅|涨幅|涨跌|change|pct/i.test(header)) return <span className={getChinaMarketTone(value)}>{value}</span>;
+  if (/净流入|资金|amount|turnover|flow/i.test(header)) return <span className={getChinaMarketTone(value)}>{formatChinaMoney(value)}</span>;
   return value;
+}
+
+function pickCell(row: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && value !== '') return stringifyCell(value);
+  }
+  return '';
+}
+
+function stringifyCell(value: unknown) {
+  if (value === undefined || value === null || value === '') return '--';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
 }
 
 function getChinaMarketTone(value: string) {

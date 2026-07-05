@@ -142,6 +142,17 @@ const webFallbackApi: StocksenseApi = {
   async getStockDetail(symbol: string) {
     return findStock(symbol) ?? { code: symbol, name: symbol, summary: '浏览器/PWA 预览模式暂无该股票示例数据。' };
   },
+  async getKline(symbol: string, limit = 120) {
+    const base = Number(findStock(symbol)?.price) || 100;
+    let price = base;
+    return Array.from({ length: limit }, (_, index) => {
+      const wave = Math.sin(index / 4) * base * 0.008;
+      const open = price;
+      const close = Math.max(1, open + wave);
+      price = close;
+      return { time: String(index + 1), open, close, high: Math.max(open, close) * 1.006, low: Math.min(open, close) * 0.994, volume: 10000 + index * 100 };
+    });
+  },
   async listMarketNews(query = '', page = 1, pageSize = 30) {
     const q = query.trim();
     const items = q ? fallbackNews.filter((item) => item.title.includes(q) || item.tags.some((tag) => tag.includes(q))) : fallbackNews;

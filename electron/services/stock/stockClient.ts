@@ -1,5 +1,5 @@
 import StockSDK from 'stock-sdk';
-import type { AgentResultCard, HotFocusItem, HotFocusTab, StockDetail } from '../../../src/shared/types.js';
+import type { AgentResultCard, HotFocusItem, HotFocusTab, KlinePoint, StockDetail } from '../../../src/shared/types.js';
 import { formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { analyzeIndicators } from './indicators.js';
 import { normalizeASymbol, inferExchange } from './symbols.js';
@@ -49,10 +49,27 @@ export async function getQuote(symbolInput: string): Promise<StockDetail> {
   return toStockDetail(quotes[0], symbol);
 }
 
-export async function getKline(symbolInput: string, limit = 120): Promise<unknown[]> {
+export async function getKline(symbolInput: string, limit = 120): Promise<KlinePoint[]> {
   const symbol = normalizeASymbol(symbolInput);
   const data = await sdk.kline.cn(symbol, { period: 'daily', adjust: 'qfq' as const });
-  return data.slice(-limit);
+  return data.slice(-limit).map(toKlinePoint).filter((point): point is KlinePoint => Boolean(point));
+}
+
+function toKlinePoint(raw: unknown): KlinePoint | undefined {
+  const record = (raw ?? {}) as AnyRecord;
+  const open = pickNumber(record, ['open', '开盘价']);
+  const close = pickNumber(record, ['close', '收盘价']);
+  const high = pickNumber(record, ['high', '最高价']);
+  const low = pickNumber(record, ['low', '最低价']);
+  if (open === undefined || close === undefined || high === undefined || low === undefined) return undefined;
+  return {
+    time: pickString(record, ['date', 'time', '日期']) ?? '',
+    open,
+    close,
+    high,
+    low,
+    volume: pickNumber(record, ['volume', '成交量']) ?? 0,
+  };
 }
 
 export async function getStockDetail(symbolInput: string): Promise<StockDetail> {
