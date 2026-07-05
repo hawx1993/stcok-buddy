@@ -1,0 +1,21 @@
+{
+  "name": "股察 StockSense",
+  "short_name": "股察",
+  "description": "对话式 A 股投研助手",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape-primary",
+  "background_color": "#0D111C",
+  "theme_color": "#3B82F6",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

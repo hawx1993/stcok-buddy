@@ -1,0 +1,68 @@
+import type { ProviderKind } from '../../../src/shared/types.js';
+
+export interface ProviderPreset {
+  id: ProviderKind;
+  name: string;
+  baseUrl: string;
+  models: string[];
+  help: string;
+}
+
+export const providerPresets: ProviderPreset[] = [
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com',
+    models: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-v4'],
+    help: '兼容 DeepSeek v4：如官方模型名更新，可在自定义模型中填写最新 ID。',
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    models: ['gpt-4o', 'gpt-4o-mini'],
+    help: 'OpenAI Chat Completions。',
+  },
+  {
+    id: 'qwen',
+    name: '通义千问',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    models: ['qwen-plus', 'qwen-turbo', 'qwen-max'],
+    help: 'DashScope OpenAI 兼容模式。',
+  },
+  {
+    id: 'baidu',
+    name: '文心一言',
+    baseUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat',
+    models: ['ernie-4.0', 'ernie-3.5'],
+    help: '可后续扩展为百度专用鉴权适配器。',
+  },
+  {
+    id: 'zhipu',
+    name: '智谱 GLM',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    models: ['glm-4-plus', 'glm-4-air'],
+    help: '智谱 v4 API。',
+  },
+  {
+    id: 'moonshot',
+    name: '月之暗面',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+    help: 'Moonshot OpenAI 兼容接口。',
+  },
+  {
+    id: 'openai-compatible',
+    name: 'OpenAI Compatible',
+    baseUrl: 'https://api.openai.com/v1',
+    models: ['gpt-4o-mini', 'gpt-4o'],
+    help: '适用于任何兼容 Chat Completions 的网关或本地模型服务。',
+  },
+  {
+    id: 'custom',
+    name: '自定义 API',
+    baseUrl: '',
+    models: [],
+    help: '填写自定义 Base URL 与模型名称。',
+  },
+];

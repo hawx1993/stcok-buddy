@@ -1,0 +1,97 @@
+{
+  "name": "stocksense-desktop",
+  "version": "0.1.0",
+  "description": "股察 StockSense - 对话式 A 股投研助手 Electron 桌面应用",
+  "type": "module",
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:web": "vite --host 127.0.0.1",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:electron": "wait-on tcp:5173 && tsc -p tsconfig.node.json --watch --preserveWatchOutput & wait-on dist-electron/electron/main.js && electron .",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.node.json && cp electron/preload.cjs dist-electron/electron/preload.cjs",
+    "build:pwa": "npm run build",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac dmg --arm64",
+    "dist:all": "npm run build && electron-builder --mac dmg --arm64 && electron-builder --win nsis --x64",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "lint": "tsc --noEmit -p tsconfig.json"
+  },
+  "keywords": [
+    "electron",
+    "stock",
+    "ai-agent",
+    "a-share"
+  ],
+  "author": "",
+  "license": "MIT",
+  "build": {
+    "appId": "com.stocksense.desktop",
+    "productName": "股察 StockSense",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "StockSense-${version}-${arch}-setup.${ext}"
+    },
+    "dmg": {
+      "artifactName": "StockSense-${version}-${arch}.dmg",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    }
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "electron-store": "^10.0.1",
+    "gsap": "^3.12.5",
+    "lucide-react": "^0.469.0",
+    "marked": "^13.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "stock-sdk": "^2.2.2",
+    "zod": "^3.23.8",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "wait-on": "^8.0.1"
+  }
+}

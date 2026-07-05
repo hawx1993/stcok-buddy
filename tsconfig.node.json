@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "outDir": "dist-electron",
+    "rootDir": ".",
+    "resolveJsonModule": true,
+    "types": ["node", "electron"]
+  },
+  "include": ["electron/main.ts", "electron/ipc.ts", "electron/services/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": ["electron/preload.ts"]
+}
