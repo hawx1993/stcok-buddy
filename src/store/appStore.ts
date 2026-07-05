@@ -41,6 +41,7 @@ interface AppState {
   setHotSubTab(tab: HotSubTab): void;
   toggleLeftSidebar(): void;
   toggleRightPanel(): void;
+  openRightPanel(): void;
   setSearch(search: string): void;
   addMessage(message: ChatMessage): void;
   setMessages(messages: ChatMessage[]): void;
@@ -64,7 +65,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedStock: undefined,
   isSettingsOpen: false,
   isSending: false,
-  surgeStocks: createSurgeStocks(),
+  surgeStocks: [],
   setConfig: (config) => set({ config }),
   setTheme: (theme) =>
     set((state) => (state.config ? { config: { ...state.config, theme } } : state)),
@@ -76,6 +77,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setHotSubTab: (tab) => set({ hotSubTab: tab }),
   toggleLeftSidebar: () => set((state) => ({ isLeftSidebarCollapsed: !state.isLeftSidebarCollapsed })),
   toggleRightPanel: () => set((state) => ({ isRightPanelCollapsed: !state.isRightPanelCollapsed })),
+  openRightPanel: () => set({ isRightPanelCollapsed: false }),
   setSearch: (search) => set({ search }),
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),

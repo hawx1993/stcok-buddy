@@ -12,12 +12,14 @@ export function ChatView() {
   const listRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const messages = useAppStore((state) => state.messages);
+  const [now, setNow] = useState(Date.now());
   const activeConversationId = useAppStore((state) => state.activeConversationId);
   const isSending = useAppStore((state) => state.isSending);
   const addMessage = useAppStore((state) => state.addMessage);
   const replaceLastAssistant = useAppStore((state) => state.replaceLastAssistant);
   const setSending = useAppStore((state) => state.setSending);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppStore((state) => state.openRightPanel);
 
   useLayoutEffect(() => {
     if (!rootRef.current) return;
@@ -32,6 +34,21 @@ export function ChatView() {
   useLayoutEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages.length]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const openStockDetail = async (stock: StockDetail) => {
+    openRightPanel();
+    setSelectedStock(stock);
+    try {
+      setSelectedStock(await getStocksenseApi().getStockDetail(stock.code));
+    } catch {
+      setSelectedStock(stock);
+    }
+  };
 
   const send = async (override?: string) => {
     const text = (override ?? input).trim();
@@ -67,7 +84,10 @@ export function ChatView() {
       const response = await api.sendChat({ conversationId: activeConversationId ?? 'conv-1', message: text });
       replaceLastAssistant(response.message);
       const stock = response.events.find((event) => event.stock)?.stock;
-      if (stock) setSelectedStock(stock);
+      if (stock) {
+        openRightPanel();
+        setSelectedStock(stock);
+      }
       api.listConversations().then(useAppStore.getState().setConversations).catch(console.error);
     } catch (error) {
       replaceLastAssistant({
@@ -84,7 +104,7 @@ export function ChatView() {
   return (
     <div className="chat-wrap" ref={rootRef}>
       <div className="chat-messages" ref={listRef}>
-        {messages.length === 0 ? <QuickEntry onSubmit={send} /> : messages.map((message) => <MessageBubble key={message.id} message={message} onStockClick={setSelectedStock} />)}
+        {messages.length === 0 ? <QuickEntry onSubmit={send} /> : messages.map((message) => <MessageBubble key={message.id} message={message} now={now} onStockClick={openStockDetail} />)}
       </div>
       <div className="chat-input">
         <div className="input-hints">
@@ -127,7 +147,7 @@ function QuickEntry({ onSubmit }: { onSubmit(text: string): void }) {
   );
 }
 
-function MessageBubble({ message, onStockClick }: { message: ChatMessage; onStockClick(stock: StockDetail): void }) {
+function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; now: number; onStockClick(stock: StockDetail): void }) {
   return (
     <div className={`msg ${message.role === 'user' ? 'user' : 'agent'}`} data-msg>
       <div className="msg-avatar" data-avatar>{message.role === 'user' ? '我' : '股'}</div>
@@ -136,7 +156,7 @@ function MessageBubble({ message, onStockClick }: { message: ChatMessage; onStoc
         {message.thinking ? <ThinkingTrace startedAt={message.thinking.startedAt} steps={message.thinking.steps} /> : null}
         {message.steps?.length ? <Trace steps={message.steps} /> : null}
         {message.result ? <ResultCard result={message.result} onStockClick={onStockClick} /> : null}
-        <div className="msg-time">刚刚</div>
+        <div className="msg-time">{formatMessageTime(message.createdAt, now)}</div>
       </div>
     </div>
   );
@@ -196,7 +216,7 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
           <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
           <tbody>
             {result.rows!.map((row, index) => (
-              <tr key={index}>{headers.map((header) => <td key={header}>{header === '名称' ? <button className="stock-link btn-link" onClick={() => onStockClick({ code: row.代码, name: row[header] })} type="button">{row[header]}</button> : row[header]}</td>)}</tr>
+              <tr key={index}>{headers.map((header) => <td key={header}>{renderCell(header, row, onStockClick)}</td>)}</tr>
             ))}
           </tbody>
         </table>
@@ -204,6 +224,69 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
       {result.narrative ? <div className="card-narrative">{result.narrative}</div> : null}
     </div>
   );
+}
+
+function renderCell(header: string, row: Record<string, string>, onStockClick: (stock: StockDetail) => void) {
+  const value = row[header];
+  if (header === '名称') return <button className="stock-link btn-link" onClick={() => onStockClick({ code: row.代码, name: value })} type="button">{value}</button>;
+  if (/涨跌幅|涨幅|涨跌/.test(header)) return <span className={getChinaMarketTone(value)}>{value}</span>;
+  if (/净流入|资金/.test(header)) return <span className={getChinaMarketTone(value)}>{formatChinaMoney(value)}</span>;
+  return value;
+}
+
+function getChinaMarketTone(value: string) {
+  const n = Number(String(value).replace(/[^\d.-]/g, ''));
+  if (n > 0) return 'cn-up';
+  if (n < 0) return 'cn-down';
+  return '';
+}
+
+function formatChinaMoney(value: string) {
+  const text = String(value).trim();
+  const n = Number(text.replace(/,/g, '').replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(n)) return text;
+  if (/万|亿/.test(text)) return text.replace(/\s+/g, '');
+  const abs = Math.abs(n);
+  const sign = n > 0 && /^\+/.test(text) ? '+' : n < 0 ? '-' : '';
+  const amount = abs >= 100_000_000 ? `${(abs / 100_000_000).toFixed(2)}亿` : abs >= 10_000 ? `${(abs / 10_000).toFixed(2)}万` : abs.toFixed(0);
+  return `${sign}${amount}`;
+}
+
+function formatMessageTime(createdAt: string, now: number) {
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return '';
+  const diff = Math.max(0, now - date.getTime());
+  const minute = 60_000;
+  const hour = 60 * minute;
+  if (diff < 30_000) return '刚刚';
+  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
+  if (isSameDay(date, new Date(now))) return `${Math.floor(diff / hour)} 小时前`;
+  if (isYesterday(date, new Date(now))) return `昨天 ${formatHM(date)}`;
+  if (diff < 7 * 24 * hour) return `${formatWeekday(date)} ${formatHM(date)}`;
+  if (date.getFullYear() === new Date(now).getFullYear()) return `${date.getMonth() + 1}月${date.getDate()}日 ${formatHM(date)}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${formatHM(date)}`;
+}
+
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function isYesterday(date: Date, now: Date) {
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  return isSameDay(date, yesterday);
+}
+
+function formatWeekday(date: Date) {
+  return ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][date.getDay()];
+}
+
+function formatHM(date: Date) {
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function pad(n: number) {
+  return String(n).padStart(2, '0');
 }
 
 function isGreeting(text: string) {
@@ -221,5 +304,5 @@ function createThinkingSteps(text: string): NonNullable<ChatMessage['steps']> {
 }
 
 function renderMarkdownWithStocks(content: string, _onStockClick: (stock: StockDetail) => void) {
-  return marked.parseInline(content, { async: false }) as string;
+  return marked.parse(content, { async: false }) as string;
 }

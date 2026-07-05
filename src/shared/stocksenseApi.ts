@@ -6,7 +6,10 @@ import type {
   ConversationSummary,
   StockDetail,
   StocksenseApi,
+  HotFocusItem,
+  HotFocusTab,
   MarketNewsItem,
+  PagedMarketNews,
 } from './types.js';
 
 const defaultConfig: AppConfig = {
@@ -65,6 +68,15 @@ function readMessages(conversationId: string): ChatMessage[] {
 function saveLocalMessage(conversationId: string, message: ChatMessage) {
   localStorage.setItem(`stocksense-messages:${conversationId}`, JSON.stringify([...readMessages(conversationId), message]));
 }
+
+function pageItems<T>(items: T[], page = 1, pageSize = 30): PagedMarketNews {
+  const start = (Math.max(1, page) - 1) * pageSize;
+  return { items: items.slice(start, start + pageSize) as MarketNewsItem[], total: items.length, page, pageSize };
+}
+
+const fallbackHot: HotFocusItem[] = [
+  { id: 'preview-hot-1', title: '浏览器预览数据', description: 'Electron 桌面端会通过 stock-sdk 拉取实时热点。', tag: 'Preview', type: 'neutral' },
+];
 
 const webFallbackApi: StocksenseApi = {
   async getConfig() {
@@ -130,9 +142,13 @@ const webFallbackApi: StocksenseApi = {
   async getStockDetail(symbol: string) {
     return findStock(symbol) ?? { code: symbol, name: symbol, summary: '浏览器/PWA 预览模式暂无该股票示例数据。' };
   },
-  async listMarketNews(query = '') {
+  async listMarketNews(query = '', page = 1, pageSize = 30) {
     const q = query.trim();
-    return q ? fallbackNews.filter((item) => item.title.includes(q) || item.tags.some((tag) => tag.includes(q))) : fallbackNews;
+    const items = q ? fallbackNews.filter((item) => item.title.includes(q) || item.tags.some((tag) => tag.includes(q))) : fallbackNews;
+    return pageItems(items, page, pageSize);
+  },
+  async listHotFocus(_tab: HotFocusTab) {
+    return fallbackHot;
   },
 };
 

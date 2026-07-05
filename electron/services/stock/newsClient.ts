@@ -1,19 +1,8 @@
-import type { MarketNewsItem } from '../../../src/shared/types.js';
+import type { MarketNewsItem, PagedMarketNews } from '../../../src/shared/types.js';
 
-const fallbackNews: MarketNewsItem[] = [
-  { id: 'fallback-1', time: '10:45', title: '白酒板块持续走强，茅台五粮液领涨，中秋动销数据超预期', tags: ['白酒', '消费'], tagType: 'positive' },
-  { id: 'fallback-2', time: '10:32', title: '央行宣布降准0.25个百分点，释放长期资金约5000亿元', tags: ['宏观', '政策'], tagType: 'impact' },
-  { id: 'fallback-3', time: '10:18', title: '半导体板块拉升，北方华创涨超8%，大基金三期布局加速', tags: ['半导体', '科技'], tagType: 'positive' },
-  { id: 'fallback-4', time: '09:56', title: '宁德时代跌超5%，欧盟电动车关税落地短期承压', tags: ['新能源', '利空'], tagType: 'impact' },
-  { id: 'fallback-5', time: '09:42', title: '北向资金半日净买入20.9亿，重点加仓白酒和银行板块', tags: ['资金', '北向'], tagType: 'positive' },
-  { id: 'fallback-6', time: '09:30', title: '问界M9大定突破10万台，赛力斯股价创历史新高', tags: ['新能源车', '华为'], tagType: 'positive' },
-  { id: 'fallback-7', time: '09:15', title: '美国新一轮芯片出口限制传闻再起，寒武纪等AI芯片股承压', tags: ['芯片', '出口'], tagType: 'impact' },
-  { id: 'fallback-8', time: '08:50', title: '中信证券：市场成交量放大，券商板块有望迎来估值修复', tags: ['券商', '策略'], tagType: 'positive' },
-  { id: 'fallback-9', time: '08:30', title: '比亚迪9月销量再创新高，海外建厂进展加速', tags: ['新能源车', '出海'], tagType: 'positive' },
-  { id: 'fallback-10', time: '08:10', title: '高股息板块持续受追捧，招商银行股息率达5.6%', tags: ['银行', '高股息'], tagType: 'positive' },
-];
+const fallbackNews: MarketNewsItem[] = [];
 
-export async function listMarketNews(query = ''): Promise<MarketNewsItem[]> {
+export async function listMarketNews(query = '', page = 1, pageSize = 30): Promise<PagedMarketNews> {
   try {
     // stock-sdk 2.2.2 has market data/events, but no direct market-news namespace.
     const response = await fetch('https://finance.eastmoney.com/yaowen.html', {
@@ -22,21 +11,22 @@ export async function listMarketNews(query = ''): Promise<MarketNewsItem[]> {
     });
     if (!response.ok) throw new Error(`news http ${response.status}`);
     const html = await response.text();
-    const parsed = parseEastmoneyNews(html);
-    return filterNews(parsed.length ? parsed : fallbackNews, query);
+    return paginate(filterNews(parseEastmoneyNews(html), query), page, pageSize);
   } catch {
-    return filterNews(fallbackNews, query);
+    return paginate(filterNews(fallbackNews, query), page, pageSize);
   }
 }
 
 function parseEastmoneyNews(html: string): MarketNewsItem[] {
   const items: MarketNewsItem[] = [];
-  const re = /<a[^>]+href=["']([^"']+)["'][^>]*>([^<]{8,80})<\/a>/g;
+  const seen = new Set<string>();
+  const re = /<a[^>]+href=["']([^"']+)["'][^>]*>([^<]{8,120})<\/a>/g;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(html)) && items.length < 20) {
+  while ((match = re.exec(html)) && items.length < 150) {
     const title = decodeHtml(match[2]).replace(/\s+/g, ' ').trim();
     const url = match[1].startsWith('http') ? match[1] : `https:${match[1]}`;
-    if (!title || /东方财富|财经|首页|专题/.test(title)) continue;
+    if (!title || seen.has(title) || /东方财富|财经|首页|专题/.test(title)) continue;
+    seen.add(title);
     items.push({
       id: `em-${items.length}-${title}`,
       time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
@@ -48,6 +38,13 @@ function parseEastmoneyNews(html: string): MarketNewsItem[] {
     });
   }
   return items;
+}
+
+function paginate(news: MarketNewsItem[], page: number, pageSize: number): PagedMarketNews {
+  const safePageSize = Math.max(1, pageSize || 30);
+  const safePage = Math.max(1, page || 1);
+  const start = (safePage - 1) * safePageSize;
+  return { items: news.slice(start, start + safePageSize), total: news.length, page: safePage, pageSize: safePageSize };
 }
 
 function filterNews(news: MarketNewsItem[], query: string) {

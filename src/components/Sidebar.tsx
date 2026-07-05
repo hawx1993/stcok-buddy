@@ -1,9 +1,9 @@
 import { Settings } from 'lucide-react';
-import { useState } from 'react';
-import { useAppStore, type HotSubTab, type SurgeStock } from '../store/appStore';
+import { useEffect, useState } from 'react';
+import { useAppStore, type HotSubTab } from '../store/appStore';
 import { ThemeToggle } from './ThemeToggle';
 import { getStocksenseApi } from '../shared/stocksenseApi';
-import type { StockDetail } from '../shared/types';
+import type { HotFocusItem, StockDetail } from '../shared/types';
 
 const hotTabs: Array<{ id: HotSubTab; label: string }> = [
   { id: 'sector', label: '板块热点' },
@@ -14,44 +14,14 @@ const hotTabs: Array<{ id: HotSubTab; label: string }> = [
   { id: 'flow', label: '资金流向' },
 ];
 
-const sectorHot = [
-  { n: '白酒', c: '+1.72%', v: '285亿', u: true, d: '中秋动销预期升温' },
-  { n: '半导体', c: '+2.35%', v: '412亿', u: true, d: '国产替代加速' },
-  { n: '光伏', c: '+1.08%', v: '198亿', u: true, d: '出口回暖' },
-  { n: '银行', c: '+0.56%', v: '156亿', u: true, d: '高股息轮动' },
-  { n: '计算机', c: '-1.23%', v: '224亿', u: false, d: '芯片限制传闻' },
-  { n: '医药', c: '+0.89%', v: '167亿', u: true, d: '创新药审批加速' },
-];
-
-const marketHot = [
-  { n: '上证指数', v: '3115.89', c: '+0.23%', u: true },
-  { n: '深证成指', v: '9822.16', c: '+0.41%', u: true },
-  { n: '创业板指', v: '1835.62', c: '-0.12%', u: false },
-  { n: '科创50', v: '742.80', c: '+0.95%', u: true },
-  { n: '沪深300', v: '3720.15', c: '+0.31%', u: true },
-];
-
-const strategyHot = [
-  { n: '高股息精选', m: '股息率>5% + ROE>12%', d: '招商银行、中国神华等15只' },
-  { n: '成长龙头', m: '营收增速>30% + 毛利率>40%', d: '宁德时代、比亚迪等12只' },
-  { n: '困境反转', m: 'PE<20 + 近3年跌幅>40%', d: '关注超跌消费医药' },
-  { n: '北向增持榜', m: '近5日净流入前10', d: '茅台、宁德、美的获加仓' },
-];
-
-const flowHot = [
-  { s: '白酒', n: '+5.2亿', a: '加仓', u: true },
-  { s: '银行', n: '+3.8亿', a: '加仓', u: true },
-  { s: '光伏设备', n: '+2.1亿', a: '加仓', u: true },
-  { s: '半导体', n: '+1.8亿', a: '加仓', u: true },
-  { s: '计算机', n: '-1.7亿', a: '减仓', u: false },
-];
-
 export function Sidebar() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [hotItems, setHotItems] = useState<HotFocusItem[]>([]);
+  const [hotLoading, setHotLoading] = useState(false);
+  const [hotError, setHotError] = useState('');
   const conversations = useAppStore((state) => state.conversations);
   const activeConversationId = useAppStore((state) => state.activeConversationId);
   const search = useAppStore((state) => state.search);
-  const surgeStocks = useAppStore((state) => state.surgeStocks);
   const sidebarMainTab = useAppStore((state) => state.sidebarMainTab);
   const hotSubTab = useAppStore((state) => state.hotSubTab);
   const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
@@ -59,10 +29,28 @@ export function Sidebar() {
   const setActiveConversation = useAppStore((state) => state.setActiveConversation);
   const setConversations = useAppStore((state) => state.setConversations);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppStore((state) => state.openRightPanel);
   const clearMessages = useAppStore((state) => state.clearMessages);
   const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
   const setSidebarMainTab = useAppStore((state) => state.setSidebarMainTab);
   const setHotSubTab = useAppStore((state) => state.setHotSubTab);
+
+  const loadHot = async (tab = hotSubTab) => {
+    setHotLoading(true);
+    setHotError('');
+    try {
+      setHotItems(await getStocksenseApi().listHotFocus(tab));
+    } catch (error) {
+      setHotError(error instanceof Error ? error.message : '热点数据加载失败');
+      setHotItems([]);
+    } finally {
+      setHotLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (sidebarMainTab === 'hot') void loadHot(hotSubTab);
+  }, [sidebarMainTab, hotSubTab]);
 
   const createConversation = async () => {
     const item = await getStocksenseApi().createConversation();
@@ -71,9 +59,31 @@ export function Sidebar() {
     clearMessages();
   };
 
+  const openHotStock = async (item: HotFocusItem) => {
+    if (!item.code) return;
+    openRightPanel();
+    const fallback: StockDetail = { code: item.code, name: item.name ?? item.title, price: item.price, changePercent: item.changePercent, turnover: item.turnover ?? item.amount, summary: item.description };
+    setSelectedStock(fallback);
+    try {
+      setSelectedStock(await getStocksenseApi().getStockDetail(item.code));
+    } catch {
+      setSelectedStock(fallback);
+    }
+  };
+
+  const switchMainTab = (tab: 'session' | 'hot') => {
+    setSidebarMainTab(tab);
+    if (tab === 'hot') void loadHot(hotSubTab);
+  };
+
+  const switchHotTab = (tab: HotSubTab) => {
+    setHotSubTab(tab);
+    void loadHot(tab);
+  };
+
   const query = search.toLowerCase();
   const filteredConversations = conversations.filter((item) => !query || `${item.title}${item.preview}`.toLowerCase().includes(query));
-  const filteredSurges = surgeStocks.filter((item) => !query || `${item.name}${item.code}${item.reason}`.toLowerCase().includes(query));
+  const filteredHotItems = hotItems.filter((item) => !query || `${item.title}${item.code ?? ''}${item.description ?? ''}`.toLowerCase().includes(query));
 
   return (
     <aside className={`sidebar ${isLeftSidebarCollapsed ? 'collapsed' : ''}`} data-sidebar>
@@ -82,8 +92,8 @@ export function Sidebar() {
       </div>
 
       <div className="main-tabs">
-        <button className={`main-tab ${sidebarMainTab === 'session' ? 'active' : ''}`} onClick={() => setSidebarMainTab('session')} type="button">会话</button>
-        <button className={`main-tab ${sidebarMainTab === 'hot' ? 'active' : ''}`} onClick={() => setSidebarMainTab('hot')} type="button">热点聚焦</button>
+        <button className={`main-tab ${sidebarMainTab === 'session' ? 'active' : ''}`} onClick={() => switchMainTab('session')} type="button">会话</button>
+        <button className={`main-tab ${sidebarMainTab === 'hot' ? 'active' : ''}`} onClick={() => switchMainTab('hot')} type="button">热点聚焦</button>
       </div>
 
       {sidebarMainTab === 'session' ? (
@@ -95,7 +105,7 @@ export function Sidebar() {
         </div>
       ) : (
         <div className="sub-tabs">
-          {hotTabs.map((tab) => <button key={tab.id} className={`sub-tab ${hotSubTab === tab.id ? 'active' : ''}`} onClick={() => setHotSubTab(tab.id)} type="button">{tab.label}</button>)}
+          {hotTabs.map((tab) => <button key={tab.id} className={`sub-tab ${hotSubTab === tab.id ? 'active' : ''}`} onClick={() => switchHotTab(tab.id)} type="button">{tab.label}</button>)}
         </div>
       )}
 
@@ -106,7 +116,7 @@ export function Sidebar() {
               <span className="label">{item.title}</span><span className="count">{item.count}</span>
             </button>
           )) : <div className="empty-list">无匹配对话</div>
-        ) : <HotContent tab={hotSubTab} query={query} surges={filteredSurges} onStockClick={setSelectedStock} />}
+        ) : <HotContent items={filteredHotItems} loading={hotLoading} error={hotError} onStockClick={openHotStock} />}
       </div>
 
       <div className="sidebar-footer">
@@ -124,11 +134,26 @@ export function Sidebar() {
   );
 }
 
-function HotContent({ tab, query, surges, onStockClick }: { tab: HotSubTab; query: string; surges: SurgeStock[]; onStockClick(stock: StockDetail): void }) {
-  if (tab === 'market') return <>{marketHot.filter((x) => !query || x.n.includes(query)).map((x) => <div className="cap-row" key={x.n}><span className="cap-name">{x.n}</span><span className={`cap-val ${x.u ? 'cap-up' : 'cap-down'}`}>{x.v}</span><span className={x.u ? 'cap-up' : 'cap-down'}>{x.c}</span></div>)}</>;
-  if (tab === 'surge') return <><div className="surge-count">今日异动 <span>{surges.length}</span> 只</div>{surges.map((s) => <button key={s.code} className="hot-card" onClick={() => onStockClick(s)} type="button"><div className="hc-title">{s.name}<span className={`hc-tag ${s.type}`}>{s.type === 'surge' ? '拉升' : s.type === 'plummet' ? '跳水' : '放量'}</span></div><div className="hc-meta"><span><b>{s.price}</b></span><span className={String(s.changePercent).startsWith('-') ? 'down' : 'up'}>{s.changePercent}</span><span>{s.turnover}</span></div><div className="hc-desc">{s.reason}</div></button>)}</>;
-  if (tab === 'strategy') return <>{strategyHot.filter((x) => !query || `${x.n}${x.d}`.includes(query)).map((x) => <div className="strategy-card" key={x.n}><div className="sc-title">{x.n}</div><div className="sc-meta">{x.m}</div><div className="sc-desc">{x.d}</div></div>)}</>;
-  if (tab === 'diagnosis') return <>{surges.map((s) => <button className="diag-item" key={s.code} onClick={() => onStockClick(s)} type="button"><span className="diag-name">{s.name}<span>{s.code}</span></span><span className="diag-score">{s.rating?.fundamental ?? '7.5/10'}</span></button>)}</>;
-  if (tab === 'flow') return <><div className="surge-count">板块资金流向</div>{flowHot.filter((x) => !query || x.s.includes(query)).map((x) => <div className="hot-card" key={x.s}><div className="hc-title">{x.s}<span className={`hc-tag ${x.u ? 'plummet' : 'surge'}`}>{x.a}</span></div><div className="hc-meta"><span className={x.u ? 'up' : 'down'}>{x.n}</span></div></div>)}</>;
-  return <><div className="surge-count">板块热度排行</div>{sectorHot.filter((x) => !query || x.n.includes(query)).map((x) => <div className="hot-card" key={x.n}><div className="hc-title">{x.n}<span className={`hc-tag ${x.u ? 'plummet' : 'surge'}`}>{x.u ? '🔥' : '💧'}</span></div><div className="hc-meta"><span className={x.u ? 'up' : 'down'}>{x.c}</span><span>成交 {x.v}</span></div><div className="hc-desc">{x.d}</div></div>)}</>;
+function HotContent({ items, loading, error, onStockClick }: { items: HotFocusItem[]; loading: boolean; error: string; onStockClick(item: HotFocusItem): void }) {
+  if (loading) return <div className="empty-list">正在加载 stock-sdk 热点…</div>;
+  if (error) return <div className="empty-list">{error}</div>;
+  if (!items.length) return <div className="empty-list">暂无热点数据</div>;
+  return <>{items.map((item) => <HotCard key={item.id} item={item} onStockClick={onStockClick} />)}</>;
+}
+
+function HotCard({ item, onStockClick }: { item: HotFocusItem; onStockClick(item: HotFocusItem): void }) {
+  const clickable = Boolean(item.code);
+  const content = (
+    <>
+      <div className="hc-title">{item.title}<span className={`hc-tag ${item.type ?? 'neutral'}`}>{item.tag ?? item.type ?? '热点'}</span></div>
+      <div className="hc-meta">
+        {item.price !== undefined ? <span><b>{item.price}</b></span> : null}
+        {item.changePercent ? <span className={String(item.changePercent).startsWith('-') ? 'down' : 'up'}>{item.changePercent}</span> : null}
+        {item.amount ?? item.turnover ? <span>{item.amount ?? item.turnover}</span> : null}
+      </div>
+      {item.description ? <div className="hc-desc">{item.description}</div> : null}
+    </>
+  );
+  if (!clickable) return <div className="hot-card">{content}</div>;
+  return <button className="hot-card" onClick={() => onStockClick(item)} type="button">{content}</button>;
 }

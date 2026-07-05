@@ -114,6 +114,29 @@ export interface MarketNewsItem {
   source?: string;
 }
 
+export interface PagedMarketNews {
+  items: MarketNewsItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export type HotFocusTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
+
+export interface HotFocusItem {
+  id: string;
+  title: string;
+  code?: string;
+  name?: string;
+  price?: string | number;
+  changePercent?: string;
+  turnover?: string;
+  amount?: string;
+  description?: string;
+  tag?: string;
+  type?: 'surge' | 'plummet' | 'volume' | 'neutral';
+}
+
 export interface AgentResultCard {
   title: string;
   subtitle?: string;
@@ -133,7 +156,8 @@ export interface StocksenseApi {
   saveMessage(conversationId: string, message: ChatMessage): Promise<void>;
   sendChat(request: ChatRequest): Promise<ChatResponse>;
   getStockDetail(symbol: string): Promise<StockDetail>;
-  listMarketNews(query?: string): Promise<MarketNewsItem[]>;
+  listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
+  listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
 }
 
 declare global {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppConfig, ChatMessage, ChatRequest, StocksenseApi } from '../src/shared/types.js';
+import type { AppConfig, ChatMessage, ChatRequest, HotFocusTab, StocksenseApi } from '../src/shared/types.js';
 
 const api: StocksenseApi = {
   getConfig: () => ipcRenderer.invoke('config:get'),
@@ -11,6 +11,8 @@ const api: StocksenseApi = {
   saveMessage: (conversationId: string, message: ChatMessage) => ipcRenderer.invoke('message:save', conversationId, message),
   sendChat: (request: ChatRequest) => ipcRenderer.invoke('chat:send', request),
   getStockDetail: (symbol: string) => ipcRenderer.invoke('stock:getDetail', symbol),
+  listMarketNews: (query?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('news:list', query, page, pageSize),
+  listHotFocus: (tab: HotFocusTab) => ipcRenderer.invoke('hot:list', tab),
 };
 
 contextBridge.exposeInMainWorld('stocksense', api);

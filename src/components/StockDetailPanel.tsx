@@ -4,18 +4,26 @@ import { useAppStore } from '../store/appStore';
 import { getStocksenseApi } from '../shared/stocksenseApi';
 import type { MarketNewsItem } from '../shared/types';
 
+const NEWS_PAGE_SIZE = 30;
+
 const timeframes = [
-  { id: '1m', label: '月', days: 21 },
-  { id: '3m', label: '季', days: 63 },
-  { id: '6m', label: '半年', days: 126 },
-  { id: '1y', label: '年', days: 252 },
+  { id: '15m', label: '15分钟', days: 48 },
+  { id: '1h', label: '1小时', days: 72 },
+  { id: '4h', label: '4小时', days: 90 },
+  { id: '1d', label: '天', days: 120 },
+  { id: '1w', label: '周', days: 104 },
+  { id: '1mo', label: '月', days: 60 },
 ];
 
 export function StockDetailPanel() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
-  const [tf, setTf] = useState('1m');
+  const [tf, setTf] = useState('1d');
   const [newsQuery, setNewsQuery] = useState('');
+  const [newsPage, setNewsPage] = useState(1);
+  const [newsRefresh, setNewsRefresh] = useState(0);
+  const [newsTotal, setNewsTotal] = useState(0);
+  const [newsLoading, setNewsLoading] = useState(false);
   const [news, setNews] = useState<MarketNewsItem[]>([]);
   const selectedStock = useAppStore((state) => state.selectedStock);
   const theme = useAppStore((state) => state.config?.theme ?? 'dark');
@@ -41,11 +49,18 @@ export function StockDetailPanel() {
   useEffect(() => {
     if (selectedStock) return;
     let alive = true;
-    getStocksenseApi().listMarketNews(newsQuery).then((items) => {
-      if (alive) setNews(items);
-    }).catch(console.error);
+    setNewsLoading(true);
+    getStocksenseApi().listMarketNews(newsQuery, newsPage, NEWS_PAGE_SIZE).then((result) => {
+      if (!alive) return;
+      setNews(result.items);
+      setNewsTotal(result.total);
+    }).catch(console.error).finally(() => {
+      if (alive) setNewsLoading(false);
+    });
     return () => { alive = false; };
-  }, [selectedStock, newsQuery]);
+  }, [selectedStock, newsQuery, newsPage, newsRefresh]);
+
+  const totalPages = Math.max(1, Math.ceil(newsTotal / NEWS_PAGE_SIZE));
 
   return (
     <aside className="right-panel">
@@ -53,12 +68,18 @@ export function StockDetailPanel() {
         <>
           <div className="right-panel-header">
             <span className="title">📰 市场热点</span>
-            <div className="rp-search-row"><input value={newsQuery} onChange={(event) => setNewsQuery(event.target.value)} placeholder="搜索新闻…" /></div>
+            <div className="rp-search-row"><input value={newsQuery} onChange={(event) => { setNewsQuery(event.target.value); setNewsPage(1); }} placeholder="搜索新闻…" /></div>
+            <button className="news-refresh" onClick={() => setNewsRefresh((value) => value + 1)} disabled={newsLoading} type="button">{newsLoading ? '刷新中…' : '刷新'}</button>
           </div>
           <div className="right-panel-body">
-            <div className="news-section-title">📌 热门新闻</div>
+            <div className="news-section-title">📌 热门新闻 <span>{newsTotal} 条</span></div>
             <div className="right-news-list">
-              {news.length ? news.map((item) => <NewsItem key={item.id} item={item} />) : <div className="empty-list">无匹配新闻</div>}
+              {newsLoading ? <div className="empty-list">加载中…</div> : news.length ? news.map((item) => <NewsItem key={item.id} item={item} />) : <div className="empty-list">无匹配新闻</div>}
+            </div>
+            <div className="news-pager">
+              <button onClick={() => setNewsPage((value) => Math.max(1, value - 1))} disabled={newsPage <= 1 || newsLoading} type="button">上一页</button>
+              <span>{newsPage} / {totalPages}</span>
+              <button onClick={() => setNewsPage((value) => Math.min(totalPages, value + 1))} disabled={newsPage >= totalPages || newsLoading} type="button">下一页</button>
             </div>
           </div>
         </>
