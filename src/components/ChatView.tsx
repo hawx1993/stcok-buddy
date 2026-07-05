@@ -40,12 +40,17 @@ export function ChatView() {
     const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: text, createdAt: new Date().toISOString() };
     addMessage(userMessage);
     if (isGreeting(text)) {
-      addMessage({
+      const assistantMessage: ChatMessage = {
         id: `assistant-greeting-${Date.now()}`,
         role: 'assistant',
         content: '你好！我是 stock-sense，你的桌面端 AI 股票投研助手。有什么我可以帮你做的吗？无论是财报分析，基本面分析还是技术分析，你都可以随时告诉我',
         createdAt: new Date().toISOString(),
-      });
+      };
+      addMessage(assistantMessage);
+      const api = getStocksenseApi();
+      await api.saveMessage(activeConversationId ?? 'conv-1', userMessage);
+      await api.saveMessage(activeConversationId ?? 'conv-1', assistantMessage);
+      api.listConversations().then(useAppStore.getState().setConversations).catch(console.error);
       return;
     }
 

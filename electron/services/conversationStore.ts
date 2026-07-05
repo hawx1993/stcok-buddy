@@ -1,15 +1,56 @@
+import { app } from 'electron';
+import Database from 'better-sqlite3';
+import path from 'node:path';
 import type { ChatMessage, ConversationSummary } from '../../src/shared/types.js';
-import { store } from './configStore.js';
+
+const db = new Database(path.join(app.getPath('userData'), 'stocksense-chat.sqlite'));
+db.pragma('foreign_keys = ON');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    preview TEXT NOT NULL,
+    date TEXT NOT NULL,
+    tab TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
+    ON messages(conversation_id, created_at);
+`);
+
+interface ConversationRow {
+  id: string;
+  title: string;
+  preview: string;
+  date: string;
+  tab: ConversationSummary['tab'];
+  count: number;
+}
+
+interface MessageRow {
+  payload: string;
+}
 
 function nowLabel() {
   return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date());
 }
 
 export function listConversations(): ConversationSummary[] {
-  return store.get('conversations', []);
+  return db.prepare('SELECT id, title, preview, date, tab, count FROM conversations ORDER BY updated_at DESC').all() as ConversationSummary[];
 }
 
 export function createConversation(): ConversationSummary {
+  const createdAt = new Date().toISOString();
   const conversation: ConversationSummary = {
     id: `conv-${Date.now()}`,
     title: '新建对话',
@@ -18,54 +59,72 @@ export function createConversation(): ConversationSummary {
     tab: 'stock',
     count: 0,
   };
-  store.set('conversations', [conversation, ...listConversations()]);
+  db.prepare(`
+    INSERT INTO conversations (id, title, preview, date, tab, count, created_at, updated_at)
+    VALUES (@id, @title, @preview, @date, @tab, @count, @createdAt, @createdAt)
+  `).run({ ...conversation, createdAt });
   return conversation;
 }
 
 export function deleteConversation(id: string): ConversationSummary[] {
-  const next = listConversations().filter((item) => item.id !== id);
-  const messages = store.get('messages', {});
-  delete messages[id];
-  store.set('messages', messages);
-  store.set('conversations', next);
-  return next;
+  db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+  return listConversations();
+}
+
+export function listMessages(conversationId: string): ChatMessage[] {
+  return (db.prepare('SELECT payload FROM messages WHERE conversation_id = ? ORDER BY created_at ASC').all(conversationId) as MessageRow[])
+    .map((row) => JSON.parse(row.payload) as ChatMessage);
+}
+
+export function saveMessage(conversationId: string, message: ChatMessage) {
+  ensureConversation(conversationId);
+  db.prepare(`
+    INSERT OR REPLACE INTO messages (id, conversation_id, payload, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(message.id, conversationId, JSON.stringify(message), message.createdAt);
+  updateConversation(conversationId, message.content.slice(0, 80));
 }
 
 export function saveUserMessage(conversationId: string, content: string) {
-  const messages = store.get('messages', {});
-  const item: ChatMessage = {
+  saveMessage(conversationId, {
     id: `msg-${Date.now()}`,
     role: 'user',
     content,
     createdAt: new Date().toISOString(),
-  };
-  messages[conversationId] = [...(messages[conversationId] ?? []), item];
-  store.set('messages', messages);
-  updateConversation(conversationId, content);
+  });
 }
 
 export function saveAssistantMessage(conversationId: string, message: ChatMessage) {
-  const messages = store.get('messages', {});
-  messages[conversationId] = [...(messages[conversationId] ?? []), message];
-  store.set('messages', messages);
-  updateConversation(conversationId, message.content.slice(0, 32));
+  saveMessage(conversationId, message);
+}
+
+function ensureConversation(conversationId: string) {
+  const exists = db.prepare('SELECT id FROM conversations WHERE id = ?').get(conversationId);
+  if (exists) return;
+  const createdAt = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO conversations (id, title, preview, date, tab, count, created_at, updated_at)
+    VALUES (?, '新建对话', '开始新的投研分析', '刚刚', 'stock', 0, ?, ?)
+  `).run(conversationId, createdAt, createdAt);
 }
 
 function updateConversation(conversationId: string, preview: string) {
-  const conversations = listConversations();
-  const next = conversations.map((item) => {
-    if (item.id !== conversationId) return item;
-    const count = store.get('messages', {})[conversationId]?.length ?? 0;
-    return {
-      ...item,
-      title: item.title === '新建对话' ? preview.slice(0, 18) : item.title,
-      preview,
-      date: nowLabel(),
-      count,
-      tab: inferTab(preview),
-    };
-  });
-  store.set('conversations', next);
+  const conversation = db.prepare('SELECT id, title FROM conversations WHERE id = ?').get(conversationId) as Pick<ConversationRow, 'id' | 'title'> | undefined;
+  if (!conversation) return;
+  const count = (db.prepare('SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?').get(conversationId) as { count: number }).count;
+  db.prepare(`
+    UPDATE conversations
+    SET title = ?, preview = ?, date = ?, tab = ?, count = ?, updated_at = ?
+    WHERE id = ?
+  `).run(
+    conversation.title === '新建对话' ? preview.slice(0, 18) : conversation.title,
+    preview,
+    nowLabel(),
+    inferTab(preview),
+    count,
+    new Date().toISOString(),
+    conversationId,
+  );
 }
 
 function inferTab(text: string): ConversationSummary['tab'] {

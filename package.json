@@ -73,6 +73,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "electron-store": "^10.0.1",
+    "better-sqlite3": "^11.10.0",
     "gsap": "^3.12.5",
     "lucide-react": "^0.469.0",
     "marked": "^13.0.3",
@@ -84,6 +85,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

@@ -43,6 +43,7 @@ interface AppState {
   toggleRightPanel(): void;
   setSearch(search: string): void;
   addMessage(message: ChatMessage): void;
+  setMessages(messages: ChatMessage[]): void;
   replaceLastAssistant(message: ChatMessage): void;
   clearMessages(): void;
   setSelectedStock(stock?: StockDetail): void;
@@ -59,7 +60,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isLeftSidebarCollapsed: false,
   isRightPanelCollapsed: false,
   search: '',
-  messages: createSeedMessages(),
+  messages: [],
   selectedStock: undefined,
   isSettingsOpen: false,
   isSending: false,
@@ -76,6 +77,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleLeftSidebar: () => set((state) => ({ isLeftSidebarCollapsed: !state.isLeftSidebarCollapsed })),
   toggleRightPanel: () => set((state) => ({ isRightPanelCollapsed: !state.isRightPanelCollapsed })),
   setSearch: (search) => set({ search }),
+  setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
   replaceLastAssistant: (message) =>
     set((state) => {

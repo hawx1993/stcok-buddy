@@ -1,11 +1,13 @@
 import { ipcMain } from 'electron';
-import type { AppConfig, ChatRequest } from '../src/shared/types.js';
+import type { AppConfig, ChatMessage, ChatRequest } from '../src/shared/types.js';
 import { getConfig, setConfig } from './services/configStore.js';
 import {
   createConversation,
   deleteConversation,
   listConversations,
+  listMessages,
   saveAssistantMessage,
+  saveMessage,
   saveUserMessage,
 } from './services/conversationStore.js';
 import { runOrchestrator } from './services/agent/orchestrator.js';
@@ -18,6 +20,8 @@ export function registerIpcHandlers() {
   ipcMain.handle('conversation:list', () => listConversations());
   ipcMain.handle('conversation:create', () => createConversation());
   ipcMain.handle('conversation:delete', (_event, id: string) => deleteConversation(id));
+  ipcMain.handle('message:list', (_event, conversationId: string) => listMessages(conversationId));
+  ipcMain.handle('message:save', (_event, conversationId: string, message: ChatMessage) => saveMessage(conversationId, message));
   ipcMain.handle('stock:getDetail', (_event, symbol: string) => getStockDetail(symbol));
   ipcMain.handle('news:list', (_event, query?: string) => listMarketNews(query));
   ipcMain.handle('chat:send', async (_event, request: ChatRequest) => {

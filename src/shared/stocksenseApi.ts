@@ -57,6 +57,15 @@ function readConversations(): ConversationSummary[] {
   return saved ? JSON.parse(saved) : defaultConversations;
 }
 
+function readMessages(conversationId: string): ChatMessage[] {
+  const saved = localStorage.getItem(`stocksense-messages:${conversationId}`);
+  return saved ? JSON.parse(saved) : [];
+}
+
+function saveLocalMessage(conversationId: string, message: ChatMessage) {
+  localStorage.setItem(`stocksense-messages:${conversationId}`, JSON.stringify([...readMessages(conversationId), message]));
+}
+
 const webFallbackApi: StocksenseApi = {
   async getConfig() {
     return readConfig();
@@ -76,7 +85,14 @@ const webFallbackApi: StocksenseApi = {
   async deleteConversation(id: string) {
     const next = readConversations().filter((item) => item.id !== id);
     localStorage.setItem('stocksense-conversations', JSON.stringify(next));
+    localStorage.removeItem(`stocksense-messages:${id}`);
     return next;
+  },
+  async listMessages(conversationId: string) {
+    return readMessages(conversationId);
+  },
+  async saveMessage(conversationId: string, message: ChatMessage) {
+    saveLocalMessage(conversationId, message);
   },
   async sendChat(request: ChatRequest): Promise<ChatResponse> {
     const stock = findStock(request.message);
@@ -107,6 +123,8 @@ const webFallbackApi: StocksenseApi = {
           }
         : undefined,
     };
+    saveLocalMessage(request.conversationId, { id: `web-user-${Date.now()}`, role: 'user', content: request.message, createdAt: new Date().toISOString() });
+    saveLocalMessage(request.conversationId, message);
     return { message, events: [{ type: 'final_answer', message: content, stock }] };
   },
   async getStockDetail(symbol: string) {

@@ -10,6 +10,8 @@ export function App() {
   const config = useAppStore((state) => state.config);
   const setConfig = useAppStore((state) => state.setConfig);
   const setConversations = useAppStore((state) => state.setConversations);
+  const activeConversationId = useAppStore((state) => state.activeConversationId);
+  const setMessages = useAppStore((state) => state.setMessages);
   const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
   const isRightPanelCollapsed = useAppStore((state) => state.isRightPanelCollapsed);
   const toggleLeftSidebar = useAppStore((state) => state.toggleLeftSidebar);
@@ -20,6 +22,11 @@ export function App() {
     api.getConfig().then(setConfig).catch(console.error);
     api.listConversations().then(setConversations).catch(console.error);
   }, [setConfig, setConversations]);
+
+  useEffect(() => {
+    if (!activeConversationId) return;
+    getStocksenseApi().listMessages(activeConversationId).then(setMessages).catch(console.error);
+  }, [activeConversationId, setMessages]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = config?.theme ?? 'dark';
