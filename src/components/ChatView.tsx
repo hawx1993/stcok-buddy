@@ -164,6 +164,7 @@ function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; n
 
 function ThinkingTrace({ startedAt, steps }: { startedAt: string; steps: NonNullable<ChatMessage['steps']> }) {
   const [seconds, setSeconds] = useState(0);
+  const [open, setOpen] = useState(true);
 
   useEffect(() => {
     const start = new Date(startedAt).getTime();
@@ -174,13 +175,21 @@ function ThinkingTrace({ startedAt, steps }: { startedAt: string; steps: NonNull
   }, [startedAt]);
 
   return (
-    <div className="trace thinking-trace open" data-trace>
-      <div className="trace-header thinking-header">思考了 {seconds} 秒</div>
-      <div className="trace-body thinking-body" data-tracebody>
-        {steps.map((step) => (
-          <div className="trace-step" key={step.id}><span className="tag">{step.agent}</span><span className="desc">{step.description}</span></div>
-        ))}
-      </div>
+    <div className={`trace thinking-trace ${open ? 'open' : ''}`} data-trace>
+      <button className="trace-header thinking-header" onClick={() => setOpen(!open)} type="button">
+        <span>思考了 {seconds} 秒</span><span className="trace-caret">{open ? '▾' : '▸'}</span>
+      </button>
+      {open ? (
+        <div className="trace-body thinking-body" data-tracebody>
+          {steps.map((step) => (
+          <div className="trace-step" key={step.id}>
+            <span className="tag">{step.agent}</span>
+            <span className="desc">{step.description}</span>
+            {step.detail ? <span className="progress">{step.detail}</span> : null}
+          </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -189,11 +198,17 @@ function Trace({ steps }: { steps: NonNullable<ChatMessage['steps']> }) {
   const [open, setOpen] = useState(true);
   return (
     <div className={`trace ${open ? 'open' : ''}`} data-trace>
-      <button className="trace-header" onClick={() => setOpen(!open)} type="button">思考链路</button>
+      <button className="trace-header" onClick={() => setOpen(!open)} type="button">
+        <span>思考链路</span><span className="trace-caret">{open ? '▾' : '▸'}</span>
+      </button>
       {open ? (
         <div className="trace-body" data-tracebody>
           {steps.map((step) => (
-            <div className="trace-step" key={`${step.id}-${step.status}`}><span className="tag">{step.agent}</span><span className="desc">{step.description}</span></div>
+            <div className="trace-step" key={`${step.id}-${step.status}`}>
+              <span className="tag">{step.agent}</span>
+              <span className="desc">{step.description}</span>
+              {step.detail ? <span className="progress">{step.detail}</span> : null}
+            </div>
           ))}
         </div>
       ) : null}
@@ -310,6 +325,18 @@ function isGreeting(text: string) {
 }
 
 function createThinkingSteps(text: string): NonNullable<ChatMessage['steps']> {
+  if (isStockAnalysisQuery(text)) {
+    return [
+      { id: 'quote', agent: 'DataAgent', description: '0/8 获取实时行情', status: 'running' },
+      { id: 'market-data', agent: 'DataAgent', description: '1/8 拉取K线、技术指标与新闻样本', status: 'pending' },
+      { id: 'analysis-technical', agent: '技术面分析', description: '2/8 调用技术面子Agent', status: 'pending' },
+      { id: 'analysis-fundamental', agent: '基本面分析', description: '3/8 调用基本面子Agent', status: 'pending' },
+      { id: 'analysis-capital', agent: '资金面分析', description: '4/8 调用资金面子Agent', status: 'pending' },
+      { id: 'analysis-sentiment', agent: '情绪面分析', description: '5/8 调用情绪面子Agent', status: 'pending' },
+      { id: 'analysis-lhb', agent: '龙虎榜分析', description: '6/8 调用龙虎榜子Agent', status: 'pending' },
+      { id: 'analysis-overview', agent: '汇总分析Agent', description: '7/8 汇总五维结果并生成报告', status: 'pending' },
+    ];
+  }
   const hasStock = /[一-龥]{2,}|\d{6}/.test(text);
   return [
     { id: 'understand', agent: '理解问题', description: `识别用户意图：${text.slice(0, 28)}${text.length > 28 ? '…' : ''}`, status: 'running' },
@@ -317,6 +344,11 @@ function createThinkingSteps(text: string): NonNullable<ChatMessage['steps']> {
     { id: 'analyze', agent: '生成结论', description: '汇总基本面、技术面与风险点，组织可执行回答', status: 'pending' },
     { id: 'risk', agent: '风险核查', description: '检查异常波动、估值偏离与潜在风险提示', status: 'pending' },
   ];
+}
+
+function isStockAnalysisQuery(text: string) {
+  return /^\s*(?:\d{6}|茅台|贵州茅台|五粮液|泸州老窖|洋河股份|宁德|宁德时代|宁王|招行|招商银行|比亚迪|中信证券)\s*$/.test(text)
+    || (/分析|诊股|个股分析|帮我看看|看看/.test(text) && /\d{6}|茅台|贵州茅台|五粮液|泸州老窖|洋河股份|宁德|宁德时代|宁王|招行|招商银行|比亚迪|中信证券/.test(text));
 }
 
 function renderMarkdownWithStocks(content: string, _onStockClick: (stock: StockDetail) => void) {

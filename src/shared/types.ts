@@ -113,6 +113,24 @@ export interface KlinePoint {
   volume: number;
 }
 
+export interface ChipPoint {
+  date?: string;
+  price: number;
+  weight: number;
+  profit?: number;
+}
+
+export interface ChipDistribution {
+  date: string;
+  profitRatio?: number;
+  avgCost?: number;
+  cost90?: string;
+  cost70?: string;
+  concentration90?: number;
+  concentration70?: number;
+  points: ChipPoint[];
+}
+
 export interface MarketNewsItem {
   id: string;
   time: string;

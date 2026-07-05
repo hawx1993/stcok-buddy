@@ -46,7 +46,7 @@ export function App() {
         <button className={`collapse-btn ${isLeftSidebarCollapsed ? 'collapsed' : ''}`} onClick={toggleLeftSidebar} title={isLeftSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
         </button>
-        <div className="titlebar-label">股察</div>
+        <div className="titlebar-label">StockBuddy</div>
         <div className="titlebar-spacer" />
       </div>
 

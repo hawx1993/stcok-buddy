@@ -1,6 +1,6 @@
 {
-  "name": "股察 StockBuddy",
-  "short_name": "股察",
+  "name": "StockBuddy",
+  "short_name": "StockBuddy",
   "description": "对话式 A 股投研助手",
   "lang": "zh-CN",
   "start_url": "/",
