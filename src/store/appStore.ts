@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   ConversationSummary,
   StockDetail,
+  BoardDetail,
   ThemeMode,
 } from '../shared/types';
 
@@ -29,6 +30,7 @@ interface AppState {
   search: string;
   messages: ChatMessage[];
   selectedStock?: StockDetail;
+  selectedBoard?: BoardDetail;
   isSettingsOpen: boolean;
   isSending: boolean;
   surgeStocks: SurgeStock[];
@@ -48,6 +50,7 @@ interface AppState {
   replaceLastAssistant(message: ChatMessage): void;
   clearMessages(): void;
   setSelectedStock(stock?: StockDetail): void;
+  setSelectedBoard(board?: BoardDetail): void;
   setSettingsOpen(open: boolean): void;
   setSending(isSending: boolean): void;
 }
@@ -63,6 +66,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   search: '',
   messages: [],
   selectedStock: undefined,
+  selectedBoard: undefined,
   isSettingsOpen: false,
   isSending: false,
   surgeStocks: [],
@@ -96,7 +100,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { messages };
     }),
   clearMessages: () => set({ messages: [] }),
-  setSelectedStock: (stock) => set({ selectedStock: stock }),
+  setSelectedStock: (stock) => set({ selectedStock: stock, selectedBoard: undefined }),
+  setSelectedBoard: (board) => set({ selectedBoard: board, selectedStock: undefined }),
   setSettingsOpen: (open) => set({ isSettingsOpen: open }),
   setSending: (isSending) => set({ isSending }),
 }));

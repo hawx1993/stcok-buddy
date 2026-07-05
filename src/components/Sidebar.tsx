@@ -28,6 +28,7 @@ export function Sidebar() {
   const setActiveConversation = useAppStore((state) => state.setActiveConversation);
   const setConversations = useAppStore((state) => state.setConversations);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
   const clearMessages = useAppStore((state) => state.clearMessages);
   const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
@@ -61,6 +62,15 @@ export function Sidebar() {
   const openHotStock = async (item: HotFocusItem) => {
     if (!item.code) return;
     openRightPanel();
+    if (hotSubTab === 'sector') {
+      setSelectedBoard({ code: item.code, name: item.name ?? item.title, changePercent: item.changePercent });
+      try {
+        setSelectedBoard(await getStocksenseApi().getBoardDetail(item.code));
+      } catch {
+        setSelectedBoard({ code: item.code, name: item.name ?? item.title, changePercent: item.changePercent });
+      }
+      return;
+    }
     const fallback: StockDetail = { code: item.code, name: item.name ?? item.title, price: item.price, changePercent: item.changePercent, turnover: item.turnover ?? item.amount, summary: item.description };
     setSelectedStock(fallback);
     try {
@@ -143,6 +153,7 @@ function HotCard({ item, onStockClick }: { item: HotFocusItem; onStockClick(item
   const content = (
     <>
       <div className="hc-title">{item.title}<span className={`hc-tag ${item.type ?? 'neutral'}`}>{item.tag ?? item.type ?? '热点'}</span></div>
+      {item.code ? <div className="hc-code">{item.code}</div> : null}
       <div className="hc-meta">
         {item.price !== undefined ? <span><b>{item.price}</b></span> : null}
         {item.changePercent ? <span className={String(item.changePercent).startsWith('-') ? 'down' : 'up'}>{item.changePercent}</span> : null}

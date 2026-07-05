@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { useAppStore } from '../store/appStore';
 import { getStocksenseApi } from '../shared/stocksenseApi';
-import type { ChipDistribution, KlinePoint, MarketNewsItem } from '../shared/types';
+import type { BoardConstituent, ChipDistribution, KlinePoint, MarketNewsItem } from '../shared/types';
 
 const NEWS_PAGE_SIZE = 30;
 
@@ -28,6 +28,7 @@ export function StockDetailPanel() {
   const [kline, setKline] = useState<KlinePoint[]>([]);
   const [chipsOpen, setChipsOpen] = useState(true);
   const selectedStock = useAppStore((state) => state.selectedStock);
+  const selectedBoard = useAppStore((state) => state.selectedBoard);
   const theme = useAppStore((state) => state.config?.theme ?? 'dark');
 
   useLayoutEffect(() => {
@@ -85,7 +86,7 @@ export function StockDetailPanel() {
 
   return (
     <aside className="right-panel">
-      {!selectedStock ? (
+      {!selectedStock && !selectedBoard ? (
         <>
           <div className="right-panel-header">
             <span className="title">📰 市场热点</span>
@@ -104,7 +105,9 @@ export function StockDetailPanel() {
             </div>
           </div>
         </>
-      ) : (
+      ) : selectedBoard ? (
+        <BoardDetailView />
+      ) : selectedStock ? (
         <div className="stock-detail" ref={detailRef}>
           <div className="stock-header" data-stockheader>
             <div className="stock-name">{selectedStock.name}<span className="code">{selectedStock.code} · {selectedStock.exchange ?? 'A股'}</span></div>
@@ -142,8 +145,38 @@ export function StockDetailPanel() {
           <div className="section-title">快评</div>
           <div className="summary-box" data-summary>{selectedStock.summary ?? '暂无摘要。'}</div>
         </div>
-      )}
+      ) : null}
     </aside>
+  );
+}
+
+function BoardDetailView() {
+  const board = useAppStore((state) => state.selectedBoard);
+  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  if (!board) return null;
+  const stocks = board.constituents ?? [];
+  return (
+    <div className="board-detail">
+      <div className="stock-header">
+        <div className="stock-name">{board.name}<span className="code">{board.code} · 板块</span></div>
+        <div className={`board-change ${String(board.changePercent).startsWith('-') ? 'down' : 'up'}`}>{board.changePercent ?? '--'}</div>
+      </div>
+      <div className="board-stock-section">
+        <div className="section-title">成分股 <span>{stocks.length} 只</span></div>
+        <div className="board-stock-list">
+          {stocks.length ? stocks.map((stock) => <BoardStockItem key={stock.code} stock={stock} onClick={() => setSelectedStock({ ...stock, turnover: stock.turnover ?? stock.amount, summary: `${board.name}板块成分股。` })} />) : <div className="empty-list">暂无成分股数据</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BoardStockItem({ stock, onClick }: { stock: BoardConstituent; onClick(): void }) {
+  return (
+    <button className="board-stock-item" onClick={onClick} type="button">
+      <span><b>{stock.name}</b><em>{stock.code}</em></span>
+      <span className={String(stock.changePercent).startsWith('-') ? 'down' : 'up'}>{stock.changePercent ?? '--'}</span>
+    </button>
   );
 }
 

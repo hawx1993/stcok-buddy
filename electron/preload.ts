@@ -11,6 +11,7 @@ const api: StocksenseApi = {
   saveMessage: (conversationId: string, message: ChatMessage) => ipcRenderer.invoke('message:save', conversationId, message),
   sendChat: (request: ChatRequest) => ipcRenderer.invoke('chat:send', request),
   getStockDetail: (symbol: string) => ipcRenderer.invoke('stock:getDetail', symbol),
+  getBoardDetail: (symbol: string) => ipcRenderer.invoke('board:getDetail', symbol),
   getKline: (symbol: string, limit?: number) => ipcRenderer.invoke('stock:getKline', symbol, limit),
   listMarketNews: (query?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('news:list', query, page, pageSize),
   listHotFocus: (tab: HotFocusTab) => ipcRenderer.invoke('hot:list', tab),

@@ -128,9 +128,9 @@ function QuickEntry({ onSubmit }: { onSubmit(text: string): void }) {
         <svg viewBox="0 0 420 200" xmlns="http://www.w3.org/2000/svg">
           <rect width="420" height="200" fill="var(--bg)" rx="8" />
           <g stroke="var(--surface)" strokeWidth="0.5" opacity="0.75"><line x1="40" y1="30" x2="380" y2="30" /><line x1="40" y1="60" x2="380" y2="60" /><line x1="40" y1="90" x2="380" y2="90" /><line x1="40" y1="120" x2="380" y2="120" /><line x1="40" y1="150" x2="380" y2="150" /><line x1="108" y1="30" x2="108" y2="150" /><line x1="176" y1="30" x2="176" y2="150" /><line x1="244" y1="30" x2="244" y2="150" /><line x1="312" y1="30" x2="312" y2="150" /></g>
-          <path d="M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70 L 360 150 Z" fill="rgba(59,130,246,0.08)" />
-          <path d="M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70" stroke="var(--accent)" strokeWidth="2" fill="none" strokeLinecap="round" />
-          {[80, 140, 200, 260, 320].map((x, index) => <g key={x} transform={`translate(${x},${index % 2 ? 112 : 82})`}><line x1="6" y1="0" x2="6" y2="40" stroke={index % 2 ? 'var(--danger)' : 'var(--success)'} strokeWidth="1.5" /><rect x="1" y="10" width="10" height="20" fill={index % 2 ? 'var(--danger)' : 'var(--success)'} rx="1" /></g>)}
+          <path className="qe-wave" d="M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70 L 360 150 Z" fill="rgba(59,130,246,0.08)" />
+          <path className="qe-trend" d="M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70" stroke="var(--accent)" strokeWidth="2" fill="none" strokeLinecap="round" />
+          {[80, 140, 200, 260, 320].map((x, index) => <g key={x} transform={`translate(${x},${index % 2 ? 112 : 82})`}><g className="qe-candle" style={{ animationDelay: `${index * -0.35}s` }}><line x1="6" y1="0" x2="6" y2="40" stroke={index % 2 ? 'var(--danger)' : 'var(--success)'} strokeWidth="1.5" /><rect x="1" y="10" width="10" height="20" fill={index % 2 ? 'var(--danger)' : 'var(--success)'} rx="1" /></g></g>)}
           <line x1="40" y1="150" x2="380" y2="150" stroke="var(--border)" strokeWidth="1" />
         </svg>
       </div>
