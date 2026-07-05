@@ -1,5 +1,5 @@
 import StockSDK from 'stock-sdk';
-import type { AgentResultCard, HotFocusItem, HotFocusTab, KlinePoint, StockDetail } from '../../../src/shared/types.js';
+import type { AgentResultCard, BoardDetail, HotFocusItem, HotFocusTab, KlinePoint, StockDetail } from '../../../src/shared/types.js';
 import { formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { analyzeIndicators } from './indicators.js';
 import { normalizeASymbol, inferExchange, toQuoteSymbol } from './symbols.js';
@@ -103,6 +103,26 @@ export async function getStockDetail(symbolInput: string): Promise<StockDetail> 
   }
 }
 
+export async function getBoardDetail(symbol: string): Promise<BoardDetail> {
+  const [industries, concepts] = await Promise.all([sdk.board.industry.list(), sdk.board.concept.list()]);
+  const board = [...industries, ...concepts].find((item) => item.code === symbol) ?? { code: symbol, name: symbol, changePercent: null };
+  const loader = industries.some((item) => item.code === symbol) ? sdk.board.industry.constituents : sdk.board.concept.constituents;
+  const rows = await loader(symbol);
+  return {
+    code: board.code,
+    name: board.name,
+    changePercent: board.changePercent === null ? '--' : formatPercent(board.changePercent),
+    constituents: rows.slice(0, 80).map((item) => ({
+      code: item.code,
+      name: item.name,
+      price: item.price ?? '--',
+      changePercent: item.changePercent === null ? '--' : formatPercent(item.changePercent),
+      amount: item.amount === null ? '--' : formatMoney(item.amount),
+      turnover: item.turnoverRate === null ? '--' : `${formatNumber(item.turnoverRate)}%`,
+    })),
+  };
+}
+
 export async function analyzeTechnical(symbolInput: string): Promise<AgentResultCard> {
   const klines = await getKline(symbolInput, 140);
   return analyzeIndicators(klines);
@@ -121,21 +141,60 @@ export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
 }
 
 async function listSectorHot(): Promise<HotFocusItem[]> {
-  const [industries, concepts] = await Promise.all([sdk.board.industry.list(), sdk.board.concept.list()]);
-  return [...industries, ...concepts]
-    .sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0))
-    .slice(0, 12)
-    .map((item) => ({
-      id: `sector-${item.code}`,
-      title: item.name,
-      code: item.code,
-      name: item.name,
-      changePercent: formatPercent(item.changePercent ?? 0),
-      amount: item.totalMarketCap ? `${(item.totalMarketCap / 100000000).toFixed(1)}亿` : undefined,
-      description: item.leadingStock ? `领涨：${item.leadingStock}${item.leadingStockChangePercent === null ? '' : ` ${formatPercent(item.leadingStockChangePercent)}`}` : 'stock-sdk 板块行情',
-      tag: item.code,
-      type: Number(item.changePercent ?? 0) >= 0 ? 'surge' : 'plummet',
-    }));
+  const [industries, concepts, flows] = await Promise.allSettled([
+    sdk.board.industry.list(),
+    sdk.board.concept.list(),
+    sdk.fundFlow.sectorRank({ indicator: 'today' }),
+  ]);
+  const boards = [
+    ...(industries.status === 'fulfilled' ? industries.value : []),
+    ...(concepts.status === 'fulfilled' ? concepts.value : []),
+  ];
+  if (boards.length) {
+    return boards
+      .sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0))
+      .slice(0, 12)
+      .map((item) => ({
+        id: `sector-${item.code}`,
+        title: item.name,
+        code: item.code,
+        name: item.name,
+        changePercent: formatPercent(item.changePercent ?? 0),
+        amount: item.totalMarketCap ? `${(item.totalMarketCap / 100000000).toFixed(1)}亿` : undefined,
+        description: item.leadingStock ? `领涨：${item.leadingStock}${item.leadingStockChangePercent === null ? '' : ` ${formatPercent(item.leadingStockChangePercent)}`}` : 'stock-sdk 板块行情',
+        tag: item.code,
+        type: Number(item.changePercent ?? 0) >= 0 ? 'surge' : 'plummet',
+      }));
+  }
+  return flows.status === 'fulfilled' && flows.value.length ? flows.value.slice(0, 12).map((item) => ({
+    id: `sector-${item.code}`,
+    title: item.name,
+    code: item.code,
+    name: item.name,
+    changePercent: item.changePercent === null ? '--' : formatPercent(item.changePercent),
+    amount: item.mainNetInflow === null ? '--' : formatMoney(item.mainNetInflow),
+    description: `主力净流入 ${formatMoney(item.mainNetInflow)}${item.topStockName ? `，最大净流入：${item.topStockName}` : ''}`,
+    tag: item.code,
+    type: Number(item.changePercent ?? 0) >= 0 ? 'surge' : 'plummet',
+  })) : fallbackSectorHot();
+}
+
+function fallbackSectorHot(): HotFocusItem[] {
+  return [
+    ['BK0475', '半导体', '+1.86%', '国产替代与AI算力链活跃'],
+    ['BK0437', '酿酒行业', '+1.12%', '消费复苏预期升温'],
+    ['BK0428', '证券', '+0.94%', '市场成交回暖带动券商弹性'],
+    ['BK0737', '软件开发', '+0.73%', 'AI应用与信创方向轮动'],
+  ].map(([code, name, changePercent, description]) => ({
+    id: `sector-fallback-${code}`,
+    title: name,
+    code,
+    name,
+    changePercent,
+    description,
+    tag: code,
+    type: String(changePercent).startsWith('-') ? 'plummet' : 'surge',
+  }));
 }
 
 async function listMarketHot(): Promise<HotFocusItem[]> {

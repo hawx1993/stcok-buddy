@@ -5,6 +5,7 @@ import type {
   ChatResponse,
   ConversationSummary,
   StockDetail,
+  BoardDetail,
   StocksenseApi,
   HotFocusItem,
   HotFocusTab,
@@ -141,6 +142,19 @@ const webFallbackApi: StocksenseApi = {
   },
   async getStockDetail(symbol: string) {
     return findStock(symbol) ?? { code: symbol, name: symbol, summary: '浏览器/PWA 预览模式暂无该股票示例数据。' };
+  },
+  async getBoardDetail(symbol: string): Promise<BoardDetail> {
+    return {
+      code: symbol,
+      name: symbol,
+      constituents: [stockMap['600519'], stockMap['000858'], stockMap['600036']].map((stock) => ({
+        code: stock.code,
+        name: stock.name,
+        price: stock.price,
+        changePercent: stock.changePercent,
+        turnover: stock.turnover,
+      })),
+    };
   },
   async getKline(symbol: string, limit = 120) {
     const base = Number(findStock(symbol)?.price) || 100;

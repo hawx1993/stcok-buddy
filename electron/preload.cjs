@@ -10,6 +10,7 @@ const api = {
   saveMessage: (conversationId, message) => ipcRenderer.invoke('message:save', conversationId, message),
   sendChat: (request) => ipcRenderer.invoke('chat:send', request),
   getStockDetail: (symbol) => ipcRenderer.invoke('stock:getDetail', symbol),
+  getBoardDetail: (symbol) => ipcRenderer.invoke('board:getDetail', symbol),
   getKline: (symbol, limit) => ipcRenderer.invoke('stock:getKline', symbol, limit),
   listMarketNews: (query, page, pageSize) => ipcRenderer.invoke('news:list', query, page, pageSize),
   listHotFocus: (tab) => ipcRenderer.invoke('hot:list', tab),

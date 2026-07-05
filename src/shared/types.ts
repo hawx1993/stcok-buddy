@@ -104,6 +104,22 @@ export interface StockDetail {
   summary?: string;
 }
 
+export interface BoardConstituent {
+  code: string;
+  name: string;
+  price?: string | number;
+  changePercent?: string;
+  turnover?: string;
+  amount?: string;
+}
+
+export interface BoardDetail {
+  code: string;
+  name: string;
+  changePercent?: string;
+  constituents?: BoardConstituent[];
+}
+
 export interface KlinePoint {
   time: string;
   open: number;
@@ -183,6 +199,7 @@ export interface StocksenseApi {
   saveMessage(conversationId: string, message: ChatMessage): Promise<void>;
   sendChat(request: ChatRequest): Promise<ChatResponse>;
   getStockDetail(symbol: string): Promise<StockDetail>;
+  getBoardDetail(symbol: string): Promise<BoardDetail>;
   getKline(symbol: string, limit?: number): Promise<KlinePoint[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
