@@ -35,6 +35,14 @@ export function normalizeASymbol(input: string): string {
   }
 }
 
+export function toQuoteSymbol(input: string): string {
+  const code = normalizeASymbol(input);
+  if (code.startsWith('6')) return `sh${code}`;
+  if (code.startsWith('0') || code.startsWith('3')) return `sz${code}`;
+  if (code.startsWith('8') || code.startsWith('4')) return `bj${code}`;
+  return code;
+}
+
 export function inferExchange(code: string): string {
   if (code.startsWith('6')) return '沪市';
   if (code.startsWith('0') || code.startsWith('3')) return '深市';

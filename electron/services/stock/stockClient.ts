@@ -2,7 +2,7 @@ import StockSDK from 'stock-sdk';
 import type { AgentResultCard, HotFocusItem, HotFocusTab, KlinePoint, StockDetail } from '../../../src/shared/types.js';
 import { formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { analyzeIndicators } from './indicators.js';
-import { normalizeASymbol, inferExchange } from './symbols.js';
+import { normalizeASymbol, inferExchange, toQuoteSymbol } from './symbols.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 
@@ -19,7 +19,7 @@ function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
   const turnover = pickNumber(record, ['turnover', '成交额', 'amount', 'f6']);
   const pe = pickNumber(record, ['pe', 'PE', '市盈率', 'f9']);
   const pb = pickNumber(record, ['pb', 'PB', '市净率', 'f23']);
-  const marketCap = pickNumber(record, ['marketCap', '总市值', 'f20']);
+  const marketCap = pickNumber(record, ['marketCap', 'totalMarketCap', '总市值', 'f20']);
 
   return {
     code,
@@ -45,7 +45,7 @@ function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
 
 export async function getQuote(symbolInput: string): Promise<StockDetail> {
   const symbol = normalizeASymbol(symbolInput);
-  const quotes = await sdk.quotes.cn([symbol]);
+  const quotes = await sdk.quotes.cn([toQuoteSymbol(symbol)]);
   return toStockDetail(quotes[0], symbol);
 }
 
