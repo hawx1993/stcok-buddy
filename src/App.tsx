@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { StockDetailPanel } from './components/StockDetailPanel';
 import { SettingsModal } from './components/SettingsModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { getStocksenseApi } from './shared/stocksenseApi';
 
 export function App() {
@@ -50,17 +51,17 @@ export function App() {
       </div>
 
       <div className="body">
-        <Sidebar />
+        <ErrorBoundary name="左侧栏"><Sidebar /></ErrorBoundary>
         <main className="main">
-          <ChatView />
+          <ErrorBoundary name="聊天区"><ChatView /></ErrorBoundary>
         </main>
         <div className={`right-wrapper ${isRightPanelCollapsed ? 'collapsed' : ''}`}>
-          <StockDetailPanel />
+          <ErrorBoundary name="右侧栏"><StockDetailPanel /></ErrorBoundary>
           <button className="right-toggle-btn" onClick={toggleRightPanel} type="button" title={isRightPanelCollapsed ? '展开侧边栏' : '收起侧边栏'}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
           </button>
         </div>
-        <SettingsModal />
+        <ErrorBoundary name="设置"><SettingsModal /></ErrorBoundary>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { registerIpcHandlers } from './ipc.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
+const appIcon = isDev ? path.join(__dirname, '../public/icons/icon.svg') : path.join(process.resourcesPath, 'icons/icon.svg');
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -15,6 +16,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 720,
     title: '股察 StockSense',
+    icon: appIcon,
     backgroundColor: '#0B1426',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {

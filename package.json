@@ -39,9 +39,16 @@
       "dist-electron/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "public/icons/icon.svg",
+        "to": "icons/icon.svg"
+      }
+    ],
     "asar": true,
     "mac": {
       "category": "public.app-category.finance",
+      "icon": "build/icon.icns",
       "target": [
         {
           "target": "dmg",

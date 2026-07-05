@@ -49,7 +49,12 @@ export function StockDetailPanel() {
     }
     let alive = true;
     const days = timeframes.find((item) => item.id === tf)?.days ?? 120;
-    getStocksenseApi().getKline(selectedStock.code, days).then((data) => {
+    const api = getStocksenseApi();
+    if (!api.getKline) {
+      setKline([]);
+      return;
+    }
+    api.getKline(selectedStock.code, days).then((data) => {
       if (alive) setKline(data);
     }).catch(() => {
       if (alive) setKline([]);
