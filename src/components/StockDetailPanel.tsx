@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { useAppStore } from '../store/appStore';
 import { getStocksenseApi } from '../shared/stocksenseApi';
-import type { KlinePoint, MarketNewsItem } from '../shared/types';
+import type { ChipDistribution, KlinePoint, MarketNewsItem } from '../shared/types';
 
 const NEWS_PAGE_SIZE = 30;
 
@@ -26,6 +26,7 @@ export function StockDetailPanel() {
   const [newsLoading, setNewsLoading] = useState(false);
   const [news, setNews] = useState<MarketNewsItem[]>([]);
   const [kline, setKline] = useState<KlinePoint[]>([]);
+  const [chipsOpen, setChipsOpen] = useState(true);
   const selectedStock = useAppStore((state) => state.selectedStock);
   const theme = useAppStore((state) => state.config?.theme ?? 'dark');
 
@@ -50,10 +51,6 @@ export function StockDetailPanel() {
     let alive = true;
     const days = timeframes.find((item) => item.id === tf)?.days ?? 120;
     const api = getStocksenseApi();
-    if (!api.getKline) {
-      setKline([]);
-      return;
-    }
     api.getKline(selectedStock.code, days).then((data) => {
       if (alive) setKline(data);
     }).catch(() => {
@@ -66,8 +63,9 @@ export function StockDetailPanel() {
     if (!selectedStock || !canvasRef.current) return;
     const days = timeframes.find((item) => item.id === tf)?.days ?? 21;
     const data = kline.length ? kline : makeKData(Number(selectedStock.price) || 100, days);
-    drawKLine(canvasRef.current, data, theme);
-  }, [selectedStock, tf, theme, kline]);
+    const chips = tf === '1d' && chipsOpen ? estimateChips(data) : undefined;
+    drawKLine(canvasRef.current, data, theme, chips);
+  }, [selectedStock, tf, theme, kline, chipsOpen]);
 
   useEffect(() => {
     if (selectedStock) return;
@@ -114,7 +112,12 @@ export function StockDetailPanel() {
           </div>
           <div className="kline-box" data-klinebox>
             <canvas ref={canvasRef} />
-            <div className="chip-label"><span className="bar up" />获利 <span className="bar down" />亏损</div>
+            {tf === '1d' && (
+              <div className="chip-label">
+                <span><span className="bar up" />获利 <span className="bar down" />亏损 <span className="chip-note">估算</span></span>
+                <button className="chip-toggle" onClick={() => setChipsOpen((value) => !value)} type="button">筹码峰{chipsOpen ? '收起' : '展开'}</button>
+              </div>
+            )}
             <div className="kline-tf">
               {timeframes.map((item) => <button key={item.id} className={`tf-btn ${tf === item.id ? 'active' : ''}`} onClick={() => setTf(item.id)} type="button">{item.label}</button>)}
             </div>
@@ -164,7 +167,7 @@ function Rating({ label, score, tone }: { label: string; score: string; tone: 'u
   return <div className="r"><div className={`s ${tone}`}>{score}</div><div className="l">{label}</div></div>;
 }
 
-function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: string) {
+function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: string, chips?: ChipDistribution) {
   const ctx = canvas.getContext('2d');
   if (!ctx || !data.length) return;
   const dpr = window.devicePixelRatio || 1;
@@ -185,7 +188,8 @@ function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: string)
   const chartTop = 8;
   const chartBottom = height - 42;
   const chartLeft = 60;
-  const chartRight = width - 8;
+  const chipWidth = chips?.points.length ? 58 : 0;
+  const chartRight = width - 8 - chipWidth;
   const chartHeight = chartBottom - chartTop;
   const volTop = chartBottom + 2;
   const volHeight = 28;
@@ -194,7 +198,7 @@ function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: string)
   const range = high - low || 1;
   const maxVol = Math.max(...data.map((d) => d.volume));
 
-  drawChips(ctx, data, chartTop, chartBottom, low, high, theme);
+  drawChips(ctx, chips, chartRight + 8, width - 8, chartTop, chartBottom, low, high, theme);
   ctx.strokeStyle = gridColor;
   ctx.lineWidth = 0.5;
   for (let i = 0; i <= 4; i += 1) {
@@ -256,15 +260,45 @@ function makeKData(basePrice: number, days: number): KlinePoint[] {
   });
 }
 
-function drawChips(ctx: CanvasRenderingContext2D, data: KlinePoint[], top: number, bottom: number, low: number, high: number, theme: string) {
-  const levels = 36;
-  const height = bottom - top;
-  const range = high - low;
-  for (let i = 0; i < levels; i += 1) {
-    const ratio = Math.sin((i / levels) * Math.PI) * 0.9 + 0.1;
-    const y = top + height - (i / levels) * height;
-    const up = data[i % data.length]?.close >= data[i % data.length]?.open;
-    ctx.fillStyle = up ? (theme === 'light' ? 'rgba(22,163,74,0.20)' : 'rgba(34,197,94,0.25)') : (theme === 'light' ? 'rgba(220,38,38,0.12)' : 'rgba(239,68,68,0.15)');
-    ctx.fillRect(38, y, 22 * ratio * (range > 0 ? 1 : 0.6), Math.max(height / levels * 0.68, 1.5));
-  }
+function estimateChips(data: KlinePoint[]): ChipDistribution {
+  const recent = data.slice(-90);
+  const high = Math.max(...recent.map((d) => d.high));
+  const low = Math.min(...recent.map((d) => d.low));
+  const levels = 42;
+  const step = (high - low || 1) / levels;
+  const weights = Array.from({ length: levels }, () => 0);
+  recent.forEach((item, index) => {
+    const price = (item.open + item.close + item.high + item.low) / 4;
+    const bucket = Math.max(0, Math.min(levels - 1, Math.floor((price - low) / step)));
+    weights[bucket] += Math.max(item.volume, 1) * (0.4 + (index + 1) / recent.length * 0.6);
+  });
+  const close = recent[recent.length - 1]?.close ?? 0;
+  return {
+    date: recent[recent.length - 1]?.time ?? '--',
+    points: weights.map((weight, index) => {
+      const price = low + step * (index + 0.5);
+      return { price, weight, profit: close >= price ? 0.7 : 0.3 };
+    }).filter((point) => point.weight > 0),
+  };
+}
+
+function drawChips(ctx: CanvasRenderingContext2D, chips: ChipDistribution | undefined, left: number, right: number, top: number, bottom: number, low: number, high: number, theme: string) {
+  if (!chips?.points.length || right <= left) return;
+  const range = high - low || 1;
+  const maxWeight = Math.max(...chips.points.map((point) => point.weight), 1);
+  const chipUp = getComputedStyle(document.documentElement).getPropertyValue('--chip-up').trim() || (theme === 'light' ? 'rgba(22,163,74,0.2)' : 'rgba(34,197,94,0.25)');
+  const chipDown = getComputedStyle(document.documentElement).getPropertyValue('--chip-down').trim() || (theme === 'light' ? 'rgba(220,38,38,0.12)' : 'rgba(239,68,68,0.15)');
+  const barHeight = Math.max((bottom - top) / Math.min(chips.points.length, 90) * 0.8, 2);
+
+  ctx.save();
+  ctx.globalAlpha = 0.95;
+  chips.points.forEach((point) => {
+    if (!point.price) return;
+    const y = top + ((high - point.price) / range) * (bottom - top);
+    if (y < top || y > bottom) return;
+    const width = ((right - left) * Math.min(point.weight / maxWeight, 1));
+    ctx.fillStyle = (point.profit ?? 0) >= 0.5 ? chipUp : chipDown;
+    ctx.fillRect(left, y - barHeight / 2, Math.max(width, 1), barHeight);
+  });
+  ctx.restore();
 }

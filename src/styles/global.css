@@ -115,6 +115,14 @@ button { border: 0; }
 .msg-text p { margin: 0 0 6px; }
 .msg-text p:last-child { margin-bottom: 0; }
 .msg-text ul, .msg-text ol { padding-left: 18px; margin: 4px 0; }
+.msg-text table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 10px 0 12px; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.msg-text th, .msg-text td { padding: 7px 9px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.msg-text th:last-child, .msg-text td:last-child { border-right: 0; }
+.msg-text tr:last-child td { border-bottom: 0; padding-top: 14px; font-weight: 700; }
+.msg-text th { color: var(--fg); background: var(--input-bg); font-weight: 600; }
+.score-low { color: var(--danger); font-weight: 700; }
+.score-mid { color: var(--warning); font-weight: 700; }
+.score-high { color: var(--success); font-weight: 700; }
 .msg-text code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--input-bg); border-radius: 3px; padding: 1px 4px; }
 .msg.user .msg-text code { background: rgba(255,255,255,.16); }
 .msg-text pre { overflow-x: auto; background: var(--input-bg); border-radius: 5px; padding: 8px; margin: 6px 0; }
@@ -123,6 +131,8 @@ button { border: 0; }
 .msg-time { font-size: 10px; color: var(--muted); margin-top: 2px; padding: 0 4px; }
 .trace { background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; margin-top: 6px; font-size: 12px; overflow: hidden; user-select: text; }
 .trace-header { width: 100%; display: flex; align-items: center; gap: 4px; padding: 6px 10px; cursor: pointer; color: var(--fg-secondary); background: transparent; font-weight: 500; font-size: 11px; letter-spacing: .02em; text-align: left; }
+.trace-header span:first-of-type { flex: 1; }
+.trace-caret { margin-left: auto; color: var(--accent); font-size: 16px; line-height: 1; }
 .trace-header::before { content: ""; width: 5px; height: 5px; border-radius: 1px; background: var(--accent); flex-shrink: 0; }
 .trace-body { padding: 0 10px; }
 .thinking-header { cursor: default; }
@@ -133,6 +143,7 @@ button { border: 0; }
 .trace-step:first-child { border-top: none; }
 .trace-step .tag { font-size: 10px; padding: 0 4px; border-radius: 2px; background: var(--surface-active); color: var(--muted); flex-shrink: 0; }
 .trace-step .desc { color: var(--fg-secondary); font-size: 12px; }
+.trace-step .progress { margin-left: auto; color: var(--accent); font-size: 10px; white-space: nowrap; }
 .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 6px; user-select: text; }
 .card-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .card-title .sub { font-size: 11px; font-weight: 400; color: var(--muted); }
@@ -210,10 +221,13 @@ button { border: 0; }
 .stock-price .chg { font-size: 11px; }
 .kline-box { padding: 2px 10px 0; }
 .kline-box canvas { width: 100%; height: 160px; display: block; border-radius: 4px; background: var(--bg); }
-.chip-label { display: flex; align-items: center; gap: 5px; padding: 1px 12px 0; font-size: 10px; color: var(--muted); }
-.chip-label .bar { width: 16px; height: 5px; border-radius: 1px; }
+.chip-label { display: flex; align-items: center; justify-content: space-between; gap: 5px; padding: 1px 12px 0; font-size: 10px; color: var(--muted); }
+.chip-label .bar { display: inline-block; width: 16px; height: 5px; border-radius: 1px; margin: 0 3px 0 6px; vertical-align: middle; }
+.chip-label .bar:first-child { margin-left: 0; }
 .chip-label .bar.up { background: var(--success); opacity: .4; }
 .chip-label .bar.down { background: var(--danger); opacity: .25; }
+.chip-note { color: var(--warning); margin-left: 4px; }
+.chip-toggle { font-size: 10px; color: var(--accent); background: transparent; border: 0; cursor: pointer; padding: 0; }
 .kline-tf { display: flex; gap: 2px; padding: 2px 0 1px; justify-content: flex-end; }
 .tf-btn { font-size: 10px; padding: 1px 7px; border-radius: 3px; background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; }
 .tf-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }

@@ -22,10 +22,11 @@ export async function executeDag<TContext>(
 
     await Promise.all(
       ready.map(async (node) => {
-        onStep({ id: node.id, agent: node.agent, description: node.description, status: 'running' });
+        const progressBase = completed.size;
+        onStep({ id: node.id, agent: node.agent, description: node.description, status: 'running', detail: `进度 ${progressBase}/${nodes.length}` });
         try {
           await node.run(context);
-          onStep({ id: node.id, agent: node.agent, description: node.description, status: 'completed' });
+          onStep({ id: node.id, agent: node.agent, description: node.description, status: 'completed', detail: `进度 ${Math.min(progressBase + 1, nodes.length)}/${nodes.length}` });
           completed.add(node.id);
           pending.delete(node.id);
         } catch (error) {

@@ -1,12 +1,16 @@
-import type { AgentResultCard, AgentRunEvent, ChatRequest, ChatResponse, StockDetail } from '../../../src/shared/types.js';
+import type { AgentResultCard, AgentRunEvent, ChatRequest, ChatResponse, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
 import { normalizeASymbol } from '../stock/symbols.js';
+import { getKline } from '../stock/stockClient.js';
+import { listMarketNews } from '../stock/newsClient.js';
 import { executeDag, type DagNode } from './dagExecutor.js';
 import { fetchBoard, fetchQuote } from './dataAgent.js';
 import { runTechnicalAnalysis } from './analysisAgent.js';
 import { runReportAgent } from './reportAgent.js';
 import { reviewCompliance } from './riskAgent.js';
+import { runStockAnalysisOverview } from './stockAnalysisOverviewAgent.js';
+import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisResult } from './stockAnalysisAgents.js';
 
-type Intent = 'quote' | 'technical' | 'board' | 'portfolio' | 'chat';
+type Intent = 'quote' | 'technical' | 'analysis' | 'board' | 'portfolio' | 'chat';
 
 interface AgentContext {
   query: string;
@@ -16,6 +20,10 @@ interface AgentContext {
   quote?: StockDetail;
   technical?: AgentResultCard;
   board?: AgentResultCard;
+  kline?: KlinePoint[];
+  news?: MarketNewsItem[];
+  analysisResults?: StockAnalysisResult[];
+  analysisOverview?: string;
 }
 
 export async function runOrchestrator(request: ChatRequest): Promise<ChatResponse> {
@@ -38,7 +46,7 @@ export async function runOrchestrator(request: ChatRequest): Promise<ChatRespons
     events.push({ type: step.status === 'running' ? 'step_started' : 'step_completed', step });
   });
 
-  const draft = await runReportAgent({
+  const draft = context.analysisOverview ?? await runReportAgent({
     query: request.message,
     intent,
     quote: context.quote,
@@ -115,6 +123,46 @@ function buildDag(context: AgentContext): DagNode<AgentContext>[] {
     },
   ];
 
+  if (context.intent === 'analysis') {
+    nodes.push(
+      {
+        id: 'market-data',
+        agent: 'DataAgent',
+        description: `拉取 ${context.symbol} K线、指标与新闻样本`,
+        dependsOn: ['quote'],
+        run: async (ctx) => {
+          const [kline, technical, news] = await Promise.all([
+            getKline(ctx.symbol!, 120).catch(() => []),
+            runTechnicalAnalysis(ctx.symbol!).catch(() => undefined),
+            listMarketNews(ctx.quote?.name ?? ctx.symbol, 1, 10).then((page) => page.items).catch(() => []),
+          ]);
+          ctx.kline = kline;
+          ctx.technical = technical;
+          ctx.news = news;
+        },
+      },
+      ...stockAnalysisAgentNames().map((agent) => ({
+        id: `analysis-${agent.name}`,
+        agent: agent.label,
+        description: `${agent.label}：${context.symbol}`,
+        dependsOn: ['market-data'],
+        run: async (ctx: AgentContext) => {
+          const result = await runStockAnalysisSubAgent(agent.name, stockAnalysisInput(ctx));
+          ctx.analysisResults = [...(ctx.analysisResults ?? []), result];
+        },
+      })),
+      {
+        id: 'analysis-overview',
+        agent: '汇总分析Agent',
+        description: `汇总 ${context.symbol} 五维分析结果`,
+        dependsOn: stockAnalysisAgentNames().map((agent) => `analysis-${agent.name}`),
+        run: async (ctx) => {
+          ctx.analysisOverview = await runStockAnalysisOverview(stockAnalysisInput(ctx), ctx.analysisResults ?? []);
+        },
+      },
+    );
+  }
+
   if (context.intent === 'technical') {
     nodes.push({
       id: 'technical',
@@ -133,17 +181,38 @@ function buildDag(context: AgentContext): DagNode<AgentContext>[] {
 function classifyIntent(query: string): Intent {
   if (/持仓|我买|成本|盈亏|记住/.test(query)) return 'portfolio';
   if (/板块|行业|选股|资金流|北向|热点/.test(query)) return 'board';
-  if (/分析|诊股|走势|金叉|死叉|MACD|KDJ|K线|均线|技术/.test(query)) return 'technical';
+  if (/MACD|KDJ|K线|均线|技术|走势|金叉|死叉/.test(query)) return 'technical';
   if (/股价|行情|现价|多少|涨跌/.test(query)) return 'quote';
-  return /\d{6}|茅台|五粮液|宁德|招行|招商银行/.test(query) ? 'quote' : 'chat';
+  if (hasStock(query) && (/分析|诊股|个股分析|帮我看看|看看/.test(query) || isStockOnlyQuery(query))) return 'analysis';
+  return 'chat';
+}
+
+function hasStock(query: string) {
+  return /\d{6}|茅台|贵州茅台|五粮液|泸州老窖|洋河股份|宁德|宁德时代|宁王|招行|招商银行|比亚迪|中信证券/.test(query);
+}
+
+function isStockOnlyQuery(query: string) {
+  return /^\s*(?:\d{6}|茅台|贵州茅台|五粮液|泸州老窖|洋河股份|宁德|宁德时代|宁王|招行|招商银行|比亚迪|中信证券)\s*$/.test(query);
 }
 
 function needsSymbol(intent: Intent) {
-  return intent === 'quote' || intent === 'technical';
+  return intent === 'quote' || intent === 'technical' || intent === 'analysis';
 }
 
 function intentLabel(intent: Intent) {
-  return { quote: '行情查询', technical: '技术诊股', board: '板块分析', portfolio: '持仓管理', chat: '普通问答' }[intent];
+  return { quote: '行情查询', technical: '技术诊股', analysis: '五维个股分析', board: '板块分析', portfolio: '持仓管理', chat: '普通问答' }[intent];
+}
+
+function stockAnalysisInput(ctx: AgentContext) {
+  return {
+    query: ctx.query,
+    symbol: ctx.symbol!,
+    stockLabel: ctx.quote?.name ?? ctx.symbol!,
+    quote: ctx.quote,
+    technical: ctx.technical,
+    kline: ctx.kline,
+    news: ctx.news,
+  };
 }
 
 function extractBoardKeyword(query: string) {

@@ -1,4 +1,4 @@
-# 股察 StockBuddy
+# StockBuddy
 
 对话式 A 股投研助手桌面端 / PWA Demo。项目基于 Electron + React + TypeScript，数据层接入 `stock-sdk`，支持用户在系统设置中自由选择常用大模型厂商并填写自己的 API Key。
 
@@ -162,4 +162,4 @@ pnpm run dist:mac   # macOS DMG
 
 ## 合规提示
 
-股察 StockBuddy 仅用于公开数据研究、信息聚合与辅助分析。所有输出均不构成投资建议，不应作为买卖股票、基金或其他金融产品的依据。
+StockBuddy 仅用于公开数据研究、信息聚合与辅助分析。所有输出均不构成投资建议，不应作为买卖股票、基金或其他金融产品的依据。

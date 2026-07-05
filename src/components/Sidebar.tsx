@@ -86,7 +86,7 @@ export function Sidebar() {
   return (
     <aside className={`sidebar ${isLeftSidebarCollapsed ? 'collapsed' : ''}`} data-sidebar>
       <div className="sidebar-header">
-        <div className="sidebar-brand"><div className="logo">察</div><span>股察</span></div>
+        <div className="sidebar-brand"><span>StockBuddy</span></div>
       </div>
 
       <div className="main-tabs">
