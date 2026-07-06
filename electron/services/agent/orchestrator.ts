@@ -1,13 +1,13 @@
 import type { AgentResultCard, AgentRunEvent, ChatRequest, ChatResponse, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
-import { getKline, resolveASymbol } from '../stock/stockClient.js';
-import { listMarketNews } from '../stock/newsClient.js';
-import { executeDag, type DagNode } from './dagExecutor.js';
-import { fetchBoard, fetchQuote } from './dataAgent.js';
-import { runTechnicalAnalysis } from './analysisAgent.js';
-import { runReportAgent } from './reportAgent.js';
-import { reviewCompliance } from './riskAgent.js';
-import { runStockAnalysisOverview } from './stockAnalysisOverviewAgent.js';
-import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisResult } from './stockAnalysisAgents.js';
+import { getKline, resolveASymbol } from '../stock/stock-client.js';
+import { listMarketNews } from '../stock/news-client.js';
+import { executeDag, type DagNode } from './dag-executor.js';
+import { fetchBoard, fetchQuote } from './data-agent.js';
+import { runTechnicalAnalysis } from './analysis-agent.js';
+import { runReportAgent } from './report-agent.js';
+import { reviewCompliance } from './risk-agent.js';
+import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
+import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisResult } from './stock-analysis-agents.js';
 
 type Intent = 'quote' | 'technical' | 'analysis' | 'board' | 'portfolio' | 'chat';
 

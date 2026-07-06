@@ -2,10 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { message as antdMessage } from 'antd';
 import gsap from 'gsap';
 import { marked } from 'marked';
-import { getStocksenseApi } from '../shared/stocksenseApi';
-import { drawKLine } from './StockDetailPanel';
+import { getStocksenseApi } from '../shared/stocksense-api';
+import { drawKLine } from './stock-detail-panel';
 import type { AgentResultCard, ChatMessage, StockDetail } from '../shared/types';
-import { useAppStore } from '../store/appStore';
+import { useAppStore } from '../store/app-store';
 
 const hints = ['选股', '诊股', '我的持仓', '北向资金', '热点板块'];
 

@@ -1,5 +1,5 @@
 import { generateReport } from '../llm/index.js';
-import type { StockAnalysisInput, StockAnalysisResult } from './stockAnalysisAgents.js';
+import type { StockAnalysisInput, StockAnalysisResult } from './stock-analysis-agents.js';
 
 export async function runStockAnalysisOverview(input: StockAnalysisInput, results: StockAnalysisResult[]): Promise<string> {
   try {

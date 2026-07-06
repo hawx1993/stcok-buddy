@@ -117,7 +117,7 @@ PWA 相关文件：
 - `public/manifest.webmanifest`
 - `public/sw.js`
 - `public/icons/icon.svg`
-- `src/registerServiceWorker.ts`
+- `src/register-service-worker.ts`
 
 Service Worker 仅在生产构建中注册，开发环境不注册，避免缓存影响调试。
 

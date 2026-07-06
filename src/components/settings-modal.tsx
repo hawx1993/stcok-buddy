@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AppConfig, HoldingPeriod, ProviderKind, RiskProfile, TradeStyle } from '../shared/types';
-import { getStocksenseApi } from '../shared/stocksenseApi';
-import { useAppStore } from '../store/appStore';
+import { getStocksenseApi } from '../shared/stocksense-api';
+import { useAppStore } from '../store/app-store';
 
 type ProviderPreset = {
   id: ProviderKind;

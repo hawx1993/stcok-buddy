@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
-import { useAppStore } from './store/appStore';
-import { Sidebar } from './components/Sidebar';
-import { ChatView } from './components/ChatView';
-import { StockDetailPanel } from './components/StockDetailPanel';
-import { SettingsModal } from './components/SettingsModal';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { getStocksenseApi } from './shared/stocksenseApi';
+import { useAppStore } from './store/app-store';
+import { Sidebar } from './components/sidebar';
+import { ChatView } from './components/chat-view';
+import { StockDetailPanel } from './components/stock-detail-panel';
+import { SettingsModal } from './components/settings-modal';
+import { ErrorBoundary } from './components/error-boundary';
+import { getStocksenseApi } from './shared/stocksense-api';
 
 export function App() {
   const config = useAppStore((state) => state.config);

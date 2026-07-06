@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import type { AppConfig, ChatMessage, ChatRequest, HotFocusTab } from '../src/shared/types.js';
-import { getConfig, setConfig } from './services/configStore.js';
+import { getConfig, setConfig } from './services/config-store.js';
 import {
   createConversation,
   deleteConversation,
@@ -9,10 +9,10 @@ import {
   saveAssistantMessage,
   saveMessage,
   saveUserMessage,
-} from './services/conversationStore.js';
+} from './services/conversation-store.js';
 import { runOrchestrator } from './services/agent/orchestrator.js';
-import { getBoardDetail, getKline, getStockDetail, listHotFocus } from './services/stock/stockClient.js';
-import { listMarketNews } from './services/stock/newsClient.js';
+import { getBoardDetail, getKline, getStockDetail, listHotFocus } from './services/stock/stock-client.js';
+import { listMarketNews } from './services/stock/news-client.js';
 
 export function registerIpcHandlers() {
   ipcMain.handle('config:get', () => getConfig());

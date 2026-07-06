@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
-import { useAppStore } from '../store/appStore';
-import { getStocksenseApi } from '../shared/stocksenseApi';
+import { useAppStore } from '../store/app-store';
+import { getStocksenseApi } from '../shared/stocksense-api';
 import type { BoardConstituent, ChipDistribution, KlinePoint, MarketNewsItem } from '../shared/types';
 
 const NEWS_PAGE_SIZE = 30;
