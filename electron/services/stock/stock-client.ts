@@ -56,24 +56,31 @@ export async function getQuote(symbolInput: string): Promise<StockDetail> {
   return toStockDetail(quotes[0], symbol);
 }
 
-export async function getKline(symbolInput: string, limit = 120): Promise<KlinePoint[]> {
+export async function getKline(symbolInput: string, limit = 120, period = '1d'): Promise<KlinePoint[]> {
   const symbol = normalizeASymbol(symbolInput);
+  const klt = toEastmoneyKlt(period);
   try {
+    if (period === '4h') return aggregateKline(await getEastmoneyKline(symbol, limit * 4, '60'), 4).slice(-limit);
+    if (klt !== '101') return getEastmoneyKline(symbol, limit, klt);
     const data = await sdk.kline.cn(symbol, { period: 'daily', adjust: 'qfq' as const });
     return data.slice(-limit).map(toKlinePoint).filter((point): point is KlinePoint => Boolean(point));
   } catch {
-    return getEastmoneyKline(symbol, limit);
+    return period === '4h' ? aggregateKline(await getEastmoneyKline(symbol, limit * 4, '60'), 4).slice(-limit) : getEastmoneyKline(symbol, limit, klt);
   }
 }
 
-async function getEastmoneyKline(symbol: string, limit: number): Promise<KlinePoint[]> {
+function toEastmoneyKlt(period: string) {
+  return ({ '15m': '15', '1h': '60', '4h': '60', '1d': '101', '1w': '102', '1mo': '103' } as Record<string, string>)[period] ?? '101';
+}
+
+async function getEastmoneyKline(symbol: string, limit: number, klt = '101'): Promise<KlinePoint[]> {
   const market = symbol.startsWith('6') ? '1' : '0';
   const url = new URL('https://push2his.eastmoney.com/api/qt/stock/kline/get');
   url.search = new URLSearchParams({
     secid: `${market}.${symbol}`,
     fields1: 'f1,f2,f3,f4,f5,f6',
     fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
-    klt: '101',
+    klt,
     fqt: '1',
     beg: '0',
     end: '20500101',
@@ -85,9 +92,45 @@ async function getEastmoneyKline(symbol: string, limit: number): Promise<KlinePo
   return (payload.data?.klines ?? []).map(parseEastmoneyKline).filter((point): point is KlinePoint => Boolean(point));
 }
 
+function aggregateKline(data: KlinePoint[], size: number): KlinePoint[] {
+  const result: KlinePoint[] = [];
+  for (let i = 0; i < data.length; i += size) {
+    const chunk = data.slice(i, i + size);
+    const first = chunk[0];
+    const last = chunk[chunk.length - 1];
+    if (!first || !last) continue;
+    result.push({
+      time: last.time,
+      open: first.open,
+      close: last.close,
+      high: Math.max(...chunk.map((item) => item.high)),
+      low: Math.min(...chunk.map((item) => item.low)),
+      volume: chunk.reduce((sum, item) => sum + item.volume, 0),
+      amount: chunk.reduce((sum, item) => sum + (item.amount ?? 0), 0),
+      change: last.close - first.open,
+      changePercent: first.open ? ((last.close - first.open) / first.open) * 100 : undefined,
+      turnoverRate: chunk.reduce((sum, item) => sum + (item.turnoverRate ?? 0), 0),
+      pe: last.pe,
+    });
+  }
+  return result;
+}
+
 function parseEastmoneyKline(line: string): KlinePoint | undefined {
-  const [time, open, close, high, low, volume] = line.split(',');
-  const point = { time, open: Number(open), close: Number(close), high: Number(high), low: Number(low), volume: Number(volume) };
+  const [time, open, close, high, low, volume, amount, amplitude, changePercent, change, turnoverRate] = line.split(',');
+  const point = {
+    time,
+    open: Number(open),
+    close: Number(close),
+    high: Number(high),
+    low: Number(low),
+    volume: Number(volume),
+    amount: Number(amount),
+    change: Number(change),
+    changePercent: Number(changePercent),
+    turnoverRate: Number(turnoverRate),
+  };
+  void amplitude;
   return [point.open, point.close, point.high, point.low].every(Number.isFinite) ? point : undefined;
 }
 
@@ -105,6 +148,11 @@ function toKlinePoint(raw: unknown): KlinePoint | undefined {
     high,
     low,
     volume: pickNumber(record, ['volume', '成交量']) ?? 0,
+    amount: pickNumber(record, ['amount', '成交额']),
+    change: pickNumber(record, ['change', '涨跌额']),
+    changePercent: pickNumber(record, ['changePercent', '涨跌幅']),
+    turnoverRate: pickNumber(record, ['turnoverRate', '换手率']),
+    pe: pickNumber(record, ['pe', 'PE', '市盈率']),
   };
 }
 

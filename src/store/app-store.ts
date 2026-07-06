@@ -48,6 +48,8 @@ interface AppState {
   addMessage(message: ChatMessage): void;
   setMessages(messages: ChatMessage[]): void;
   replaceLastAssistant(message: ChatMessage): void;
+  finalizeLastAssistant(message: ChatMessage): void;
+  appendToLastAssistant(token: string): void;
   clearMessages(): void;
   setSelectedStock(stock?: StockDetail): void;
   setSelectedBoard(board?: BoardDetail): void;
@@ -97,6 +99,37 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       if (index >= 0) messages[index] = message;
       else messages.push(message);
+      return { messages };
+    }),
+  finalizeLastAssistant: (message) =>
+    set((state) => {
+      const messages = [...state.messages];
+      let index = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if (messages[i].role === 'assistant') {
+          index = i;
+          break;
+        }
+      }
+      const previous = index >= 0 ? messages[index] : undefined;
+      const startedAt = previous?.thinking?.startedAt;
+      const processedSeconds = startedAt ? Math.max(0.1, (Date.now() - new Date(startedAt).getTime()) / 1000) : undefined;
+      const next = { ...message, processedSeconds };
+      if (index >= 0) messages[index] = next;
+      else messages.push(next);
+      return { messages };
+    }),
+  appendToLastAssistant: (token) =>
+    set((state) => {
+      const messages = [...state.messages];
+      let index = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if (messages[i].role === 'assistant') {
+          index = i;
+          break;
+        }
+      }
+      if (index >= 0) messages[index] = { ...messages[index], content: `${messages[index].content}${token}` };
       return { messages };
     }),
   clearMessages: () => set({ messages: [] }),

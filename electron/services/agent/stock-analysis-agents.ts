@@ -63,14 +63,14 @@ export function stockAnalysisAgentNames() {
   return agents.map((agent) => ({ name: agent.name, label: agent.label }));
 }
 
-export async function runStockAnalysisSubAgent(name: StockAnalysisAgentName, input: StockAnalysisInput): Promise<StockAnalysisResult> {
+export async function runStockAnalysisSubAgent(name: StockAnalysisAgentName, input: StockAnalysisInput, onToken?: (token: string) => void): Promise<StockAnalysisResult> {
   const agent = agents.find((item) => item.name === name)!;
   try {
     const data = JSON.stringify(compactInput(input), null, 2);
     const content = await generateReport([
       { role: 'system', content: `${agent.prompt}\n输出中文 Markdown，控制在 300 字以内。只基于输入数据，不编造缺失字段。` },
       { role: 'user', content: `用户问题：${input.query}\n股票：${input.stockLabel}（${input.symbol}）\n结构化数据：\n${data}` },
-    ]);
+    ], onToken);
     return { name: agent.name, label: agent.label, content };
   } catch {
     return { name: agent.name, label: agent.label, content: agent.fallback(input) };

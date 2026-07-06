@@ -1,18 +1,23 @@
 import { calcKDJ, calcMA, calcMACD } from 'stock-sdk/indicators';
 import { calcSignals } from 'stock-sdk/signals';
 import type { AgentResultCard } from '../../../src/shared/types.js';
-import { pickNumber } from './format.js';
+import { pickNumber, pickString } from './format.js';
 
 type AnyRecord = Record<string, unknown>;
 
 function toOhlcv(item: AnyRecord, index: number) {
   return {
-    timestamp: pickNumber(item, ['timestamp', 'time', 'date']) ?? index,
+    timestamp: pickString(item, ['date', 'time', '日期']) ?? pickNumber(item, ['timestamp']) ?? index,
     open: pickNumber(item, ['open', '开盘']) ?? 0,
     high: pickNumber(item, ['high', '最高']) ?? 0,
     low: pickNumber(item, ['low', '最低']) ?? 0,
     close: pickNumber(item, ['close', '收盘']) ?? 0,
     volume: pickNumber(item, ['volume', '成交量']) ?? 0,
+    amount: pickNumber(item, ['amount', '成交额']),
+    change: pickNumber(item, ['change', '涨跌额']),
+    changePercent: pickNumber(item, ['changePercent', '涨跌幅']),
+    turnoverRate: pickNumber(item, ['turnoverRate', '换手率']),
+    pe: pickNumber(item, ['pe', 'PE', '市盈率']),
   };
 }
 
@@ -24,6 +29,11 @@ function toKlinePoint(item: ReturnType<typeof toOhlcv>): import('../../../src/sh
     high: item.high,
     low: item.low,
     volume: item.volume,
+    amount: item.amount,
+    change: item.change,
+    changePercent: item.changePercent,
+    turnoverRate: item.turnoverRate,
+    pe: item.pe,
   };
 }
 

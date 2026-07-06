@@ -3,7 +3,7 @@ import { message as antdMessage } from 'antd';
 import gsap from 'gsap';
 import { marked } from 'marked';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import { drawKLine } from '../stock-detail-panel';
+import { drawKLine, getKlineHoverIndex, KlineHoverInfo, KlineModal } from '../stock-detail-panel';
 import type { AgentResultCard, ChatMessage, StockDetail } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
 import styles from './index.module.scss';
@@ -31,6 +31,8 @@ export function ChatView() {
   const isSending = useAppStore((state) => state.isSending);
   const addMessage = useAppStore((state) => state.addMessage);
   const replaceLastAssistant = useAppStore((state) => state.replaceLastAssistant);
+  const finalizeLastAssistant = useAppStore((state) => state.finalizeLastAssistant);
+  const appendToLastAssistant = useAppStore((state) => state.appendToLastAssistant);
   const setSending = useAppStore((state) => state.setSending);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
@@ -96,14 +98,19 @@ export function ChatView() {
     addMessage({
       id: `assistant-thinking-${Date.now()}`,
       role: 'assistant',
-      content: '思考中…',
+      content: '',
       createdAt: new Date().toISOString(),
       thinking: { startedAt: new Date().toISOString(), steps: createThinkingSteps(text) },
     });
+    let offToken: (() => void) | undefined;
     try {
       const api = getStocksenseApi();
-      const response = await api.sendChat({ conversationId: activeConversationId ?? 'conv-1', message: text });
-      replaceLastAssistant(response.message);
+      const requestId = `chat-${Date.now()}`;
+      offToken = api.onChatToken?.((event) => {
+        if (event.requestId === requestId) appendToLastAssistant(event.token);
+      });
+      const response = await api.sendChat({ conversationId: activeConversationId ?? 'conv-1', message: text, requestId });
+      finalizeLastAssistant(response.message);
       const stock = response.events.find((event) => event.stock)?.stock;
       if (stock) {
         openRightPanel();
@@ -118,6 +125,7 @@ export function ChatView() {
         createdAt: new Date().toISOString(),
       });
     } finally {
+      offToken?.();
       setSending(false);
     }
   };
@@ -227,7 +235,8 @@ function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; n
     <div className={cx(styles.msg, 'msg', message.role === 'user' ? styles.user : styles.agent, message.role === 'user' ? 'user' : 'agent')} data-msg>
       <div className={styles['msg-avatar']} data-avatar>{message.role === 'user' ? '我' : '股'}</div>
       <div className={styles['msg-body']} data-msgbody>
-        <div className="msg-text" onClick={openLinkedStock} onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(renderCommandInText(message.content)) }} />
+        {message.thinking ? <ThinkingBanner /> : message.processedSeconds ? <ProcessedBanner seconds={message.processedSeconds} /> : null}
+        {message.content.trim() ? <div className="msg-text" onClick={openLinkedStock} onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(renderCommandInText(message.content)) }} /> : null}
         {message.thinking ? <ThinkingTrace startedAt={message.thinking.startedAt} steps={message.thinking.steps} /> : null}
         {message.steps?.length ? <Trace steps={message.steps} /> : null}
         {message.result ? <ResultCard result={message.result} onStockClick={onStockClick} /> : null}
@@ -235,6 +244,14 @@ function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; n
       </div>
     </div>
   );
+}
+
+function ThinkingBanner() {
+  return <div className="thinking-line"><span className="thinking-shimmer"><span>思</span><span>考</span><span>中</span><span>.</span><span>.</span><span>.</span></span></div>;
+}
+
+function ProcessedBanner({ seconds }: { seconds: number }) {
+  return <div className="processed-line">已处理，共耗时 {seconds.toFixed(1)}s</div>;
 }
 
 function ThinkingTrace({ startedAt, steps }: { startedAt: string; steps: NonNullable<ChatMessage['steps']> }) {
@@ -301,7 +318,7 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
           {result.metrics.map((metric) => <div className={styles['metric-item']} key={metric.label}><div className={styles.lbl}>{metric.label}</div><div className={cx(styles.val, metric.tone ? styles[metric.tone] : undefined)}>{metric.value}</div></div>)}
         </div>
       ) : null}
-      {result.chart?.type === 'kline' ? <KlineChart data={result.chart.data} /> : null}
+      {result.chart?.type === 'kline' ? <KlineChart data={result.chart.data} stock={result.stocks?.[0]} /> : null}
       {headers.length ? (
         <table className={styles.tbl}>
           <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
@@ -317,15 +334,41 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
   );
 }
 
-function KlineChart({ data }: { data: NonNullable<AgentResultCard['chart']>['data'] }) {
+function KlineChart({ data, stock }: { data: NonNullable<AgentResultCard['chart']>['data']; stock?: StockDetail }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [hoverIndex, setHoverIndex] = useState<number | undefined>();
+  const [isModalOpen, setModalOpen] = useState(false);
+  const [fullData, setFullData] = useState(data);
   const theme = useAppStore((state) => state.config?.theme ?? 'dark');
+  const hoverPoint = hoverIndex === undefined ? undefined : fullData[hoverIndex];
+
+  useEffect(() => setFullData(data), [data]);
 
   useEffect(() => {
-    if (canvasRef.current) drawKLine(canvasRef.current, data, theme);
-  }, [data, theme]);
+    if (!stock?.code) return;
+    let alive = true;
+    getStocksenseApi().getKline(stock.code, Math.max(data.length, 120)).then((next) => {
+      if (alive && next.length) setFullData(next.slice(-data.length));
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [stock?.code, data]);
 
-  return <div className={styles['card-kline']}><canvas ref={canvasRef} /></div>;
+  useEffect(() => {
+    if (canvasRef.current) drawKLine(canvasRef.current, fullData, theme, undefined, hoverIndex);
+  }, [fullData, theme, hoverIndex]);
+
+  return (
+    <div className={styles['card-kline']}>
+      <button className={styles['kline-expand']} onClick={() => setModalOpen(true)} title="放大K线图" type="button">⛶</button>
+      <canvas
+        ref={canvasRef}
+        onMouseMove={(event) => setHoverIndex(getKlineHoverIndex(event, fullData, false))}
+        onMouseLeave={() => setHoverIndex(undefined)}
+      />
+      {hoverPoint ? <KlineHoverInfo point={hoverPoint} previous={hoverIndex ? fullData[hoverIndex - 1] : undefined} pe={stock?.pe} /> : null}
+      {isModalOpen ? <KlineModal stock={stock ?? { code: '', name: '技术指标摘要' }} data={fullData} onClose={() => setModalOpen(false)} /> : null}
+    </div>
+  );
 }
 
 function renderCell(header: string, row: Record<string, unknown>, onStockClick: (stock: StockDetail) => void) {

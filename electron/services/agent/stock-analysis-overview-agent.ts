@@ -1,7 +1,7 @@
 import { generateReport } from '../llm/index.js';
 import type { StockAnalysisInput, StockAnalysisResult } from './stock-analysis-agents.js';
 
-export async function runStockAnalysisOverview(input: StockAnalysisInput, results: StockAnalysisResult[]): Promise<string> {
+export async function runStockAnalysisOverview(input: StockAnalysisInput, results: StockAnalysisResult[], onToken?: (token: string) => void): Promise<string> {
   try {
     return await generateReport([
       {
@@ -26,7 +26,7 @@ export async function runStockAnalysisOverview(input: StockAnalysisInput, result
         role: 'user',
         content: `股票：${input.stockLabel}（${input.symbol}）\n用户问题：${input.query}\n\n五维分析结果：\n${JSON.stringify(results, null, 2)}`,
       },
-    ]);
+    ], onToken);
   } catch {
     return fallbackOverview(input, results);
   }

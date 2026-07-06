@@ -45,6 +45,7 @@ export interface ChatMessage {
     startedAt: string;
     steps: AgentStep[];
   };
+  processedSeconds?: number;
   result?: AgentResultCard;
 }
 
@@ -75,6 +76,12 @@ export interface AgentRunEvent {
 export interface ChatRequest {
   conversationId: string;
   message: string;
+  requestId?: string;
+}
+
+export interface ChatStreamEvent {
+  requestId: string;
+  token: string;
 }
 
 export interface ChatResponse {
@@ -127,6 +134,11 @@ export interface KlinePoint {
   high: number;
   low: number;
   volume: number;
+  amount?: number;
+  change?: number;
+  changePercent?: number;
+  turnoverRate?: number;
+  pe?: number | string;
 }
 
 export interface ChipPoint {
@@ -201,9 +213,10 @@ export interface StocksenseApi {
   listMessages(conversationId: string): Promise<ChatMessage[]>;
   saveMessage(conversationId: string, message: ChatMessage): Promise<void>;
   sendChat(request: ChatRequest): Promise<ChatResponse>;
+  onChatToken?(handler: (event: ChatStreamEvent) => void): () => void;
   getStockDetail(symbol: string): Promise<StockDetail>;
   getBoardDetail(symbol: string): Promise<BoardDetail>;
-  getKline(symbol: string, limit?: number): Promise<KlinePoint[]>;
+  getKline(symbol: string, limit?: number, period?: string): Promise<KlinePoint[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
 }

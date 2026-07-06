@@ -35,7 +35,7 @@ interface AgentContext {
   singleAgent?: StockAnalysisAgentName;
 }
 
-export async function runOrchestrator(request: ChatRequest): Promise<ChatResponse> {
+export async function runOrchestrator(request: ChatRequest, onToken?: (token: string) => void): Promise<ChatResponse> {
   const events: AgentRunEvent[] = [];
   const command = parseSlashCommand(request.message);
   const intent = command?.intent ?? classifyIntent(request.message);
@@ -50,7 +50,7 @@ export async function runOrchestrator(request: ChatRequest): Promise<ChatRespons
 
   if (command && !command.args) return commandUsageResponse(request, command.usage);
 
-  const nodes = buildDag(context);
+  const nodes = buildDag(context, onToken);
   events.push({
     type: 'plan_created',
     message: `识别为 ${intentLabel(intent)}，规划 ${nodes.length} 个可审计步骤。`,
@@ -68,9 +68,9 @@ export async function runOrchestrator(request: ChatRequest): Promise<ChatRespons
       quote: context.quote,
       technical: context.technical,
       board: context.board,
-    });
+    }, onToken);
   const content = reviewCompliance(draft);
-  const result = context.board ?? context.technical ?? quoteToCard(context.quote);
+  const result = context.board ?? (context.technical && context.quote ? { ...context.technical, stocks: [context.quote] } : context.technical) ?? quoteToCard(context.quote);
 
   events.push({ type: 'final_answer', message: content, result, stock: context.quote });
 
@@ -104,7 +104,7 @@ function commandUsageResponse(_request: ChatRequest, usage: string): ChatRespons
   return { events: [{ type: 'final_answer', message: usage }], message };
 }
 
-function buildDag(context: AgentContext): DagNode<AgentContext>[] {
+function buildDag(context: AgentContext, onToken?: (token: string) => void): DagNode<AgentContext>[] {
   if (context.intent === 'board') {
     return [
       {
@@ -184,7 +184,7 @@ function buildDag(context: AgentContext): DagNode<AgentContext>[] {
         description: `${agent.label}：${context.symbol}`,
         dependsOn: ['market-data'],
         run: async (ctx: AgentContext) => {
-          const result = await runStockAnalysisSubAgent(agent.name, stockAnalysisInput(ctx));
+          const result = await runStockAnalysisSubAgent(agent.name, stockAnalysisInput(ctx), context.singleAgent ? onToken : undefined);
           ctx.analysisResults = [...(ctx.analysisResults ?? []), result];
         },
       })),
@@ -197,7 +197,7 @@ function buildDag(context: AgentContext): DagNode<AgentContext>[] {
         description: `汇总 ${context.symbol} 五维分析结果`,
         dependsOn: analysisAgents.map((agent) => `analysis-${agent.name}`),
         run: async (ctx) => {
-          ctx.analysisOverview = await runStockAnalysisOverview(stockAnalysisInput(ctx), ctx.analysisResults ?? []);
+          ctx.analysisOverview = await runStockAnalysisOverview(stockAnalysisInput(ctx), ctx.analysisResults ?? [], onToken);
         },
       });
     }

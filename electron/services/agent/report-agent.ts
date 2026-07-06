@@ -9,7 +9,7 @@ type ReportInput = {
   board?: AgentResultCard;
 };
 
-export async function runReportAgent(input: ReportInput): Promise<string> {
+export async function runReportAgent(input: ReportInput, onToken?: (token: string) => void): Promise<string> {
   const data = JSON.stringify(input, null, 2);
   try {
     return await generateReport([
@@ -22,7 +22,7 @@ export async function runReportAgent(input: ReportInput): Promise<string> {
         role: 'user',
         content: `用户问题：${input.query}\n\n结构化数据：\n${data}\n\n请用中文输出简洁、有条理的投研辅助回复。`,
       },
-    ]);
+    ], onToken);
   } catch (error) {
     return fallbackReport(input, error instanceof Error ? error.message : '模型调用失败');
   }

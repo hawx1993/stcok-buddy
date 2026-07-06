@@ -10,6 +10,7 @@
 .score-mid { color: var(--warning); font-weight: 700; }
 .score-high { color: var(--success); font-weight: 700; }
 .stock-link, .btn-link { color: var(--accent); font-weight: 500; cursor: pointer; background: transparent; padding: 0; }
+.msg.user .stock-link { color: #fff; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .stock-link:hover, .btn-link:hover { text-decoration: underline; }
 .command-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 3px; background: var(--surface-active); color: var(--fg); cursor: pointer; white-space: nowrap; }
 .command-chip:hover { background: var(--collapse-btn-hover); }
@@ -26,3 +27,14 @@
 .msg-text code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--input-bg); border-radius: 3px; padding: 1px 4px; }
 .msg-text pre { overflow-x: auto; background: var(--input-bg); border-radius: 5px; padding: 8px; margin: 6px 0; }
 .msg-text pre code { background: transparent; padding: 0; }
+.thinking-line, .processed-line { margin: 0 0 6px 2px; font-size: 13px; }
+.processed-line { color: var(--muted); font-weight: 500; }
+.thinking-shimmer { display: inline-flex; gap: 1px; font-weight: 600; }
+.thinking-shimmer span { color: var(--muted); animation: thinking-blink 1.25s infinite; }
+.thinking-shimmer span:nth-child(2) { animation-delay: .14s; }
+.thinking-shimmer span:nth-child(3) { animation-delay: .28s; }
+.thinking-shimmer span:nth-child(4) { animation-delay: .42s; }
+.thinking-shimmer span:nth-child(5) { animation-delay: .56s; }
+.thinking-shimmer span:nth-child(6) { animation-delay: .7s; }
+@keyframes thinking-blink { 0%, 70%, 100% { color: var(--muted); text-shadow: none; } 25% { color: #f8fafc; text-shadow: 0 0 8px rgba(226,232,240,.75); } }
+@media (prefers-reduced-motion: reduce) { .thinking-shimmer span { animation: none; color: #e2e8f0; } }

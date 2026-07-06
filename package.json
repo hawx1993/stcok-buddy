@@ -1,6 +1,6 @@
 {
   "name": "stockbuddy-desktop",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "StockBuddy - 对话式 A 股投研助手 Electron 桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
@@ -93,10 +93,15 @@
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
+    "@langchain/core": "^1.2.1",
+    "@langchain/openai": "^1.5.3",
+    "ai": "^7.0.15",
     "antd": "^6.5.0",
     "better-sqlite3": "^11.10.0",
     "electron-store": "^10.0.1",
     "gsap": "^3.12.5",
+    "klinecharts": "10.0.0-beta3",
+    "langchain": "^1.5.2",
     "lucide-react": "^0.469.0",
     "marked": "^13.0.3",
     "react": "^18.3.1",
