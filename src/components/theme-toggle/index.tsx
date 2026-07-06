@@ -1,5 +1,6 @@
-import { useAppStore } from '../store/app-store';
-import { getStocksenseApi } from '../shared/stocksense-api';
+import { useAppStore } from '../../store/app-store';
+import { getStocksenseApi } from '../../shared/stocksense-api';
+import styles from './index.module.scss';
 
 export function ThemeToggle() {
   const config = useAppStore((state) => state.config);
@@ -16,11 +17,11 @@ export function ThemeToggle() {
   };
 
   return (
-    <button className="dropdown-item theme-row" onClick={toggle} type="button">
-      <span className="item-icon">{theme === 'dark' ? '🌙' : '☀️'}</span>
+    <button className={`${styles['dropdown-item']} ${styles['theme-row']}`} onClick={toggle} type="button">
+      <span className={styles['item-icon']}>{theme === 'dark' ? '🌙' : '☀️'}</span>
       <span>{theme === 'dark' ? '深色模式' : '浅色模式'}</span>
-      <span className={`theme-switch ${theme === 'light' ? 'light' : ''}`}>
-        <span className="knob" />
+      <span className={`${styles['theme-switch']} ${theme === 'light' ? styles.light : ''}`}>
+        <span className={styles.knob} />
       </span>
     </button>
   );

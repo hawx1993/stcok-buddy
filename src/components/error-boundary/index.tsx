@@ -1,5 +1,6 @@
 import type { ErrorInfo, ReactNode } from 'react';
 import { Component } from 'react';
+import styles from './index.module.scss';
 
 interface ErrorBoundaryProps {
   name: string;
@@ -24,9 +25,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   render() {
     if (this.state.error) {
       return (
-        <div className="error-boundary">
-          <div className="error-title">{this.props.name} 加载失败</div>
-          <div className="error-desc">{this.state.error.message}</div>
+        <div className={styles['error-boundary']}>
+          <div className={styles['error-title']}>{this.props.name} 加载失败</div>
+          <div className={styles['error-desc']}>{this.state.error.message}</div>
           <button type="button" onClick={() => this.setState({ error: undefined })}>重试</button>
         </div>
       );

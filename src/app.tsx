@@ -6,6 +6,9 @@ import { StockDetailPanel } from './components/stock-detail-panel';
 import { SettingsModal } from './components/settings-modal';
 import { ErrorBoundary } from './components/error-boundary';
 import { getStocksenseApi } from './shared/stocksense-api';
+import styles from './styles/app.module.scss';
+import cx from './shared/cx';
+
 
 export function App() {
   const config = useAppStore((state) => state.config);
@@ -36,28 +39,28 @@ export function App() {
   }, [config?.theme]);
 
   return (
-    <div className="app">
-      <div className="titlebar">
-        <div className="traffic-lights" aria-hidden="true">
-          <span className="dot close" />
-          <span className="dot minimize" />
-          <span className="dot maximize" />
+    <div className={styles.app}>
+      <div className={styles.titlebar}>
+        <div className={styles['traffic-lights']} aria-hidden="true">
+          <span className={cx(styles.dot, styles.close)} />
+          <span className={cx(styles.dot, styles.minimize)} />
+          <span className={cx(styles.dot, styles.maximize)} />
         </div>
-        <button className={`collapse-btn ${isLeftSidebarCollapsed ? 'collapsed' : ''}`} onClick={toggleLeftSidebar} title={isLeftSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} type="button">
+        <button className={cx(styles['collapse-btn'], isLeftSidebarCollapsed && styles.collapsed)} onClick={toggleLeftSidebar} title={isLeftSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
         </button>
-        <div className="titlebar-label">StockBuddy</div>
-        <div className="titlebar-spacer" />
+        <div className={styles['titlebar-label']}>StockBuddy</div>
+        <div className={styles['titlebar-spacer']} />
       </div>
 
-      <div className="body">
+      <div className={styles.body}>
         <ErrorBoundary name="左侧栏"><Sidebar /></ErrorBoundary>
-        <main className="main">
+        <main className={styles.main}>
           <ErrorBoundary name="聊天区"><ChatView /></ErrorBoundary>
         </main>
-        <div className={`right-wrapper ${isRightPanelCollapsed ? 'collapsed' : ''}`}>
+        <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)}>
           <ErrorBoundary name="右侧栏"><StockDetailPanel /></ErrorBoundary>
-          <button className="right-toggle-btn" onClick={toggleRightPanel} type="button" title={isRightPanelCollapsed ? '展开侧边栏' : '收起侧边栏'}>
+          <button className={styles['right-toggle-btn']} onClick={toggleRightPanel} type="button" title={isRightPanelCollapsed ? '展开侧边栏' : '收起侧边栏'}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
           </button>
         </div>

@@ -1,8 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
-import { useAppStore } from '../store/app-store';
-import { getStocksenseApi } from '../shared/stocksense-api';
-import type { BoardConstituent, ChipDistribution, KlinePoint, MarketNewsItem } from '../shared/types';
+import { useAppStore } from '../../store/app-store';
+import { getStocksenseApi } from '../../shared/stocksense-api';
+import type { BoardConstituent, ChipDistribution, KlinePoint, MarketNewsItem } from '../../shared/types';
+import styles from './index.module.scss';
+import cx from '../../shared/cx';
+
 
 const NEWS_PAGE_SIZE = 30;
 
@@ -69,7 +72,7 @@ export function StockDetailPanel() {
   }, [selectedStock, tf, theme, kline, chipsOpen]);
 
   useEffect(() => {
-    if (selectedStock) return;
+    if (selectedStock || selectedBoard) return;
     let alive = true;
     setNewsLoading(true);
     getStocksenseApi().listMarketNews(newsQuery, newsPage, NEWS_PAGE_SIZE).then((result) => {
@@ -80,25 +83,25 @@ export function StockDetailPanel() {
       if (alive) setNewsLoading(false);
     });
     return () => { alive = false; };
-  }, [selectedStock, newsQuery, newsPage, newsRefresh]);
+  }, [selectedStock, selectedBoard, newsQuery, newsPage, newsRefresh]);
 
   const totalPages = Math.max(1, Math.ceil(newsTotal / NEWS_PAGE_SIZE));
 
   return (
-    <aside className="right-panel">
+    <aside className={`${styles['right-panel']} right-panel`}>
       {!selectedStock && !selectedBoard ? (
         <>
-          <div className="right-panel-header">
-            <span className="title">📰 市场热点</span>
-            <div className="rp-search-row"><input value={newsQuery} onChange={(event) => { setNewsQuery(event.target.value); setNewsPage(1); }} placeholder="搜索新闻…" /></div>
-            <button className="news-refresh" onClick={() => setNewsRefresh((value) => value + 1)} disabled={newsLoading} type="button">{newsLoading ? '刷新中…' : '刷新'}</button>
+          <div className={styles['right-panel-header']}>
+            <span className={styles.title}>📰 市场热点</span>
+            <div className={styles['rp-search-row']}><input value={newsQuery} onChange={(event) => { setNewsQuery(event.target.value); setNewsPage(1); }} placeholder="搜索新闻…" /></div>
+            <button className={styles['news-refresh']} onClick={() => setNewsRefresh((value) => value + 1)} disabled={newsLoading} type="button">{newsLoading ? '刷新中…' : '刷新'}</button>
           </div>
-          <div className="right-panel-body">
-            <div className="news-section-title">📌 热门新闻 <span>{newsTotal} 条</span></div>
-            <div className="right-news-list">
-              {newsLoading ? <div className="empty-list">加载中…</div> : news.length ? news.map((item) => <NewsItem key={item.id} item={item} />) : <div className="empty-list">无匹配新闻</div>}
+          <div className={styles['right-panel-body']}>
+            <div className={styles['news-section-title']}>📌 热门新闻 <span>{newsTotal} 条</span></div>
+            <div className={styles['right-news-list']}>
+              {newsLoading ? <div className={styles['empty-list']}>加载中…</div> : news.length ? news.map((item) => <NewsItem key={item.id} item={item} />) : <div className={styles['empty-list']}>无匹配新闻</div>}
             </div>
-            <div className="news-pager">
+            <div className={styles['news-pager']}>
               <button onClick={() => setNewsPage((value) => Math.max(1, value - 1))} disabled={newsPage <= 1 || newsLoading} type="button">上一页</button>
               <span>{newsPage} / {totalPages}</span>
               <button onClick={() => setNewsPage((value) => Math.min(totalPages, value + 1))} disabled={newsPage >= totalPages || newsLoading} type="button">下一页</button>
@@ -108,24 +111,24 @@ export function StockDetailPanel() {
       ) : selectedBoard ? (
         <BoardDetailView />
       ) : selectedStock ? (
-        <div className="stock-detail" ref={detailRef}>
-          <div className="stock-header" data-stockheader>
-            <div className="stock-name">{selectedStock.name}<span className="code">{selectedStock.code} · {selectedStock.exchange ?? 'A股'}</span></div>
-            <div className="stock-price"><div className="price">{selectedStock.price ?? '--'}</div><div className={`chg ${String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up'}`}>{selectedStock.changePercent ?? '--'} ({selectedStock.change ?? '--'})</div></div>
+        <div className={styles['stock-detail']} ref={detailRef}>
+          <div className={styles['stock-header']} data-stockheader>
+            <div className={styles['stock-name']}>{selectedStock.name}<span className={styles.code}>{selectedStock.code} · {selectedStock.exchange ?? 'A股'}</span></div>
+            <div className={styles['stock-price']}><div className={styles.price}>{selectedStock.price ?? '--'}</div><div className={cx(styles.chg, String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up')}>{selectedStock.changePercent ?? '--'} ({selectedStock.change ?? '--'})</div></div>
           </div>
-          <div className="kline-box" data-klinebox>
+          <div className={styles['kline-box']} data-klinebox>
             <canvas ref={canvasRef} />
             {tf === '1d' && (
-              <div className="chip-label">
-                <span><span className="bar up" />获利 <span className="bar down" />亏损 <span className="chip-note">估算</span></span>
-                <button className="chip-toggle" onClick={() => setChipsOpen((value) => !value)} type="button">筹码峰{chipsOpen ? '收起' : '展开'}</button>
+              <div className={styles['chip-label']}>
+                <span><span className={cx(styles.bar, styles.up)} />获利 <span className={cx(styles.bar, styles.down)} />亏损 <span className={styles['chip-note']}>估算</span></span>
+                <button className={styles['chip-toggle']} onClick={() => setChipsOpen((value) => !value)} type="button">筹码峰{chipsOpen ? '收起' : '展开'}</button>
               </div>
             )}
-            <div className="kline-tf">
-              {timeframes.map((item) => <button key={item.id} className={`tf-btn ${tf === item.id ? 'active' : ''}`} onClick={() => setTf(item.id)} type="button">{item.label}</button>)}
+            <div className={styles['kline-tf']}>
+              {timeframes.map((item) => <button key={item.id} className={cx(styles['tf-btn'], tf === item.id && styles.active)} onClick={() => setTf(item.id)} type="button">{item.label}</button>)}
             </div>
           </div>
-          <div className="stock-grid" data-stockgrid>
+          <div className={styles['stock-grid']} data-stockgrid>
             <Metric label="PE(TTM)" value={selectedStock.pe ?? '--'} />
             <Metric label="PB" value={selectedStock.pb ?? '--'} />
             <Metric label="ROE" value={selectedStock.roe ?? '--'} />
@@ -133,17 +136,17 @@ export function StockDetailPanel() {
             <Metric label="成交量" value={selectedStock.volume ?? '--'} />
             <Metric label="成交额" value={selectedStock.turnover ?? '--'} />
           </div>
-          <div className="divider" />
-          <div className="section-title">综合评级</div>
-          <div className="rating-grid" data-rating>
+          <div className={styles.divider} />
+          <div className={styles['section-title']}>综合评级</div>
+          <div className={styles['rating-grid']} data-rating>
             <Rating label="基本面" score={selectedStock.rating?.fundamental ?? '待评估'} tone="up" />
             <Rating label="估值" score={selectedStock.rating?.valuation ?? '待评估'} tone="warn" />
             <Rating label="技术面" score={selectedStock.rating?.tech ?? '待分析'} tone="warn" />
             <Rating label="风险" score={selectedStock.rating?.risk ?? '中性'} tone="up" />
           </div>
-          <div className="divider" />
-          <div className="section-title">快评</div>
-          <div className="summary-box" data-summary>{selectedStock.summary ?? '暂无摘要。'}</div>
+          <div className={styles.divider} />
+          <div className={styles['section-title']}>快评</div>
+          <div className={styles['summary-box']} data-summary>{selectedStock.summary ?? '暂无摘要。'}</div>
         </div>
       ) : null}
     </aside>
@@ -156,15 +159,15 @@ function BoardDetailView() {
   if (!board) return null;
   const stocks = board.constituents ?? [];
   return (
-    <div className="board-detail">
-      <div className="stock-header">
-        <div className="stock-name">{board.name}<span className="code">{board.code} · 板块</span></div>
-        <div className={`board-change ${String(board.changePercent).startsWith('-') ? 'down' : 'up'}`}>{board.changePercent ?? '--'}</div>
+    <div className={styles['board-detail']}>
+      <div className={styles['stock-header']}>
+        <div className={styles['stock-name']}>{board.name}<span className={styles.code}>{board.code} · 板块</span></div>
+        <div className={cx(styles['board-change'], String(board.changePercent).startsWith('-') ? 'down' : 'up')}>{board.changePercent ?? '--'}</div>
       </div>
-      <div className="board-stock-section">
-        <div className="section-title">成分股 <span>{stocks.length} 只</span></div>
-        <div className="board-stock-list">
-          {stocks.length ? stocks.map((stock) => <BoardStockItem key={stock.code} stock={stock} onClick={() => setSelectedStock({ ...stock, turnover: stock.turnover ?? stock.amount, summary: `${board.name}板块成分股。` })} />) : <div className="empty-list">暂无成分股数据</div>}
+      <div className={styles['board-stock-section']}>
+        <div className={styles['section-title']}>成分股 <span>{stocks.length} 只</span></div>
+        <div className={styles['board-stock-list']}>
+          {stocks.length ? stocks.map((stock) => <BoardStockItem key={stock.code} stock={stock} onClick={() => setSelectedStock({ ...stock, turnover: stock.turnover ?? stock.amount, summary: `${board.name}板块成分股。` })} />) : <div className={styles['empty-list']}>暂无成分股数据</div>}
         </div>
       </div>
     </div>
@@ -173,7 +176,7 @@ function BoardDetailView() {
 
 function BoardStockItem({ stock, onClick }: { stock: BoardConstituent; onClick(): void }) {
   return (
-    <button className="board-stock-item" onClick={onClick} type="button">
+    <button className={styles['board-stock-item']} onClick={onClick} type="button">
       <span><b>{stock.name}</b><em>{stock.code}</em></span>
       <span className={String(stock.changePercent).startsWith('-') ? 'down' : 'up'}>{stock.changePercent ?? '--'}</span>
     </button>
@@ -183,21 +186,21 @@ function BoardStockItem({ stock, onClick }: { stock: BoardConstituent; onClick()
 function NewsItem({ item }: { item: MarketNewsItem }) {
   const content = (
     <>
-      <div className="news-time">{item.time}{item.source ? ` · ${item.source}` : ''}</div>
-      <div className="news-title">{item.title}</div>
-      <div className="news-tags">{item.tags.map((tag) => <span className={`nt ${item.tagType ?? ''}`} key={tag}>{tag}</span>)}</div>
+      <div className={styles['news-time']}>{item.time}{item.source ? ` · ${item.source}` : ''}</div>
+      <div className={styles['news-title']}>{item.title}</div>
+      <div className={styles['news-tags']}>{item.tags.map((tag) => <span className={cx(styles.nt, item.tagType ? styles[item.tagType] : undefined)} key={tag}>{tag}</span>)}</div>
     </>
   );
-  if (!item.url) return <div className="news-item">{content}</div>;
-  return <button className="news-item" onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')} type="button">{content}</button>;
+  if (!item.url) return <div className={styles['news-item']}>{content}</div>;
+  return <button className={styles['news-item']} onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')} type="button">{content}</button>;
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
-  return <div className="si"><div className="lbl">{label}</div><div className="v">{value}</div></div>;
+  return <div className={styles.si}><div className={styles.lbl}>{label}</div><div className={styles.v}>{value}</div></div>;
 }
 
 function Rating({ label, score, tone }: { label: string; score: string; tone: 'up' | 'warn' }) {
-  return <div className="r"><div className={`s ${tone}`}>{score}</div><div className="l">{label}</div></div>;
+  return <div className={styles.r}><div className={cx(styles.s, tone === 'warn' ? styles.warn : 'up')}>{score}</div><div className={styles.l}>{label}</div></div>;
 }
 
 export function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: string, chips?: ChipDistribution) {

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AppConfig, HoldingPeriod, ProviderKind, RiskProfile, TradeStyle } from '../shared/types';
-import { getStocksenseApi } from '../shared/stocksense-api';
-import { useAppStore } from '../store/app-store';
+import type { AppConfig, HoldingPeriod, ProviderKind, RiskProfile, TradeStyle } from '../../shared/types';
+import { getStocksenseApi } from '../../shared/stocksense-api';
+import { useAppStore } from '../../store/app-store';
+import styles from './index.module.scss';
 
 type ProviderPreset = {
   id: ProviderKind;
@@ -87,68 +88,68 @@ export function SettingsModal() {
   };
 
   return (
-    <div className="modal-overlay open" onClick={() => setSettingsOpen(false)}>
-      <div className="modal settings-system-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="modal-header">
+    <div className={`${styles['modal-overlay']} ${styles.open}`} onClick={() => setSettingsOpen(false)}>
+      <div className={`${styles.modal} ${styles['settings-system-modal'] ?? ''}`} onClick={(event) => event.stopPropagation()}>
+        <div className={styles['modal-header']}>
           <h2>系统设置</h2>
-          <button className="modal-close" onClick={() => setSettingsOpen(false)} type="button">✕</button>
+          <button className={styles['modal-close']} onClick={() => setSettingsOpen(false)} type="button">✕</button>
         </div>
 
-        <div className="modal-body">
-          <div className="settings-section">
-            <div className="settings-section-title">大模型厂商配置</div>
-            <div className="settings-row">
-              <label className="label" htmlFor="llm-provider">选择模型厂商</label>
+        <div className={styles['modal-body']}>
+          <div className={styles['settings-section']}>
+            <div className={styles['settings-section-title']}>大模型厂商配置</div>
+            <div className={styles['settings-row']}>
+              <label className={styles.label} htmlFor="llm-provider">选择模型厂商</label>
               <select id="llm-provider" value={draft.model.provider} onChange={(event) => changeProvider(event.target.value as ProviderKind)}>
                 {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
               </select>
             </div>
-            <div className="settings-row">
-              <label className="label" htmlFor="api-endpoint">API 地址</label>
+            <div className={styles['settings-row']}>
+              <label className={styles.label} htmlFor="api-endpoint">API 地址</label>
               <input id="api-endpoint" value={draft.model.baseUrl} onChange={(event) => setDraft({ ...draft, model: { ...draft.model, baseUrl: event.target.value } })} placeholder="https://api.deepseek.com" />
-              <div className="hint">填入对应厂商的 API 端点地址</div>
+              <div className={styles.hint}>填入对应厂商的 API 端点地址</div>
             </div>
-            <div className="settings-row">
-              <label className="label" htmlFor="api-key">API Key</label>
-              <div className="api-key-row">
+            <div className={styles['settings-row']}>
+              <label className={styles.label} htmlFor="api-key">API Key</label>
+              <div className={styles['api-key-row']}>
                 <input id="api-key" type={showKey ? 'text' : 'password'} value={draft.model.apiKey} onChange={(event) => setDraft({ ...draft, model: { ...draft.model, apiKey: event.target.value } })} placeholder="sk-xxxxxxxxxxxx" />
-                <button className="toggle-vis" onClick={() => setShowKey((value) => !value)} type="button">{showKey ? '🙈' : '👁'}</button>
+                <button className={styles['toggle-vis']} onClick={() => setShowKey((value) => !value)} type="button">{showKey ? '🙈' : '👁'}</button>
               </div>
-              <div className="hint">API Key 仅存储在本地设备中，不会上传到 StockBuddy 服务端</div>
+              <div className={styles.hint}>API Key 仅存储在本地设备中，不会上传到 StockBuddy 服务端</div>
             </div>
-            <div className="settings-row">
-              <label className="label" htmlFor="model-name">模型名称（可选）</label>
+            <div className={styles['settings-row']}>
+              <label className={styles.label} htmlFor="model-name">模型名称（可选）</label>
               <input id="model-name" value={draft.model.customModel ?? draft.model.model} onChange={(event) => setDraft({ ...draft, model: { ...draft.model, customModel: event.target.value, model: event.target.value || currentProvider.model } })} placeholder={currentProvider.model || '自定义模型名称'} />
-              <div className="hint">{currentProvider.hint}</div>
+              <div className={styles.hint}>{currentProvider.hint}</div>
             </div>
           </div>
 
-          <div className="settings-section">
-            <div className="settings-section-title">交易模式</div>
-            <div className="settings-row">
-              <label className="label">交易风格</label>
-              <div className="radio-group">
+          <div className={styles['settings-section']}>
+            <div className={styles['settings-section-title']}>交易模式</div>
+            <div className={styles['settings-row']}>
+              <label className={styles.label}>交易风格</label>
+              <div className={styles['radio-group']}>
                 {tradeStyles.map((item) => (
-                  <button key={item.value} className={`radio-item ${draft.tradeStyle === item.value ? 'active' : ''}`} onClick={() => selectTradeStyle(item.value)} type="button">
-                    <span className="radio-label">{item.label}</span>
-                    <span className="radio-desc">{item.desc}</span>
+                  <button key={item.value} className={`${styles['radio-item']} ${draft.tradeStyle === item.value ? styles.active : ''}`} onClick={() => selectTradeStyle(item.value)} type="button">
+                    <span className={styles['radio-label']}>{item.label}</span>
+                    <span className={styles['radio-desc']}>{item.desc}</span>
                   </button>
                 ))}
               </div>
             </div>
-            <div className="settings-row">
-              <label className="label">风险偏好</label>
-              <div className="radio-group">
+            <div className={styles['settings-row']}>
+              <label className={styles.label}>风险偏好</label>
+              <div className={styles['radio-group']}>
                 {riskProfiles.map((item) => (
-                  <button key={item.value} className={`radio-item ${draft.riskProfile === item.value ? 'active' : ''}`} onClick={() => selectRiskProfile(item.value)} type="button">
-                    <span className="radio-label">{item.label}</span>
-                    <span className="radio-desc">{item.desc}</span>
+                  <button key={item.value} className={`${styles['radio-item']} ${draft.riskProfile === item.value ? styles.active : ''}`} onClick={() => selectRiskProfile(item.value)} type="button">
+                    <span className={styles['radio-label']}>{item.label}</span>
+                    <span className={styles['radio-desc']}>{item.desc}</span>
                   </button>
                 ))}
               </div>
             </div>
-            <div className="settings-row">
-              <label className="label" htmlFor="holding-period">持仓周期</label>
+            <div className={styles['settings-row']}>
+              <label className={styles.label} htmlFor="holding-period">持仓周期</label>
               <select id="holding-period" value={draft.holdingPeriod ?? 'medium'} onChange={(event) => setDraft({ ...draft, holdingPeriod: event.target.value as HoldingPeriod })}>
                 {holdingPeriods.map((period) => <option key={period.value} value={period.value}>{period.label}</option>)}
               </select>
@@ -156,12 +157,12 @@ export function SettingsModal() {
           </div>
         </div>
 
-        <div className="modal-footer">
-          <button className="btn-cancel" onClick={() => setSettingsOpen(false)} type="button">取消</button>
-          <button className="btn-save" onClick={save} type="button">保存</button>
+        <div className={styles['modal-footer']}>
+          <button className={styles['btn-cancel']} onClick={() => setSettingsOpen(false)} type="button">取消</button>
+          <button className={styles['btn-save']} onClick={save} type="button">保存</button>
         </div>
       </div>
-      {toast ? <div className="toast show success">{toast}</div> : null}
+      {toast ? <div className={`${styles.toast} ${styles.show} ${styles.success}`}>{toast}</div> : null}
     </div>
   );
 }
