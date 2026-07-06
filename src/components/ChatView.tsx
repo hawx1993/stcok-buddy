@@ -1,16 +1,23 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { message as antdMessage } from 'antd';
 import gsap from 'gsap';
 import { marked } from 'marked';
 import { getStocksenseApi } from '../shared/stocksenseApi';
+import { drawKLine } from './StockDetailPanel';
 import type { AgentResultCard, ChatMessage, StockDetail } from '../shared/types';
 import { useAppStore } from '../store/appStore';
 
 const hints = ['选股', '诊股', '我的持仓', '北向资金', '热点板块'];
 
+const slashItems = [
+  { id: 'comprehensive-report', section: 'Commands', label: '综合投研报告', command: '/综合投研报告', description: '调用五个子 Agent，生成完整综合投资报告', argPlaceholder: '[输入股票代码或股票名称]' },
+];
+
 export function ChatView() {
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const messages = useAppStore((state) => state.messages);
   const [now, setNow] = useState(Date.now());
   const activeConversationId = useAppStore((state) => state.activeConversationId);
@@ -48,6 +55,13 @@ export function ChatView() {
     } catch {
       setSelectedStock(stock);
     }
+  };
+
+  const slashOpen = input.startsWith('/') && !input.includes(' ');
+  const activeCommand = slashItems.find((item) => input.startsWith(`${item.command} `));
+  const commandArg = activeCommand ? input.slice(activeCommand.command.length + 1) : '';
+  const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
+    setInput(`${item.command} `);
   };
 
   const send = async (override?: string) => {
@@ -107,14 +121,47 @@ export function ChatView() {
         {messages.length === 0 ? <QuickEntry onSubmit={send} /> : messages.map((message) => <MessageBubble key={message.id} message={message} now={now} onStockClick={openStockDetail} />)}
       </div>
       <div className="chat-input">
+        {slashOpen ? <SlashCommandMenu selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} /> : null}
         <div className="input-hints">
           {hints.map((hint) => <button className="hint" key={hint} onClick={() => setInput(hint)} type="button">{hint}</button>)}
         </div>
         <div className="input-row">
-          <input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void send(); }} placeholder="选股 诊股 持仓 北向资金 热点板块" />
+          {activeCommand ? (
+            <div className="command-input-wrap">
+              <button className="command-chip" title={activeCommand.description} onClick={() => setInput('/')} type="button"><span className="slash-icon">/</span>{activeCommand.command}</button>
+              <input value={commandArg} onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)} onKeyDown={(event) => {
+                if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) { event.preventDefault(); setInput(''); return; }
+                if (event.key === 'Enter') void send();
+              }} placeholder={activeCommand.argPlaceholder} autoFocus />
+            </div>
+          ) : (
+            <input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
+              if (slashOpen && event.key === 'Enter') { event.preventDefault(); selectSlashItem(); return; }
+              if (slashOpen && event.key === 'ArrowDown') { event.preventDefault(); setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1)); return; }
+              if (slashOpen && event.key === 'ArrowUp') { event.preventDefault(); setSelectedSlashIndex((value) => Math.max(value - 1, 0)); return; }
+              if (event.key === 'Enter') void send();
+            }} placeholder="输入 / 查看 Commands 和 Skills，或直接输入股票名称/代码" />
+          )}
           <button onClick={() => void send()} disabled={isSending} type="button">{isSending ? '分析中…' : '发送'}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SlashCommandMenu({ selectedIndex, onSelect }: { selectedIndex: number; onSelect(item?: typeof slashItems[number]): void }) {
+  return (
+    <div className="slash-menu">
+      <div className="slash-section">Skills</div>
+      <div className="slash-empty">暂无 Skills</div>
+      <div className="slash-section">Commands</div>
+      {slashItems.map((item, index) => (
+        <button className={`slash-item ${index === selectedIndex ? 'active' : ''}`} key={item.id} onMouseDown={(event) => { event.preventDefault(); onSelect(item); }} type="button">
+          <span className="slash-icon">/</span>
+          <span className="slash-label">{item.label}</span>
+          <span className="slash-desc">{item.description}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -137,7 +184,7 @@ function QuickEntry({ onSubmit }: { onSubmit(text: string): void }) {
       <div className="qe-title">开始新的投研分析</div>
       <div className="qe-sub">输入股票名称或代码，AI 将为你深度解读</div>
       <div className="qe-search-box">
-        <input value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(value); }} placeholder="例如：五粮液、000858、贵州茅台……" autoFocus />
+        <input value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(value); }} placeholder="例如：/综合投研报告 中公教育、000858……" autoFocus />
         <button onClick={() => onSubmit(value)} type="button">开始分析</button>
       </div>
       <div className="qe-hints">
@@ -148,11 +195,20 @@ function QuickEntry({ onSubmit }: { onSubmit(text: string): void }) {
 }
 
 function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; now: number; onStockClick(stock: StockDetail): void }) {
+  const copySelectedMessage = async (event: React.MouseEvent<HTMLDivElement>) => {
+    if (message.role !== 'user') return;
+    const selection = window.getSelection();
+    const text = selection?.toString().trim();
+    if (!text || !selection?.anchorNode || !event.currentTarget.contains(selection.anchorNode)) return;
+    await navigator.clipboard.writeText(text);
+    antdMessage.success('复制成功');
+  };
+
   return (
     <div className={`msg ${message.role === 'user' ? 'user' : 'agent'}`} data-msg>
       <div className="msg-avatar" data-avatar>{message.role === 'user' ? '我' : '股'}</div>
       <div className="msg-body" data-msgbody>
-        <div className="msg-text" dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(message.content, onStockClick) }} />
+        <div className="msg-text" onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(renderCommandInText(message.content), onStockClick) }} />
         {message.thinking ? <ThinkingTrace startedAt={message.thinking.startedAt} steps={message.thinking.steps} /> : null}
         {message.steps?.length ? <Trace steps={message.steps} /> : null}
         {message.result ? <ResultCard result={message.result} onStockClick={onStockClick} /> : null}
@@ -226,6 +282,7 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
           {result.metrics.map((metric) => <div className="metric-item" key={metric.label}><div className="lbl">{metric.label}</div><div className={`val ${metric.tone ?? ''}`}>{metric.value}</div></div>)}
         </div>
       ) : null}
+      {result.chart?.type === 'kline' ? <KlineChart data={result.chart.data} /> : null}
       {headers.length ? (
         <table className="tbl">
           <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
@@ -239,6 +296,17 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
       {result.narrative ? <div className="card-narrative">{result.narrative}</div> : null}
     </div>
   );
+}
+
+function KlineChart({ data }: { data: NonNullable<AgentResultCard['chart']>['data'] }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const theme = useAppStore((state) => state.config?.theme ?? 'dark');
+
+  useEffect(() => {
+    if (canvasRef.current) drawKLine(canvasRef.current, data, theme);
+  }, [data, theme]);
+
+  return <div className="card-kline"><canvas ref={canvasRef} /></div>;
 }
 
 function renderCell(header: string, row: Record<string, unknown>, onStockClick: (stock: StockDetail) => void) {
@@ -349,6 +417,12 @@ function createThinkingSteps(text: string): NonNullable<ChatMessage['steps']> {
 function isStockAnalysisQuery(text: string) {
   return /^\s*(?:\d{6}|茅台|贵州茅台|五粮液|泸州老窖|洋河股份|宁德|宁德时代|宁王|招行|招商银行|比亚迪|中信证券)\s*$/.test(text)
     || (/分析|诊股|个股分析|帮我看看|看看/.test(text) && /\d{6}|茅台|贵州茅台|五粮液|泸州老窖|洋河股份|宁德|宁德时代|宁王|招行|招商银行|比亚迪|中信证券/.test(text));
+}
+
+function renderCommandInText(content: string) {
+  const item = slashItems.find((command) => content.startsWith(command.command));
+  if (!item) return content;
+  return `<button class="command-chip msg-command-chip" title="${item.description}" type="button"><span class="slash-icon">/</span>${item.command}</button>${content.slice(item.command.length)}`;
 }
 
 function renderMarkdownWithStocks(content: string, _onStockClick: (stock: StockDetail) => void) {

@@ -145,21 +145,24 @@ export function Sidebar() {
 function HotContent({ items, loading, onStockClick }: { items: HotFocusItem[]; loading: boolean; onStockClick(item: HotFocusItem): void }) {
   if (loading) return <div className="empty-list">数据正在加载中…</div>;
   if (!items.length) return <div className="empty-list">暂无热点数据</div>;
-  return <>{items.map((item) => <HotCard key={item.id} item={item} onStockClick={onStockClick} />)}</>;
+  return <div className="hot-timeline">{items.map((item) => <HotCard key={item.id} item={item} onStockClick={onStockClick} />)}</div>;
 }
 
+function getMarketBadge(code?: string) {
+  if (!code) return undefined;
+  if (code.startsWith('688')) return { label: '科', kind: 'star' };
+  if (code.startsWith('6')) return { label: 'SH', kind: 'sh' };
+  if (code.startsWith('0') || code.startsWith('3')) return { label: 'SZ', kind: 'sz' };
+  return undefined;
+}
 function HotCard({ item, onStockClick }: { item: HotFocusItem; onStockClick(item: HotFocusItem): void }) {
   const clickable = Boolean(item.code);
+  const market = getMarketBadge(item.code);
   const content = (
     <>
-      <div className="hc-title">{item.title}<span className={`hc-tag ${item.type ?? 'neutral'}`}>{item.tag ?? item.type ?? '热点'}</span></div>
-      {item.code ? <div className="hc-code">{item.code}</div> : null}
-      <div className="hc-meta">
-        {item.price !== undefined ? <span><b>{item.price}</b></span> : null}
-        {item.changePercent ? <span className={String(item.changePercent).startsWith('-') ? 'down' : 'up'}>{item.changePercent}</span> : null}
-        {item.amount ?? item.turnover ? <span>{item.amount ?? item.turnover}</span> : null}
-      </div>
-      {item.description ? <div className="hc-desc">{item.description}</div> : null}
+      <span className="tl-time">{item.time ?? '--:--'}</span>
+      <div className="hc-title"><span className="hc-name">{market ? <span className={`market-badge ${market.kind}`}>{market.label}</span> : null}{item.title}</span></div>
+      {item.price !== undefined || item.changePercent ? <div className="hc-desc">{[item.price !== undefined ? `现价 ${item.price}` : '', item.changePercent ? `涨跌幅 ${item.changePercent}` : ''].filter(Boolean).join(' · ')}</div> : item.description ? <div className="hc-desc">{item.description}</div> : null}
     </>
   );
   if (!clickable) return <div className="hot-card">{content}</div>;

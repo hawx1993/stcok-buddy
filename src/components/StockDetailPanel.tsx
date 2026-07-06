@@ -200,7 +200,7 @@ function Rating({ label, score, tone }: { label: string; score: string; tone: 'u
   return <div className="r"><div className={`s ${tone}`}>{score}</div><div className="l">{label}</div></div>;
 }
 
-function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: string, chips?: ChipDistribution) {
+export function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: string, chips?: ChipDistribution) {
   const ctx = canvas.getContext('2d');
   if (!ctx || !data.length) return;
   const dpr = window.devicePixelRatio || 1;

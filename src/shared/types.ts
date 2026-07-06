@@ -175,6 +175,7 @@ export interface HotFocusItem {
   changePercent?: string;
   turnover?: string;
   amount?: string;
+  time?: string;
   description?: string;
   tag?: string;
   type?: 'surge' | 'plummet' | 'volume' | 'neutral';
@@ -187,6 +188,7 @@ export interface AgentResultCard {
   rows?: Array<Record<string, unknown>>;
   narrative?: string;
   stocks?: StockDetail[];
+  chart?: { type: 'kline'; data: KlinePoint[] };
 }
 
 export interface StocksenseApi {
