@@ -52,6 +52,7 @@ export function analyzeIndicators(klines: unknown[]): AgentResultCard {
   const prevDea = Number(prevMacd?.dea ?? prevMacd?.DEA ?? 0);
   const macdSignal = prevDif <= prevDea && dif > dea ? 'MACD 金叉' : prevDif >= prevDea && dif < dea ? 'MACD 死叉' : dif > dea ? 'DIF 位于 DEA 上方' : 'DIF 位于 DEA 下方';
   const lastClose = closes.at(-1) ?? 0;
+  const ma5 = Number(ma?.ma5 ?? ma?.MA5 ?? 0);
   const ma20 = Number(ma?.ma20 ?? ma?.MA20 ?? 0);
   const trend = ma20 > 0 ? (lastClose >= ma20 ? '收盘价站上 20 日均线' : '收盘价低于 20 日均线') : '均线状态待确认';
   const signalText = signals.length ? signals.map((signal) => signal.type).join('、') : '近 5 根 K 线未识别到强信号';
@@ -63,7 +64,7 @@ export function analyzeIndicators(klines: unknown[]): AgentResultCard {
     metrics: [
       { label: 'MACD', value: macdSignal, tone: dif > dea ? 'up' : 'down' },
       { label: 'KDJ-K', value: Number(kdj?.k ?? kdj?.K ?? 0).toFixed(2), tone: 'neutral' },
-      { label: 'KDJ-D', value: Number(kdj?.d ?? kdj?.D ?? 0).toFixed(2), tone: 'neutral' },
+      { label: 'MA5', value: ma5 ? ma5.toFixed(2) : '--', tone: lastClose >= ma5 ? 'up' : 'down' },
       { label: 'MA20', value: ma20 ? ma20.toFixed(2) : '--', tone: lastClose >= ma20 ? 'up' : 'down' },
     ],
     narrative: `最近信号：${signalText}。${trend}，${macdSignal}。技术面只代表历史价格和成交量的统计状态，需要结合基本面、流动性与风险事件交叉验证。`,

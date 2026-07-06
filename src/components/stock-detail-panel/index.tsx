@@ -215,7 +215,6 @@ export function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: 
   ctx.clearRect(0, 0, width, height);
   const style = getComputedStyle(document.documentElement);
   const gridColor = style.getPropertyValue('--kline-grid').trim();
-  const maColor = style.getPropertyValue('--kline-ma').trim();
   const volUpColor = style.getPropertyValue('--kline-vol-up').trim();
   const volDownColor = style.getPropertyValue('--kline-vol-down').trim();
   const labelColor = style.getPropertyValue('--kline-label').trim();
@@ -269,14 +268,27 @@ export function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: 
     ctx.fillRect(x - candleWidth / 2, volTop + volHeight - (d.volume / maxVol) * volHeight, candleWidth, (d.volume / maxVol) * volHeight);
   });
 
-  ctx.strokeStyle = maColor;
+  drawMA(ctx, data, 5, gap, chartLeft, chartTop, high, range, chartHeight, theme === 'light' ? '#2563EB' : '#60A5FA');
+  drawMA(ctx, data, 20, gap, chartLeft, chartTop, high, range, chartHeight, theme === 'light' ? '#D97706' : '#FBBF24');
+}
+
+function drawMA(ctx: CanvasRenderingContext2D, data: KlinePoint[], period: number, gap: number, chartLeft: number, chartTop: number, high: number, range: number, chartHeight: number, color: string) {
+  if (data.length < period) return;
+  ctx.strokeStyle = color;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  data.forEach((d, index) => {
+  let started = false;
+  data.forEach((_, index) => {
+    if (index < period - 1) return;
+    const avg = data.slice(index - period + 1, index + 1).reduce((sum, item) => sum + item.close, 0) / period;
     const x = chartLeft + index * gap + gap / 2;
-    const y = chartTop + ((high - d.close) / range) * chartHeight;
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+    const y = chartTop + ((high - avg) / range) * chartHeight;
+    if (!started) {
+      ctx.moveTo(x, y);
+      started = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
   });
   ctx.stroke();
 }

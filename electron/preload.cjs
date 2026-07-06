@@ -6,6 +6,7 @@ const api = {
   listConversations: () => ipcRenderer.invoke('conversation:list'),
   createConversation: () => ipcRenderer.invoke('conversation:create'),
   deleteConversation: (id) => ipcRenderer.invoke('conversation:delete', id),
+  renameConversation: (id, title) => ipcRenderer.invoke('conversation:rename', id, title),
   listMessages: (conversationId) => ipcRenderer.invoke('message:list', conversationId),
   saveMessage: (conversationId, message) => ipcRenderer.invoke('message:save', conversationId, message),
   sendChat: (request) => ipcRenderer.invoke('chat:send', request),

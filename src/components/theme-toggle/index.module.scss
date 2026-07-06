@@ -4,5 +4,7 @@
 .dropdown-item.danger { color: var(--danger); }
 .dropdown-divider { height: 1px; background: var(--border); margin: 3px 8px; }
 .theme-row .theme-switch { margin-left: auto; }
-.theme-switch { position: relative; width: 36px; height: 20px; background: var(--input-bg); border-radius: 10px; cursor: pointer; flex-shrink: 0; border: 1px solid var(--border); }
-.theme-switch .knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); transition: transform .25s ease; }
+.theme-switch { position: relative; width: 36px; height: 20px; background: var(--surface-active); border-radius: 10px; cursor: pointer; flex-shrink: 0; border: 1px solid var(--border); transition: background .25s ease; }
+.theme-switch.light { background: var(--accent); }
+.theme-switch .knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .25s ease; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.theme-switch.light .knob { transform: translateX(16px); }

@@ -11,8 +11,8 @@
 .score-high { color: var(--success); font-weight: 700; }
 .stock-link, .btn-link { color: var(--accent); font-weight: 500; cursor: pointer; background: transparent; padding: 0; }
 .stock-link:hover, .btn-link:hover { text-decoration: underline; }
-.command-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 3px; background: rgba(48, 84, 72, .88); color: var(--fg); cursor: pointer; white-space: nowrap; }
-.command-chip:hover { background: rgba(57, 105, 88, .95); }
+.command-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 3px; background: var(--surface-active); color: var(--fg); cursor: pointer; white-space: nowrap; }
+.command-chip:hover { background: var(--collapse-btn-hover); }
 .msg-command-chip { margin-right: 4px; font-size: 13px; vertical-align: baseline; }
 .slash-icon { width: 16px; height: 16px; border: 1px solid var(--fg-secondary); border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: var(--fg); flex-shrink: 0; }
 .msg-text p { margin: 0 0 6px; }

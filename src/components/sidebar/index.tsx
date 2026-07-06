@@ -1,9 +1,10 @@
-import { Settings } from 'lucide-react';
+import { message as antdMessage } from 'antd';
+import { MessageCircle, MoreHorizontal, Pencil, Settings, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAppStore, type HotSubTab } from '../../store/app-store';
 import { ThemeToggle } from '../theme-toggle';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import type { HotFocusItem, StockDetail } from '../../shared/types';
+import type { ConversationSummary, HotFocusItem, StockDetail } from '../../shared/types';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
 
@@ -18,6 +19,9 @@ const hotTabs: Array<{ id: HotSubTab; label: string }> = [
 
 export function Sidebar() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [conversationMenuId, setConversationMenuId] = useState<string>();
+  const [editingConversationId, setEditingConversationId] = useState<string>();
+  const [editingTitle, setEditingTitle] = useState('');
   const [hotItemsByTab, setHotItemsByTab] = useState<Partial<Record<HotSubTab, HotFocusItem[]>>>({});
   const [hotLoadingTab, setHotLoadingTab] = useState<HotSubTab>();
   const conversations = useAppStore((state) => state.conversations);
@@ -55,6 +59,10 @@ export function Sidebar() {
   }, [sidebarMainTab, hotSubTab, hotItemsByTab, hotLoadingTab]);
 
   const createConversation = async () => {
+    if (activeConversationId === conversations[0]?.id && conversations[0]?.count === 0) {
+      antdMessage.info('当前已处于最新对话');
+      return;
+    }
     const item = await getStocksenseApi().createConversation();
     setConversations([item, ...conversations]);
     setActiveConversation(item.id);
@@ -92,6 +100,33 @@ export function Sidebar() {
     setHotSubTab(tab);
   };
 
+  const deleteConversation = async (id: string) => {
+    const next = await getStocksenseApi().deleteConversation(id);
+    setConversationMenuId(undefined);
+    setConversations(next);
+    if (activeConversationId === id) {
+      setActiveConversation(next[0]?.id);
+      if (!next.length) clearMessages();
+    }
+  };
+
+  const startRename = (item: ConversationSummary) => {
+    setConversationMenuId(undefined);
+    setEditingConversationId(item.id);
+    setEditingTitle(item.title);
+  };
+
+  const saveRename = async (id: string) => {
+    const title = editingTitle.trim();
+    if (!title) {
+      setEditingConversationId(undefined);
+      return;
+    }
+    setConversations(await getStocksenseApi().renameConversation(id, title));
+    setEditingConversationId(undefined);
+    antdMessage.success('修改成功');
+  };
+
   const query = search.toLowerCase();
   const hotItems = hotItemsByTab[hotSubTab] ?? [];
   const filteredConversations = conversations.filter((item) => !query || `${item.title}${item.preview}`.toLowerCase().includes(query));
@@ -124,9 +159,31 @@ export function Sidebar() {
       <div className={styles['sidebar-list']}>
         {sidebarMainTab === 'session' ? (
           filteredConversations.length ? filteredConversations.map((item) => (
-            <button key={item.id} className={cx(styles['source-item'], activeConversationId === item.id && styles.active)} onClick={() => setActiveConversation(item.id)} type="button">
-              <span className={styles.label}>{item.title}</span><span className={styles.count}>{item.count}</span>
-            </button>
+            <div key={item.id} className={cx(styles['source-item-wrap'], activeConversationId === item.id && styles.active, conversationMenuId === item.id && styles['menu-open'], editingConversationId === item.id && styles.editing)}>
+              {editingConversationId === item.id ? (
+                <div className={styles['rename-row']}>
+                  <MessageCircle size={17} className={styles['source-icon']} />
+                  <input value={editingTitle} onChange={(event) => setEditingTitle(event.target.value)} onBlur={() => void saveRename(item.id)} onKeyDown={(event) => { if (event.key === 'Enter') void saveRename(item.id); }} autoFocus />
+                </div>
+              ) : (
+                <>
+                  <button className={styles['source-item']} onClick={() => { setConversationMenuId(undefined); setActiveConversation(item.id); }} type="button">
+                    <MessageCircle size={17} className={styles['source-icon']} />
+                    <span className={styles.label}>{item.title}</span>
+                    <span className={styles.count}>{item.count}</span>
+                  </button>
+                  <button className={styles['source-more']} onClick={(event) => { event.stopPropagation(); setConversationMenuId(conversationMenuId === item.id ? undefined : item.id); }} type="button" aria-label="更多操作">
+                    <MoreHorizontal size={16} />
+                  </button>
+                  {conversationMenuId === item.id ? (
+                    <div className={styles['conversation-menu']}>
+                      <button className={styles['conversation-action']} onClick={() => startRename(item)} type="button"><Pencil size={15} /><span>重命名</span></button>
+                      <button className={cx(styles['conversation-action'], styles.danger)} onClick={() => void deleteConversation(item.id)} type="button"><Trash2 size={15} /><span>删除对话</span></button>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
           )) : <div className={styles['empty-list']}>无匹配对话</div>
         ) : <HotContent items={filteredHotItems} loading={hotLoadingTab === hotSubTab && !hotItems.length} onStockClick={openHotStock} />}
       </div>
