@@ -1,0 +1,28 @@
+.msg { user-select: text; }
+.msg-text { display: inline-block; background: var(--card-bg); padding: 7px 13px; border-radius: 8px; line-height: 1.5; font-size: 13px; text-align: left; user-select: text; }
+.msg-text::selection, .msg-text *::selection { background: var(--accent); color: #fff; }
+.msg.user .msg-text code { background: rgba(255,255,255,.16); }
+.msg.user .msg-text { background: var(--accent); color: #fff; }
+.msg.user .msg-text::selection, .msg.user .msg-text *::selection { background: rgba(255,255,255,.38); color: #fff; }
+.up, .cn-down { color: var(--success); }
+.down, .cn-up { color: var(--danger); }
+.score-low { color: var(--danger); font-weight: 700; }
+.score-mid { color: var(--warning); font-weight: 700; }
+.score-high { color: var(--success); font-weight: 700; }
+.stock-link, .btn-link { color: var(--accent); font-weight: 500; cursor: pointer; background: transparent; padding: 0; }
+.stock-link:hover, .btn-link:hover { text-decoration: underline; }
+.command-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 3px; background: rgba(48, 84, 72, .88); color: var(--fg); cursor: pointer; white-space: nowrap; }
+.command-chip:hover { background: rgba(57, 105, 88, .95); }
+.msg-command-chip { margin-right: 4px; font-size: 13px; vertical-align: baseline; }
+.slash-icon { width: 16px; height: 16px; border: 1px solid var(--fg-secondary); border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: var(--fg); flex-shrink: 0; }
+.msg-text p { margin: 0 0 6px; }
+.msg-text p:last-child { margin-bottom: 0; }
+.msg-text ul, .msg-text ol { padding-left: 18px; margin: 4px 0; }
+.msg-text table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 10px 0 12px; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.msg-text th, .msg-text td { padding: 7px 9px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.msg-text th:last-child, .msg-text td:last-child { border-right: 0; }
+.msg-text tr:last-child td { border-bottom: 0; padding-top: 14px; font-weight: 700; }
+.msg-text th { color: var(--fg); background: var(--input-bg); font-weight: 600; }
+.msg-text code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--input-bg); border-radius: 3px; padding: 1px 4px; }
+.msg-text pre { overflow-x: auto; background: var(--input-bg); border-radius: 5px; padding: 8px; margin: 6px 0; }
+.msg-text pre code { background: transparent; padding: 0; }

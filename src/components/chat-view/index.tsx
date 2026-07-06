@@ -2,10 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { message as antdMessage } from 'antd';
 import gsap from 'gsap';
 import { marked } from 'marked';
-import { getStocksenseApi } from '../shared/stocksense-api';
-import { drawKLine } from './stock-detail-panel';
-import type { AgentResultCard, ChatMessage, StockDetail } from '../shared/types';
-import { useAppStore } from '../store/app-store';
+import { getStocksenseApi } from '../../shared/stocksense-api';
+import { drawKLine } from '../stock-detail-panel';
+import type { AgentResultCard, ChatMessage, StockDetail } from '../../shared/types';
+import { useAppStore } from '../../store/app-store';
+import styles from './index.module.scss';
+import cx from '../../shared/cx';
 
 const hints = ['选股', '诊股', '我的持仓', '北向资金', '热点板块'];
 
@@ -33,7 +35,7 @@ export function ChatView() {
     const ctx = gsap.context(() => {
       gsap.from('[data-msg]', { opacity: 0, y: 12, stagger: 0.06, duration: 0.3, ease: 'power2.out' });
       gsap.from('[data-card]', { opacity: 0, y: 8, scale: 0.98, stagger: 0.05, duration: 0.3, delay: 0.15 });
-      gsap.from('.input-hints .hint', { opacity: 0, y: 4, stagger: 0.02, duration: 0.15, delay: 0.2 });
+      gsap.from(`.${styles['input-hints']} .${styles.hint}`, { opacity: 0, y: 4, stagger: 0.02, duration: 0.15, delay: 0.2 });
     }, rootRef);
     return () => ctx.revert();
   }, []);
@@ -116,50 +118,52 @@ export function ChatView() {
   };
 
   return (
-    <div className="chat-wrap" ref={rootRef}>
-      <div className="chat-messages" ref={listRef}>
+    <div className={styles['chat-wrap']} ref={rootRef}>
+      <div className={styles['chat-messages']} ref={listRef}>
         {messages.length === 0 ? <QuickEntry onSubmit={send} /> : messages.map((message) => <MessageBubble key={message.id} message={message} now={now} onStockClick={openStockDetail} />)}
       </div>
-      <div className="chat-input">
-        {slashOpen ? <SlashCommandMenu selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} /> : null}
-        <div className="input-hints">
-          {hints.map((hint) => <button className="hint" key={hint} onClick={() => setInput(hint)} type="button">{hint}</button>)}
-        </div>
-        <div className="input-row">
-          {activeCommand ? (
-            <div className="command-input-wrap">
-              <button className="command-chip" title={activeCommand.description} onClick={() => setInput('/')} type="button"><span className="slash-icon">/</span>{activeCommand.command}</button>
-              <input value={commandArg} onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)} onKeyDown={(event) => {
-                if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) { event.preventDefault(); setInput(''); return; }
+      {messages.length ? (
+        <div className={styles['chat-input']}>
+          {slashOpen ? <SlashCommandMenu selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} /> : null}
+          <div className={styles['input-hints']}>
+            {hints.map((hint) => <button className={styles.hint} key={hint} onClick={() => setInput(hint)} type="button">{hint}</button>)}
+          </div>
+          <div className={styles['input-row']}>
+            {activeCommand ? (
+              <div className={styles['command-input-wrap']}>
+                <button className="command-chip" title={activeCommand.description} onClick={() => setInput('/')} type="button"><span className="slash-icon">/</span>{activeCommand.command}</button>
+                <input value={commandArg} onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)} onKeyDown={(event) => {
+                  if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) { event.preventDefault(); setInput(''); return; }
+                  if (event.key === 'Enter') void send();
+                }} placeholder={activeCommand.argPlaceholder} autoFocus />
+              </div>
+            ) : (
+              <input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
+                if (slashOpen && event.key === 'Enter') { event.preventDefault(); selectSlashItem(); return; }
+                if (slashOpen && event.key === 'ArrowDown') { event.preventDefault(); setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1)); return; }
+                if (slashOpen && event.key === 'ArrowUp') { event.preventDefault(); setSelectedSlashIndex((value) => Math.max(value - 1, 0)); return; }
                 if (event.key === 'Enter') void send();
-              }} placeholder={activeCommand.argPlaceholder} autoFocus />
-            </div>
-          ) : (
-            <input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
-              if (slashOpen && event.key === 'Enter') { event.preventDefault(); selectSlashItem(); return; }
-              if (slashOpen && event.key === 'ArrowDown') { event.preventDefault(); setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1)); return; }
-              if (slashOpen && event.key === 'ArrowUp') { event.preventDefault(); setSelectedSlashIndex((value) => Math.max(value - 1, 0)); return; }
-              if (event.key === 'Enter') void send();
-            }} placeholder="输入 / 查看 Commands 和 Skills，或直接输入股票名称/代码" />
-          )}
-          <button onClick={() => void send()} disabled={isSending} type="button">{isSending ? '分析中…' : '发送'}</button>
+              }} placeholder="输入 / 查看 Commands 和 Skills，或直接输入股票名称/代码" />
+            )}
+            <button onClick={() => void send()} disabled={isSending} type="button">{isSending ? '分析中…' : '发送'}</button>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
 
 function SlashCommandMenu({ selectedIndex, onSelect }: { selectedIndex: number; onSelect(item?: typeof slashItems[number]): void }) {
   return (
-    <div className="slash-menu">
-      <div className="slash-section">Skills</div>
-      <div className="slash-empty">暂无 Skills</div>
-      <div className="slash-section">Commands</div>
+    <div className={styles['slash-menu']}>
+      <div className={styles['slash-section']}>Skills</div>
+      <div className={styles['slash-empty']}>暂无 Skills</div>
+      <div className={styles['slash-section']}>Commands</div>
       {slashItems.map((item, index) => (
-        <button className={`slash-item ${index === selectedIndex ? 'active' : ''}`} key={item.id} onMouseDown={(event) => { event.preventDefault(); onSelect(item); }} type="button">
+        <button className={cx(styles['slash-item'], index === selectedIndex && styles.active)} key={item.id} onMouseDown={(event) => { event.preventDefault(); onSelect(item); }} type="button">
           <span className="slash-icon">/</span>
-          <span className="slash-label">{item.label}</span>
-          <span className="slash-desc">{item.description}</span>
+          <span className={styles['slash-label']}>{item.label}</span>
+          <span className={styles['slash-desc']}>{item.description}</span>
         </button>
       ))}
     </div>
@@ -170,25 +174,25 @@ function QuickEntry({ onSubmit }: { onSubmit(text: string): void }) {
   const [value, setValue] = useState('');
   const examples = ['五粮液', '贵州茅台', '宁德时代', '招商银行', '比亚迪'];
   return (
-    <div className="quick-entry" data-quickentry>
-      <div className="qe-hero" aria-hidden="true">
+    <div className={styles['quick-entry']} data-quickentry>
+      <div className={styles['qe-hero']} aria-hidden="true">
         <svg viewBox="0 0 420 200" xmlns="http://www.w3.org/2000/svg">
           <rect width="420" height="200" fill="var(--bg)" rx="8" />
           <g stroke="var(--surface)" strokeWidth="0.5" opacity="0.75"><line x1="40" y1="30" x2="380" y2="30" /><line x1="40" y1="60" x2="380" y2="60" /><line x1="40" y1="90" x2="380" y2="90" /><line x1="40" y1="120" x2="380" y2="120" /><line x1="40" y1="150" x2="380" y2="150" /><line x1="108" y1="30" x2="108" y2="150" /><line x1="176" y1="30" x2="176" y2="150" /><line x1="244" y1="30" x2="244" y2="150" /><line x1="312" y1="30" x2="312" y2="150" /></g>
-          <path className="qe-wave" d="M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70 L 360 150 Z" fill="rgba(59,130,246,0.08)" />
-          <path className="qe-trend" d="M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70" stroke="var(--accent)" strokeWidth="2" fill="none" strokeLinecap="round" />
-          {[80, 140, 200, 260, 320].map((x, index) => <g key={x} transform={`translate(${x},${index % 2 ? 112 : 82})`}><g className="qe-candle" style={{ animationDelay: `${index * -0.35}s` }}><line x1="6" y1="0" x2="6" y2="40" stroke={index % 2 ? 'var(--danger)' : 'var(--success)'} strokeWidth="1.5" /><rect x="1" y="10" width="10" height="20" fill={index % 2 ? 'var(--danger)' : 'var(--success)'} rx="1" /></g></g>)}
+          <path className={styles['qe-wave']} d="M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70 L 360 150 Z" fill="rgba(59,130,246,0.08)" />
+          <path className={styles['qe-trend']} d="M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70" stroke="var(--accent)" strokeWidth="2" fill="none" strokeLinecap="round" />
+          {[80, 140, 200, 260, 320].map((x, index) => <g key={x} transform={`translate(${x},${index % 2 ? 112 : 82})`}><g className={styles['qe-candle']} style={{ animationDelay: `${index * -0.35}s` }}><line x1="6" y1="0" x2="6" y2="40" stroke={index % 2 ? 'var(--danger)' : 'var(--success)'} strokeWidth="1.5" /><rect x="1" y="10" width="10" height="20" fill={index % 2 ? 'var(--danger)' : 'var(--success)'} rx="1" /></g></g>)}
           <line x1="40" y1="150" x2="380" y2="150" stroke="var(--border)" strokeWidth="1" />
         </svg>
       </div>
-      <div className="qe-title">开始新的投研分析</div>
-      <div className="qe-sub">输入股票名称或代码，AI 将为你深度解读</div>
-      <div className="qe-search-box">
+      <div className={styles['qe-title']}>开始新的投研分析</div>
+      <div className={styles['qe-sub']}>输入股票名称或代码，AI 将为你深度解读</div>
+      <div className={styles['qe-search-box']}>
         <input value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(value); }} placeholder="例如：/综合投研报告 中公教育、000858……" autoFocus />
         <button onClick={() => onSubmit(value)} type="button">开始分析</button>
       </div>
-      <div className="qe-hints">
-        {examples.map((example) => <button key={example} className="qe-hint" onClick={() => setValue(example)} type="button">{example}</button>)}
+      <div className={styles['qe-hints']}>
+        {examples.map((example) => <button key={example} className={styles['qe-hint']} onClick={() => setValue(example)} type="button">{example}</button>)}
       </div>
     </div>
   );
@@ -205,14 +209,14 @@ function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; n
   };
 
   return (
-    <div className={`msg ${message.role === 'user' ? 'user' : 'agent'}`} data-msg>
-      <div className="msg-avatar" data-avatar>{message.role === 'user' ? '我' : '股'}</div>
-      <div className="msg-body" data-msgbody>
+    <div className={cx(styles.msg, 'msg', message.role === 'user' ? styles.user : styles.agent, message.role === 'user' ? 'user' : 'agent')} data-msg>
+      <div className={styles['msg-avatar']} data-avatar>{message.role === 'user' ? '我' : '股'}</div>
+      <div className={styles['msg-body']} data-msgbody>
         <div className="msg-text" onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(renderCommandInText(message.content), onStockClick) }} />
         {message.thinking ? <ThinkingTrace startedAt={message.thinking.startedAt} steps={message.thinking.steps} /> : null}
         {message.steps?.length ? <Trace steps={message.steps} /> : null}
         {message.result ? <ResultCard result={message.result} onStockClick={onStockClick} /> : null}
-        <div className="msg-time">{formatMessageTime(message.createdAt, now)}</div>
+        <div className={styles['msg-time']}>{formatMessageTime(message.createdAt, now)}</div>
       </div>
     </div>
   );
@@ -231,17 +235,17 @@ function ThinkingTrace({ startedAt, steps }: { startedAt: string; steps: NonNull
   }, [startedAt]);
 
   return (
-    <div className={`trace thinking-trace ${open ? 'open' : ''}`} data-trace>
-      <button className="trace-header thinking-header" onClick={() => setOpen(!open)} type="button">
-        <span>思考了 {seconds} 秒</span><span className="trace-caret">{open ? '▾' : '▸'}</span>
+    <div className={cx(styles.trace, styles['thinking-trace'], open && styles.open)} data-trace>
+      <button className={cx(styles['trace-header'], styles['thinking-header'])} onClick={() => setOpen(!open)} type="button">
+        <span>思考了 {seconds} 秒</span><span className={styles['trace-caret']}>{open ? '▾' : '▸'}</span>
       </button>
       {open ? (
-        <div className="trace-body thinking-body" data-tracebody>
+        <div className={cx(styles['trace-body'], styles['thinking-body'])} data-tracebody>
           {steps.map((step) => (
-          <div className="trace-step" key={step.id}>
-            <span className="tag">{step.agent}</span>
-            <span className="desc">{step.description}</span>
-            {step.detail ? <span className="progress">{step.detail}</span> : null}
+          <div className={styles['trace-step']} key={step.id}>
+            <span className={styles.tag}>{step.agent}</span>
+            <span className={styles.desc}>{step.description}</span>
+            {step.detail ? <span className={styles.progress}>{step.detail}</span> : null}
           </div>
           ))}
         </div>
@@ -253,17 +257,17 @@ function ThinkingTrace({ startedAt, steps }: { startedAt: string; steps: NonNull
 function Trace({ steps }: { steps: NonNullable<ChatMessage['steps']> }) {
   const [open, setOpen] = useState(true);
   return (
-    <div className={`trace ${open ? 'open' : ''}`} data-trace>
-      <button className="trace-header" onClick={() => setOpen(!open)} type="button">
-        <span>思考链路</span><span className="trace-caret">{open ? '▾' : '▸'}</span>
+    <div className={cx(styles.trace, open && styles.open)} data-trace>
+      <button className={styles['trace-header']} onClick={() => setOpen(!open)} type="button">
+        <span>思考链路</span><span className={styles['trace-caret']}>{open ? '▾' : '▸'}</span>
       </button>
       {open ? (
-        <div className="trace-body" data-tracebody>
+        <div className={styles['trace-body']} data-tracebody>
           {steps.map((step) => (
-            <div className="trace-step" key={`${step.id}-${step.status}`}>
-              <span className="tag">{step.agent}</span>
-              <span className="desc">{step.description}</span>
-              {step.detail ? <span className="progress">{step.detail}</span> : null}
+            <div className={styles['trace-step']} key={`${step.id}-${step.status}`}>
+              <span className={styles.tag}>{step.agent}</span>
+              <span className={styles.desc}>{step.description}</span>
+              {step.detail ? <span className={styles.progress}>{step.detail}</span> : null}
             </div>
           ))}
         </div>
@@ -275,16 +279,16 @@ function Trace({ steps }: { steps: NonNullable<ChatMessage['steps']> }) {
 function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStockClick(stock: StockDetail): void }) {
   const headers = result.rows?.[0] ? Object.keys(result.rows[0]) : [];
   return (
-    <div className="card" data-card>
-      <div className="card-title">{result.title}<span className="sub">{result.subtitle}</span></div>
+    <div className={styles.card} data-card>
+      <div className={styles['card-title']}>{result.title}<span className={styles.sub}>{result.subtitle}</span></div>
       {result.metrics?.length ? (
-        <div className="metric-row">
-          {result.metrics.map((metric) => <div className="metric-item" key={metric.label}><div className="lbl">{metric.label}</div><div className={`val ${metric.tone ?? ''}`}>{metric.value}</div></div>)}
+        <div className={styles['metric-row']}>
+          {result.metrics.map((metric) => <div className={styles['metric-item']} key={metric.label}><div className={styles.lbl}>{metric.label}</div><div className={cx(styles.val, metric.tone ? styles[metric.tone] : undefined)}>{metric.value}</div></div>)}
         </div>
       ) : null}
       {result.chart?.type === 'kline' ? <KlineChart data={result.chart.data} /> : null}
       {headers.length ? (
-        <table className="tbl">
+        <table className={styles.tbl}>
           <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
           <tbody>
             {result.rows!.map((row, index) => (
@@ -293,7 +297,7 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
           </tbody>
         </table>
       ) : null}
-      {result.narrative ? <div className="card-narrative">{result.narrative}</div> : null}
+      {result.narrative ? <div className={styles['card-narrative']}>{result.narrative}</div> : null}
     </div>
   );
 }
@@ -306,7 +310,7 @@ function KlineChart({ data }: { data: NonNullable<AgentResultCard['chart']>['dat
     if (canvasRef.current) drawKLine(canvasRef.current, data, theme);
   }, [data, theme]);
 
-  return <div className="card-kline"><canvas ref={canvasRef} /></div>;
+  return <div className={styles['card-kline']}><canvas ref={canvasRef} /></div>;
 }
 
 function renderCell(header: string, row: Record<string, unknown>, onStockClick: (stock: StockDetail) => void) {

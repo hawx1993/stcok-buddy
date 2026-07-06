@@ -1,0 +1,7 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 13.5px/1.55 var(--font-sans); -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none; }
+button, input, select { font: inherit; }
+button { border: 0; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }

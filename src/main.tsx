@@ -4,7 +4,7 @@ import { App } from './app';
 import { registerServiceWorker } from './register-service-worker';
 import 'antd/dist/reset.css';
 import './styles/theme.css';
-import './styles/global.css';
+import './styles/global.scss';
 
 registerServiceWorker();
 
