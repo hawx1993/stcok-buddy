@@ -101,6 +101,11 @@ const webFallbackApi: StocksenseApi = {
     localStorage.removeItem(`stocksense-messages:${id}`);
     return next;
   },
+  async renameConversation(id: string, title: string) {
+    const next = readConversations().map((item) => (item.id === id ? { ...item, title: title.trim() || item.title } : item));
+    localStorage.setItem('stocksense-conversations', JSON.stringify(next));
+    return next;
+  },
   async listMessages(conversationId: string) {
     return readMessages(conversationId);
   },

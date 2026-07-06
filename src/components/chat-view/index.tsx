@@ -13,11 +13,11 @@ const hints = ['选股', '诊股', '我的持仓', '北向资金', '热点板块
 
 const slashItems = [
   { id: 'comprehensive-report', section: 'Commands', label: '综合投研报告', command: '/综合投研报告', description: '调用五个子 Agent，生成完整综合投资报告', argPlaceholder: '[输入股票代码或股票名称]' },
-  { id: 'technical-agent', section: 'Sub Agents', label: '技术面分析agent', command: '/技术面分析', description: '仅调用技术面分析 Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
-  { id: 'fundamental-agent', section: 'Sub Agents', label: '基本面分析agent', command: '/基本面分析', description: '仅调用基本面分析 Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
-  { id: 'capital-agent', section: 'Sub Agents', label: '资金面分析agent', command: '/资金面分析', description: '仅调用资金面分析 Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
-  { id: 'sentiment-agent', section: 'Sub Agents', label: '情绪面分析agent', command: '/情绪面分析', description: '仅调用情绪面分析 Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
-  { id: 'lhb-agent', section: 'Sub Agents', label: '龙虎榜分析agent', command: '/龙虎榜分析', description: '仅调用龙虎榜分析 Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+  { id: 'technical-agent', section: 'Sub Agents', label: '技术面分析agent', command: '/技术面分析', description: '仅调用技术面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+  { id: 'fundamental-agent', section: 'Sub Agents', label: '基本面分析agent', command: '/基本面分析', description: '仅调用基本面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+  { id: 'capital-agent', section: 'Sub Agents', label: '资金面分析agent', command: '/资金面分析', description: '仅调用资金面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+  { id: 'sentiment-agent', section: 'Sub Agents', label: '情绪面分析agent', command: '/情绪面分析', description: '仅调用情绪面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+  { id: 'lhb-agent', section: 'Sub Agents', label: '龙虎榜分析agent', command: '/龙虎榜分析', description: '仅调用龙虎榜Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
 ];
 
 export function ChatView() {

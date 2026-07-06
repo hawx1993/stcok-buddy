@@ -197,6 +197,7 @@ export interface StocksenseApi {
   listConversations(): Promise<ConversationSummary[]>;
   createConversation(): Promise<ConversationSummary>;
   deleteConversation(id: string): Promise<ConversationSummary[]>;
+  renameConversation(id: string, title: string): Promise<ConversationSummary[]>;
   listMessages(conversationId: string): Promise<ChatMessage[]>;
   saveMessage(conversationId: string, message: ChatMessage): Promise<void>;
   sendChat(request: ChatRequest): Promise<ChatResponse>;

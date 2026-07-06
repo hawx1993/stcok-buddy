@@ -71,6 +71,12 @@ export function deleteConversation(id: string): ConversationSummary[] {
   return listConversations();
 }
 
+export function renameConversation(id: string, title: string): ConversationSummary[] {
+  const nextTitle = title.trim();
+  if (nextTitle) db.prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?').run(nextTitle, new Date().toISOString(), id);
+  return listConversations();
+}
+
 export function listMessages(conversationId: string): ChatMessage[] {
   return (db.prepare('SELECT payload FROM messages WHERE conversation_id = ? ORDER BY created_at ASC').all(conversationId) as MessageRow[])
     .map((row) => JSON.parse(row.payload) as ChatMessage);

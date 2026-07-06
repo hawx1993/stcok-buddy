@@ -6,6 +6,7 @@ import {
   deleteConversation,
   listConversations,
   listMessages,
+  renameConversation,
   saveAssistantMessage,
   saveMessage,
   saveUserMessage,
@@ -20,6 +21,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('conversation:list', () => listConversations());
   ipcMain.handle('conversation:create', () => createConversation());
   ipcMain.handle('conversation:delete', (_event, id: string) => deleteConversation(id));
+  ipcMain.handle('conversation:rename', (_event, id: string, title: string) => renameConversation(id, title));
   ipcMain.handle('message:list', (_event, conversationId: string) => listMessages(conversationId));
   ipcMain.handle('message:save', (_event, conversationId: string, message: ChatMessage) => saveMessage(conversationId, message));
   ipcMain.handle('stock:getDetail', (_event, symbol: string) => getStockDetail(symbol));
