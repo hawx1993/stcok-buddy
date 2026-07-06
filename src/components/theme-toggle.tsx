@@ -1,5 +1,5 @@
-import { useAppStore } from '../store/appStore';
-import { getStocksenseApi } from '../shared/stocksenseApi';
+import { useAppStore } from '../store/app-store';
+import { getStocksenseApi } from '../shared/stocksense-api';
 
 export function ThemeToggle() {
   const config = useAppStore((state) => state.config);

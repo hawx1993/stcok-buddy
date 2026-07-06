@@ -1,8 +1,8 @@
 import { Settings } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useAppStore, type HotSubTab } from '../store/appStore';
-import { ThemeToggle } from './ThemeToggle';
-import { getStocksenseApi } from '../shared/stocksenseApi';
+import { useAppStore, type HotSubTab } from '../store/app-store';
+import { ThemeToggle } from './theme-toggle';
+import { getStocksenseApi } from '../shared/stocksense-api';
 import type { HotFocusItem, StockDetail } from '../shared/types';
 
 const hotTabs: Array<{ id: HotSubTab; label: string }> = [

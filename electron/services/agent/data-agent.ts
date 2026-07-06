@@ -1,4 +1,4 @@
-import { getBoardSnapshot, getQuote } from '../stock/stockClient.js';
+import { getBoardSnapshot, getQuote } from '../stock/stock-client.js';
 
 export async function fetchQuote(symbol: string) {
   return getQuote(symbol);
