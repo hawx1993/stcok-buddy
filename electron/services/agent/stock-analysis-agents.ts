@@ -1,7 +1,7 @@
 import type { AgentResultCard, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
 import { generateReport } from '../llm/index.js';
 
-type StockAnalysisAgentName = 'technical' | 'fundamental' | 'capital' | 'sentiment' | 'lhb';
+export type StockAnalysisAgentName = 'technical' | 'fundamental' | 'capital' | 'sentiment' | 'lhb';
 
 export type StockAnalysisInput = {
   query: string;

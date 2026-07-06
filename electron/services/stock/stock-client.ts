@@ -58,8 +58,37 @@ export async function getQuote(symbolInput: string): Promise<StockDetail> {
 
 export async function getKline(symbolInput: string, limit = 120): Promise<KlinePoint[]> {
   const symbol = normalizeASymbol(symbolInput);
-  const data = await sdk.kline.cn(symbol, { period: 'daily', adjust: 'qfq' as const });
-  return data.slice(-limit).map(toKlinePoint).filter((point): point is KlinePoint => Boolean(point));
+  try {
+    const data = await sdk.kline.cn(symbol, { period: 'daily', adjust: 'qfq' as const });
+    return data.slice(-limit).map(toKlinePoint).filter((point): point is KlinePoint => Boolean(point));
+  } catch {
+    return getEastmoneyKline(symbol, limit);
+  }
+}
+
+async function getEastmoneyKline(symbol: string, limit: number): Promise<KlinePoint[]> {
+  const market = symbol.startsWith('6') ? '1' : '0';
+  const url = new URL('https://push2his.eastmoney.com/api/qt/stock/kline/get');
+  url.search = new URLSearchParams({
+    secid: `${market}.${symbol}`,
+    fields1: 'f1,f2,f3,f4,f5,f6',
+    fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+    klt: '101',
+    fqt: '1',
+    beg: '0',
+    end: '20500101',
+    lmt: String(limit),
+  }).toString();
+  const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://quote.eastmoney.com/' } });
+  if (!response.ok) return [];
+  const payload = await response.json() as { data?: { klines?: string[] } };
+  return (payload.data?.klines ?? []).map(parseEastmoneyKline).filter((point): point is KlinePoint => Boolean(point));
+}
+
+function parseEastmoneyKline(line: string): KlinePoint | undefined {
+  const [time, open, close, high, low, volume] = line.split(',');
+  const point = { time, open: Number(open), close: Number(close), high: Number(high), low: Number(low), volume: Number(volume) };
+  return [point.open, point.close, point.high, point.low].every(Number.isFinite) ? point : undefined;
 }
 
 function toKlinePoint(raw: unknown): KlinePoint | undefined {

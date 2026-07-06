@@ -108,11 +108,12 @@ const webFallbackApi: StocksenseApi = {
     saveLocalMessage(conversationId, message);
   },
   async sendChat(request: ChatRequest): Promise<ChatResponse> {
-    const reportTarget = request.message.trim().match(/^\/综合投研报告\s*(.*)$/)?.[1].trim();
-    if (reportTarget === '') return webMessage(request, '请输入股票代码或股票名称，例如：/综合投研报告 中公教育');
+    const command = request.message.trim().match(/^\/(综合投研报告|技术面分析|基本面分析|资金面分析|情绪面分析|龙虎榜分析)\s*(.*)$/);
+    const reportTarget = command?.[2].trim();
+    if (command && reportTarget === '') return webMessage(request, `请输入股票代码或股票名称，例如：/${command[1]} 中公教育`);
     const stock = findStock(reportTarget ?? request.message);
     const content = stock
-      ? `浏览器/PWA 预览模式已识别 ${stock.name}（${stock.code}）。若要使用 stock-sdk 实时数据与本地安全 API Key，请运行 Electron 桌面端。\n\n以上内容基于公开数据自动生成，仅供研究参考，不构成投资建议。`
+      ? `浏览器/PWA 预览模式已识别 ${stock.name}（${stock.code}），将按「${command?.[1] ?? '综合投研'}」生成预览报告。若要使用 stock-sdk 实时数据与本地安全 API Key，请运行 Electron 桌面端。\n\n以上内容基于公开数据自动生成，仅供研究参考，不构成投资建议。`
       : '浏览器/PWA 预览模式可体验 UI、主题、动效和本地配置。实时 stock-sdk 数据与本机 API Key 存储在 Electron 桌面端中启用。';
     const message: ChatMessage = {
       id: `web-assistant-${Date.now()}`,
