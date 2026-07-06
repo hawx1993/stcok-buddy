@@ -34,7 +34,7 @@
 .source-more { position: absolute; right: 5px; width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--fg-secondary); background: transparent; opacity: 0; cursor: pointer; }
 .source-item-wrap:hover .source-more, .source-item-wrap.menu-open .source-more { opacity: 1; }
 .source-more:hover { background: var(--surface-hover); color: var(--fg); }
-.rename-row { width: 100%; display: flex; align-items: center; padding: 5px 6px 5px 10px; }
+.rename-row { width: 100%; display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 10px; }
 .rename-row input { min-width: 0; flex: 1; height: 25px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); padding: 0; outline: none; font-size: 13px; }
 .conversation-menu { position: absolute; top: 30px; right: 4px; z-index: 20; min-width: 128px; padding: 5px; border-radius: 10px; background: var(--dropdown-bg); border: 1px solid var(--glass-border); box-shadow: 0 10px 30px rgba(0,0,0,.24); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
 .conversation-action { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; color: var(--fg); background: transparent; cursor: pointer; font-size: 13px; text-align: left; }
@@ -54,10 +54,10 @@
 .dropdown-item.danger { color: var(--danger); }
 
 .hot-timeline { position: relative; padding-left: 42px; }
-.hot-timeline::before { content: ""; position: absolute; left: 32px; top: 5px; bottom: 8px; width: 1px; background: var(--border); }
+.hot-timeline::before { content: ""; position: absolute; left: 20px; top: 5px; bottom: 8px; width: 1px; background: var(--border); }
 .hot-card, .strategy-card { position: relative; width: 100%; display: block; background: var(--input-bg); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; margin-bottom: 8px; cursor: pointer; color: var(--fg); text-align: left; }
-.hot-card::before { content: ""; position: absolute; left: -14px; top: 12px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
-.tl-time { position: absolute; left: -42px; top: 7px; width: 28px; color: var(--muted); font-size: 9px; line-height: 1.1; text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.hot-card::before { content: ""; position: absolute; left: -25px; top: 12px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
+.tl-time { position: absolute; left: -42px; top: 0px; width: 28px; color: var(--muted); font-size: 9px; line-height: 1.1; text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .hot-card:hover, .strategy-card:hover { background: var(--list-item-hover); }
 .hc-code { margin-top: 3px; font-size: 10px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .hc-title { font-size: 12px; font-weight: 600; display: flex; align-items: center; min-width: 0; }

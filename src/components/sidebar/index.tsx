@@ -59,6 +59,10 @@ export function Sidebar() {
   }, [sidebarMainTab, hotSubTab, hotItemsByTab, hotLoadingTab]);
 
   const createConversation = async () => {
+    if (activeConversationId === conversations[0]?.id && conversations[0]?.count === 0) {
+      antdMessage.info('当前已处于最新对话');
+      return;
+    }
     const item = await getStocksenseApi().createConversation();
     setConversations([item, ...conversations]);
     setActiveConversation(item.id);
@@ -114,7 +118,10 @@ export function Sidebar() {
 
   const saveRename = async (id: string) => {
     const title = editingTitle.trim();
-    if (!title) return;
+    if (!title) {
+      setEditingConversationId(undefined);
+      return;
+    }
     setConversations(await getStocksenseApi().renameConversation(id, title));
     setEditingConversationId(undefined);
     antdMessage.success('修改成功');
@@ -155,7 +162,8 @@ export function Sidebar() {
             <div key={item.id} className={cx(styles['source-item-wrap'], activeConversationId === item.id && styles.active, conversationMenuId === item.id && styles['menu-open'], editingConversationId === item.id && styles.editing)}>
               {editingConversationId === item.id ? (
                 <div className={styles['rename-row']}>
-                  <input value={editingTitle} onChange={(event) => setEditingTitle(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void saveRename(item.id); }} autoFocus />
+                  <MessageCircle size={17} className={styles['source-icon']} />
+                  <input value={editingTitle} onChange={(event) => setEditingTitle(event.target.value)} onBlur={() => void saveRename(item.id)} onKeyDown={(event) => { if (event.key === 'Enter') void saveRename(item.id); }} autoFocus />
                 </div>
               ) : (
                 <>
