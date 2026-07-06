@@ -13,6 +13,11 @@ const hints = ['选股', '诊股', '我的持仓', '北向资金', '热点板块
 
 const slashItems = [
   { id: 'comprehensive-report', section: 'Commands', label: '综合投研报告', command: '/综合投研报告', description: '调用五个子 Agent，生成完整综合投资报告', argPlaceholder: '[输入股票代码或股票名称]' },
+  { id: 'technical-agent', section: 'Sub Agents', label: '技术面分析agent', command: '/技术面分析', description: '仅调用技术面分析 Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+  { id: 'fundamental-agent', section: 'Sub Agents', label: '基本面分析agent', command: '/基本面分析', description: '仅调用基本面分析 Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+  { id: 'capital-agent', section: 'Sub Agents', label: '资金面分析agent', command: '/资金面分析', description: '仅调用资金面分析 Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+  { id: 'sentiment-agent', section: 'Sub Agents', label: '情绪面分析agent', command: '/情绪面分析', description: '仅调用情绪面分析 Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+  { id: 'lhb-agent', section: 'Sub Agents', label: '龙虎榜分析agent', command: '/龙虎榜分析', description: '仅调用龙虎榜分析 Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
 ];
 
 export function ChatView() {
@@ -154,17 +159,20 @@ export function ChatView() {
 }
 
 function SlashCommandMenu({ selectedIndex, onSelect }: { selectedIndex: number; onSelect(item?: typeof slashItems[number]): void }) {
+  const sections = Array.from(new Set(slashItems.map((item) => item.section)));
   return (
     <div className={styles['slash-menu']}>
-      <div className={styles['slash-section']}>Skills</div>
-      <div className={styles['slash-empty']}>暂无 Skills</div>
-      <div className={styles['slash-section']}>Commands</div>
-      {slashItems.map((item, index) => (
-        <button className={cx(styles['slash-item'], index === selectedIndex && styles.active)} key={item.id} onMouseDown={(event) => { event.preventDefault(); onSelect(item); }} type="button">
-          <span className="slash-icon">/</span>
-          <span className={styles['slash-label']}>{item.label}</span>
-          <span className={styles['slash-desc']}>{item.description}</span>
-        </button>
+      {sections.map((section) => (
+        <div key={section}>
+          <div className={styles['slash-section']}>{section}</div>
+          {slashItems.map((item, index) => item.section === section ? (
+            <button className={cx(styles['slash-item'], index === selectedIndex && styles.active)} key={item.id} onMouseDown={(event) => { event.preventDefault(); onSelect(item); }} type="button">
+              <span className="slash-icon">/</span>
+              <span className={styles['slash-label']}>{item.label}</span>
+              <span className={styles['slash-desc']}>{item.description}</span>
+            </button>
+          ) : null)}
+        </div>
       ))}
     </div>
   );
@@ -397,6 +405,15 @@ function isGreeting(text: string) {
 }
 
 function createThinkingSteps(text: string): NonNullable<ChatMessage['steps']> {
+  const singleAgent = getSingleAgentCommand(text);
+  if (singleAgent) {
+    return [
+      { id: 'quote', agent: 'DataAgent', description: '0/3 获取实时行情', status: 'running' },
+      { id: 'market-data', agent: 'DataAgent', description: '1/3 拉取K线、指标与新闻样本', status: 'pending' },
+      { id: `analysis-${singleAgent.id}`, agent: singleAgent.label.replace('agent', ''), description: `2/3 调用${singleAgent.label}`, status: 'pending' },
+    ];
+  }
+
   if (isStockAnalysisQuery(text)) {
     return [
       { id: 'quote', agent: 'DataAgent', description: '0/8 获取实时行情', status: 'running' },
@@ -416,6 +433,11 @@ function createThinkingSteps(text: string): NonNullable<ChatMessage['steps']> {
     { id: 'analyze', agent: '生成结论', description: '汇总基本面、技术面与风险点，组织可执行回答', status: 'pending' },
     { id: 'risk', agent: '风险核查', description: '检查异常波动、估值偏离与潜在风险提示', status: 'pending' },
   ];
+}
+
+function getSingleAgentCommand(text: string) {
+  const command = slashItems.find((item) => item.section === 'Sub Agents' && text.startsWith(`${item.command} `));
+  return command;
 }
 
 function isStockAnalysisQuery(text: string) {

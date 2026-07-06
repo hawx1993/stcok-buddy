@@ -7,12 +7,17 @@ import { runTechnicalAnalysis } from './analysis-agent.js';
 import { runReportAgent } from './report-agent.js';
 import { reviewCompliance } from './risk-agent.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
-import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisResult } from './stock-analysis-agents.js';
+import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisAgentName, type StockAnalysisResult } from './stock-analysis-agents.js';
 
 type Intent = 'quote' | 'technical' | 'analysis' | 'board' | 'portfolio' | 'chat';
 
 const slashCommands = [
   { name: '/综合投研报告', intent: 'analysis' as const, usage: '请输入股票代码或股票名称，例如：/综合投研报告 中公教育' },
+  { name: '/技术面分析', intent: 'analysis' as const, singleAgent: 'technical' as const, usage: '请输入股票代码或股票名称，例如：/技术面分析 000858' },
+  { name: '/基本面分析', intent: 'analysis' as const, singleAgent: 'fundamental' as const, usage: '请输入股票代码或股票名称，例如：/基本面分析 000858' },
+  { name: '/资金面分析', intent: 'analysis' as const, singleAgent: 'capital' as const, usage: '请输入股票代码或股票名称，例如：/资金面分析 000858' },
+  { name: '/情绪面分析', intent: 'analysis' as const, singleAgent: 'sentiment' as const, usage: '请输入股票代码或股票名称，例如：/情绪面分析 000858' },
+  { name: '/龙虎榜分析', intent: 'analysis' as const, singleAgent: 'lhb' as const, usage: '请输入股票代码或股票名称，例如：/龙虎榜分析 000858' },
 ];
 
 interface AgentContext {
@@ -27,6 +32,7 @@ interface AgentContext {
   news?: MarketNewsItem[];
   analysisResults?: StockAnalysisResult[];
   analysisOverview?: string;
+  singleAgent?: StockAnalysisAgentName;
 }
 
 export async function runOrchestrator(request: ChatRequest): Promise<ChatResponse> {
@@ -39,6 +45,7 @@ export async function runOrchestrator(request: ChatRequest): Promise<ChatRespons
     intent,
     symbol: needsSymbol(intent) && symbolText ? await resolveASymbol(symbolText) : undefined,
     boardKeyword: extractBoardKeyword(request.message),
+    singleAgent: command?.singleAgent,
   };
 
   if (command && !command.args) return commandUsageResponse(request, command.usage);
@@ -53,13 +60,15 @@ export async function runOrchestrator(request: ChatRequest): Promise<ChatRespons
     events.push({ type: step.status === 'running' ? 'step_started' : 'step_completed', step });
   });
 
-  const draft = context.analysisOverview ?? await runReportAgent({
-    query: request.message,
-    intent,
-    quote: context.quote,
-    technical: context.technical,
-    board: context.board,
-  });
+  const draft = context.singleAgent && context.analysisResults?.[0]
+    ? context.analysisResults[0].content
+    : context.analysisOverview ?? await runReportAgent({
+      query: request.message,
+      intent,
+      quote: context.quote,
+      technical: context.technical,
+      board: context.board,
+    });
   const content = reviewCompliance(draft);
   const result = context.board ?? context.technical ?? quoteToCard(context.quote);
 
@@ -148,6 +157,10 @@ function buildDag(context: AgentContext): DagNode<AgentContext>[] {
   ];
 
   if (context.intent === 'analysis') {
+    const analysisAgents = context.singleAgent
+      ? stockAnalysisAgentNames().filter((agent) => agent.name === context.singleAgent)
+      : stockAnalysisAgentNames();
+
     nodes.push(
       {
         id: 'market-data',
@@ -165,7 +178,7 @@ function buildDag(context: AgentContext): DagNode<AgentContext>[] {
           ctx.news = news;
         },
       },
-      ...stockAnalysisAgentNames().map((agent) => ({
+      ...analysisAgents.map((agent) => ({
         id: `analysis-${agent.name}`,
         agent: agent.label,
         description: `${agent.label}：${context.symbol}`,
@@ -175,16 +188,19 @@ function buildDag(context: AgentContext): DagNode<AgentContext>[] {
           ctx.analysisResults = [...(ctx.analysisResults ?? []), result];
         },
       })),
-      {
+    );
+
+    if (!context.singleAgent) {
+      nodes.push({
         id: 'analysis-overview',
         agent: '汇总分析Agent',
         description: `汇总 ${context.symbol} 五维分析结果`,
-        dependsOn: stockAnalysisAgentNames().map((agent) => `analysis-${agent.name}`),
+        dependsOn: analysisAgents.map((agent) => `analysis-${agent.name}`),
         run: async (ctx) => {
           ctx.analysisOverview = await runStockAnalysisOverview(stockAnalysisInput(ctx), ctx.analysisResults ?? []);
         },
-      },
-    );
+      });
+    }
   }
 
   if (context.intent === 'technical') {
