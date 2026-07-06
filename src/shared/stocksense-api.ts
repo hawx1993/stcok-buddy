@@ -194,7 +194,7 @@ function makePreviewKline(symbol: string, limit = 120, period = '1d') {
     const open = price;
     const close = Math.max(1, open + wave);
     price = close;
-    return { time: String(index + 1), open, close, high: Math.max(open, close) * 1.006, low: Math.min(open, close) * 0.994, volume: 10000 + index * 100 * step };
+    return { timestamp: Date.now() + (index - limit) * 86_400_000, time: String(index + 1), open, close, high: Math.max(open, close) * 1.006, low: Math.min(open, close) * 0.994, volume: 10000 + index * 100 * step };
   });
 }
 

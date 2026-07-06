@@ -129,6 +129,7 @@ export interface BoardDetail {
 
 export interface KlinePoint {
   time: string;
+  timestamp?: number;
   open: number;
   close: number;
   high: number;

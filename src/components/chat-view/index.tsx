@@ -3,7 +3,7 @@ import { message as antdMessage } from 'antd';
 import gsap from 'gsap';
 import { marked } from 'marked';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import { drawKLine, getKlineHoverIndex, KlineHoverInfo, KlineModal } from '../stock-detail-panel';
+import { KlineModal, StockKlineChart } from '../kline-chart';
 import type { AgentResultCard, ChatMessage, StockDetail } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
 import styles from './index.module.scss';
@@ -335,38 +335,12 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
 }
 
 function KlineChart({ data, stock }: { data: NonNullable<AgentResultCard['chart']>['data']; stock?: StockDetail }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [hoverIndex, setHoverIndex] = useState<number | undefined>();
   const [isModalOpen, setModalOpen] = useState(false);
-  const [fullData, setFullData] = useState(data);
-  const theme = useAppStore((state) => state.config?.theme ?? 'dark');
-  const hoverPoint = hoverIndex === undefined ? undefined : fullData[hoverIndex];
-
-  useEffect(() => setFullData(data), [data]);
-
-  useEffect(() => {
-    if (!stock?.code) return;
-    let alive = true;
-    getStocksenseApi().getKline(stock.code, Math.max(data.length, 120)).then((next) => {
-      if (alive && next.length) setFullData(next.slice(-data.length));
-    }).catch(() => undefined);
-    return () => { alive = false; };
-  }, [stock?.code, data]);
-
-  useEffect(() => {
-    if (canvasRef.current) drawKLine(canvasRef.current, fullData, theme, undefined, hoverIndex);
-  }, [fullData, theme, hoverIndex]);
-
   return (
     <div className={styles['card-kline']}>
       <button className={styles['kline-expand']} onClick={() => setModalOpen(true)} title="放大K线图" type="button">⛶</button>
-      <canvas
-        ref={canvasRef}
-        onMouseMove={(event) => setHoverIndex(getKlineHoverIndex(event, fullData, false))}
-        onMouseLeave={() => setHoverIndex(undefined)}
-      />
-      {hoverPoint ? <KlineHoverInfo point={hoverPoint} previous={hoverIndex ? fullData[hoverIndex - 1] : undefined} pe={stock?.pe} /> : null}
-      {isModalOpen ? <KlineModal stock={stock ?? { code: '', name: '技术指标摘要' }} data={fullData} onClose={() => setModalOpen(false)} /> : null}
+      <StockKlineChart stock={stock} data={data} height={230} />
+      {isModalOpen ? <KlineModal stock={stock ?? { code: '', name: '技术指标摘要' }} data={data} onClose={() => setModalOpen(false)} /> : null}
     </div>
   );
 }
