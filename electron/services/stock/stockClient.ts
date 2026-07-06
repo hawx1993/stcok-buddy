@@ -2,7 +2,7 @@ import StockSDK from 'stock-sdk';
 import type { AgentResultCard, BoardDetail, HotFocusItem, HotFocusTab, KlinePoint, StockDetail } from '../../../src/shared/types.js';
 import { formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { analyzeIndicators } from './indicators.js';
-import { normalizeASymbol, inferExchange, toQuoteSymbol } from './symbols.js';
+import { extractSymbolCandidate, normalizeASymbol, inferExchange, toQuoteSymbol } from './symbols.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 
@@ -41,6 +41,13 @@ function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
     },
     summary: `${name}（${code}）实时行情来自 stock-sdk。当前价格 ${price === undefined ? '--' : price}，涨跌幅 ${changePercent === undefined ? '--' : formatPercent(changePercent)}。`,
   };
+}
+
+export async function resolveASymbol(input: string): Promise<string> {
+  const candidate = extractSymbolCandidate(input);
+  if (/^\d{6}$/.test(candidate)) return candidate;
+  const result = (await sdk.search(candidate)).find((item: { code?: string; category?: string }) => item.category === 'stock' && item.code);
+  return result?.code?.replace(/^\D+/, '') ?? normalizeASymbol(candidate);
 }
 
 export async function getQuote(symbolInput: string): Promise<StockDetail> {
@@ -213,15 +220,21 @@ async function listMarketHot(): Promise<HotFocusItem[]> {
 
 async function listSurgeHot(): Promise<HotFocusItem[]> {
   const changes = await sdk.marketEvent.stockChanges();
-  return changes.slice(0, 20).map((item) => ({
-    id: `surge-${item.time}-${item.code}`,
-    title: item.name,
-    code: item.code,
-    name: item.name,
-    description: `${item.time} ${item.changeTypeLabel}${item.info ? `：${item.info}` : ''}`,
-    tag: item.changeTypeLabel,
-    type: /卖|跌|跳水|下挫/.test(item.changeTypeLabel) ? 'plummet' : 'surge',
-  }));
+  return changes.slice(0, 20).map((item) => {
+    const [, price, pct] = String(item.info ?? '').split(',');
+    return {
+      id: `surge-${item.time}-${item.code}`,
+      title: `${item.name} ${item.code}`,
+      code: item.code,
+      name: item.name,
+      time: item.time,
+      price: price ? Number(price).toFixed(2) : undefined,
+      changePercent: pct ? formatPercent(Number(pct) * 100) : undefined,
+      description: [price ? `现价 ${Number(price).toFixed(2)}` : '', pct ? `涨跌幅 ${formatPercent(Number(pct) * 100)}` : ''].filter(Boolean).join(' · '),
+      tag: item.changeTypeLabel,
+      type: /卖|跌|跳水|下挫/.test(item.changeTypeLabel) ? 'plummet' : 'surge',
+    };
+  });
 }
 
 async function listFlowHot(): Promise<HotFocusItem[]> {

@@ -1,6 +1,5 @@
 import type { AgentResultCard, AgentRunEvent, ChatRequest, ChatResponse, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
-import { normalizeASymbol } from '../stock/symbols.js';
-import { getKline } from '../stock/stockClient.js';
+import { getKline, resolveASymbol } from '../stock/stockClient.js';
 import { listMarketNews } from '../stock/newsClient.js';
 import { executeDag, type DagNode } from './dagExecutor.js';
 import { fetchBoard, fetchQuote } from './dataAgent.js';
@@ -11,6 +10,10 @@ import { runStockAnalysisOverview } from './stockAnalysisOverviewAgent.js';
 import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisResult } from './stockAnalysisAgents.js';
 
 type Intent = 'quote' | 'technical' | 'analysis' | 'board' | 'portfolio' | 'chat';
+
+const slashCommands = [
+  { name: '/综合投研报告', intent: 'analysis' as const, usage: '请输入股票代码或股票名称，例如：/综合投研报告 中公教育' },
+];
 
 interface AgentContext {
   query: string;
@@ -28,13 +31,17 @@ interface AgentContext {
 
 export async function runOrchestrator(request: ChatRequest): Promise<ChatResponse> {
   const events: AgentRunEvent[] = [];
-  const intent = classifyIntent(request.message);
+  const command = parseSlashCommand(request.message);
+  const intent = command?.intent ?? classifyIntent(request.message);
+  const symbolText = command?.args ?? request.message;
   const context: AgentContext = {
     query: request.message,
     intent,
-    symbol: needsSymbol(intent) ? normalizeASymbol(request.message) : undefined,
+    symbol: needsSymbol(intent) && symbolText ? await resolveASymbol(symbolText) : undefined,
     boardKeyword: extractBoardKeyword(request.message),
   };
+
+  if (command && !command.args) return commandUsageResponse(request, command.usage);
 
   const nodes = buildDag(context);
   events.push({
@@ -69,6 +76,23 @@ export async function runOrchestrator(request: ChatRequest): Promise<ChatRespons
       result,
     },
   };
+}
+
+function parseSlashCommand(query: string) {
+  const text = query.trim();
+  const command = slashCommands.find((item) => text === item.name || text.startsWith(`${item.name} `));
+  if (!command) return undefined;
+  return { ...command, args: text.slice(command.name.length).trim() };
+}
+
+function commandUsageResponse(_request: ChatRequest, usage: string): ChatResponse {
+  const message: ChatResponse['message'] = {
+    id: `assistant-${Date.now()}`,
+    role: 'assistant',
+    content: usage,
+    createdAt: new Date().toISOString(),
+  };
+  return { events: [{ type: 'final_answer', message: usage }], message };
 }
 
 function buildDag(context: AgentContext): DagNode<AgentContext>[] {
@@ -137,7 +161,7 @@ function buildDag(context: AgentContext): DagNode<AgentContext>[] {
             listMarketNews(ctx.quote?.name ?? ctx.symbol, 1, 10).then((page) => page.items).catch(() => []),
           ]);
           ctx.kline = kline;
-          ctx.technical = technical;
+          ctx.technical = technical?.chart ? technical : technical ? { ...technical, chart: { type: 'kline', data: kline } } : undefined;
           ctx.news = news;
         },
       },
@@ -188,11 +212,11 @@ function classifyIntent(query: string): Intent {
 }
 
 function hasStock(query: string) {
-  return /\d{6}|茅台|贵州茅台|五粮液|泸州老窖|洋河股份|宁德|宁德时代|宁王|招行|招商银行|比亚迪|中信证券/.test(query);
+  return /\d{6}|[一-龥]{2,}(?:股份|教育|银行|证券|科技|时代|茅台|五粮液|老窖)/.test(query);
 }
 
 function isStockOnlyQuery(query: string) {
-  return /^\s*(?:\d{6}|茅台|贵州茅台|五粮液|泸州老窖|洋河股份|宁德|宁德时代|宁王|招行|招商银行|比亚迪|中信证券)\s*$/.test(query);
+  return /^\s*(?:\d{6}|[一-龥]{2,}(?:股份|教育|银行|证券|科技|时代|茅台|五粮液|老窖))\s*$/.test(query);
 }
 
 function needsSymbol(intent: Intent) {

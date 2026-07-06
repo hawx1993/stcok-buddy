@@ -14,6 +14,8 @@ const commonNames: Record<string, string> = {
   中信证券: '600030',
 };
 
+const noiseWords = /分析|一下|帮我|看看|诊股|个股|股票|请|我想|研究|解读|中长期|短期|走势|怎么样|如何|\s/g;
+
 export function extractSymbolCandidate(input: string): string {
   const direct = input.match(/\b\d{6}\b/);
   if (direct) return direct[0];
@@ -22,7 +24,7 @@ export function extractSymbolCandidate(input: string): string {
     if (input.includes(name)) return code;
   }
 
-  return input.trim();
+  return input.replace(noiseWords, '').trim() || input.trim();
 }
 
 export function normalizeASymbol(input: string): string {

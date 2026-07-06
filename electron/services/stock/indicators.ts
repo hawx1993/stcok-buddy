@@ -16,6 +16,17 @@ function toOhlcv(item: AnyRecord, index: number) {
   };
 }
 
+function toKlinePoint(item: ReturnType<typeof toOhlcv>): import('../../../src/shared/types.js').KlinePoint {
+  return {
+    time: String(item.timestamp),
+    open: item.open,
+    close: item.close,
+    high: item.high,
+    low: item.low,
+    volume: item.volume,
+  };
+}
+
 export function analyzeIndicators(klines: unknown[]): AgentResultCard {
   const records = (klines as AnyRecord[]).slice(-120);
   const ohlcv = records.map(toOhlcv).filter((item) => item.close > 0);
@@ -24,6 +35,7 @@ export function analyzeIndicators(klines: unknown[]): AgentResultCard {
   if (closes.length < 20) {
     return {
       title: '技术指标摘要',
+      chart: { type: 'kline', data: ohlcv.slice(-60).map(toKlinePoint) },
       narrative: 'K 线数据不足，暂无法计算稳定的 MACD/KDJ/均线信号。',
     };
   }
@@ -47,6 +59,7 @@ export function analyzeIndicators(klines: unknown[]): AgentResultCard {
   return {
     title: '技术指标摘要',
     subtitle: `${macdSignal} · ${trend}`,
+    chart: { type: 'kline', data: ohlcv.slice(-60).map(toKlinePoint) },
     metrics: [
       { label: 'MACD', value: macdSignal, tone: dif > dea ? 'up' : 'down' },
       { label: 'KDJ-K', value: Number(kdj?.k ?? kdj?.K ?? 0).toFixed(2), tone: 'neutral' },
