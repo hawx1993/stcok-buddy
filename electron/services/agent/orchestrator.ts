@@ -1,5 +1,5 @@
-import type { AgentResultCard, AgentRunEvent, AnnouncementItem, ChatRequest, ChatResponse, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
-import { getKline, resolveASymbol } from '../stock/stock-client.js';
+import type { AgentResultCard, AgentRunEvent, AnnouncementItem, ChatRequest, ChatResponse, HotFocusItem, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
+import { getKline, listHotFocus, resolveASymbol } from '../stock/stock-client.js';
 import { listMarketNews, listStockNewsAnnouncements } from '../stock/news-client.js';
 import { executeDag, type DagNode } from './dag-executor.js';
 import { fetchBoard, fetchQuote } from './data-agent.js';
@@ -10,11 +10,12 @@ import { reviewCompliance } from './risk-agent.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
 import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisAgentName, type StockAnalysisResult } from './stock-analysis-agents.js';
 
-type Intent = 'quote' | 'technical' | 'analysis' | 'news-announcements' | 'board' | 'portfolio' | 'chat';
+type Intent = 'quote' | 'technical' | 'analysis' | 'news-announcements' | 'theme-attribution' | 'board' | 'portfolio' | 'chat';
 
 const slashCommands = [
   { name: '/综合投研报告', intent: 'analysis' as const, usage: '请输入股票代码或股票名称，例如：/综合投研报告 中公教育' },
   { name: '/新闻公告', intent: 'news-announcements' as const, usage: '请输入股票代码或股票名称，例如：/新闻公告 000858' },
+  { name: '/题材归因', intent: 'theme-attribution' as const, usage: '今天哪些股票走强，主要是什么题材', allowEmptyArgs: true },
   { name: '/技术面分析', intent: 'analysis' as const, singleAgent: 'technical' as const, usage: '请输入股票代码或股票名称，例如：/技术面分析 000858' },
   { name: '/基本面分析', intent: 'analysis' as const, singleAgent: 'fundamental' as const, usage: '请输入股票代码或股票名称，例如：/基本面分析 000858' },
   { name: '/资金面分析', intent: 'analysis' as const, singleAgent: 'capital' as const, usage: '请输入股票代码或股票名称，例如：/资金面分析 000858' },
@@ -33,8 +34,10 @@ interface AgentContext {
   kline?: KlinePoint[];
   news?: MarketNewsItem[];
   announcements?: AnnouncementItem[];
+  hotFocus?: HotFocusItem[];
   analysisResults?: StockAnalysisResult[];
   analysisOverview?: string;
+  themeAttribution?: string;
   singleAgent?: StockAnalysisAgentName;
 }
 
@@ -59,7 +62,7 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
     singleAgent: command?.singleAgent,
   };
 
-  if (command && !command.args) return commandUsageResponse(request, command.usage);
+  if (command && !command.args && !command.allowEmptyArgs) return commandUsageResponse(request, command.usage);
 
   const nodes = buildDag(context, onToken);
   events.push({
@@ -73,7 +76,7 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
 
   const draft = context.singleAgent && context.analysisResults?.[0]
     ? context.analysisResults[0].content
-    : context.analysisOverview ?? await runReportAgent({
+    : context.themeAttribution ?? context.analysisOverview ?? await runReportAgent({
       query: request.message,
       intent,
       quote: context.quote,
@@ -142,6 +145,26 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
             title: '持仓记忆',
             narrative: '当前 MVP 已预留持仓记忆接口。你可以在后续版本录入持仓成本、数量，系统将基于实时行情计算浮盈亏。',
           };
+        },
+      },
+    ];
+  }
+
+  if (context.intent === 'theme-attribution') {
+    return [
+      {
+        id: 'theme-attribution-data',
+        agent: 'a-stock-data',
+        description: '拉取今日强势股、热点题材与资金流数据',
+        run: async (ctx) => {
+          const [surge, sector, flow] = await Promise.all([
+            listHotFocus('surge').catch(() => []),
+            listHotFocus('sector').catch(() => []),
+            listHotFocus('flow').catch(() => []),
+          ]);
+          ctx.hotFocus = [...surge, ...sector, ...flow];
+          ctx.board = themeAttributionToCard(surge, sector, flow);
+          ctx.themeAttribution = ctx.board.narrative;
         },
       },
     ];
@@ -259,6 +282,7 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 }
 
 function classifyIntent(query: string): Intent {
+  if (/题材归因|哪些股票走强|主要是什么题材/.test(query)) return 'theme-attribution';
   if (hasStock(query) && /新闻|公告/.test(query)) return 'news-announcements';
   if (/持仓|我买|成本|盈亏|记住/.test(query)) return 'portfolio';
   if (/板块|行业|选股|资金流|北向|热点/.test(query)) return 'board';
@@ -285,7 +309,7 @@ function needsSymbol(intent: Intent) {
 }
 
 function intentLabel(intent: Intent) {
-  return { quote: '行情查询', technical: '技术诊股', analysis: '五维个股分析', 'news-announcements': '新闻公告', board: '板块分析', portfolio: '持仓管理', chat: '普通问答' }[intent];
+  return { quote: '行情查询', technical: '技术诊股', analysis: '五维个股分析', 'news-announcements': '新闻公告', 'theme-attribution': '题材归因', board: '板块分析', portfolio: '持仓管理', chat: '普通问答' }[intent];
 }
 
 function stockAnalysisInput(ctx: AgentContext) {
@@ -322,6 +346,60 @@ function quoteToCard(quote?: StockDetail): AgentResultCard | undefined {
     narrative: quote.summary,
     stocks: [quote],
   };
+}
+
+function themeAttributionToCard(surge: HotFocusItem[], sectors: HotFocusItem[], flows: HotFocusItem[]): AgentResultCard {
+  const strong = surge.filter((item) => item.type !== 'plummet').slice(0, 12);
+  const weak = surge.filter((item) => item.type === 'plummet').slice(0, 5);
+  const hotSectors = sectors.slice(0, 8);
+  const flowLeaders = flows.slice(0, 6);
+  const themes = [...new Set([...hotSectors.map(themeName), ...flowLeaders.map(themeName)].filter(Boolean))].slice(0, 6);
+  const conclusion = strong.length >= 8 && hotSectors.length >= 3 ? '🟢 偏利好' : strong.length ? '🟡 中性' : '🔴 偏利空';
+  const narrative = [
+    '# 题材归因',
+    '',
+    '## 📰 核心事件',
+    strong.length ? strong.slice(0, 8).map((item) => `- 📈 ${item.name ?? item.title}${item.code ? `（${item.code}）` : ''}：${[item.changePercent, item.description || item.tag].filter(Boolean).join('，') || '今日表现较强。'}`).join('\n') : '- 今日暂未检索到明确强势股样本。',
+    '',
+    '## ✅ 利好因素',
+    themes.length ? themes.map((name) => `- 🌐 ${name}：在热点板块或资金流榜单中靠前，说明题材关注度较高。`).join('\n') : '- 🟡 暂未形成清晰题材共振，更多是个股层面的短线异动。',
+    flowLeaders.length ? `- 💰 资金线索：${flowLeaders.slice(0, 3).map((item) => `${themeName(item)}${item.amount ? ` ${item.amount}` : ''}`).join('、')}。` : '',
+    '',
+    '## ⚠️ 利空因素',
+    weak.length ? weak.map((item) => `- 📉 ${item.name ?? item.title}：${item.description || item.tag || '出现走弱或负反馈，需要警惕题材分化。'}`).join('\n') : '- ⚡ 若强势股主要来自涨停池或异动池，持续性仍需看封单、换手和次日承接。',
+    '',
+    '## 📈 短期影响',
+    strong.length ? `- 📅 今日强势样本集中在 ${themes.slice(0, 3).join('、') || '局部热点'}，短线交易重点看龙头股是否继续扩散到后排。` : '- 📅 热点强度不足，短期更适合观察资金是否重新聚焦。',
+    '',
+    '## 🏛️ 中长期影响',
+    themes.length ? `- 🗓️ 只有同时具备产业逻辑、业绩兑现和资金持续流入的方向，才可能从短线题材演化为中期主线；当前重点跟踪 ${themes.slice(0, 3).join('、')}。` : '- 🗓️ 当前数据不足以支持中长期主线判断，需继续跟踪板块资金和公告验证。',
+    '',
+    '## 🚨 风险提示',
+    '- ⚡ 题材归因基于盘中/当日公开行情与资金榜单，可能受数据源延迟、停牌、复牌和涨跌停制度影响。',
+    '- 📜 若题材依赖政策、订单或公告催化，需等待正式公告和后续业绩验证。',
+    '',
+    '## 🎯 综合结论',
+    `${conclusion}：今日走强股票主要围绕 ${themes.join('、') || '局部热点'} 展开。以上内容来自 a-stock-data 行情、热点和资金流公开接口，仅供研究参考。`,
+  ].filter(Boolean).join('\n');
+
+  return {
+    title: '题材归因',
+    subtitle: `强势股 ${strong.length} 只 · 热点题材 ${themes.length} 个`,
+    metrics: [
+      { label: '强势股', value: `${strong.length}只`, tone: strong.length ? 'up' : 'neutral' },
+      { label: '热点题材', value: `${themes.length}个`, tone: themes.length ? 'up' : 'neutral' },
+      { label: '资金榜', value: `${flowLeaders.length}条` },
+    ],
+    rows: [
+      ...strong.slice(0, 10).map((item) => ({ 类型: '强势股', 名称: item.name ?? item.title, 代码: item.code ?? '', 涨跌幅: item.changePercent ?? '', 归因: item.description || item.tag || '' })),
+      ...hotSectors.slice(0, 6).map((item) => ({ 类型: '热点题材', 名称: themeName(item), 代码: item.tag ?? item.code ?? '', 涨跌幅: item.changePercent ?? '', 归因: item.description || '' })),
+    ],
+    narrative,
+  };
+}
+
+function themeName(item: HotFocusItem) {
+  return item.name ?? item.title.replace(/\s+\d{6}$/, '');
 }
 
 function newsAnnouncementsToCard(quote: StockDetail | undefined, news: MarketNewsItem[], announcements: AnnouncementItem[]): AgentResultCard {
