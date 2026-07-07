@@ -385,7 +385,7 @@ async function listStockChangeEvents(): Promise<HotFocusItem[]> {
   return changes.map((item, index) => {
     const [volume, price, pct] = String(item.info ?? '').split(',');
     const hands = Number(volume) / 100;
-    const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType);
+    const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType, hands);
     return {
       id: `surge-${item.time}-${item.code}-${index}`,
       title: `${item.name} ${item.code}`,
@@ -402,9 +402,9 @@ async function listStockChangeEvents(): Promise<HotFocusItem[]> {
   });
 }
 
-function formatStockChangeReason(label: string, type?: string) {
-  if (type === 'large_buy' || label === '大笔买入') return '特大单买入';
-  if (type === 'large_sell' || label === '大笔卖出') return '特大单卖出';
+function formatStockChangeReason(label: string, type: string | undefined, hands: number) {
+  if ((type === 'large_buy' || label === '大笔买入') && hands >= 10000) return '特大单买入';
+  if ((type === 'large_sell' || label === '大笔卖出') && hands >= 10000) return '特大单卖出';
   return label;
 }
 
