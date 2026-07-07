@@ -34,6 +34,7 @@ export function ChatView() {
   const finalizeLastAssistant = useAppStore((state) => state.finalizeLastAssistant);
   const appendToLastAssistant = useAppStore((state) => state.appendToLastAssistant);
   const setSending = useAppStore((state) => state.setSending);
+  const rememberStockKline = useAppStore((state) => state.rememberStockKline);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
 
@@ -57,12 +58,14 @@ export function ChatView() {
   }, []);
 
   const openStockDetail = async (stock: Pick<StockDetail, 'code' | 'name'>) => {
+    const kline = findMessageKline(messages, stock.code);
     openRightPanel();
-    setSelectedStock(stock as StockDetail);
+    setSelectedStock({ ...stock, kline } as StockDetail);
     try {
-      setSelectedStock(await getStocksenseApi().getStockDetail(stock.code));
+      const detail = await getStocksenseApi().getStockDetail(stock.code);
+      setSelectedStock({ ...detail, kline });
     } catch {
-      setSelectedStock(stock as StockDetail);
+      setSelectedStock({ ...stock, kline } as StockDetail);
     }
   };
 
@@ -113,8 +116,11 @@ export function ChatView() {
       finalizeLastAssistant(response.message);
       const stock = response.events.find((event) => event.stock)?.stock;
       if (stock) {
+        const resultStock = response.message.result?.stocks?.find((item) => item.code === stock.code);
+        const chartData = response.message.result?.chart?.type === 'kline' ? response.message.result.chart.data : undefined;
+        rememberStockKline(stock.code, chartData);
         openRightPanel();
-        setSelectedStock(stock);
+        setSelectedStock({ ...stock, ...resultStock, kline: chartData });
       }
       api.listConversations().then(useAppStore.getState().setConversations).catch(console.error);
     } catch (error) {
@@ -246,6 +252,14 @@ function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; n
   );
 }
 
+function findMessageKline(messages: ChatMessage[], code: string) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const result = messages[i].result;
+    if (result?.chart?.type === 'kline' && result.stocks?.some((stock) => stock.code === code)) return result.chart.data;
+  }
+  return undefined;
+}
+
 function ThinkingBanner() {
   return <div className="thinking-line"><span className="thinking-shimmer"><span>思</span><span>考</span><span>中</span><span>.</span><span>.</span><span>.</span></span></div>;
 }
@@ -287,7 +301,7 @@ function ThinkingTrace({ startedAt, steps }: { startedAt: string; steps: NonNull
 }
 
 function Trace({ steps }: { steps: NonNullable<ChatMessage['steps']> }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
     <div className={cx(styles.trace, open && styles.open)} data-trace>
       <button className={styles['trace-header']} onClick={() => setOpen(!open)} type="button">

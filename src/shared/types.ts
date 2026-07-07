@@ -111,6 +111,7 @@ export interface StockDetail {
     risk: string;
   };
   summary?: string;
+  kline?: KlinePoint[];
 }
 
 export interface BoardConstituent {
