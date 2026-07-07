@@ -9,6 +9,7 @@ import { runNewsAnalysisAgent } from './news-analysis-agent.js';
 import { reviewCompliance } from './risk-agent.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
 import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisAgentName, type StockAnalysisResult } from './stock-analysis-agents.js';
+import { runStoreCommand } from '../store-service.js';
 
 type Intent = 'quote' | 'technical' | 'analysis' | 'news-announcements' | 'theme-attribution' | 'daily-lhb' | 'board' | 'portfolio' | 'chat';
 
@@ -44,6 +45,9 @@ interface AgentContext {
 }
 
 export async function runOrchestrator(request: ChatRequest, onToken?: (token: string) => void): Promise<ChatResponse> {
+  const storeResponse = await runStoreCommand(request.message);
+  if (storeResponse) return storeResponse;
+
   const events: AgentRunEvent[] = [];
   const command = parseSlashCommand(request.message);
   let intent = command?.intent ?? classifyIntent(request.message);

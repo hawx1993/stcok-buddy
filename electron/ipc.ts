@@ -21,6 +21,7 @@ import {
 import { runOrchestrator } from './services/agent/orchestrator.js';
 import { getBoardDetail, getKline, getStockDetail, listHotFocus } from './services/stock/stock-client.js';
 import { listMarketNews } from './services/stock/news-client.js';
+import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
 
 export function registerIpcHandlers() {
   ipcMain.handle('config:get', () => getConfig());
@@ -40,6 +41,10 @@ export function registerIpcHandlers() {
   ipcMain.handle('stock:getKline', (_event, symbol: string, limit?: number, period?: string) => getKline(symbol, limit, period));
   ipcMain.handle('hot:list', (_event, tab: HotFocusTab) => listHotFocus(tab));
   ipcMain.handle('news:list', (_event, query?: string, page?: number, pageSize?: number) => listMarketNews(query, page, pageSize));
+  ipcMain.handle('store:list', () => listStoreItems());
+  ipcMain.handle('store:installed', () => listInstalledStoreItems());
+  ipcMain.handle('store:install', (_event, id: string) => installStoreItem(id));
+  ipcMain.handle('store:uninstall', (_event, id: string) => uninstallStoreItem(id));
   ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
     saveUserMessage(request.conversationId, request.message);
     const response = await runOrchestrator(request, (token) => {
