@@ -45,6 +45,7 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
   const [loadedData, setLoadedData] = useState<KlinePoint[]>(stock?.code ? [] : data);
   const [hoverIndex, setHoverIndex] = useState<number | undefined>();
   const [hoverPoint, setHoverPoint] = useState<KlinePoint | undefined>();
+  const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('right');
   const frame = klineTimeframes.find((item) => item.id === tf) ?? klineTimeframes[3];
   const fallbackBase = Number(stock?.price) || 100;
   const chartData = useMemo(() => {
@@ -95,17 +96,29 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
     });
     if (!chart) return;
     chartRef.current = chart;
-    const onCrosshairChange = (value?: unknown) => {
-      const nextIndex = (value as Crosshair | undefined)?.dataIndex;
+    const updateHoverIndex = (nextIndex: number | undefined) => {
       setHoverIndex(nextIndex);
       setHoverPoint(nextIndex === undefined ? undefined : chartDataRef.current[nextIndex]);
     };
+    const onCrosshairChange = (value?: unknown) => {
+      updateHoverIndex(resolveCrosshairIndex(value as Crosshair | undefined, chartDataRef.current));
+    };
+    const onMouseMove = (event: MouseEvent) => {
+      const rect = hostRef.current?.getBoundingClientRect();
+      if (rect) setTooltipSide(event.clientX - rect.left > rect.width / 2 ? 'left' : 'right');
+      updateHoverIndex(resolveMouseIndex(chart, hostRef.current, event));
+    };
+    const onMouseLeave = () => updateHoverIndex(undefined);
+    hostRef.current.addEventListener('mousemove', onMouseMove);
+    hostRef.current.addEventListener('mouseleave', onMouseLeave);
     chart.subscribeAction('onCrosshairChange', onCrosshairChange);
     const resizeObserver = new ResizeObserver(() => chart.resize());
     resizeObserver.observe(hostRef.current);
     return () => {
       resizeObserver.disconnect();
       chart.unsubscribeAction('onCrosshairChange', onCrosshairChange);
+      hostRef.current?.removeEventListener('mousemove', onMouseMove);
+      hostRef.current?.removeEventListener('mouseleave', onMouseLeave);
       dispose(chart);
       chartRef.current = null;
     };
@@ -142,7 +155,7 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
   return (
     <div className={cx(styles.wrap, className)} style={{ height }}>
       <div className={styles.chart} ref={hostRef} />
-      {hoverPoint ? <KlineHoverInfo point={hoverPoint} previous={hoverIndex ? chartData[hoverIndex - 1] : undefined} pe={stock?.pe} /> : null}
+      {hoverPoint ? <KlineHoverInfo point={hoverPoint} previous={hoverIndex ? chartData[hoverIndex - 1] : undefined} pe={stock?.pe} side={tooltipSide} /> : null}
       {chips ? <ChipOverlay chips={chips} data={chartData} /> : null}
       {showSwitcher ? (
         <div className={styles.timeframes}>
@@ -188,11 +201,37 @@ function ChipOverlay({ chips, data }: { chips: ChipDistribution; data: KlinePoin
   );
 }
 
-function KlineHoverInfo({ point, previous, pe }: { point: KlinePoint; previous?: KlinePoint; pe?: string | number }) {
+function resolveMouseIndex(chart: Chart, host: HTMLDivElement | null, event: MouseEvent) {
+  if (!host) return undefined;
+  const x = event.clientX - host.getBoundingClientRect().left;
+  const point = chart.convertFromPixel([{ x }], { paneId: 'candle_pane' });
+  const dataIndex = Array.isArray(point) ? point[0]?.dataIndex : undefined;
+  return typeof dataIndex === 'number' ? clampIndex(Math.round(dataIndex), chartDataLength(chart)) : undefined;
+}
+
+function chartDataLength(chart: Chart) {
+  return Math.max(chart.getDataList().length, 1);
+}
+
+function resolveCrosshairIndex(crosshair: Crosshair | undefined, data: KlinePoint[]) {
+  if (!crosshair || !data.length) return undefined;
+  if (typeof crosshair.dataIndex === 'number') return clampIndex(crosshair.dataIndex, data.length);
+  if (typeof crosshair.realDataIndex === 'number') return clampIndex(crosshair.realDataIndex, data.length);
+  const timestamp = crosshair.kLineData?.timestamp ?? crosshair.timestamp;
+  if (typeof timestamp !== 'number') return undefined;
+  const index = data.findIndex((item) => item.timestamp === timestamp);
+  return index >= 0 ? index : undefined;
+}
+
+function clampIndex(index: number, length: number) {
+  return Math.max(0, Math.min(length - 1, index));
+}
+
+function KlineHoverInfo({ point, previous, pe, side }: { point: KlinePoint; previous?: KlinePoint; pe?: string | number; side: 'left' | 'right' }) {
   const change = point.change ?? point.close - (previous?.close ?? point.open);
   const changePercent = point.changePercent ?? (previous?.close ? (change / previous.close) * 100 : 0);
   return (
-    <div className={styles['hover-tooltip']}>
+    <div className={cx(styles['hover-tooltip'], styles[side])}>
       <div className={styles.date}>{formatKlineTime(point.time)}</div>
       <KlineInfoRow label="开盘" value={formatPrice(point.open)} />
       <KlineInfoRow label="最高" value={formatPrice(point.high)} tone={point.high >= point.open ? 'up' : 'down'} />

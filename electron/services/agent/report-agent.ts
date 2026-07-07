@@ -34,7 +34,7 @@ function fallbackReport(input: ReportInput, reason: string): string {
     lines.push(`\n**行情摘要**：${input.quote.name}（${input.quote.code}）当前价格 ${input.quote.price ?? '--'}，涨跌幅 ${input.quote.changePercent ?? '--'}。`);
   }
   if (input.technical?.narrative) {
-    lines.push(`\n**技术面**：${input.technical.narrative}`);
+    lines.push(`\n**📈 技术面**：${input.technical.narrative}`);
   }
   if (input.board?.narrative) {
     lines.push(`\n**板块数据**：${input.board.narrative}`);
