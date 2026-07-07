@@ -13,6 +13,7 @@ const hints = ['选股', '诊股', '我的持仓', '北向资金', '热点板块
 
 const slashItems = [
   { id: 'comprehensive-report', section: 'Commands', label: '综合投研报告', command: '/综合投研报告', description: '调用五个子 Agent，生成完整综合投资报告', argPlaceholder: '[输入股票代码或股票名称]' },
+  { id: 'news-announcements', section: 'Commands', label: '新闻公告', command: '/新闻公告', description: '拉取指定个股最近的新闻和公告', argPlaceholder: '[输入股票代码或名称]' },
   { id: 'technical-agent', section: 'Sub Agents', label: '技术面分析agent', command: '/技术面分析', description: '仅调用技术面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
   { id: 'fundamental-agent', section: 'Sub Agents', label: '基本面分析agent', command: '/基本面分析', description: '仅调用基本面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
   { id: 'capital-agent', section: 'Sub Agents', label: '资金面分析agent', command: '/资金面分析', description: '仅调用资金面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
@@ -203,7 +204,10 @@ function SlashCommandMenu({ selectedIndex, onSelect }: { selectedIndex: number; 
 
 function QuickEntry({ onSubmit }: { onSubmit(text: string): void }) {
   const [value, setValue] = useState('');
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const examples = ['五粮液', '贵州茅台', '宁德时代', '招商银行', '比亚迪'];
+  const slashOpen = value.startsWith('/') && !value.includes(' ');
+  const selectSlashItem = (item = slashItems[selectedSlashIndex]) => setValue(`${item.command} `);
   return (
     <div className={styles['quick-entry']} data-quickentry>
       <div className={styles['qe-hero']} aria-hidden="true">
@@ -219,7 +223,13 @@ function QuickEntry({ onSubmit }: { onSubmit(text: string): void }) {
       <div className={styles['qe-title']}>开始新的投研分析</div>
       <div className={styles['qe-sub']}>输入股票名称或代码，AI 将为你深度解读</div>
       <div className={styles['qe-search-box']}>
-        <input value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(value); }} placeholder="例如：/综合投研报告 中公教育、000858……" autoFocus />
+        {slashOpen ? <SlashCommandMenu selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} /> : null}
+        <input value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => {
+          if (slashOpen && event.key === 'Enter') { event.preventDefault(); selectSlashItem(); return; }
+          if (slashOpen && event.key === 'ArrowDown') { event.preventDefault(); setSelectedSlashIndex((current) => Math.min(current + 1, slashItems.length - 1)); return; }
+          if (slashOpen && event.key === 'ArrowUp') { event.preventDefault(); setSelectedSlashIndex((current) => Math.max(current - 1, 0)); return; }
+          if (event.key === 'Enter') onSubmit(value);
+        }} placeholder="例如：/综合投研报告 中公教育、000858……" autoFocus />
         <button onClick={() => onSubmit(value)} type="button">开始分析</button>
       </div>
       <div className={styles['qe-hints']}>
@@ -332,17 +342,23 @@ function Trace({ steps }: { steps: NonNullable<ChatMessage['steps']> }) {
 }
 
 function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStockClick(stock: StockDetail): void }) {
+  const [open, setOpen] = useState(!isNewsAnnouncementCard(result));
   const headers = result.rows?.[0] ? Object.keys(result.rows[0]) : [];
+  const isCollapsible = isNewsAnnouncementCard(result);
   return (
     <div className={styles.card} data-card>
-      <div className={styles['card-title']}>{result.title}<span className={styles.sub}>{result.subtitle}</span></div>
+      <div className={styles['card-title']}>
+        <span>{result.title}</span>
+        <span className={styles.sub}>{result.subtitle}</span>
+        {isCollapsible ? <button className={styles['card-toggle']} onClick={() => setOpen((value) => !value)} type="button">{open ? '收起' : '展开'}</button> : null}
+      </div>
       {result.metrics?.length ? (
         <div className={styles['metric-row']}>
           {result.metrics.map((metric) => <div className={styles['metric-item']} key={metric.label}><div className={styles.lbl}>{metric.label}</div><div className={cx(styles.val, metric.tone ? styles[metric.tone] : undefined)}>{metric.value}</div></div>)}
         </div>
       ) : null}
-      {result.chart?.type === 'kline' ? <KlineChart data={result.chart.data} stock={result.stocks?.[0]} /> : null}
-      {headers.length ? (
+      {open && result.chart?.type === 'kline' ? <KlineChart data={result.chart.data} stock={result.stocks?.[0]} /> : null}
+      {open && headers.length ? (
         <table className={styles.tbl}>
           <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
           <tbody>
@@ -352,9 +368,13 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
           </tbody>
         </table>
       ) : null}
-      {result.narrative ? <div className={styles['card-narrative']}>{result.narrative}</div> : null}
+      {open && result.narrative && !isCollapsible ? <div className={styles['card-narrative']} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(result.narrative) }} /> : null}
     </div>
   );
+}
+
+function isNewsAnnouncementCard(result: AgentResultCard) {
+  return /新闻公告/.test(result.title) || (result.metrics?.some((metric) => metric.label === '新闻') && result.metrics?.some((metric) => metric.label === '公告'));
 }
 
 function KlineChart({ data, stock }: { data: NonNullable<AgentResultCard['chart']>['data']; stock?: StockDetail }) {
@@ -375,6 +395,7 @@ function renderCell(header: string, row: Record<string, unknown>, onStockClick: 
   if (/^(名称|name|title)$/i.test(header) && code) return <button className="stock-link btn-link" onClick={() => onStockClick({ code, name: name || value })} type="button">{value}</button>;
   if (/涨跌幅|涨幅|涨跌|change|pct/i.test(header)) return <span className={getChinaMarketTone(value)}>{value}</span>;
   if (/净流入|资金|amount|turnover|flow/i.test(header)) return <span className={getChinaMarketTone(value)}>{formatChinaMoney(value)}</span>;
+  if (/链接|url/i.test(header) && /^https?:\/\//.test(value)) return <a href={value} target="_blank" rel="noreferrer">查看</a>;
   return value;
 }
 
@@ -511,7 +532,7 @@ const stockAliases: Array<[string, string]> = [
 ];
 
 function renderMarkdownWithStocks(content: string) {
-  const html = marked.parse(content, { async: false }) as string;
+  const html = marked.parse(content, { async: false, breaks: true }) as string;
   return linkStocks(html);
 }
 

@@ -1,18 +1,20 @@
-import type { AgentResultCard, AgentRunEvent, ChatRequest, ChatResponse, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
+import type { AgentResultCard, AgentRunEvent, AnnouncementItem, ChatRequest, ChatResponse, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
 import { getKline, resolveASymbol } from '../stock/stock-client.js';
-import { listMarketNews } from '../stock/news-client.js';
+import { listMarketNews, listStockNewsAnnouncements } from '../stock/news-client.js';
 import { executeDag, type DagNode } from './dag-executor.js';
 import { fetchBoard, fetchQuote } from './data-agent.js';
 import { runTechnicalAnalysis } from './analysis-agent.js';
 import { runReportAgent } from './report-agent.js';
+import { runNewsAnalysisAgent } from './news-analysis-agent.js';
 import { reviewCompliance } from './risk-agent.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
 import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisAgentName, type StockAnalysisResult } from './stock-analysis-agents.js';
 
-type Intent = 'quote' | 'technical' | 'analysis' | 'board' | 'portfolio' | 'chat';
+type Intent = 'quote' | 'technical' | 'analysis' | 'news-announcements' | 'board' | 'portfolio' | 'chat';
 
 const slashCommands = [
   { name: '/综合投研报告', intent: 'analysis' as const, usage: '请输入股票代码或股票名称，例如：/综合投研报告 中公教育' },
+  { name: '/新闻公告', intent: 'news-announcements' as const, usage: '请输入股票代码或股票名称，例如：/新闻公告 000858' },
   { name: '/技术面分析', intent: 'analysis' as const, singleAgent: 'technical' as const, usage: '请输入股票代码或股票名称，例如：/技术面分析 000858' },
   { name: '/基本面分析', intent: 'analysis' as const, singleAgent: 'fundamental' as const, usage: '请输入股票代码或股票名称，例如：/基本面分析 000858' },
   { name: '/资金面分析', intent: 'analysis' as const, singleAgent: 'capital' as const, usage: '请输入股票代码或股票名称，例如：/资金面分析 000858' },
@@ -30,6 +32,7 @@ interface AgentContext {
   board?: AgentResultCard;
   kline?: KlinePoint[];
   news?: MarketNewsItem[];
+  announcements?: AnnouncementItem[];
   analysisResults?: StockAnalysisResult[];
   analysisOverview?: string;
   singleAgent?: StockAnalysisAgentName;
@@ -76,6 +79,8 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
       quote: context.quote,
       technical: context.technical,
       board: context.board,
+      news: context.news,
+      announcements: context.announcements,
     }, onToken);
   const content = reviewCompliance(draft);
   const result = context.board ?? (context.technical && context.quote ? { ...context.technical, stocks: [context.quote] } : context.technical) ?? quoteToCard(context.quote);
@@ -164,6 +169,33 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
     },
   ];
 
+  if (context.intent === 'news-announcements') {
+    nodes.push(
+      {
+        id: 'news-announcements',
+        agent: 'a-stock-data',
+        description: `拉取 ${context.symbol} 最近新闻和公告`,
+        dependsOn: ['quote'],
+        run: async (ctx) => {
+          const { news, announcements } = await listStockNewsAnnouncements(ctx.symbol!, 10);
+          ctx.news = news;
+          ctx.announcements = announcements;
+          ctx.board = newsAnnouncementsToCard(ctx.quote, news, announcements);
+        },
+      },
+      {
+        id: 'news-analysis',
+        agent: 'NewsAnalysisAgent',
+        description: `解读 ${context.symbol} 新闻公告利好利空`,
+        dependsOn: ['news-announcements'],
+        run: async (ctx) => {
+          ctx.analysisOverview = await runNewsAnalysisAgent({ stock: ctx.quote, news: ctx.news, announcements: ctx.announcements }, onToken);
+        },
+      },
+    );
+    return nodes;
+  }
+
   if (context.intent === 'analysis') {
     const analysisAgents = context.singleAgent
       ? stockAnalysisAgentNames().filter((agent) => agent.name === context.singleAgent)
@@ -227,6 +259,7 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 }
 
 function classifyIntent(query: string): Intent {
+  if (hasStock(query) && /新闻|公告/.test(query)) return 'news-announcements';
   if (/持仓|我买|成本|盈亏|记住/.test(query)) return 'portfolio';
   if (/板块|行业|选股|资金流|北向|热点/.test(query)) return 'board';
   if (/MACD|KDJ|K线|均线|技术|走势|金叉|死叉/.test(query)) return 'technical';
@@ -248,11 +281,11 @@ function isPossibleStockOnlyQuery(query: string) {
 }
 
 function needsSymbol(intent: Intent) {
-  return intent === 'quote' || intent === 'technical' || intent === 'analysis';
+  return intent === 'quote' || intent === 'technical' || intent === 'analysis' || intent === 'news-announcements';
 }
 
 function intentLabel(intent: Intent) {
-  return { quote: '行情查询', technical: '技术诊股', analysis: '五维个股分析', board: '板块分析', portfolio: '持仓管理', chat: '普通问答' }[intent];
+  return { quote: '行情查询', technical: '技术诊股', analysis: '五维个股分析', 'news-announcements': '新闻公告', board: '板块分析', portfolio: '持仓管理', chat: '普通问答' }[intent];
 }
 
 function stockAnalysisInput(ctx: AgentContext) {
@@ -288,5 +321,33 @@ function quoteToCard(quote?: StockDetail): AgentResultCard | undefined {
     ],
     narrative: quote.summary,
     stocks: [quote],
+  };
+}
+
+function newsAnnouncementsToCard(quote: StockDetail | undefined, news: MarketNewsItem[], announcements: AnnouncementItem[]): AgentResultCard {
+  const title = quote ? `${quote.name}（${quote.code}）新闻公告` : '新闻公告';
+  return {
+    title,
+    subtitle: `新闻 ${news.length} 条 · 公告 ${announcements.length} 条`,
+    metrics: [
+      { label: '新闻', value: `${news.length}条` },
+      { label: '公告', value: `${announcements.length}条` },
+    ],
+    rows: [
+      ...news.map((item) => ({ 类型: '新闻', 时间: item.time, 来源: item.source ?? '', 标题: item.title, 链接: item.url ?? '' })),
+      ...announcements.map((item) => ({ 类型: '公告', 时间: item.date, 来源: item.type, 标题: item.title, 链接: item.url })),
+    ],
+    narrative: [
+      `### ${title}`,
+      '',
+      '#### 近期新闻',
+      news.length ? news.map((item) => `- ${item.time || '--'}｜${item.source || '东方财富'}｜${item.title}${item.content ? `：${item.content}` : ''}${item.url ? ` [查看](${item.url})` : ''}`).join('\n') : '- 暂无可用新闻。',
+      '',
+      '#### 近期公告',
+      announcements.length ? announcements.map((item) => `- ${item.date || '--'}｜${item.type || '公告'}｜${item.title}${item.url ? ` [查看](${item.url})` : ''}`).join('\n') : '- 暂无可用公告。',
+      '',
+      '以上内容来自 a-stock-data 指定的东财个股新闻与巨潮公告公开接口，仅供研究参考，不构成投资建议。',
+    ].join('\n'),
+    stocks: quote ? [quote] : undefined,
   };
 }

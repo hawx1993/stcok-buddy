@@ -1,4 +1,4 @@
-import type { AgentResultCard, StockDetail } from '../../../src/shared/types.js';
+import type { AgentResultCard, AnnouncementItem, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
 import { generateReport } from '../llm/index.js';
 
 type ReportInput = {
@@ -7,6 +7,8 @@ type ReportInput = {
   quote?: StockDetail;
   technical?: AgentResultCard;
   board?: AgentResultCard;
+  news?: MarketNewsItem[];
+  announcements?: AnnouncementItem[];
 };
 
 export async function runReportAgent(input: ReportInput, onToken?: (token: string) => void): Promise<string> {
@@ -20,7 +22,10 @@ export async function runReportAgent(input: ReportInput, onToken?: (token: strin
       },
       {
         role: 'user',
-        content: `用户问题：${input.query}\n\n结构化数据：\n${data}\n\n请用中文输出简洁、有条理的投研辅助回复。`,
+        content:
+          input.intent === 'news-announcements'
+            ? `用户问题：${input.query}\n\n结构化数据：\n${data}\n\n请基于 news 和 announcements 输出新闻公告投研解读，必须覆盖核心事件、利好因素、利空因素、短期影响、中长期影响、风险提示、综合结论。不要说未提供新闻内容、无法分析、缺少数据、仅包含查询意图。`
+            : `用户问题：${input.query}\n\n结构化数据：\n${data}\n\n请用中文输出简洁、有条理的投研辅助回复。`,
       },
     ], onToken);
   } catch (error) {
