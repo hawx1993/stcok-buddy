@@ -1,6 +1,6 @@
-import { Skeleton } from 'antd';
-import { Bot, Filter } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { message as antdMessage, Skeleton } from 'antd';
+import { Bot, Filter, Pin, PinOff, Star, Trash2 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import gsap from 'gsap';
 import { useAppStore } from '../../store/app-store';
 import { getStocksenseApi } from '../../shared/stocksense-api';
@@ -30,9 +30,13 @@ export function StockDetailPanel() {
   const [surgePaging, setSurgePaging] = useState(false);
   const [isKlineModalOpen, setKlineModalOpen] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(true);
+  const [favoriteQuotes, setFavoriteQuotes] = useState<Record<string, StockDetail>>({});
   const selectedStock = useAppStore((state) => state.selectedStock);
   const selectedBoard = useAppStore((state) => state.selectedBoard);
+  const favoriteStocks = useAppStore((state) => state.favoriteStocks);
   const rightPanelTab = useAppStore((state) => state.rightPanelTab);
+  const setFavoriteStocks = useAppStore((state) => state.setFavoriteStocks);
+  const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
 
@@ -87,10 +91,24 @@ export function StockDetailPanel() {
   }, [rightPanelTab, surgeItems.length]);
 
   const filteredSurgeItems = useMemo(() => surgeFilter.includes('全部') ? surgeItems : surgeItems.filter((item) => surgeFilter.includes((item.description ?? item.tag) as SurgeFilter)), [surgeFilter, surgeItems]);
+  const selectedIsFavorite = Boolean(selectedStock && favoriteStocks.some((item) => item.code === selectedStock.code));
 
   useEffect(() => {
     setVisibleSurgeCount(SURGE_PAGE_SIZE);
   }, [surgeFilter]);
+
+  useEffect(() => {
+    if (rightPanelTab !== 'favorites' || !favoriteStocks.length) return;
+    let alive = true;
+    const refresh = async () => {
+      const quotes = await Promise.all(favoriteStocks.map((item) => getStocksenseApi().getStockDetail(item.code).catch(() => undefined)));
+      if (!alive) return;
+      setFavoriteQuotes(Object.fromEntries(quotes.filter((quote): quote is StockDetail => Boolean(quote)).map((quote) => [quote.code, quote])));
+    };
+    void refresh();
+    const id = window.setInterval(refresh, 30_000);
+    return () => { alive = false; window.clearInterval(id); };
+  }, [favoriteStocks, rightPanelTab]);
 
   const toggleSurgeFilter = (filter: SurgeFilter) => {
     setSurgeFilter((current) => {
@@ -126,11 +144,70 @@ export function StockDetailPanel() {
     window.dispatchEvent(new CustomEvent('stocksense:send-report', { detail: code }));
   };
 
+  const toggleSelectedFavorite = async () => {
+    if (!selectedStock) return;
+    const nextFavorite = !selectedIsFavorite;
+    const stock = { code: selectedStock.code, name: selectedStock.name };
+    const next = nextFavorite
+      ? [{ ...stock, pinned: false, createdAt: new Date().toISOString() }, ...favoriteStocks]
+      : favoriteStocks.filter((item) => item.code !== stock.code);
+    setFavoriteStocks(next);
+    setFavoriteQuotes((quotes) => nextFavorite ? { ...quotes, [stock.code]: selectedStock } : quotes);
+    try {
+      const saved = nextFavorite
+        ? await getStocksenseApi().upsertFavoriteStock(stock)
+        : await getStocksenseApi().removeFavoriteStock(stock.code);
+      setFavoriteStocks(saved);
+      antdMessage.success(nextFavorite ? '收藏成功' : '取消收藏成功');
+    } catch (error) {
+      setFavoriteStocks(favoriteStocks);
+      antdMessage.error(error instanceof Error ? error.message : '收藏操作失败');
+    }
+  };
+
+  const removeFavorite = async (code: string) => {
+    setFavoriteStocks(await getStocksenseApi().removeFavoriteStock(code));
+    setFavoriteQuotes((quotes) => {
+      const next = { ...quotes };
+      delete next[code];
+      return next;
+    });
+    antdMessage.success('取消收藏成功');
+  };
+
+  const toggleFavoritePin = async (code: string) => {
+    setFavoriteStocks(await getStocksenseApi().toggleFavoriteStockPin(code));
+  };
+
+  const openFavoriteStock = async (stock: StockDetail) => {
+    setRightPanelTab('stock');
+    openRightPanel();
+    setSelectedStock(stock);
+    try {
+      setSelectedStock(await getStocksenseApi().getStockDetail(stock.code));
+    } catch {
+      setSelectedStock(stock);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(newsTotal / NEWS_PAGE_SIZE));
 
   return (
     <aside className={`${styles['right-panel']} right-panel`}>
-      {rightPanelTab === 'news' ? (
+      {rightPanelTab === 'favorites' ? (
+        <>
+          <div className={styles['right-panel-header']}>
+            <span className={styles.title}>⭐ 收藏个股</span>
+          </div>
+          <div className={styles['right-panel-body']}>
+            {favoriteStocks.length ? favoriteStocks.map((item) => {
+              const quote = favoriteQuotes[item.code] ?? item;
+              const change = String(quote.changePercent ?? '--');
+              return <FavoriteStockItem key={item.code} stock={{ ...quote, code: item.code, name: quote.name ?? item.name }} pinned={Boolean(item.pinned)} isUp={!change.startsWith('-')} onOpen={() => void openFavoriteStock({ ...quote, code: item.code, name: quote.name ?? item.name })} onRemove={() => void removeFavorite(item.code)} onTogglePin={() => void toggleFavoritePin(item.code)} />;
+            }) : <div className={styles['empty-panel']}><div className={styles.hint}>暂无收藏个股。打开个股详情后点击<span className={styles.hl}>星标</span>收藏。</div></div>}
+          </div>
+        </>
+      ) : rightPanelTab === 'news' ? (
         <>
           <div className={styles['right-panel-header']}>
             <span className={styles.title}>📰 市场热点</span>
@@ -178,6 +255,7 @@ export function StockDetailPanel() {
             <div className={styles['stock-name']}>{selectedStock.name}<span className={styles.code}>{selectedStock.code} · {selectedStock.exchange ?? 'A股'}</span></div>
             <div className={styles['stock-actions']}>
               <button className={styles['robot-btn']} onClick={() => sendStockReport(selectedStock.code)} title="诊股" aria-label="诊股" type="button"><Bot size={15} /></button>
+              <button className={cx(styles['robot-btn'], styles['favorite-btn'], selectedIsFavorite && styles.active)} onClick={() => void toggleSelectedFavorite()} title={selectedIsFavorite ? '取消收藏' : '收藏'} aria-label={selectedIsFavorite ? '取消收藏' : '收藏'} type="button"><Star size={15} fill={selectedIsFavorite ? 'currentColor' : 'none'} /></button>
               <div className={styles['stock-price']}><div className={styles.price}>{selectedStock.price ?? '--'}</div><div className={cx(styles.chg, String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up')}>{selectedStock.changePercent ?? '--'} ({selectedStock.change ?? '--'})</div></div>
             </div>
           </div>
@@ -214,6 +292,29 @@ export function StockDetailPanel() {
       )}
       {isKlineModalOpen && selectedStock ? <KlineModal stock={selectedStock} data={selectedStock.kline} onClose={() => setKlineModalOpen(false)} chipsOpen={chipsOpen} /> : null}
     </aside>
+  );
+}
+
+function FavoriteStockItem({ stock, pinned, isUp, onOpen, onRemove, onTogglePin }: { stock: StockDetail; pinned: boolean; isUp: boolean; onOpen(): void; onRemove(): void; onTogglePin(): void }) {
+  const stop = (event: MouseEvent, action: () => void) => {
+    event.stopPropagation();
+    action();
+  };
+  return (
+    <div className={styles['favorite-item']} onClick={onOpen} onKeyDown={(event) => { if (event.key === 'Enter') onOpen(); }} role="button" tabIndex={0}>
+      <span className={styles['favorite-main']}>
+        <b>{stock.name}<em>{stock.code}</em>{pinned ? <small>置顶</small> : null}</b>
+        <span>{stock.turnover ? `成交额 ${stock.turnover}` : stock.summary ?? '实时行情'}</span>
+      </span>
+      <span className={styles['favorite-side']}>
+        <strong>{stock.price ?? '--'}</strong>
+        <span className={isUp ? 'up' : 'down'}>{stock.changePercent ?? '--'}</span>
+        <span className={styles['favorite-actions']}>
+          <button onClick={(event) => stop(event, onTogglePin)} title={pinned ? '取消置顶' : '置顶'} type="button">{pinned ? <PinOff size={13} /> : <Pin size={13} />}</button>
+          <button onClick={(event) => stop(event, onRemove)} title="取消收藏" type="button"><Trash2 size={13} /></button>
+        </span>
+      </span>
+    </div>
   );
 }
 

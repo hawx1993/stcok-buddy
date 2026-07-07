@@ -4,6 +4,7 @@ import type {
   AppConfig,
   ChatMessage,
   ConversationSummary,
+  FavoriteStock,
   StockDetail,
   BoardDetail,
   ThemeMode,
@@ -12,7 +13,7 @@ import type {
 export type SidebarTab = 'all' | 'surge' | 'stock' | 'diagnosis' | 'market';
 export type SidebarMainTab = 'session' | 'hot';
 export type HotSubTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
-export type RightPanelTab = 'stock' | 'surge' | 'news';
+export type RightPanelTab = 'favorites' | 'stock' | 'surge' | 'news';
 
 export interface SurgeStock extends StockDetail {
   type: 'surge' | 'plummet' | 'volume';
@@ -31,6 +32,7 @@ interface AppState {
   isRightPanelCollapsed: boolean;
   search: string;
   messages: ChatMessage[];
+  favoriteStocks: FavoriteStock[];
   stockKlines: Record<string, NonNullable<AgentResultCard['chart']>['data']>;
   selectedStock?: StockDetail;
   selectedBoard?: BoardDetail;
@@ -50,6 +52,7 @@ interface AppState {
   openRightPanel(): void;
   setSearch(search: string): void;
   addMessage(message: ChatMessage): void;
+  setFavoriteStocks(favoriteStocks: FavoriteStock[]): void;
   rememberStockKline(code: string, data?: NonNullable<AgentResultCard['chart']>['data']): void;
   setMessages(messages: ChatMessage[]): void;
   replaceLastAssistant(message: ChatMessage): void;
@@ -73,6 +76,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isRightPanelCollapsed: true,
   search: '',
   messages: [],
+  favoriteStocks: [],
   stockKlines: {},
   selectedStock: undefined,
   selectedBoard: undefined,
@@ -98,6 +102,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setMessages: (messages) => set((state) => ({ messages, stockKlines: { ...state.stockKlines, ...collectStockKlines(messages) } })),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
+  setFavoriteStocks: (favoriteStocks) => set({ favoriteStocks }),
   replaceLastAssistant: (message) =>
     set((state) => {
       const messages = [...state.messages];

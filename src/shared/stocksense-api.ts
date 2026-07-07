@@ -4,6 +4,7 @@ import type {
   ChatRequest,
   ChatResponse,
   ConversationSummary,
+  FavoriteStock,
   StockDetail,
   BoardDetail,
   StocksenseApi,
@@ -48,8 +49,21 @@ const stockMap: Record<string, StockDetail> = {
 };
 
 export function getStocksenseApi(): StocksenseApi {
-  if (window.stocksense) return window.stocksense;
-  return webFallbackApi;
+  if (!window.stocksense) return webFallbackApi;
+  return {
+    ...window.stocksense,
+    listFavoriteStocks: () => window.stocksense!.listFavoriteStocks().catch(fallbackFavoriteError(() => webFallbackApi.listFavoriteStocks())),
+    upsertFavoriteStock: (stock) => window.stocksense!.upsertFavoriteStock(stock).catch(fallbackFavoriteError(() => webFallbackApi.upsertFavoriteStock(stock))),
+    removeFavoriteStock: (code) => window.stocksense!.removeFavoriteStock(code).catch(fallbackFavoriteError(() => webFallbackApi.removeFavoriteStock(code))),
+    toggleFavoriteStockPin: (code) => window.stocksense!.toggleFavoriteStockPin(code).catch(fallbackFavoriteError(() => webFallbackApi.toggleFavoriteStockPin(code))),
+  };
+}
+
+function fallbackFavoriteError<T>(fallback: () => Promise<T>) {
+  return (error: unknown) => {
+    if (error instanceof Error && error.message.includes('No handler registered')) return fallback();
+    throw error;
+  };
 }
 
 function readConfig(): AppConfig {
@@ -60,6 +74,21 @@ function readConfig(): AppConfig {
 function readConversations(): ConversationSummary[] {
   const saved = localStorage.getItem('stocksense-conversations');
   return saved ? JSON.parse(saved) : defaultConversations;
+}
+
+function sortFavorites(items: FavoriteStock[]) {
+  return [...items].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.createdAt.localeCompare(a.createdAt));
+}
+
+function readFavorites(): FavoriteStock[] {
+  const saved = localStorage.getItem('stocksense-favorites');
+  return saved ? sortFavorites(JSON.parse(saved)) : [];
+}
+
+function writeFavorites(items: FavoriteStock[]) {
+  const next = sortFavorites(items);
+  localStorage.setItem('stocksense-favorites', JSON.stringify(next));
+  return next;
 }
 
 function readMessages(conversationId: string): ChatMessage[] {
@@ -87,6 +116,22 @@ const webFallbackApi: StocksenseApi = {
   async setConfig(config: AppConfig) {
     localStorage.setItem('stocksense-config', JSON.stringify(config));
     return config;
+  },
+  async listFavoriteStocks() {
+    return readFavorites();
+  },
+  async upsertFavoriteStock(stock: Pick<FavoriteStock, 'code' | 'name'>) {
+    const favorites = readFavorites();
+    const existing = favorites.find((item) => item.code === stock.code);
+    return writeFavorites(existing
+      ? favorites.map((item) => (item.code === stock.code ? { ...item, name: stock.name || item.name } : item))
+      : [{ ...stock, pinned: false, createdAt: new Date().toISOString() }, ...favorites]);
+  },
+  async removeFavoriteStock(code: string) {
+    return writeFavorites(readFavorites().filter((item) => item.code !== code));
+  },
+  async toggleFavoriteStockPin(code: string) {
+    return writeFavorites(readFavorites().map((item) => (item.code === code ? { ...item, pinned: !item.pinned } : item)));
   },
   async listConversations() {
     return readConversations();

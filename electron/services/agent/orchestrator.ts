@@ -38,12 +38,20 @@ interface AgentContext {
 export async function runOrchestrator(request: ChatRequest, onToken?: (token: string) => void): Promise<ChatResponse> {
   const events: AgentRunEvent[] = [];
   const command = parseSlashCommand(request.message);
-  const intent = command?.intent ?? classifyIntent(request.message);
+  let intent = command?.intent ?? classifyIntent(request.message);
   const symbolText = command?.args ?? request.message;
+  let symbol = needsSymbol(intent) && symbolText ? await resolveASymbol(symbolText) : undefined;
+  if (!command && intent === 'chat' && isPossibleStockOnlyQuery(symbolText)) {
+    const candidate = await resolveASymbol(symbolText);
+    if (/^\d{6}$/.test(candidate)) {
+      intent = 'analysis';
+      symbol = candidate;
+    }
+  }
   const context: AgentContext = {
     query: request.message,
     intent,
-    symbol: needsSymbol(intent) && symbolText ? await resolveASymbol(symbolText) : undefined,
+    symbol,
     boardKeyword: extractBoardKeyword(request.message),
     singleAgent: command?.singleAgent,
   };
@@ -233,6 +241,10 @@ function hasStock(query: string) {
 
 function isStockOnlyQuery(query: string) {
   return /^\s*(?:\d{6}|[一-龥]{2,}(?:股份|教育|银行|证券|科技|时代|茅台|五粮液|老窖))\s*$/.test(query);
+}
+
+function isPossibleStockOnlyQuery(query: string) {
+  return /^\s*(?:\d{6}|[A-Za-z0-9一-龥]{2,12})\s*$/.test(query);
 }
 
 function needsSymbol(intent: Intent) {

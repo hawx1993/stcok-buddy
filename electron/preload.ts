@@ -1,9 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, HotFocusTab, StocksenseApi } from '../src/shared/types.js';
+import type { AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, StocksenseApi } from '../src/shared/types.js';
 
 const api: StocksenseApi = {
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config: AppConfig) => ipcRenderer.invoke('config:set', config),
+  listFavoriteStocks: () => ipcRenderer.invoke('favorite:list'),
+  upsertFavoriteStock: (stock: Pick<FavoriteStock, 'code' | 'name'>) => ipcRenderer.invoke('favorite:upsert', stock),
+  removeFavoriteStock: (code: string) => ipcRenderer.invoke('favorite:remove', code),
+  toggleFavoriteStockPin: (code: string) => ipcRenderer.invoke('favorite:togglePin', code),
   listConversations: () => ipcRenderer.invoke('conversation:list'),
   createConversation: () => ipcRenderer.invoke('conversation:create'),
   deleteConversation: (id: string) => ipcRenderer.invoke('conversation:delete', id),
