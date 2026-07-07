@@ -187,25 +187,32 @@ export function ChatView() {
       {messages.length ? (
         <div className={styles['chat-input']}>
           {slashOpen ? <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} /> : null}
-          <AppStoreBar onOpen={() => setStoreOpen(true)} />
-          <div className={styles['input-row']}>
-            {activeCommand ? (
-              <div className={styles['command-input-wrap']}>
-                <button className="command-chip" title={activeCommand.description} onClick={() => setInput('/')} type="button"><span className="slash-icon">/</span>{activeCommand.command}</button>
-                <input value={commandArg} onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)} onKeyDown={(event) => {
-                  if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) { event.preventDefault(); setInput(''); return; }
+          <div className={styles['composer-shell']}>
+            <div className={styles['input-row']}>
+              {activeCommand ? (
+                <div className={styles['command-input-wrap']}>
+                  <button className="command-chip" title={activeCommand.description} onClick={() => setInput('/')} type="button"><span className="slash-icon">/</span>{activeCommand.command}</button>
+                  <input value={commandArg} onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)} onKeyDown={(event) => {
+                    if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) { event.preventDefault(); setInput(''); return; }
+                    if (event.key === 'Enter') void send();
+                  }} placeholder={activeCommand.argPlaceholder} autoFocus />
+                </div>
+              ) : (
+                <input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
+                  if (slashOpen && event.key === 'Enter') { event.preventDefault(); selectSlashItem(); return; }
+                  if (slashOpen && event.key === 'ArrowDown') { event.preventDefault(); setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1)); return; }
+                  if (slashOpen && event.key === 'ArrowUp') { event.preventDefault(); setSelectedSlashIndex((value) => Math.max(value - 1, 0)); return; }
                   if (event.key === 'Enter') void send();
-                }} placeholder={activeCommand.argPlaceholder} autoFocus />
+                }} placeholder="输入 / 打开命令，或直接输入股票名称/代码" />
+              )}
+            </div>
+            <div className={styles['composer-toolbar']}>
+              <AppStoreBar onOpen={() => setStoreOpen(true)} />
+              <div className={styles['composer-actions']}>
+                <span className={styles['model-pill']}>StockBuddy</span>
+                <button className={styles['send-btn']} onClick={() => void send()} disabled={isSending} type="button" aria-label={isSending ? '分析中' : '发送'}>{isSending ? '■' : '➤'}</button>
               </div>
-            ) : (
-              <input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
-                if (slashOpen && event.key === 'Enter') { event.preventDefault(); selectSlashItem(); return; }
-                if (slashOpen && event.key === 'ArrowDown') { event.preventDefault(); setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1)); return; }
-                if (slashOpen && event.key === 'ArrowUp') { event.preventDefault(); setSelectedSlashIndex((value) => Math.max(value - 1, 0)); return; }
-                if (event.key === 'Enter') void send();
-              }} placeholder="输入 / 查看 Commands 和 Skills，或直接输入股票名称/代码" />
-            )}
-            <button onClick={() => void send()} disabled={isSending} type="button">{isSending ? '分析中…' : '发送'}</button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -217,8 +224,8 @@ export function ChatView() {
 function AppStoreBar({ onOpen }: { onOpen(): void }) {
   return (
     <div className={styles['store-bar']}>
-      <button onClick={onOpen} type="button">应用商店</button>
-      <span>安装 Commands、Skills 和子代理</span>
+      <button onClick={onOpen} type="button">＋</button>
+      <span>插件</span>
     </div>
   );
 }
@@ -282,8 +289,14 @@ function SlashCommandMenu({ slashItems, selectedIndex, onSelect }: { slashItems:
           {slashItems.map((item, index) => item.section === section ? (
             <button ref={index === selectedIndex ? activeRef : undefined} className={cx(styles['slash-item'], index === selectedIndex && styles.active)} key={item.id} onMouseDown={(event) => { event.preventDefault(); onSelect(item); }} type="button">
               <span className="slash-icon">/</span>
-              <span className={styles['slash-label']}>{item.label}</span>
-              <span className={styles['slash-desc']}>{item.description}</span>
+              <span className={styles['slash-copy']}>
+                <span className={styles['slash-label']}>{item.label}</span>
+                <span className={styles['slash-desc']}>{item.description}</span>
+              </span>
+              <span className={styles['slash-meta']}>
+                <span>{item.section === 'Commands' ? '命令' : '全局'}</span>
+                <code>{item.command}</code>
+              </span>
             </button>
           ) : null)}
         </div>
