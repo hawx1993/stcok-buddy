@@ -114,6 +114,13 @@ export interface StockDetail {
   kline?: KlinePoint[];
 }
 
+export interface FavoriteStock {
+  code: string;
+  name: string;
+  pinned?: boolean;
+  createdAt: string;
+}
+
 export interface BoardConstituent {
   code: string;
   name: string;
@@ -223,6 +230,10 @@ export interface StocksenseApi {
   getKline(symbol: string, limit?: number, period?: string): Promise<KlinePoint[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
+  listFavoriteStocks(): Promise<FavoriteStock[]>;
+  upsertFavoriteStock(stock: Pick<FavoriteStock, 'code' | 'name'>): Promise<FavoriteStock[]>;
+  removeFavoriteStock(code: string): Promise<FavoriteStock[]>;
+  toggleFavoriteStockPin(code: string): Promise<FavoriteStock[]>;
 }
 
 declare global {

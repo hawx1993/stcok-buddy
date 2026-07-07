@@ -1,4 +1,4 @@
-import { Activity, LineChart, Newspaper, Search } from 'lucide-react';
+import { Activity, LineChart, Newspaper, Search, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAppStore } from './store/app-store';
 import { Sidebar } from './components/sidebar';
@@ -16,6 +16,7 @@ export function App() {
   const config = useAppStore((state) => state.config);
   const setConfig = useAppStore((state) => state.setConfig);
   const setConversations = useAppStore((state) => state.setConversations);
+  const setFavoriteStocks = useAppStore((state) => state.setFavoriteStocks);
   const activeConversationId = useAppStore((state) => state.activeConversationId);
   const setMessages = useAppStore((state) => state.setMessages);
   const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
@@ -28,7 +29,8 @@ export function App() {
     const api = getStocksenseApi();
     api.getConfig().then(setConfig).catch(console.error);
     api.listConversations().then(setConversations).catch(console.error);
-  }, [setConfig, setConversations]);
+    api.listFavoriteStocks().then(setFavoriteStocks).catch(console.error);
+  }, [setConfig, setConversations, setFavoriteStocks]);
 
   useEffect(() => {
     if (!activeConversationId) return;
@@ -61,6 +63,9 @@ export function App() {
         </main>
         <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)}>
           <div className={styles['right-rail']}>
+            <button className={cx(styles['rail-btn'], rightPanelTab === 'favorites' && !isRightPanelCollapsed && styles.active)} onClick={() => setRightPanelTab('favorites')} type="button" title="收藏个股" aria-label="收藏个股">
+              <Star size={18} />
+            </button>
             <button className={cx(styles['rail-btn'], rightPanelTab === 'stock' && !isRightPanelCollapsed && styles.active)} onClick={() => setRightPanelTab('stock')} type="button" title="个股详情" aria-label="个股详情">
               <LineChart size={18} />
             </button>

@@ -1,6 +1,13 @@
 import { ipcMain } from 'electron';
-import type { AppConfig, ChatMessage, ChatRequest, HotFocusTab } from '../src/shared/types.js';
-import { getConfig, setConfig } from './services/config-store.js';
+import type { AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab } from '../src/shared/types.js';
+import {
+  getConfig,
+  listFavoriteStocks,
+  removeFavoriteStock,
+  setConfig,
+  toggleFavoriteStockPin,
+  upsertFavoriteStock,
+} from './services/config-store.js';
 import {
   createConversation,
   deleteConversation,
@@ -18,6 +25,10 @@ import { listMarketNews } from './services/stock/news-client.js';
 export function registerIpcHandlers() {
   ipcMain.handle('config:get', () => getConfig());
   ipcMain.handle('config:set', (_event, config: AppConfig) => setConfig(config));
+  ipcMain.handle('favorite:list', () => listFavoriteStocks());
+  ipcMain.handle('favorite:upsert', (_event, stock: Pick<FavoriteStock, 'code' | 'name'>) => upsertFavoriteStock(stock));
+  ipcMain.handle('favorite:remove', (_event, code: string) => removeFavoriteStock(code));
+  ipcMain.handle('favorite:togglePin', (_event, code: string) => toggleFavoriteStockPin(code));
   ipcMain.handle('conversation:list', () => listConversations());
   ipcMain.handle('conversation:create', () => createConversation());
   ipcMain.handle('conversation:delete', (_event, id: string) => deleteConversation(id));

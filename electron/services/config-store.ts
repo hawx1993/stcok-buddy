@@ -1,8 +1,9 @@
 import Store from 'electron-store';
-import type { AppConfig } from '../../src/shared/types.js';
+import type { AppConfig, FavoriteStock } from '../../src/shared/types.js';
 
 export interface StoreSchema {
   config: AppConfig;
+  favoriteStocks: FavoriteStock[];
 }
 
 export const defaultConfig: AppConfig = {
@@ -24,6 +25,7 @@ export const store = new Store<StoreSchema>({
   name: 'stocksense-store',
   defaults: {
     config: defaultConfig,
+    favoriteStocks: [],
   },
 });
 
@@ -42,4 +44,32 @@ export function setConfig(config: AppConfig): AppConfig {
   };
   store.set('config', normalized);
   return normalized;
+}
+
+function sortFavorites(items: FavoriteStock[]) {
+  return [...items].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.createdAt.localeCompare(a.createdAt));
+}
+
+export function listFavoriteStocks(): FavoriteStock[] {
+  return sortFavorites(store.get('favoriteStocks', []));
+}
+
+export function upsertFavoriteStock(stock: Pick<FavoriteStock, 'code' | 'name'>): FavoriteStock[] {
+  const favorites = store.get('favoriteStocks', []);
+  const existing = favorites.find((item) => item.code === stock.code);
+  const next = existing
+    ? favorites.map((item) => (item.code === stock.code ? { ...item, name: stock.name || item.name } : item))
+    : [{ ...stock, pinned: false, createdAt: new Date().toISOString() }, ...favorites];
+  store.set('favoriteStocks', next);
+  return listFavoriteStocks();
+}
+
+export function removeFavoriteStock(code: string): FavoriteStock[] {
+  store.set('favoriteStocks', store.get('favoriteStocks', []).filter((item) => item.code !== code));
+  return listFavoriteStocks();
+}
+
+export function toggleFavoriteStockPin(code: string): FavoriteStock[] {
+  store.set('favoriteStocks', store.get('favoriteStocks', []).map((item) => (item.code === code ? { ...item, pinned: !item.pinned } : item)));
+  return listFavoriteStocks();
 }

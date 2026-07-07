@@ -28,7 +28,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
 
   const createConversation = async () => {
     if (activeConversationId === conversations[0]?.id && conversations[0]?.count === 0) {
-      antdMessage.info('当前已处于最新对话');
+      antdMessage.info('当前已处于最新会话');
       return;
     }
     const item = await getStocksenseApi().createConversation();
