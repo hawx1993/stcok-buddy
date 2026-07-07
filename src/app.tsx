@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { Activity, LineChart, Newspaper, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from './store/app-store';
 import { Sidebar } from './components/sidebar';
 import { ChatView } from './components/chat-view';
@@ -11,6 +12,7 @@ import cx from './shared/cx';
 
 
 export function App() {
+  const [searchOpen, setSearchOpen] = useState(false);
   const config = useAppStore((state) => state.config);
   const setConfig = useAppStore((state) => state.setConfig);
   const setConversations = useAppStore((state) => state.setConversations);
@@ -19,7 +21,8 @@ export function App() {
   const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
   const isRightPanelCollapsed = useAppStore((state) => state.isRightPanelCollapsed);
   const toggleLeftSidebar = useAppStore((state) => state.toggleLeftSidebar);
-  const toggleRightPanel = useAppStore((state) => state.toggleRightPanel);
+  const rightPanelTab = useAppStore((state) => state.rightPanelTab);
+  const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
 
   useEffect(() => {
     const api = getStocksenseApi();
@@ -39,31 +42,36 @@ export function App() {
     document.documentElement.classList.toggle('light', config?.theme === 'light');
   }, [config?.marketColorMode, config?.theme]);
 
+
   return (
     <div className={styles.app}>
-      <div className={styles.titlebar}>
-        <div className={styles['traffic-lights']} aria-hidden="true">
-          <span className={cx(styles.dot, styles.close)} />
-          <span className={cx(styles.dot, styles.minimize)} />
-          <span className={cx(styles.dot, styles.maximize)} />
-        </div>
-        <button className={cx(styles['collapse-btn'], isLeftSidebarCollapsed && styles.collapsed)} onClick={toggleLeftSidebar} title={isLeftSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} type="button">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-        </button>
-        <div className={styles['titlebar-label']}>StockBuddy</div>
-        <div className={styles['titlebar-spacer']} />
-      </div>
-
+      <div className={styles.titlebar} />
       <div className={styles.body}>
-        <ErrorBoundary name="左侧栏"><Sidebar /></ErrorBoundary>
+        <div className={styles['left-tools']}>
+          <button className={styles['collapse-btn']} onClick={toggleLeftSidebar} title={isLeftSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="9" y1="4" x2="9" y2="20" /></svg>
+          </button>
+          <button className={styles['search-btn']} onClick={() => setSearchOpen((open) => !open)} title="搜索" type="button" aria-label="搜索">
+            <Search size={17} />
+          </button>
+        </div>
+        <ErrorBoundary name="左侧栏"><Sidebar searchOpen={searchOpen} /></ErrorBoundary>
         <main className={styles.main}>
           <ErrorBoundary name="聊天区"><ChatView /></ErrorBoundary>
         </main>
         <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)}>
+          <div className={styles['right-rail']}>
+            <button className={cx(styles['rail-btn'], rightPanelTab === 'stock' && !isRightPanelCollapsed && styles.active)} onClick={() => setRightPanelTab('stock')} type="button" title="个股详情" aria-label="个股详情">
+              <LineChart size={18} />
+            </button>
+            <button className={cx(styles['rail-btn'], rightPanelTab === 'surge' && !isRightPanelCollapsed && styles.active)} onClick={() => setRightPanelTab('surge')} type="button" title="个股异动" aria-label="个股异动">
+              <Activity size={18} />
+            </button>
+            <button className={cx(styles['rail-btn'], rightPanelTab === 'news' && !isRightPanelCollapsed && styles.active)} onClick={() => setRightPanelTab('news')} type="button" title="热点新闻" aria-label="热点新闻">
+              <Newspaper size={18} />
+            </button>
+          </div>
           <ErrorBoundary name="右侧栏"><StockDetailPanel /></ErrorBoundary>
-          <button className={styles['right-toggle-btn']} onClick={toggleRightPanel} type="button" title={isRightPanelCollapsed ? '展开侧边栏' : '收起侧边栏'}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-          </button>
         </div>
         <ErrorBoundary name="设置"><SettingsModal /></ErrorBoundary>
       </div>

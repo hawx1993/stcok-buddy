@@ -1,13 +1,18 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Skeleton } from 'antd';
+import { Bot, Filter } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { useAppStore } from '../../store/app-store';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import type { BoardConstituent, MarketNewsItem, StockDetail } from '../../shared/types';
+import type { BoardConstituent, HotFocusItem, MarketNewsItem, StockDetail } from '../../shared/types';
 import { KlineModal, StockKlineChart } from '../kline-chart';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
 
 const NEWS_PAGE_SIZE = 30;
+const SURGE_PAGE_SIZE = 20;
+const surgeFilters = ['全部', '60日新高', '60日新低', '快速涨幅', '快速跌幅', '封跌停板', '封涨停板', '跌停开板', '涨停开板', '特大单买入', '特大单卖出'] as const;
+type SurgeFilter = typeof surgeFilters[number];
 
 export function StockDetailPanel() {
   const detailRef = useRef<HTMLDivElement>(null);
@@ -17,10 +22,19 @@ export function StockDetailPanel() {
   const [newsTotal, setNewsTotal] = useState(0);
   const [newsLoading, setNewsLoading] = useState(false);
   const [news, setNews] = useState<MarketNewsItem[]>([]);
+  const [surgeLoading, setSurgeLoading] = useState(false);
+  const [surgeItems, setSurgeItems] = useState<HotFocusItem[]>([]);
+  const [surgeFiltersOpen, setSurgeFiltersOpen] = useState(false);
+  const [surgeFilter, setSurgeFilter] = useState<SurgeFilter[]>(['全部']);
+  const [visibleSurgeCount, setVisibleSurgeCount] = useState(SURGE_PAGE_SIZE);
+  const [surgePaging, setSurgePaging] = useState(false);
   const [isKlineModalOpen, setKlineModalOpen] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(true);
   const selectedStock = useAppStore((state) => state.selectedStock);
   const selectedBoard = useAppStore((state) => state.selectedBoard);
+  const rightPanelTab = useAppStore((state) => state.rightPanelTab);
+  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppStore((state) => state.openRightPanel);
 
   useLayoutEffect(() => {
     if (!selectedStock || !detailRef.current) return;
@@ -45,7 +59,7 @@ export function StockDetailPanel() {
   }, [selectedStock]);
 
   useEffect(() => {
-    if (selectedStock || selectedBoard) return;
+    if (rightPanelTab !== 'news') return;
     let alive = true;
     setNewsLoading(true);
     getStocksenseApi().listMarketNews(newsQuery, newsPage, NEWS_PAGE_SIZE).then((result) => {
@@ -56,13 +70,67 @@ export function StockDetailPanel() {
       if (alive) setNewsLoading(false);
     });
     return () => { alive = false; };
-  }, [selectedStock, selectedBoard, newsQuery, newsPage, newsRefresh]);
+  }, [rightPanelTab, newsQuery, newsPage, newsRefresh]);
+
+  useEffect(() => {
+    if (rightPanelTab !== 'surge' || surgeItems.length) return;
+    let alive = true;
+    setSurgeLoading(true);
+    getStocksenseApi().listHotFocus('surge').then((items) => {
+      if (!alive) return;
+      setSurgeItems(items);
+      setVisibleSurgeCount(SURGE_PAGE_SIZE);
+    }).catch(console.error).finally(() => {
+      if (alive) setSurgeLoading(false);
+    });
+    return () => { alive = false; };
+  }, [rightPanelTab, surgeItems.length]);
+
+  const filteredSurgeItems = useMemo(() => surgeFilter.includes('全部') ? surgeItems : surgeItems.filter((item) => surgeFilter.includes((item.description ?? item.tag) as SurgeFilter)), [surgeFilter, surgeItems]);
+
+  useEffect(() => {
+    setVisibleSurgeCount(SURGE_PAGE_SIZE);
+  }, [surgeFilter]);
+
+  const toggleSurgeFilter = (filter: SurgeFilter) => {
+    setSurgeFilter((current) => {
+      if (filter === '全部') return ['全部'];
+      const withoutAll = current.filter((item) => item !== '全部');
+      const next = withoutAll.includes(filter) ? withoutAll.filter((item) => item !== filter) : [...withoutAll, filter];
+      return next.length ? next : ['全部'];
+    });
+  };
+
+  const loadMoreSurge = () => {
+    if (surgePaging || visibleSurgeCount >= filteredSurgeItems.length) return;
+    setSurgePaging(true);
+    window.setTimeout(() => {
+      setVisibleSurgeCount((count) => Math.min(count + SURGE_PAGE_SIZE, filteredSurgeItems.length));
+      setSurgePaging(false);
+    }, 250);
+  };
+
+  const openSurgeStock = async (item: HotFocusItem) => {
+    if (!item.code) return;
+    const fallback: StockDetail = { code: item.code, name: item.name ?? item.title, price: item.price, changePercent: item.changePercent, turnover: item.turnover ?? item.amount, summary: item.description };
+    openRightPanel();
+    setSelectedStock(fallback);
+    try {
+      setSelectedStock(await getStocksenseApi().getStockDetail(item.code));
+    } catch {
+      setSelectedStock(fallback);
+    }
+  };
+
+  const sendStockReport = (code: string) => {
+    window.dispatchEvent(new CustomEvent('stocksense:send-report', { detail: code }));
+  };
 
   const totalPages = Math.max(1, Math.ceil(newsTotal / NEWS_PAGE_SIZE));
 
   return (
     <aside className={`${styles['right-panel']} right-panel`}>
-      {!selectedStock && !selectedBoard ? (
+      {rightPanelTab === 'news' ? (
         <>
           <div className={styles['right-panel-header']}>
             <span className={styles.title}>📰 市场热点</span>
@@ -72,7 +140,7 @@ export function StockDetailPanel() {
           <div className={styles['right-panel-body']}>
             <div className={styles['news-section-title']}>📌 热门新闻 <span>{newsTotal} 条</span></div>
             <div className={styles['right-news-list']}>
-              {newsLoading ? <div className={styles['empty-list']}>加载中…</div> : news.length ? news.map((item) => <NewsItem key={item.id} item={item} />) : <div className={styles['empty-list']}>无匹配新闻</div>}
+              {newsLoading ? <NewsSkeleton /> : news.length ? news.map((item) => <NewsItem key={item.id} item={item} />) : <div className={styles['empty-list']}>无匹配新闻</div>}
             </div>
             <div className={styles['news-pager']}>
               <button onClick={() => setNewsPage((value) => Math.max(1, value - 1))} disabled={newsPage <= 1 || newsLoading} type="button">上一页</button>
@@ -81,13 +149,37 @@ export function StockDetailPanel() {
             </div>
           </div>
         </>
+      ) : rightPanelTab === 'surge' ? (
+        <>
+          <div className={styles['right-panel-header']}>
+            <div className={styles['surge-title-row']}>
+              <span className={styles.title}>⚡ 个股异动</span>
+              <button className={styles['surge-filter-label']} onClick={() => setSurgeFiltersOpen((open) => !open)} type="button">筛选 <Filter size={14} /></button>
+            </div>
+            {surgeFiltersOpen ? <div className={styles['surge-filters']}>
+              {surgeFilters.map((filter) => <button key={filter} className={cx(styles['surge-filter'], surgeFilter.includes(filter) && styles.active)} onClick={() => toggleSurgeFilter(filter)} type="button">{filter}</button>)}
+            </div> : null}
+          </div>
+          <div className={styles['right-panel-body']} onScroll={(event) => {
+            const el = event.currentTarget;
+            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreSurge();
+          }}>
+            {surgeLoading ? <SurgeSkeleton /> : filteredSurgeItems.length ? <>
+              {filteredSurgeItems.slice(0, visibleSurgeCount).map((item) => <SurgeItem key={item.id} item={item} onClick={() => void openSurgeStock(item)} />)}
+              <div className={styles['surge-load-state']}>{visibleSurgeCount < filteredSurgeItems.length ? (surgePaging ? <span className={styles.spinner} /> : '向下滚动加载更多') : '没有更多数据了'}</div>
+            </> : <div className={styles['empty-list']}>暂无异动个股</div>}
+          </div>
+        </>
       ) : selectedBoard ? (
         <BoardDetailView />
       ) : selectedStock ? (
         <div className={styles['stock-detail']} ref={detailRef}>
           <div className={styles['stock-header']} data-stockheader>
             <div className={styles['stock-name']}>{selectedStock.name}<span className={styles.code}>{selectedStock.code} · {selectedStock.exchange ?? 'A股'}</span></div>
-            <div className={styles['stock-price']}><div className={styles.price}>{selectedStock.price ?? '--'}</div><div className={cx(styles.chg, String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up')}>{selectedStock.changePercent ?? '--'} ({selectedStock.change ?? '--'})</div></div>
+            <div className={styles['stock-actions']}>
+              <button className={styles['robot-btn']} onClick={() => sendStockReport(selectedStock.code)} title="诊股" aria-label="诊股" type="button"><Bot size={15} /></button>
+              <div className={styles['stock-price']}><div className={styles.price}>{selectedStock.price ?? '--'}</div><div className={cx(styles.chg, String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up')}>{selectedStock.changePercent ?? '--'} ({selectedStock.change ?? '--'})</div></div>
+            </div>
           </div>
           <div className={styles['kline-box']} data-klinebox>
             <button className={styles['kline-expand']} onClick={() => setKlineModalOpen(true)} title="放大K线图" type="button">⛶</button>
@@ -117,7 +209,9 @@ export function StockDetailPanel() {
           <div className={styles['section-title']}>快评</div>
           <div className={styles['summary-box']} data-summary>{selectedStock.summary ?? '暂无摘要。'}</div>
         </div>
-      ) : null}
+      ) : (
+        <div className={styles['empty-panel']}><div className={styles.hint}>点击聊天中的<span className={styles.hl}>股票</span>或左侧热点列表，查看个股详情。</div></div>
+      )}
       {isKlineModalOpen && selectedStock ? <KlineModal stock={selectedStock} data={selectedStock.kline} onClose={() => setKlineModalOpen(false)} chipsOpen={chipsOpen} /> : null}
     </aside>
   );
@@ -150,6 +244,55 @@ function BoardStockItem({ stock, onClick }: { stock: BoardConstituent; onClick()
       <span><b>{stock.name}</b><em>{stock.code}</em></span>
       <span className={String(stock.changePercent).startsWith('-') ? 'down' : 'up'}>{stock.changePercent ?? '--'}</span>
     </button>
+  );
+}
+
+function SurgeSkeleton() {
+  return (
+    <div className={styles['surge-skeleton']}>
+      {Array.from({ length: 12 }, (_, index) => (
+        <div className={styles['surge-skeleton-item']} key={index}>
+          <span className={styles['surge-skeleton-time']} />
+          <span className={styles['surge-skeleton-card']}>
+            <span className={styles['surge-skeleton-main']}>
+              <span className={styles['sk-name']} />
+              <span className={styles['sk-price']} />
+            </span>
+            <span className={styles['surge-skeleton-action']}>
+              <span className={styles['sk-tag']} />
+              <span className={styles['sk-amount']} />
+            </span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SurgeItem({ item, onClick }: { item: HotFocusItem; onClick(): void }) {
+  const isDown = String(item.changePercent).startsWith('-');
+  return (
+    <button className={styles['surge-item']} onClick={onClick} type="button">
+      <span className={styles['surge-time']}>{item.time ?? '--'}</span>
+      <span className={styles['surge-card']}>
+        <span className={styles['surge-main']}>
+          <b>{item.name ?? item.title}<em>{item.code}</em></b>
+          <small>当前 <span>{item.price ?? '--'}</span><span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span></small>
+        </span>
+        <span className={styles['surge-action']}>
+          <span>{item.description ?? item.tag ?? '--'}</span>
+          {item.amount ? <small>{item.amount}</small> : null}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function NewsSkeleton() {
+  return (
+    <div className={styles['news-skeleton']}>
+      {Array.from({ length: 6 }, (_, index) => <Skeleton key={index} active paragraph={{ rows: 1 }} title={{ width: '72%' }} className={styles['news-skeleton-row']} />)}
+    </div>
   );
 }
 

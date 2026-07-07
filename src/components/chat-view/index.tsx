@@ -136,6 +136,15 @@ export function ChatView() {
     }
   };
 
+  useEffect(() => {
+    const handleReport = (event: Event) => {
+      const code = (event as CustomEvent<string>).detail;
+      if (code) void send(`/综合投研报告 ${code}`);
+    };
+    window.addEventListener('stocksense:send-report', handleReport);
+    return () => window.removeEventListener('stocksense:send-report', handleReport);
+  });
+
   return (
     <div className={styles['chat-wrap']} ref={rootRef}>
       <div className={styles['chat-messages']} ref={listRef}>

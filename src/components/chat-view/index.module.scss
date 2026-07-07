@@ -1,4 +1,4 @@
-.chat-wrap { flex: 1 1 auto; min-height: 0; height: 100%; display: flex; flex-direction: column; }
+.chat-wrap { flex: 1 1 auto; min-height: 0; height: 100%; display: flex; flex-direction: column;margin-top: 40px; }
 .chat-messages { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 8px; }
 .msg { display: flex; gap: 10px; margin-bottom: 18px; user-select: text; }
 .msg.user { flex-direction: row-reverse; padding-right: 14px; }
