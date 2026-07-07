@@ -175,9 +175,18 @@ export interface MarketNewsItem {
   time: string;
   title: string;
   tags: string[];
+  content?: string;
   tagType?: 'positive' | 'impact' | 'neutral';
   url?: string;
   source?: string;
+}
+
+export interface AnnouncementItem {
+  title: string;
+  type: string;
+  date: string;
+  url: string;
+  content?: string;
 }
 
 export interface PagedMarketNews {

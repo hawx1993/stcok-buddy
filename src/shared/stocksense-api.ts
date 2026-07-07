@@ -159,7 +159,7 @@ const webFallbackApi: StocksenseApi = {
     saveLocalMessage(conversationId, message);
   },
   async sendChat(request: ChatRequest): Promise<ChatResponse> {
-    const command = request.message.trim().match(/^\/(综合投研报告|技术面分析|基本面分析|资金面分析|情绪面分析|龙虎榜分析)\s*(.*)$/);
+    const command = request.message.trim().match(/^\/(综合投研报告|新闻公告|技术面分析|基本面分析|资金面分析|情绪面分析|龙虎榜分析)\s*(.*)$/);
     const reportTarget = command?.[2].trim();
     if (command && reportTarget === '') return webMessage(request, `请输入股票代码或股票名称，例如：/${command[1]} 中公教育`);
     const stock = findStock(reportTarget ?? request.message);

@@ -27,7 +27,9 @@
 .trace-step .progress { margin-left: auto; color: var(--accent); font-size: 10px; white-space: nowrap; }
 .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 6px; user-select: text; }
 .card-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.card-title .sub { font-size: 11px; font-weight: 400; color: var(--muted); }
+.card-title .sub { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: auto; }
+.card-toggle { color: var(--accent); font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; background: var(--surface); cursor: pointer; flex-shrink: 0; }
+.card-toggle:hover { border-color: var(--accent); }
 .metric-row { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 8px; }
 .metric-item { flex: 1 0 70px; }
 .metric-item .lbl { font-size: 10px; color: var(--muted); letter-spacing: .03em; }
@@ -60,8 +62,8 @@
 .command-input-wrap input { min-width: 0; border: 0; background: transparent; padding: 0; border-radius: 0; }
 .input-row input::placeholder, .command-input-wrap input::placeholder { color: var(--muted); }
 .input-row input:focus { border-color: var(--accent); }
-.input-row button, .qe-search-box button { background: var(--accent); border-radius: 8px; color: #fff; padding: 8px 18px; font-size: 13px; font-weight: 500; cursor: pointer; }
-.input-row button:hover, .qe-search-box button:hover { background: var(--accent-hover); }
+.input-row > button, .qe-search-box > button { background: var(--accent); border-radius: 8px; color: #fff; padding: 8px 18px; font-size: 13px; font-weight: 500; cursor: pointer; }
+.input-row > button:hover, .qe-search-box > button:hover { background: var(--accent-hover); }
 .input-row button:disabled { opacity: .65; cursor: not-allowed; }
 .quick-entry { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 24px 24px 32px; text-align: center; }
 .qe-hero { width: 100%; max-width: 420px; height: 200px; margin-bottom: 16px; border-radius: 10px; overflow: hidden; }
@@ -73,7 +75,8 @@
 @media (prefers-reduced-motion: reduce) { .qe-trend, .qe-wave, .qe-candle { animation: none; } }
 .qe-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
 .qe-sub { font-size: 12px; color: var(--muted); margin-bottom: 20px; }
-.qe-search-box { width: 100%; max-width: 420px; display: flex; gap: 8px; }
+.qe-search-box { width: 100%; max-width: 420px; display: flex; gap: 8px; position: relative; }
+.qe-search-box .slash-menu { left: 0; right: 0; bottom: calc(100% + 8px); text-align: left; }
 .qe-search-box input { flex: 1; background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--fg); font-size: 13px; outline: none; }
 .qe-search-box input:focus { border-color: var(--accent); }
 .qe-hints { display: flex; gap: 4px; margin-top: 12px; flex-wrap: wrap; justify-content: center; max-width: 420px; }
