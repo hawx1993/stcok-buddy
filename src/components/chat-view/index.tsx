@@ -184,14 +184,20 @@ export function ChatView() {
 }
 
 function SlashCommandMenu({ selectedIndex, onSelect }: { selectedIndex: number; onSelect(item?: typeof slashItems[number]): void }) {
+  const activeRef = useRef<HTMLButtonElement>(null);
   const sections = Array.from(new Set(slashItems.map((item) => item.section)));
+
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [selectedIndex]);
+
   return (
     <div className={styles['slash-menu']}>
       {sections.map((section) => (
         <div key={section}>
           <div className={styles['slash-section']}>{section}</div>
           {slashItems.map((item, index) => item.section === section ? (
-            <button className={cx(styles['slash-item'], index === selectedIndex && styles.active)} key={item.id} onMouseDown={(event) => { event.preventDefault(); onSelect(item); }} type="button">
+            <button ref={index === selectedIndex ? activeRef : undefined} className={cx(styles['slash-item'], index === selectedIndex && styles.active)} key={item.id} onMouseDown={(event) => { event.preventDefault(); onSelect(item); }} type="button">
               <span className="slash-icon">/</span>
               <span className={styles['slash-label']}>{item.label}</span>
               <span className={styles['slash-desc']}>{item.description}</span>
