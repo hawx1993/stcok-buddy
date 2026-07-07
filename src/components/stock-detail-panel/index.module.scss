@@ -61,3 +61,7 @@
 .board-stock-item:hover { background: var(--surface-hover); }
 .board-stock-item b { display: block; font-size: 12px; font-weight: 600; }
 .board-stock-item em { display: block; margin-top: 2px; font-style: normal; font-size: 10px; color: var(--muted); }
+.surge-item { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; margin-top: 8px; border-radius: 7px; background: var(--input-bg); border: 1px solid var(--border); color: var(--fg); text-align: left; cursor: pointer; }
+.surge-item:hover { background: var(--surface-hover); }
+.surge-item b { display: block; font-size: 12px; font-weight: 600; }
+.surge-item em { display: block; margin-top: 2px; font-style: normal; font-size: 10px; color: var(--muted); }

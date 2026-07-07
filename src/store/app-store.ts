@@ -12,6 +12,7 @@ import type {
 export type SidebarTab = 'all' | 'surge' | 'stock' | 'diagnosis' | 'market';
 export type SidebarMainTab = 'session' | 'hot';
 export type HotSubTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
+export type RightPanelTab = 'stock' | 'surge' | 'news';
 
 export interface SurgeStock extends StockDetail {
   type: 'surge' | 'plummet' | 'volume';
@@ -25,6 +26,7 @@ interface AppState {
   sidebarTab: SidebarTab;
   sidebarMainTab: SidebarMainTab;
   hotSubTab: HotSubTab;
+  rightPanelTab: RightPanelTab;
   isLeftSidebarCollapsed: boolean;
   isRightPanelCollapsed: boolean;
   search: string;
@@ -42,6 +44,7 @@ interface AppState {
   setSidebarTab(tab: SidebarTab): void;
   setSidebarMainTab(tab: SidebarMainTab): void;
   setHotSubTab(tab: HotSubTab): void;
+  setRightPanelTab(tab: RightPanelTab): void;
   toggleLeftSidebar(): void;
   toggleRightPanel(): void;
   openRightPanel(): void;
@@ -65,8 +68,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   sidebarTab: 'all',
   sidebarMainTab: 'session',
   hotSubTab: 'sector',
+  rightPanelTab: 'stock',
   isLeftSidebarCollapsed: false,
-  isRightPanelCollapsed: false,
+  isRightPanelCollapsed: true,
   search: '',
   messages: [],
   stockKlines: {},
@@ -84,9 +88,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
   setSidebarMainTab: (tab) => set({ sidebarMainTab: tab, search: '' }),
   setHotSubTab: (tab) => set({ hotSubTab: tab }),
+  setRightPanelTab: (tab) => set((state) => ({ rightPanelTab: tab, isRightPanelCollapsed: state.rightPanelTab === tab ? !state.isRightPanelCollapsed : false })),
   toggleLeftSidebar: () => set((state) => ({ isLeftSidebarCollapsed: !state.isLeftSidebarCollapsed })),
   toggleRightPanel: () => set((state) => ({ isRightPanelCollapsed: !state.isRightPanelCollapsed })),
-  openRightPanel: () => set({ isRightPanelCollapsed: false }),
+  openRightPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'stock' }),
   setSearch: (search) => set({ search }),
   rememberStockKline: (code, data) => {
     if (data?.length) set((state) => ({ stockKlines: { ...state.stockKlines, [code]: data } }));

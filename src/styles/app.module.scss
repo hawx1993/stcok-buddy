@@ -1,23 +1,14 @@
-.app { display: flex; height: 100%; flex-direction: column; background: var(--bg); color: var(--fg); }
-.titlebar { display: flex; align-items: center; height: var(--titlebar-height); background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--glass-border); flex-shrink: 0; -webkit-app-region: drag; padding: 0 12px; gap: 10px; }
-.traffic-lights { display: flex; gap: 8px; -webkit-app-region: no-drag; flex-shrink: 0; }
-.traffic-lights .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.12); }
-.traffic-lights .close { background: #FF5F57; }
-.traffic-lights .minimize { background: #FEBC2E; }
-.traffic-lights .maximize { background: #28C840; }
-.titlebar-label { flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: var(--fg-secondary); letter-spacing: .02em; }
-.titlebar-spacer { width: 68px; flex-shrink: 0; }
-.collapse-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: var(--collapse-btn-bg); border: 1px solid var(--glass-border); cursor: pointer; flex-shrink: 0; -webkit-app-region: no-drag; color: var(--muted); transition: all .15s ease; }
-.collapse-btn:hover { background: var(--collapse-btn-hover); color: var(--accent); border-color: var(--accent); }
-.collapse-btn svg { width: 16px; height: 16px; transition: transform .2s ease; }
-.collapse-btn.collapsed svg { transform: rotate(180deg); }
-.body { display: flex; flex: 1; min-height: 0; width: 100%; }
+.app { display: flex; height: 100%; background: var(--bg); color: var(--fg); }
+.body { display: flex; flex: 1; min-height: 0; width: 100%; position: relative; }
+.left-tools { position: absolute; left: 78px; top: 10px; z-index: 20; display: flex; align-items: center; gap: 6px; }
+.collapse-btn, .search-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: transparent; border: 0; cursor: pointer; color: var(--muted); transition: all .15s ease; }
+.collapse-btn:hover, .search-btn:hover { background: var(--collapse-btn-hover); color: var(--accent); }
+.collapse-btn svg { width: 18px; height: 18px; }
 .main { flex: 1 1 auto; min-width: 0; width: 0; display: flex; flex-direction: column; background: var(--bg); }
-.sidebar-toggle.right { border-left: 1px solid var(--glass-border); }
-.right-wrapper { width: var(--right-width); min-width: var(--right-width); position: relative; display: flex; flex-shrink: 0; transition: width .2s ease, min-width .2s ease; }
-.right-wrapper.collapsed { width: 0; min-width: 0; }
+.right-wrapper { width: calc(var(--right-width) + 48px); min-width: calc(var(--right-width) + 48px); display: flex; flex-shrink: 0; transition: width .2s ease, min-width .2s ease; }
+.right-wrapper.collapsed { width: 48px; min-width: 48px; }
 .right-wrapper.collapsed :global(.right-panel) { width: 0; min-width: 0; border-left-color: transparent; overflow: hidden; }
-.right-toggle-btn { position: absolute; left: -20px; top: 0; width: 20px; height: 100%; background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-left: 1px solid var(--glass-border); color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 5; }
-.right-toggle-btn:hover { background: var(--surface-hover); color: var(--accent); }
-.right-toggle-btn svg { width: 16px; height: 16px; transition: transform .2s ease; }
+.right-rail { width: 48px; min-width: 48px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 8px; background: var(--glass-bg); border-left: 1px solid var(--glass-border); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+.rail-btn { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--muted); cursor: pointer; }
+.rail-btn:hover, .rail-btn.active { background: var(--list-item-active); color: var(--accent); }
 @media (max-width: 900px) { .right-wrapper { display: none; } }
