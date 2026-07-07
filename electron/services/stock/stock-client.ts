@@ -382,11 +382,12 @@ type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
 
 async function listStockChangeEvents(): Promise<HotFocusItem[]> {
   const changes = await sdk.marketEvent.stockChanges();
-  return changes.map((item, index) => {
+  return changes.flatMap((item, index): HotFocusItem[] => {
     const [volume, price, pct] = String(item.info ?? '').split(',');
     const hands = Number(volume) / 100;
+    if (isLargeTrade(item.changeTypeLabel, item.changeType) && hands < 10000) return [];
     const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType, hands);
-    return {
+    return [{
       id: `surge-${item.time}-${item.code}-${index}`,
       title: `${item.name} ${item.code}`,
       code: item.code,
@@ -398,8 +399,12 @@ async function listStockChangeEvents(): Promise<HotFocusItem[]> {
       description: reason,
       tag: reason,
       type: /卖|跌|跳水|下挫/.test(reason) ? 'plummet' : 'surge',
-    };
+    }];
   });
+}
+
+function isLargeTrade(label: string, type?: string) {
+  return type === 'large_buy' || type === 'large_sell' || label === '大笔买入' || label === '大笔卖出';
 }
 
 function formatStockChangeReason(label: string, type: string | undefined, hands: number) {
