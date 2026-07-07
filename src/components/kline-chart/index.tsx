@@ -30,11 +30,12 @@ interface StockKlineChartProps {
   showChips?: boolean;
   chipsOpen?: boolean;
   showIndicators?: boolean;
+  showLegend?: boolean;
   timeframe?: TimeframeId;
   onTimeframeChange?: (timeframe: TimeframeId) => void;
 }
 
-export function StockKlineChart({ stock, data = [], className, height = 210, showSwitcher = false, showChips = false, chipsOpen = false, showIndicators = false, timeframe, onTimeframeChange }: StockKlineChartProps) {
+export function StockKlineChart({ stock, data = [], className, height = 210, showSwitcher = false, showChips = false, chipsOpen = false, showIndicators = false, showLegend = true, timeframe, onTimeframeChange }: StockKlineChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
   const chartDataRef = useRef<KlinePoint[]>([]);
@@ -86,8 +87,8 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
     const chart = init(hostRef.current, {
       styles: {
         ...klineStyles,
-        candle: { ...klineStyles.candle, tooltip: { showRule: 'always', showType: 'standard' } },
-        indicator: { ...klineStyles.indicator, tooltip: { showRule: 'always', showType: 'standard' } },
+        candle: { ...klineStyles.candle, tooltip: { showRule: showLegend ? 'always' : 'none', showType: 'standard' } },
+        indicator: { ...klineStyles.indicator, tooltip: { showRule: showLegend ? 'always' : 'none', showType: 'standard' } },
         grid: {
           show: false,
           horizontal: { show: false },
@@ -126,7 +127,7 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
       dispose(chart);
       chartRef.current = null;
     };
-  }, []);
+  }, [showLegend]);
 
   useEffect(() => {
     const chart = chartRef.current;
