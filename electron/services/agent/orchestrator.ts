@@ -1,5 +1,5 @@
 import type { AgentResultCard, AgentRunEvent, AnnouncementItem, ChatRequest, ChatResponse, HotFocusItem, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
-import { getKline, listHotFocus, resolveASymbol } from '../stock/stock-client.js';
+import { getKline, listDailyDragonTiger, listHotFocus, resolveASymbol, type DailyDragonTigerItem } from '../stock/stock-client.js';
 import { listMarketNews, listStockNewsAnnouncements } from '../stock/news-client.js';
 import { executeDag, type DagNode } from './dag-executor.js';
 import { fetchBoard, fetchQuote } from './data-agent.js';
@@ -10,12 +10,13 @@ import { reviewCompliance } from './risk-agent.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
 import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisAgentName, type StockAnalysisResult } from './stock-analysis-agents.js';
 
-type Intent = 'quote' | 'technical' | 'analysis' | 'news-announcements' | 'theme-attribution' | 'board' | 'portfolio' | 'chat';
+type Intent = 'quote' | 'technical' | 'analysis' | 'news-announcements' | 'theme-attribution' | 'daily-lhb' | 'board' | 'portfolio' | 'chat';
 
 const slashCommands = [
   { name: '/综合投研报告', intent: 'analysis' as const, usage: '请输入股票代码或股票名称，例如：/综合投研报告 中公教育' },
   { name: '/新闻公告', intent: 'news-announcements' as const, usage: '请输入股票代码或股票名称，例如：/新闻公告 000858' },
   { name: '/题材归因', intent: 'theme-attribution' as const, usage: '今天哪些股票走强，主要是什么题材', allowEmptyArgs: true },
+  { name: '/全市场龙虎榜', intent: 'daily-lhb' as const, usage: '今天龙虎榜哪些票净买入最多', allowEmptyArgs: true },
   { name: '/技术面分析', intent: 'analysis' as const, singleAgent: 'technical' as const, usage: '请输入股票代码或股票名称，例如：/技术面分析 000858' },
   { name: '/基本面分析', intent: 'analysis' as const, singleAgent: 'fundamental' as const, usage: '请输入股票代码或股票名称，例如：/基本面分析 000858' },
   { name: '/资金面分析', intent: 'analysis' as const, singleAgent: 'capital' as const, usage: '请输入股票代码或股票名称，例如：/资金面分析 000858' },
@@ -35,6 +36,7 @@ interface AgentContext {
   news?: MarketNewsItem[];
   announcements?: AnnouncementItem[];
   hotFocus?: HotFocusItem[];
+  dailyDragonTiger?: DailyDragonTigerItem[];
   analysisResults?: StockAnalysisResult[];
   analysisOverview?: string;
   themeAttribution?: string;
@@ -170,6 +172,21 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
     ];
   }
 
+  if (context.intent === 'daily-lhb') {
+    return [
+      {
+        id: 'daily-lhb-data',
+        agent: 'a-stock-data',
+        description: '拉取全市场龙虎榜净买入排名',
+        run: async (ctx) => {
+          ctx.dailyDragonTiger = await listDailyDragonTiger().catch(() => []);
+          ctx.board = dailyDragonTigerToCard(ctx.dailyDragonTiger);
+          ctx.analysisOverview = ctx.board.narrative;
+        },
+      },
+    ];
+  }
+
   if (!context.symbol) {
     return [
       {
@@ -282,6 +299,7 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 }
 
 function classifyIntent(query: string): Intent {
+  if (/全市场龙虎榜|龙虎榜.*净买入|净买入.*龙虎榜/.test(query)) return 'daily-lhb';
   if (/题材归因|哪些股票走强|主要是什么题材/.test(query)) return 'theme-attribution';
   if (hasStock(query) && /新闻|公告/.test(query)) return 'news-announcements';
   if (/持仓|我买|成本|盈亏|记住/.test(query)) return 'portfolio';
@@ -309,7 +327,7 @@ function needsSymbol(intent: Intent) {
 }
 
 function intentLabel(intent: Intent) {
-  return { quote: '行情查询', technical: '技术诊股', analysis: '五维个股分析', 'news-announcements': '新闻公告', 'theme-attribution': '题材归因', board: '板块分析', portfolio: '持仓管理', chat: '普通问答' }[intent];
+  return { quote: '行情查询', technical: '技术诊股', analysis: '五维个股分析', 'news-announcements': '新闻公告', 'theme-attribution': '题材归因', 'daily-lhb': '全市场龙虎榜', board: '板块分析', portfolio: '持仓管理', chat: '普通问答' }[intent];
 }
 
 function stockAnalysisInput(ctx: AgentContext) {
@@ -396,6 +414,78 @@ function themeAttributionToCard(surge: HotFocusItem[], sectors: HotFocusItem[], 
     ],
     narrative,
   };
+}
+
+function dailyDragonTigerToCard(items: DailyDragonTigerItem[]): AgentResultCard {
+  const date = items[0]?.date ?? new Date().toISOString().slice(0, 10);
+  const leaders = items.filter((item) => item.netBuy > 0).slice(0, 10);
+  const top = leaders.slice(0, 5);
+  const conclusion = leaders.length ? '🟢 偏利好' : items.length ? '🟡 中性' : '🟡 中性';
+  const narrative = [
+    '# 全市场龙虎榜',
+    '',
+    '## 📰 核心事件',
+    items.length ? `- 📄 ${date} 龙虎榜共检索到 ${items.length} 条上榜记录，按净买入额降序展示。` : '- 📄 暂未检索到今日龙虎榜数据，可能是非交易日或盘后数据尚未更新。',
+    leaders.length ? top.map((item, index) => `- 💰 ${index + 1}. ${item.name}（${item.code}）：净买入 ${formatMoney(item.netBuy)}，${item.reason || '上榜原因待补充'}。`).join('\n') : '',
+    '',
+    '## ✅ 利好因素',
+    leaders.length ? `- 💰 前 ${Math.min(leaders.length, 10)} 只净买入个股合计 ${formatMoney(leaders.reduce((sum, item) => sum + item.netBuy, 0))}，说明部分短线资金集中度较高。` : '- 🟡 当前未看到明确净买入领先样本，资金方向偏观望。',
+    top.length ? `- 📈 涨跌幅靠前样本：${top.map((item) => `${item.name}${item.changePercent === undefined ? '' : ` ${formatSignedPercent(item.changePercent)}`}`).join('、')}。` : '',
+    '',
+    '## ⚠️ 利空因素',
+    items.some((item) => item.netBuy < 0) ? `- 📉 仍有 ${items.filter((item) => item.netBuy < 0).length} 条记录为净卖出，龙虎榜内部资金分歧不能忽视。` : '- ⚡ 龙虎榜资金通常偏短线，净买入不等于趋势确认。',
+    '- ⚡ 高换手上榜个股波动较大，次日承接比当日净买入更关键。',
+    '',
+    '## 📈 短期影响',
+    leaders.length ? `- 📅 短线重点观察 ${top.map((item) => item.name).join('、')} 的开盘溢价、成交额延续和席位回流情况。` : '- 📅 数据不足时，短期更适合等待盘后龙虎榜更新后再判断。',
+    '',
+    '## 🏛️ 中长期影响',
+    '- 🗓️ 龙虎榜反映交易结构而非基本面趋势，中长期判断仍需结合公告、行业景气和业绩兑现。',
+    '',
+    '## 🚨 风险提示',
+    '- ⚡ 龙虎榜数据来自东财数据中心公开接口，存在盘后更新延迟、非交易日为空、字段调整等风险。',
+    '- 📜 本结果仅用于投研线索筛选，不构成投资建议。',
+    '',
+    '## 🎯 综合结论',
+    `${conclusion}：${leaders.length ? `今日龙虎榜净买入主要集中在 ${top.map((item) => item.name).join('、')}。` : '当前未形成清晰的龙虎榜净买入主线。'}后续重点看资金是否连续回流。`,
+  ].filter(Boolean).join('\n');
+
+  return {
+    title: '全市场龙虎榜',
+    subtitle: `${date} · 净买入前 ${leaders.length || 0} 条`,
+    metrics: [
+      { label: '上榜记录', value: `${items.length}条` },
+      { label: '净买入', value: `${leaders.length}条`, tone: leaders.length ? 'up' : 'neutral' },
+      { label: 'TOP净买', value: leaders[0] ? formatMoney(leaders[0].netBuy) : '--', tone: leaders[0] ? 'up' : 'neutral' },
+    ],
+    rows: items.slice(0, 20).map((item, index) => ({
+      排名: index + 1,
+      代码: item.code,
+      名称: item.name,
+      上榜原因: item.reason,
+      收盘价: item.close ?? '--',
+      涨跌幅: item.changePercent === undefined ? '--' : formatSignedPercent(item.changePercent),
+      净买入: formatMoney(item.netBuy),
+      买入: formatMoney(item.buy),
+      卖出: formatMoney(item.sell),
+      换手率: item.turnover === undefined ? '--' : `${item.turnover.toFixed(2)}%`,
+    })),
+    narrative,
+  };
+}
+
+function formatMoney(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  const sign = num > 0 ? '+' : num < 0 ? '-' : '';
+  const abs = Math.abs(num);
+  if (abs >= 100000000) return `${sign}${(abs / 100000000).toFixed(2)}亿`;
+  if (abs >= 10000) return `${sign}${(abs / 10000).toFixed(2)}万`;
+  return `${sign}${abs.toFixed(0)}`;
+}
+
+function formatSignedPercent(value: number) {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 
 function themeName(item: HotFocusItem) {

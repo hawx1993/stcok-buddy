@@ -15,6 +15,7 @@ const slashItems = [
   { id: 'comprehensive-report', section: 'Commands', label: '综合投研报告', command: '/综合投研报告', description: '调用五个子 Agent，生成完整综合投资报告', argPlaceholder: '[输入股票代码或股票名称]' },
   { id: 'news-announcements', section: 'Commands', label: '新闻公告', command: '/新闻公告', description: '拉取指定个股最近的新闻和公告', argPlaceholder: '[输入股票代码或名称]' },
   { id: 'theme-attribution', section: 'Commands', label: '题材归因', command: '/题材归因', description: '今天哪些股票走强，主要是什么题材', argPlaceholder: '直接发送即可' },
+  { id: 'daily-lhb', section: 'Commands', label: '全市场龙虎榜', command: '/全市场龙虎榜', description: '今天龙虎榜哪些票净买入最多', argPlaceholder: '直接发送即可' },
   { id: 'technical-agent', section: 'Sub Agents', label: '技术面分析agent', command: '/技术面分析', description: '仅调用技术面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
   { id: 'fundamental-agent', section: 'Sub Agents', label: '基本面分析agent', command: '/基本面分析', description: '仅调用基本面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
   { id: 'capital-agent', section: 'Sub Agents', label: '资金面分析agent', command: '/资金面分析', description: '仅调用资金面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
@@ -265,7 +266,19 @@ function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; n
 
   return (
     <div className={cx(styles.msg, 'msg', message.role === 'user' ? styles.user : styles.agent, message.role === 'user' ? 'user' : 'agent')} data-msg>
-      <div className={styles['msg-avatar']} data-avatar>{message.role === 'user' ? '我' : '股'}</div>
+      <div className={styles['msg-avatar']} data-avatar>
+        {message.role === 'user' ? '我' : (
+          <span className={cx(styles.whale, message.thinking && styles.busy)} aria-label="AI 鲸鱼头像" role="img">
+            🐳
+            <span className={styles['whale-eye']} />
+            <span className={styles['whale-splash']}>
+              <span />
+              <span />
+              <span />
+            </span>
+          </span>
+        )}
+      </div>
       <div className={styles['msg-body']} data-msgbody>
         {message.thinking ? <ThinkingBanner /> : message.processedSeconds ? <ProcessedBanner seconds={message.processedSeconds} /> : null}
         {message.content.trim() ? <div className="msg-text" onClick={openLinkedStock} onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(renderCommandInText(message.content)) }} /> : null}
