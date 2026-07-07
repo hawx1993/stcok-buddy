@@ -13,7 +13,7 @@
 .trace { background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; margin-top: 6px; font-size: 12px; overflow: hidden; user-select: text; }
 .trace-header { width: 100%; display: flex; align-items: center; gap: 4px; padding: 6px 10px; cursor: pointer; color: var(--fg-secondary); background: transparent; font-weight: 500; font-size: 11px; letter-spacing: .02em; text-align: left; }
 .trace-header span:first-of-type { flex: 1; }
-.trace-caret { margin-left: auto; color: var(--accent); font-size: 16px; line-height: 1; }
+.trace-caret { margin-left: auto; color: var(--accent); font-size: 16px; width: 16px; height: 16px; line-height: 16px; display: inline-flex; align-items: center; justify-content: center; }
 .trace-header::before { content: ""; width: 5px; height: 5px; border-radius: 1px; background: var(--accent); flex-shrink: 0; }
 .trace-body { padding: 0 10px; }
 .thinking-header { cursor: default; }

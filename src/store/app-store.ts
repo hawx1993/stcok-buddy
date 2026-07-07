@@ -29,6 +29,7 @@ interface AppState {
   isRightPanelCollapsed: boolean;
   search: string;
   messages: ChatMessage[];
+  stockKlines: Record<string, NonNullable<AgentResultCard['chart']>['data']>;
   selectedStock?: StockDetail;
   selectedBoard?: BoardDetail;
   isSettingsOpen: boolean;
@@ -46,6 +47,7 @@ interface AppState {
   openRightPanel(): void;
   setSearch(search: string): void;
   addMessage(message: ChatMessage): void;
+  rememberStockKline(code: string, data?: NonNullable<AgentResultCard['chart']>['data']): void;
   setMessages(messages: ChatMessage[]): void;
   replaceLastAssistant(message: ChatMessage): void;
   finalizeLastAssistant(message: ChatMessage): void;
@@ -67,6 +69,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isRightPanelCollapsed: false,
   search: '',
   messages: [],
+  stockKlines: {},
   selectedStock: undefined,
   selectedBoard: undefined,
   isSettingsOpen: false,
@@ -85,7 +88,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleRightPanel: () => set((state) => ({ isRightPanelCollapsed: !state.isRightPanelCollapsed })),
   openRightPanel: () => set({ isRightPanelCollapsed: false }),
   setSearch: (search) => set({ search }),
-  setMessages: (messages) => set({ messages }),
+  rememberStockKline: (code, data) => {
+    if (data?.length) set((state) => ({ stockKlines: { ...state.stockKlines, [code]: data } }));
+  },
+  setMessages: (messages) => set((state) => ({ messages, stockKlines: { ...state.stockKlines, ...collectStockKlines(messages) } })),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
   replaceLastAssistant: (message) =>
     set((state) => {
@@ -133,11 +139,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { messages };
     }),
   clearMessages: () => set({ messages: [] }),
-  setSelectedStock: (stock) => set({ selectedStock: stock, selectedBoard: undefined }),
+  setSelectedStock: (stock) => set((state) => ({ selectedStock: stock ? { ...stock, kline: stock.kline ?? state.stockKlines[stock.code] } : undefined, selectedBoard: undefined })),
   setSelectedBoard: (board) => set({ selectedBoard: board, selectedStock: undefined }),
   setSettingsOpen: (open) => set({ isSettingsOpen: open }),
   setSending: (isSending) => set({ isSending }),
 }));
+
+function collectStockKlines(messages: ChatMessage[]) {
+  const result: Record<string, NonNullable<AgentResultCard['chart']>['data']> = {};
+  for (const message of messages) {
+    const card = message.result;
+    if (card?.chart?.type !== 'kline') continue;
+    for (const stock of card.stocks ?? []) result[stock.code] = card.chart.data;
+  }
+  return result;
+}
 
 function createSeedMessages(): ChatMessage[] {
   const steps = [

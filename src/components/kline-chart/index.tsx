@@ -41,8 +41,10 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
   const marketColorMode = useAppStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
   const marketColors = useMemo(() => getMarketColors(marketColorMode), [marketColorMode]);
   const [localTf, setLocalTf] = useState<TimeframeId>('1d');
-  const tf = timeframe ?? localTf;
-  const [loadedData, setLoadedData] = useState<KlinePoint[]>(stock?.code ? [] : data);
+  const requestedTf = timeframe ?? localTf;
+  const usesProvidedData = data.length > 0 && requestedTf === '1d';
+  const tf = requestedTf;
+  const [loadedData, setLoadedData] = useState<KlinePoint[]>(data);
   const [hoverIndex, setHoverIndex] = useState<number | undefined>();
   const [hoverPoint, setHoverPoint] = useState<KlinePoint | undefined>();
   const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('right');
@@ -56,10 +58,12 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
   const klineData = useMemo(() => chartData.map((point, index) => toKLineData(point, index, chartData.length, frame.period)).sort((a, b) => a.timestamp - b.timestamp), [chartData, frame.period]);
   const chips = tf === '1d' && showChips && chipsOpen ? estimateChips(chartData, hoverIndex) : undefined;
 
-  useEffect(() => setLoadedData(stock?.code ? [] : data), [data, stock?.code]);
+  useEffect(() => {
+    setLoadedData(usesProvidedData ? data : []);
+  }, [data, usesProvidedData]);
 
   useEffect(() => {
-    if (!stock?.code) return;
+    if (!stock?.code || usesProvidedData) return;
     let alive = true;
     setLoadedData([]);
     setHoverIndex(undefined);
@@ -74,7 +78,7 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
       if (alive) setLoadedData([]);
     });
     return () => { alive = false; };
-  }, [stock?.code, frame.limit, tf]);
+  }, [usesProvidedData, stock?.code, frame.limit, tf]);
 
   useEffect(() => {
     if (!hostRef.current) return;
