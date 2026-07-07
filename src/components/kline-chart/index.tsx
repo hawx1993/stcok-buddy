@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { dispose, init } from 'klinecharts';
 import type { Chart, Crosshair, KLineData, Period } from 'klinecharts';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import type { ChipDistribution, KlinePoint, StockDetail } from '../../shared/types';
+import { useAppStore } from '../../store/app-store';
+import type { ChipDistribution, KlinePoint, MarketColorMode, StockDetail } from '../../shared/types';
+import { getMarketColors } from '../../shared/market-color';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
 
@@ -36,6 +38,8 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
   const chartDataRef = useRef<KlinePoint[]>([]);
+  const marketColorMode = useAppStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
+  const marketColors = useMemo(() => getMarketColors(marketColorMode), [marketColorMode]);
   const [localTf, setLocalTf] = useState<TimeframeId>('1d');
   const tf = timeframe ?? localTf;
   const [loadedData, setLoadedData] = useState<KlinePoint[]>(stock?.code ? [] : data);
@@ -73,10 +77,12 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
 
   useEffect(() => {
     if (!hostRef.current) return;
+    const klineStyles = getKlineStyles(marketColors);
     const chart = init(hostRef.current, {
       styles: {
-        candle: { tooltip: { showRule: 'always', showType: 'standard' } },
-        indicator: { tooltip: { showRule: 'always', showType: 'standard' } },
+        ...klineStyles,
+        candle: { ...klineStyles.candle, tooltip: { showRule: 'always', showType: 'standard' } },
+        indicator: { ...klineStyles.indicator, tooltip: { showRule: 'always', showType: 'standard' } },
         grid: {
           show: false,
           horizontal: { show: false },
@@ -104,6 +110,13 @@ export function StockKlineChart({ stock, data = [], className, height = 210, sho
       chartRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.setStyles(getKlineStyles(marketColors));
+    chart.resize();
+  }, [marketColors, showIndicators]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -269,6 +282,26 @@ function makeKData(basePrice: number, limit: number, period = '1d'): KlinePoint[
     price = close;
     return { time: String(index + 1), open, close, high, low, volume };
   });
+}
+
+function getKlineStyles({ upColor, downColor }: ReturnType<typeof getMarketColors>) {
+  return {
+    candle: {
+      bar: {
+        upColor,
+        downColor,
+        noChangeColor: upColor,
+        upBorderColor: upColor,
+        downBorderColor: downColor,
+        noChangeBorderColor: upColor,
+        upWickColor: upColor,
+        downWickColor: downColor,
+        noChangeWickColor: upColor,
+      },
+      priceMark: { last: { upColor, downColor, noChangeColor: upColor } },
+    },
+    indicator: { ohlc: { upColor, downColor, noChangeColor: upColor } },
+  };
 }
 
 function estimateChips(data: KlinePoint[], hoverIndex?: number): ChipDistribution {

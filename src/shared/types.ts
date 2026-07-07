@@ -1,4 +1,5 @@
 export type ThemeMode = 'dark' | 'light';
+export type MarketColorMode = 'red-up-green-down' | 'green-up-red-down';
 
 export type ProviderKind = 'deepseek' | 'openai' | 'qwen' | 'baidu' | 'zhipu' | 'moonshot' | 'openai-compatible' | 'custom';
 
@@ -16,6 +17,7 @@ export interface ModelProviderConfig {
 
 export interface AppConfig {
   theme: ThemeMode;
+  marketColorMode?: MarketColorMode;
   model: ModelProviderConfig;
   tradeStyle?: TradeStyle;
   riskProfile?: RiskProfile;

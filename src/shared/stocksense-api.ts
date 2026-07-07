@@ -15,6 +15,7 @@ import type {
 
 const defaultConfig: AppConfig = {
   theme: 'dark',
+  marketColorMode: 'red-up-green-down',
   model: {
     provider: 'deepseek',
     apiKey: '',

@@ -4,8 +4,8 @@
 .msg.user .msg-text code { background: rgba(255,255,255,.16); }
 .msg.user .msg-text { background: var(--accent); color: #fff; }
 .msg.user .msg-text::selection, .msg.user .msg-text *::selection { background: rgba(255,255,255,.38); color: #fff; }
-.up, .cn-down { color: var(--success); }
-.down, .cn-up { color: var(--danger); }
+.up, .cn-up { color: var(--market-up); }
+.down, .cn-down { color: var(--market-down); }
 .score-low { color: var(--danger); font-weight: 700; }
 .score-mid { color: var(--warning); font-weight: 700; }
 .score-high { color: var(--success); font-weight: 700; }

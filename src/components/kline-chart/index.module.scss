@@ -12,8 +12,8 @@
 .hover-tooltip .date { margin-bottom: 2px; color: var(--fg-secondary); font-weight: 600; }
 .info-row { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); }
 .info-row b { color: var(--fg); font-weight: 600; }
-.info-row b.up { color: var(--success); }
-.info-row b.down { color: var(--danger); }
+.info-row b.up { color: var(--market-up); }
+.info-row b.down { color: var(--market-down); }
 .overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.62); display: flex; align-items: center; justify-content: center; padding: 28px; }
 .modal { width: min(1120px, 94vw); height: min(720px, 86vh); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 24px 80px rgba(0,0,0,.45); display: flex; flex-direction: column; overflow: hidden; }
 .header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; flex-shrink: 0; }

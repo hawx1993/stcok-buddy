@@ -79,8 +79,8 @@
 .cap-name, .diag-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diag-name span { color: var(--muted); font-weight: 400; font-size: 10px; margin-left: 3px; }
 .cap-val { font-weight: 600; }
-.cap-up { color: var(--success); }
-.cap-down { color: var(--danger); }
+.cap-up { color: var(--market-up); }
+.cap-down { color: var(--market-down); }
 .diag-score { background: var(--list-item-active); padding: 0 6px; border-radius: 3px; color: var(--accent); flex-shrink: 0; font-weight: 600; }
 .sc-title { font-size: 12px; font-weight: 600; }
 @media (max-width: 900px) { .sidebar { display: none; } }
