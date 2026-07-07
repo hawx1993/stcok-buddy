@@ -8,6 +8,7 @@ import styles from './index.module.scss';
 import cx from '../../shared/cx';
 
 const NEWS_PAGE_SIZE = 30;
+const SURGE_PAGE_SIZE = 20;
 
 export function StockDetailPanel() {
   const detailRef = useRef<HTMLDivElement>(null);
@@ -19,6 +20,8 @@ export function StockDetailPanel() {
   const [news, setNews] = useState<MarketNewsItem[]>([]);
   const [surgeLoading, setSurgeLoading] = useState(false);
   const [surgeItems, setSurgeItems] = useState<HotFocusItem[]>([]);
+  const [visibleSurgeCount, setVisibleSurgeCount] = useState(SURGE_PAGE_SIZE);
+  const [surgePaging, setSurgePaging] = useState(false);
   const [isKlineModalOpen, setKlineModalOpen] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(true);
   const selectedStock = useAppStore((state) => state.selectedStock);
@@ -64,16 +67,27 @@ export function StockDetailPanel() {
   }, [rightPanelTab, newsQuery, newsPage, newsRefresh]);
 
   useEffect(() => {
-    if (rightPanelTab !== 'surge' || surgeItems.length || surgeLoading) return;
+    if (rightPanelTab !== 'surge' || surgeItems.length) return;
     let alive = true;
     setSurgeLoading(true);
     getStocksenseApi().listHotFocus('surge').then((items) => {
-      if (alive) setSurgeItems(items);
+      if (!alive) return;
+      setSurgeItems(items);
+      setVisibleSurgeCount(SURGE_PAGE_SIZE);
     }).catch(console.error).finally(() => {
       if (alive) setSurgeLoading(false);
     });
     return () => { alive = false; };
-  }, [rightPanelTab, surgeItems.length, surgeLoading]);
+  }, [rightPanelTab, surgeItems.length]);
+
+  const loadMoreSurge = () => {
+    if (surgePaging || visibleSurgeCount >= surgeItems.length) return;
+    setSurgePaging(true);
+    window.setTimeout(() => {
+      setVisibleSurgeCount((count) => Math.min(count + SURGE_PAGE_SIZE, surgeItems.length));
+      setSurgePaging(false);
+    }, 250);
+  };
 
   const openSurgeStock = async (item: HotFocusItem) => {
     if (!item.code) return;
@@ -113,8 +127,14 @@ export function StockDetailPanel() {
       ) : rightPanelTab === 'surge' ? (
         <>
           <div className={styles['right-panel-header']}><span className={styles.title}>⚡ 个股异动</span></div>
-          <div className={styles['right-panel-body']}>
-            {surgeLoading ? <div className={styles['empty-list']}>数据正在加载中…</div> : surgeItems.length ? surgeItems.map((item) => <SurgeItem key={item.id} item={item} onClick={() => void openSurgeStock(item)} />) : <div className={styles['empty-list']}>暂无异动个股</div>}
+          <div className={styles['right-panel-body']} onScroll={(event) => {
+            const el = event.currentTarget;
+            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreSurge();
+          }}>
+            {surgeLoading ? <div className={styles['empty-list']}>数据正在加载中…</div> : surgeItems.length ? <>
+              {surgeItems.slice(0, visibleSurgeCount).map((item) => <SurgeItem key={item.id} item={item} onClick={() => void openSurgeStock(item)} />)}
+              <div className={styles['surge-load-state']}>{visibleSurgeCount < surgeItems.length ? (surgePaging ? <span className={styles.spinner} /> : '向下滚动加载更多') : '没有更多数据了'}</div>
+            </> : <div className={styles['empty-list']}>暂无异动个股</div>}
           </div>
         </>
       ) : selectedBoard ? (
@@ -192,10 +212,20 @@ function BoardStockItem({ stock, onClick }: { stock: BoardConstituent; onClick()
 }
 
 function SurgeItem({ item, onClick }: { item: HotFocusItem; onClick(): void }) {
+  const isDown = String(item.changePercent).startsWith('-');
   return (
     <button className={styles['surge-item']} onClick={onClick} type="button">
-      <span><b>{item.name ?? item.title}</b><em>{item.code}</em></span>
-      <span className={String(item.changePercent).startsWith('-') ? 'down' : 'up'}>{item.changePercent ?? '--'}</span>
+      <span className={styles['surge-time']}>{item.time ?? '--'}</span>
+      <span className={styles['surge-card']}>
+        <span className={styles['surge-main']}>
+          <b>{item.name ?? item.title}<em>{item.code}</em></b>
+          <small>当前 <span>{item.price ?? '--'}</span><span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span></small>
+        </span>
+        <span className={styles['surge-action']}>
+          <span>{item.description ?? item.tag ?? '--'}</span>
+          {item.amount ? <small>{item.amount}</small> : null}
+        </span>
+      </span>
     </button>
   );
 }

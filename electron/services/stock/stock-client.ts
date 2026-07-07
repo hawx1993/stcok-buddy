@@ -372,22 +372,141 @@ async function listMarketHot(): Promise<HotFocusItem[]> {
 }
 
 async function listSurgeHot(): Promise<HotFocusItem[]> {
+  const changes = await listStockChangeEvents();
+  if (changes.length) return changes;
+
+  return listEastmoneySurgeHot();
+}
+
+type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
+
+async function listStockChangeEvents(): Promise<HotFocusItem[]> {
   const changes = await sdk.marketEvent.stockChanges();
-  return changes.slice(0, 20).map((item) => {
-    const [, price, pct] = String(item.info ?? '').split(',');
+  return changes.map((item, index) => {
+    const [volume, price, pct] = String(item.info ?? '').split(',');
+    const hands = Number(volume) / 100;
+    const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType);
     return {
-      id: `surge-${item.time}-${item.code}`,
+      id: `surge-${item.time}-${item.code}-${index}`,
       title: `${item.name} ${item.code}`,
       code: item.code,
       name: item.name,
       time: item.time,
       price: price ? Number(price).toFixed(2) : undefined,
       changePercent: pct ? formatPercent(Number(pct) * 100) : undefined,
-      description: [price ? `现价 ${Number(price).toFixed(2)}` : '', pct ? `涨跌幅 ${formatPercent(Number(pct) * 100)}` : ''].filter(Boolean).join(' · '),
-      tag: item.changeTypeLabel,
-      type: /卖|跌|跳水|下挫/.test(item.changeTypeLabel) ? 'plummet' : 'surge',
+      amount: formatChangeHands(hands, reason),
+      description: reason,
+      tag: reason,
+      type: /卖|跌|跳水|下挫/.test(reason) ? 'plummet' : 'surge',
     };
   });
+}
+
+function formatStockChangeReason(label: string, type?: string) {
+  if (type === 'large_buy' || label === '大笔买入') return '特大单买入';
+  if (type === 'large_sell' || label === '大笔卖出') return '特大单卖出';
+  return label;
+}
+
+function formatChangeHands(hands: number, reason: string) {
+  if (!Number.isFinite(hands) || hands <= 0) return undefined;
+  const action = reason.includes('买') ? '买入' : reason.includes('卖') ? '卖出' : '';
+  const size = hands >= 10000 ? `${(hands / 10000).toFixed(2).replace(/\.00$/, '')}万手` : `${hands.toFixed(0)}手`;
+  return `${action}${size}`;
+}
+
+const eastmoneyPoolConfigs: Record<EastmoneyPoolKind, { endpoint: string; sort: string; tag: string; type: HotFocusItem['type'] }> = {
+  zt: { endpoint: 'getTopicZTPool', sort: 'fbt:asc', tag: '涨停池', type: 'surge' },
+  zb: { endpoint: 'getTopicZBPool', sort: 'fbt:asc', tag: '炸板池', type: 'volume' },
+  dt: { endpoint: 'getTopicDTPool', sort: 'fund:asc', tag: '跌停池', type: 'plummet' },
+};
+
+async function listEastmoneySurgeHot(): Promise<HotFocusItem[]> {
+  for (const date of recentTradeDateCandidates()) {
+    const groups = await Promise.allSettled([
+      fetchEastmoneyPool('zt', date),
+      fetchEastmoneyPool('zb', date),
+      fetchEastmoneyPool('dt', date),
+    ]);
+    const items = groups.flatMap((group) => (group.status === 'fulfilled' ? group.value : []));
+    if (items.length) return items;
+  }
+  return [];
+}
+
+async function fetchEastmoneyPool(kind: EastmoneyPoolKind, date: string): Promise<HotFocusItem[]> {
+  const config = eastmoneyPoolConfigs[kind];
+  const url = new URL(`https://push2ex.eastmoney.com/${config.endpoint}`);
+  url.search = new URLSearchParams({
+    ut: '7eea3edcaed734bea9cbfc24409ed989',
+    dpt: 'wz.ztzt',
+    Pageindex: '0',
+    pagesize: '10000',
+    sort: config.sort,
+    date,
+  }).toString();
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(6_000),
+    headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://quote.eastmoney.com/' },
+  });
+  if (!response.ok) return [];
+
+  const payload = await response.json() as { data?: { pool?: AnyRecord[] } | AnyRecord[] };
+  const pool = Array.isArray(payload.data) ? payload.data : payload.data?.pool;
+  return (pool ?? []).map((row) => toEastmoneyPoolItem(row, kind, config, date)).filter((item): item is HotFocusItem => Boolean(item));
+}
+
+function toEastmoneyPoolItem(row: AnyRecord, kind: EastmoneyPoolKind, config: typeof eastmoneyPoolConfigs[EastmoneyPoolKind], date: string): HotFocusItem | undefined {
+  const code = pickString(row, ['c', 'code']);
+  const name = pickString(row, ['n', 'name']);
+  if (!code || !name) return undefined;
+
+  const price = pickNumber(row, ['p']);
+  const pct = pickNumber(row, ['zdp']);
+  const turnover = pickNumber(row, ['hs']);
+  const amount = pickNumber(row, [kind === 'zb' ? 'amount' : 'fund', 'amount', 'fba']);
+  const limitDays = pickNumber(row, ['lbc', 'days', 'ylbc']);
+  const breakTimes = pickNumber(row, ['zbc', 'oc']);
+  const industry = pickString(row, ['hybk']);
+  const firstSeal = formatEastmoneyPoolTime(pickNumber(row, ['fbt', 'yfbt']));
+  const lastSeal = formatEastmoneyPoolTime(pickNumber(row, ['lbt']));
+  const details = [
+    industry,
+    limitDays ? `${limitDays}连板` : '',
+    turnover === undefined ? '' : `换手 ${formatNumber(turnover)}%`,
+    amount === undefined ? '' : `${kind === 'zb' ? '成交额' : '封单'} ${formatMoney(amount)}`,
+    breakTimes ? `开板 ${breakTimes}次` : '',
+  ].filter(Boolean).join(' · ');
+
+  return {
+    id: `em-${kind}-${date}-${code}`,
+    title: `${name} ${code}`,
+    code,
+    name,
+    time: firstSeal || lastSeal,
+    price: price === undefined ? undefined : (price / 1000).toFixed(2),
+    changePercent: pct === undefined ? undefined : formatPercent(pct),
+    amount: amount === undefined ? undefined : formatMoney(amount),
+    description: details || config.tag,
+    tag: config.tag,
+    type: config.type,
+  };
+}
+
+function recentTradeDateCandidates() {
+  const result: string[] = [];
+  const date = new Date();
+  for (let i = 0; i < 7; i += 1) {
+    result.push(`${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`);
+    date.setDate(date.getDate() - 1);
+  }
+  return result;
+}
+
+function formatEastmoneyPoolTime(value?: number) {
+  if (!value) return undefined;
+  const text = String(value).padStart(6, '0');
+  return `${text.slice(0, 2)}:${text.slice(2, 4)}`;
 }
 
 async function listFlowHot(): Promise<HotFocusItem[]> {

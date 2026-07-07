@@ -45,6 +45,7 @@ export function App() {
 
   return (
     <div className={styles.app}>
+      <div className={styles.titlebar} />
       <div className={styles.body}>
         <div className={styles['left-tools']}>
           <button className={styles['collapse-btn']} onClick={toggleLeftSidebar} title={isLeftSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} type="button">

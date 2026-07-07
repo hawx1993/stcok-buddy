@@ -1,6 +1,7 @@
-.app { display: flex; height: 100%; background: var(--bg); color: var(--fg); }
+.app { display: flex; height: 100%; background: var(--bg); color: var(--fg); position: relative; }
+.titlebar { position: fixed; top: 0; left: 0; right: 0; height: var(--titlebar-height); z-index: 10; -webkit-app-region: drag; }
 .body { display: flex; flex: 1; min-height: 0; width: 100%; position: relative; }
-.left-tools { position: absolute; left: 78px; top: 10px; z-index: 20; display: flex; align-items: center; gap: 6px; }
+.left-tools { position: absolute; left: 78px; top: 10px; z-index: 20; display: flex; align-items: center; gap: 6px; -webkit-app-region: no-drag; }
 .collapse-btn, .search-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: transparent; border: 0; cursor: pointer; color: var(--muted); transition: all .15s ease; }
 .collapse-btn:hover, .search-btn:hover { background: var(--collapse-btn-hover); color: var(--accent); }
 .collapse-btn svg { width: 18px; height: 18px; }
