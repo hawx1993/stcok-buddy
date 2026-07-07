@@ -265,7 +265,19 @@ function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; n
 
   return (
     <div className={cx(styles.msg, 'msg', message.role === 'user' ? styles.user : styles.agent, message.role === 'user' ? 'user' : 'agent')} data-msg>
-      <div className={styles['msg-avatar']} data-avatar>{message.role === 'user' ? '我' : '股'}</div>
+      <div className={styles['msg-avatar']} data-avatar>
+        {message.role === 'user' ? '我' : (
+          <span className={cx(styles.whale, message.thinking && styles.busy)} aria-label="AI 鲸鱼头像" role="img">
+            🐳
+            <span className={styles['whale-eye']} />
+            <span className={styles['whale-splash']}>
+              <span />
+              <span />
+              <span />
+            </span>
+          </span>
+        )}
+      </div>
       <div className={styles['msg-body']} data-msgbody>
         {message.thinking ? <ThinkingBanner /> : message.processedSeconds ? <ProcessedBanner seconds={message.processedSeconds} /> : null}
         {message.content.trim() ? <div className="msg-text" onClick={openLinkedStock} onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(renderCommandInText(message.content)) }} /> : null}

@@ -13,7 +13,7 @@
 .sidebar-list::-webkit-scrollbar, .chat-messages::-webkit-scrollbar, .right-panel::-webkit-scrollbar { width: 3px; }
 .sidebar-list::-webkit-scrollbar-thumb, .chat-messages::-webkit-scrollbar-thumb, .right-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 .source-item-wrap { position: relative; display: flex; align-items: center; margin-bottom: 1px; border-radius: 7px; background: transparent; overflow: visible; transition: background .15s ease; }
-.source-item-wrap::before { content: ""; position: absolute; inset: 0; opacity: 0; pointer-events: none; background: radial-gradient(110px circle at var(--mx, 50%) var(--my, 50%), rgba(80, 145, 255, .24), transparent 58%), linear-gradient(90deg, rgba(59,130,246,.18), rgba(124,58,237,.11)); transition: opacity .18s ease; }
+.source-item-wrap::before { content: ""; position: absolute; border-radius: 4px;inset: 0; opacity: 0; pointer-events: none; background: radial-gradient(110px circle at var(--mx, 50%) var(--my, 50%), rgba(80, 145, 255, .24), transparent 58%), linear-gradient(90deg, rgba(59,130,246,.18), rgba(124,58,237,.11)); transition: opacity .18s ease; }
 .source-item-wrap:hover::before, .source-item-wrap.active::before, .source-item-wrap.menu-open::before, .source-item-wrap.editing::before { opacity: 1; }
 .source-item-wrap:hover, .source-item-wrap.active, .source-item-wrap.menu-open, .source-item-wrap.editing { background: rgba(59,130,246,.06); }
 .source-item { min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px; padding: 6px 34px 6px 10px; cursor: pointer; background: transparent; color: var(--fg); text-align: left; position: relative; z-index: 1; }
