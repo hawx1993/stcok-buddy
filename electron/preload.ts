@@ -25,6 +25,10 @@ const api: StocksenseApi = {
   getKline: (symbol: string, limit?: number, period?: string) => ipcRenderer.invoke('stock:getKline', symbol, limit, period),
   listMarketNews: (query?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('news:list', query, page, pageSize),
   listHotFocus: (tab: HotFocusTab) => ipcRenderer.invoke('hot:list', tab),
+  listStoreItems: () => ipcRenderer.invoke('store:list'),
+  listInstalledStoreItems: () => ipcRenderer.invoke('store:installed'),
+  installStoreItem: (id: string) => ipcRenderer.invoke('store:install', id),
+  uninstallStoreItem: (id: string) => ipcRenderer.invoke('store:uninstall', id),
 };
 
 contextBridge.exposeInMainWorld('stocksense', api);

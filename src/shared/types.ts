@@ -223,6 +223,19 @@ export interface AgentResultCard {
   chart?: { type: 'kline'; data: KlinePoint[] };
 }
 
+export interface StoreItem {
+  id: string;
+  name: string;
+  section: 'Commands' | 'Skills' | 'Sub Agents';
+  category: 'commands' | 'skills' | 'sub-agents';
+  command?: string;
+  description: string;
+  argPlaceholder?: string;
+  handler?: string;
+}
+
+export type StoreCategory = StoreItem['category'];
+
 export interface StocksenseApi {
   getConfig(): Promise<AppConfig>;
   setConfig(config: AppConfig): Promise<AppConfig>;
@@ -239,6 +252,10 @@ export interface StocksenseApi {
   getKline(symbol: string, limit?: number, period?: string): Promise<KlinePoint[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
+  listStoreItems(): Promise<StoreItem[]>;
+  listInstalledStoreItems(): Promise<string[]>;
+  installStoreItem(id: string): Promise<string[]>;
+  uninstallStoreItem(id: string): Promise<string[]>;
   listFavoriteStocks(): Promise<FavoriteStock[]>;
   upsertFavoriteStock(stock: Pick<FavoriteStock, 'code' | 'name'>): Promise<FavoriteStock[]>;
   removeFavoriteStock(code: string): Promise<FavoriteStock[]>;

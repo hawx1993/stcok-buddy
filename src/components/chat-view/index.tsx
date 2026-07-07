@@ -1,17 +1,15 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { message as antdMessage } from 'antd';
 import gsap from 'gsap';
 import { marked } from 'marked';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { KlineModal, StockKlineChart } from '../kline-chart';
-import type { AgentResultCard, ChatMessage, StockDetail } from '../../shared/types';
+import type { AgentResultCard, ChatMessage, StockDetail, StoreCategory, StoreItem } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
 
-const hints = ['选股', '诊股', '我的持仓', '北向资金', '热点板块'];
-
-const slashItems = [
+const builtInSlashItems = [
   { id: 'comprehensive-report', section: 'Commands', label: '综合投研报告', command: '/综合投研报告', description: '调用五个子 Agent，生成完整综合投资报告', argPlaceholder: '[输入股票代码或股票名称]' },
   { id: 'news-announcements', section: 'Commands', label: '新闻公告', command: '/新闻公告', description: '拉取指定个股最近的新闻和公告', argPlaceholder: '[输入股票代码或名称]' },
   { id: 'theme-attribution', section: 'Commands', label: '题材归因', command: '/题材归因', description: '今天哪些股票走强，主要是什么题材', argPlaceholder: '直接发送即可' },
@@ -21,6 +19,13 @@ const slashItems = [
   { id: 'capital-agent', section: 'Sub Agents', label: '资金面分析agent', command: '/资金面分析', description: '仅调用资金面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
   { id: 'sentiment-agent', section: 'Sub Agents', label: '情绪面分析agent', command: '/情绪面分析', description: '仅调用情绪面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
   { id: 'lhb-agent', section: 'Sub Agents', label: '龙虎榜分析agent', command: '/龙虎榜分析', description: '仅调用龙虎榜Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+] satisfies SlashItem[];
+
+type SlashItem = { id: string; section: string; label: string; command: string; description: string; argPlaceholder: string };
+const storeTabs: Array<{ id: StoreCategory; label: string }> = [
+  { id: 'commands', label: 'Commands' },
+  { id: 'skills', label: 'Skills' },
+  { id: 'sub-agents', label: '子代理' },
 ];
 
 export function ChatView() {
@@ -28,6 +33,9 @@ export function ChatView() {
   const listRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [storeOpen, setStoreOpen] = useState(false);
+  const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
+  const [installedStoreItems, setInstalledStoreItems] = useState<string[]>([]);
   const messages = useAppStore((state) => state.messages);
   const [now, setNow] = useState(Date.now());
   const activeConversationId = useAppStore((state) => state.activeConversationId);
@@ -40,13 +48,36 @@ export function ChatView() {
   const rememberStockKline = useAppStore((state) => state.rememberStockKline);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
+  const slashItems = useMemo(() => [
+    ...builtInSlashItems,
+    ...storeItems.filter((item) => installedStoreItems.includes(item.id) && item.command).map(storeItemToSlashItem),
+  ], [installedStoreItems, storeItems]);
+
+  useEffect(() => {
+    const api = getStocksenseApi();
+    void Promise.all([api.listStoreItems(), api.listInstalledStoreItems()]).then(([items, installed]) => {
+      setStoreItems(items);
+      setInstalledStoreItems(installed);
+    }).catch(console.error);
+  }, []);
+
+  const installStoreCommand = async (id: string) => {
+    const installed = await getStocksenseApi().installStoreItem(id);
+    setInstalledStoreItems(installed);
+    antdMessage.success('安装成功');
+  };
+
+  const uninstallStoreCommand = async (id: string) => {
+    const installed = await getStocksenseApi().uninstallStoreItem(id);
+    setInstalledStoreItems(installed);
+    antdMessage.success('已卸载');
+  };
 
   useLayoutEffect(() => {
     if (!rootRef.current) return;
     const ctx = gsap.context(() => {
       gsap.from('[data-msg]', { opacity: 0, y: 12, stagger: 0.06, duration: 0.3, ease: 'power2.out' });
       gsap.from('[data-card]', { opacity: 0, y: 8, scale: 0.98, stagger: 0.05, duration: 0.3, delay: 0.15 });
-      gsap.from(`.${styles['input-hints']} .${styles.hint}`, { opacity: 0, y: 4, stagger: 0.02, duration: 0.15, delay: 0.2 });
     }, rootRef);
     return () => ctx.revert();
   }, []);
@@ -76,7 +107,7 @@ export function ChatView() {
   const activeCommand = slashItems.find((item) => input.startsWith(`${item.command} `));
   const commandArg = activeCommand ? input.slice(activeCommand.command.length + 1) : '';
   const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
-    setInput(`${item.command} `);
+    if (item) setInput(`${item.command} `);
   };
 
   const send = async (override?: string) => {
@@ -151,40 +182,98 @@ export function ChatView() {
   return (
     <div className={styles['chat-wrap']} ref={rootRef}>
       <div className={styles['chat-messages']} ref={listRef}>
-        {messages.length === 0 ? <QuickEntry onSubmit={send} /> : messages.map((message) => <MessageBubble key={message.id} message={message} now={now} onStockClick={openStockDetail} />)}
+        {messages.length === 0 ? <QuickEntry onSubmit={send} slashItems={slashItems} /> : messages.map((message) => <MessageBubble key={message.id} message={message} now={now} slashItems={slashItems} onStockClick={openStockDetail} />)}
       </div>
       {messages.length ? (
         <div className={styles['chat-input']}>
-          {slashOpen ? <SlashCommandMenu selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} /> : null}
-          <div className={styles['input-hints']}>
-            {hints.map((hint) => <button className={styles.hint} key={hint} onClick={() => setInput(hint)} type="button">{hint}</button>)}
-          </div>
-          <div className={styles['input-row']}>
-            {activeCommand ? (
-              <div className={styles['command-input-wrap']}>
-                <button className="command-chip" title={activeCommand.description} onClick={() => setInput('/')} type="button"><span className="slash-icon">/</span>{activeCommand.command}</button>
-                <input value={commandArg} onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)} onKeyDown={(event) => {
-                  if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) { event.preventDefault(); setInput(''); return; }
+          {slashOpen ? <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} /> : null}
+          <div className={styles['composer-shell']}>
+            <div className={styles['input-row']}>
+              {activeCommand ? (
+                <div className={styles['command-input-wrap']}>
+                  <button className="command-chip" title={activeCommand.description} onClick={() => setInput('/')} type="button"><span className="slash-icon">/</span>{activeCommand.command}</button>
+                  <input value={commandArg} onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)} onKeyDown={(event) => {
+                    if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) { event.preventDefault(); setInput(''); return; }
+                    if (event.key === 'Enter') void send();
+                  }} placeholder={activeCommand.argPlaceholder} autoFocus />
+                </div>
+              ) : (
+                <input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
+                  if (slashOpen && event.key === 'Enter') { event.preventDefault(); selectSlashItem(); return; }
+                  if (slashOpen && event.key === 'ArrowDown') { event.preventDefault(); setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1)); return; }
+                  if (slashOpen && event.key === 'ArrowUp') { event.preventDefault(); setSelectedSlashIndex((value) => Math.max(value - 1, 0)); return; }
                   if (event.key === 'Enter') void send();
-                }} placeholder={activeCommand.argPlaceholder} autoFocus />
+                }} placeholder="输入 / 打开命令，或直接输入股票名称/代码" />
+              )}
+            </div>
+            <div className={styles['composer-toolbar']}>
+              <AppStoreBar onOpen={() => setStoreOpen(true)} />
+              <div className={styles['composer-actions']}>
+                <span className={styles['model-pill']}>StockBuddy</span>
+                <button className={styles['send-btn']} onClick={() => void send()} disabled={isSending} type="button" aria-label={isSending ? '分析中' : '发送'}>{isSending ? '■' : '➤'}</button>
               </div>
-            ) : (
-              <input value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
-                if (slashOpen && event.key === 'Enter') { event.preventDefault(); selectSlashItem(); return; }
-                if (slashOpen && event.key === 'ArrowDown') { event.preventDefault(); setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1)); return; }
-                if (slashOpen && event.key === 'ArrowUp') { event.preventDefault(); setSelectedSlashIndex((value) => Math.max(value - 1, 0)); return; }
-                if (event.key === 'Enter') void send();
-              }} placeholder="输入 / 查看 Commands 和 Skills，或直接输入股票名称/代码" />
-            )}
-            <button onClick={() => void send()} disabled={isSending} type="button">{isSending ? '分析中…' : '发送'}</button>
+            </div>
           </div>
         </div>
       ) : null}
+      {storeOpen ? <AppStoreModal items={storeItems} installed={installedStoreItems} onInstall={installStoreCommand} onUninstall={uninstallStoreCommand} onClose={() => setStoreOpen(false)} /> : null}
     </div>
   );
 }
 
-function SlashCommandMenu({ selectedIndex, onSelect }: { selectedIndex: number; onSelect(item?: typeof slashItems[number]): void }) {
+function AppStoreBar({ onOpen }: { onOpen(): void }) {
+  return (
+    <div className={styles['store-bar']}>
+      <button onClick={onOpen} type="button">＋</button>
+      <span>插件</span>
+    </div>
+  );
+}
+
+function AppStoreModal({ items, installed, onInstall, onUninstall, onClose }: { items: StoreItem[]; installed: string[]; onInstall(id: string): Promise<void>; onUninstall(id: string): Promise<void>; onClose(): void }) {
+  const [activeTab, setActiveTab] = useState<StoreCategory>('commands');
+  const tabItems = items.filter((item) => item.category === activeTab);
+  return (
+    <div className={styles['store-overlay']} onClick={onClose}>
+      <div className={styles['store-modal']} onClick={(event) => event.stopPropagation()}>
+        <div className={styles['store-header']}>
+          <h2>应用商店</h2>
+          <button onClick={onClose} type="button">✕</button>
+        </div>
+        <div className={styles['store-tabs']}>
+          {storeTabs.map((tab) => <button key={tab.id} className={activeTab === tab.id ? styles.active : ''} onClick={() => setActiveTab(tab.id)} type="button">{tab.label}</button>)}
+        </div>
+        <div className={styles['store-list']}>
+          {tabItems.length ? tabItems.map((item) => {
+            const isInstalled = installed.includes(item.id);
+            return (
+              <div className={styles['store-item']} key={item.id}>
+                <div>
+                  <div className={styles['store-item-title']}>{item.name}</div>
+                  <div className={styles['store-item-desc']}>{item.description}</div>
+                </div>
+                <button className={isInstalled ? styles['store-uninstall'] : ''} onClick={() => void (isInstalled ? onUninstall(item.id) : onInstall(item.id))} type="button">{isInstalled ? '卸载' : '安装'}</button>
+              </div>
+            );
+          }) : <div className={styles['store-empty']}>暂无可安装内容</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function storeItemToSlashItem(item: StoreItem): SlashItem {
+  return {
+    id: item.id,
+    section: item.section,
+    label: item.name,
+    command: item.command!,
+    description: item.description,
+    argPlaceholder: item.argPlaceholder ?? '[请输入参数]',
+  };
+}
+
+function SlashCommandMenu({ slashItems, selectedIndex, onSelect }: { slashItems: SlashItem[]; selectedIndex: number; onSelect(item?: SlashItem): void }) {
   const activeRef = useRef<HTMLButtonElement>(null);
   const sections = Array.from(new Set(slashItems.map((item) => item.section)));
 
@@ -200,8 +289,14 @@ function SlashCommandMenu({ selectedIndex, onSelect }: { selectedIndex: number; 
           {slashItems.map((item, index) => item.section === section ? (
             <button ref={index === selectedIndex ? activeRef : undefined} className={cx(styles['slash-item'], index === selectedIndex && styles.active)} key={item.id} onMouseDown={(event) => { event.preventDefault(); onSelect(item); }} type="button">
               <span className="slash-icon">/</span>
-              <span className={styles['slash-label']}>{item.label}</span>
-              <span className={styles['slash-desc']}>{item.description}</span>
+              <span className={styles['slash-copy']}>
+                <span className={styles['slash-label']}>{item.label}</span>
+                <span className={styles['slash-desc']}>{item.description}</span>
+              </span>
+              <span className={styles['slash-meta']}>
+                <span>{item.section === 'Commands' ? '命令' : '全局'}</span>
+                <code>{item.command}</code>
+              </span>
             </button>
           ) : null)}
         </div>
@@ -210,12 +305,12 @@ function SlashCommandMenu({ selectedIndex, onSelect }: { selectedIndex: number; 
   );
 }
 
-function QuickEntry({ onSubmit }: { onSubmit(text: string): void }) {
+function QuickEntry({ onSubmit, slashItems }: { onSubmit(text: string): void; slashItems: SlashItem[] }) {
   const [value, setValue] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const examples = ['五粮液', '贵州茅台', '宁德时代', '招商银行', '比亚迪'];
   const slashOpen = value.startsWith('/') && !value.includes(' ');
-  const selectSlashItem = (item = slashItems[selectedSlashIndex]) => setValue(`${item.command} `);
+  const selectSlashItem = (item = slashItems[selectedSlashIndex]) => { if (item) setValue(`${item.command} `); };
   return (
     <div className={styles['quick-entry']} data-quickentry>
       <div className={styles['qe-hero']} aria-hidden="true">
@@ -231,7 +326,7 @@ function QuickEntry({ onSubmit }: { onSubmit(text: string): void }) {
       <div className={styles['qe-title']}>开始新的投研分析</div>
       <div className={styles['qe-sub']}>输入股票名称或代码，AI 将为你深度解读</div>
       <div className={styles['qe-search-box']}>
-        {slashOpen ? <SlashCommandMenu selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} /> : null}
+        {slashOpen ? <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} /> : null}
         <input value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => {
           if (slashOpen && event.key === 'Enter') { event.preventDefault(); selectSlashItem(); return; }
           if (slashOpen && event.key === 'ArrowDown') { event.preventDefault(); setSelectedSlashIndex((current) => Math.min(current + 1, slashItems.length - 1)); return; }
@@ -247,7 +342,7 @@ function QuickEntry({ onSubmit }: { onSubmit(text: string): void }) {
   );
 }
 
-function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; now: number; onStockClick(stock: StockDetail): void }) {
+function MessageBubble({ message, now, slashItems, onStockClick }: { message: ChatMessage; now: number; slashItems: SlashItem[]; onStockClick(stock: StockDetail): void }) {
   const copySelectedMessage = async (event: React.MouseEvent<HTMLDivElement>) => {
     if (message.role !== 'user') return;
     const selection = window.getSelection();
@@ -281,7 +376,7 @@ function MessageBubble({ message, now, onStockClick }: { message: ChatMessage; n
       </div>
       <div className={styles['msg-body']} data-msgbody>
         {message.thinking ? <ThinkingBanner /> : message.processedSeconds ? <ProcessedBanner seconds={message.processedSeconds} /> : null}
-        {message.content.trim() ? <div className="msg-text" onClick={openLinkedStock} onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(renderCommandInText(message.content)) }} /> : null}
+        {message.content.trim() ? <div className="msg-text" onClick={openLinkedStock} onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(renderCommandInText(message.content, slashItems)) }} /> : null}
         {message.thinking ? <ThinkingTrace startedAt={message.thinking.startedAt} steps={message.thinking.steps} /> : null}
         {message.steps?.length ? <Trace steps={message.steps} /> : null}
         {message.result ? <ResultCard result={message.result} onStockClick={onStockClick} /> : null}
@@ -300,11 +395,11 @@ function findMessageKline(messages: ChatMessage[], code: string) {
 }
 
 function ThinkingBanner() {
-  return <div className="thinking-line"><span className="thinking-shimmer"><span>思</span><span>考</span><span>中</span><span>.</span><span>.</span><span>.</span></span></div>;
+  return <div className="thinking-line">Stockbuddy <span className="thinking-shimmer"><span>思</span><span>考</span><span>中</span><span>.</span><span>.</span><span>.</span></span></div>;
 }
 
 function ProcessedBanner({ seconds }: { seconds: number }) {
-  return <div className="processed-line">已处理，共耗时 {seconds.toFixed(1)}s</div>;
+  return <div className="processed-line">StockBuddy 已处理，共耗时 {seconds.toFixed(1)}s</div>;
 }
 
 function ThinkingTrace({ startedAt, steps }: { startedAt: string; steps: NonNullable<ChatMessage['steps']> }) {
@@ -524,7 +619,7 @@ function createThinkingSteps(text: string): NonNullable<ChatMessage['steps']> {
 }
 
 function getSingleAgentCommand(text: string) {
-  const command = slashItems.find((item) => item.section === 'Sub Agents' && text.startsWith(`${item.command} `));
+  const command = builtInSlashItems.find((item) => item.section === 'Sub Agents' && text.startsWith(`${item.command} `));
   return command;
 }
 
@@ -533,7 +628,7 @@ function isStockAnalysisQuery(text: string) {
     || (/分析|诊股|个股分析|帮我看看|看看/.test(text) && /\d{6}|茅台|贵州茅台|五粮液|泸州老窖|洋河股份|宁德|宁德时代|宁王|招行|招商银行|比亚迪|中信证券/.test(text));
 }
 
-function renderCommandInText(content: string) {
+function renderCommandInText(content: string, slashItems: SlashItem[]) {
   const item = slashItems.find((command) => content.startsWith(command.command));
   if (!item) return content;
   return `<button class="command-chip msg-command-chip" title="${item.description}" type="button"><span class="slash-icon">/</span>${item.command}</button>${content.slice(item.command.length)}`;

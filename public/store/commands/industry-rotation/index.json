@@ -1,0 +1,10 @@
+{
+  "id": "industry-rotation",
+  "name": "行业轮动",
+  "section": "Commands",
+  "category": "commands",
+  "command": "/行业轮动",
+  "description": "今天哪些行业涨幅最大，资金在流入哪些板块",
+  "argPlaceholder": "直接发送即可",
+  "handler": "index.js"
+}

@@ -12,6 +12,7 @@ import type {
   HotFocusTab,
   MarketNewsItem,
   PagedMarketNews,
+  StoreItem,
 } from './types.js';
 
 const defaultConfig: AppConfig = {
@@ -51,6 +52,7 @@ const stockMap: Record<string, StockDetail> = {
 export function getStocksenseApi(): StocksenseApi {
   if (!window.stocksense) return webFallbackApi;
   return {
+    ...webFallbackApi,
     ...window.stocksense,
     listFavoriteStocks: () => window.stocksense!.listFavoriteStocks().catch(fallbackFavoriteError(() => webFallbackApi.listFavoriteStocks())),
     upsertFavoriteStock: (stock) => window.stocksense!.upsertFavoriteStock(stock).catch(fallbackFavoriteError(() => webFallbackApi.upsertFavoriteStock(stock))),
@@ -64,6 +66,25 @@ function fallbackFavoriteError<T>(fallback: () => Promise<T>) {
     if (error instanceof Error && error.message.includes('No handler registered')) return fallback();
     throw error;
   };
+}
+
+function readInstalledStoreItems(): string[] {
+  const saved = localStorage.getItem('stocksense-installed-store-items');
+  return saved ? JSON.parse(saved) : [];
+}
+
+function writeInstalledStoreItems(items: string[]) {
+  localStorage.setItem('stocksense-installed-store-items', JSON.stringify(items));
+  return items;
+}
+
+async function readStoreItems(): Promise<StoreItem[]> {
+  const paths = ['/store/commands/dragon-tiger/index.json', '/store/commands/industry-rotation/index.json'];
+  const items = await Promise.all(paths.map(async (path) => {
+    const response = await fetch(path).catch(() => undefined);
+    return response?.ok ? await response.json() as StoreItem : undefined;
+  }));
+  return items.filter((item): item is StoreItem => Boolean(item));
 }
 
 function readConfig(): AppConfig {
@@ -221,6 +242,19 @@ const webFallbackApi: StocksenseApi = {
   },
   async listHotFocus(_tab: HotFocusTab) {
     return fallbackHot;
+  },
+  async listStoreItems() {
+    return readStoreItems();
+  },
+  async listInstalledStoreItems() {
+    return readInstalledStoreItems();
+  },
+  async installStoreItem(id: string) {
+    const installed = readInstalledStoreItems();
+    return installed.includes(id) ? installed : writeInstalledStoreItems([...installed, id]);
+  },
+  async uninstallStoreItem(id: string) {
+    return writeInstalledStoreItems(readInstalledStoreItems().filter((item) => item !== id));
   },
 };
 

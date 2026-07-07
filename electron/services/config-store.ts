@@ -4,6 +4,7 @@ import type { AppConfig, FavoriteStock } from '../../src/shared/types.js';
 export interface StoreSchema {
   config: AppConfig;
   favoriteStocks: FavoriteStock[];
+  installedStoreItems: string[];
 }
 
 export const defaultConfig: AppConfig = {
@@ -26,6 +27,7 @@ export const store = new Store<StoreSchema>({
   defaults: {
     config: defaultConfig,
     favoriteStocks: [],
+    installedStoreItems: [],
   },
 });
 
@@ -62,6 +64,21 @@ export function upsertFavoriteStock(stock: Pick<FavoriteStock, 'code' | 'name'>)
     : [{ ...stock, pinned: false, createdAt: new Date().toISOString() }, ...favorites];
   store.set('favoriteStocks', next);
   return listFavoriteStocks();
+}
+
+export function listInstalledStoreItems(): string[] {
+  return store.get('installedStoreItems', []);
+}
+
+export function installStoreItem(id: string): string[] {
+  const installed = store.get('installedStoreItems', []);
+  if (!installed.includes(id)) store.set('installedStoreItems', [...installed, id]);
+  return listInstalledStoreItems();
+}
+
+export function uninstallStoreItem(id: string): string[] {
+  store.set('installedStoreItems', store.get('installedStoreItems', []).filter((item) => item !== id));
+  return listInstalledStoreItems();
 }
 
 export function removeFavoriteStock(code: string): FavoriteStock[] {
