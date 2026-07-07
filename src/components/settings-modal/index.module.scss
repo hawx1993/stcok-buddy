@@ -20,6 +20,9 @@
 .radio-item { flex: 1; min-width: 80px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; cursor: pointer; text-align: center; color: var(--fg); display: flex; flex-direction: column; }
 .radio-item:hover { border-color: var(--accent); }
 .radio-item.active { border-color: var(--accent); background: rgba(59,130,246,.1); }
+.market-color-group { flex-wrap: nowrap; }
+.market-color-item { flex-direction: row; align-items: center; justify-content: center; gap: 8px; min-height: 42px; }
+.market-icon { width: 34px; height: 24px; flex-shrink: 0; }
 .radio-label { font-size: 12px; font-weight: 500; }
 .radio-desc { font-size: 10px; color: var(--muted); }
 .modal-footer { padding: 8px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 6px; flex-shrink: 0; }

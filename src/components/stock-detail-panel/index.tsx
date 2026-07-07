@@ -2,37 +2,25 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { useAppStore } from '../../store/app-store';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import type { BoardConstituent, ChipDistribution, KlinePoint, MarketNewsItem } from '../../shared/types';
+import type { BoardConstituent, MarketNewsItem, StockDetail } from '../../shared/types';
+import { KlineModal, StockKlineChart } from '../kline-chart';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
 
-
 const NEWS_PAGE_SIZE = 30;
 
-const timeframes = [
-  { id: '15m', label: '15分钟', days: 48 },
-  { id: '1h', label: '1小时', days: 72 },
-  { id: '4h', label: '4小时', days: 90 },
-  { id: '1d', label: '天', days: 120 },
-  { id: '1w', label: '周', days: 104 },
-  { id: '1mo', label: '月', days: 60 },
-];
-
 export function StockDetailPanel() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
-  const [tf, setTf] = useState('1d');
   const [newsQuery, setNewsQuery] = useState('');
   const [newsPage, setNewsPage] = useState(1);
   const [newsRefresh, setNewsRefresh] = useState(0);
   const [newsTotal, setNewsTotal] = useState(0);
   const [newsLoading, setNewsLoading] = useState(false);
   const [news, setNews] = useState<MarketNewsItem[]>([]);
-  const [kline, setKline] = useState<KlinePoint[]>([]);
+  const [isKlineModalOpen, setKlineModalOpen] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(true);
   const selectedStock = useAppStore((state) => state.selectedStock);
   const selectedBoard = useAppStore((state) => state.selectedBoard);
-  const theme = useAppStore((state) => state.config?.theme ?? 'dark');
 
   useLayoutEffect(() => {
     if (!selectedStock || !detailRef.current) return;
@@ -46,30 +34,6 @@ export function StockDetailPanel() {
     }, detailRef);
     return () => ctx.revert();
   }, [selectedStock?.code]);
-
-  useEffect(() => {
-    if (!selectedStock) {
-      setKline([]);
-      return;
-    }
-    let alive = true;
-    const days = timeframes.find((item) => item.id === tf)?.days ?? 120;
-    const api = getStocksenseApi();
-    api.getKline(selectedStock.code, days).then((data) => {
-      if (alive) setKline(data);
-    }).catch(() => {
-      if (alive) setKline([]);
-    });
-    return () => { alive = false; };
-  }, [selectedStock?.code, tf]);
-
-  useEffect(() => {
-    if (!selectedStock || !canvasRef.current) return;
-    const days = timeframes.find((item) => item.id === tf)?.days ?? 21;
-    const data = kline.length ? kline : makeKData(Number(selectedStock.price) || 100, days);
-    const chips = tf === '1d' && chipsOpen ? estimateChips(data) : undefined;
-    drawKLine(canvasRef.current, data, theme, chips);
-  }, [selectedStock, tf, theme, kline, chipsOpen]);
 
   useEffect(() => {
     if (selectedStock || selectedBoard) return;
@@ -117,15 +81,11 @@ export function StockDetailPanel() {
             <div className={styles['stock-price']}><div className={styles.price}>{selectedStock.price ?? '--'}</div><div className={cx(styles.chg, String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up')}>{selectedStock.changePercent ?? '--'} ({selectedStock.change ?? '--'})</div></div>
           </div>
           <div className={styles['kline-box']} data-klinebox>
-            <canvas ref={canvasRef} />
-            {tf === '1d' && (
-              <div className={styles['chip-label']}>
-                <span><span className={cx(styles.bar, styles.up)} />获利 <span className={cx(styles.bar, styles.down)} />亏损 <span className={styles['chip-note']}>估算</span></span>
-                <button className={styles['chip-toggle']} onClick={() => setChipsOpen((value) => !value)} type="button">筹码峰{chipsOpen ? '收起' : '展开'}</button>
-              </div>
-            )}
-            <div className={styles['kline-tf']}>
-              {timeframes.map((item) => <button key={item.id} className={cx(styles['tf-btn'], tf === item.id && styles.active)} onClick={() => setTf(item.id)} type="button">{item.label}</button>)}
+            <button className={styles['kline-expand']} onClick={() => setKlineModalOpen(true)} title="放大K线图" type="button">⛶</button>
+            <StockKlineChart stock={selectedStock} showSwitcher showChips chipsOpen={chipsOpen} />
+            <div className={styles['chip-label']}>
+              <span><span className={cx(styles.bar, styles.up)} />获利 <span className={cx(styles.bar, styles.down)} />亏损 <span className={styles['chip-note']}>估算</span></span>
+              <button className={styles['chip-toggle']} onClick={() => setChipsOpen((value) => !value)} type="button">筹码峰{chipsOpen ? '收起' : '展开'}</button>
             </div>
           </div>
           <div className={styles['stock-grid']} data-stockgrid>
@@ -149,6 +109,7 @@ export function StockDetailPanel() {
           <div className={styles['summary-box']} data-summary>{selectedStock.summary ?? '暂无摘要。'}</div>
         </div>
       ) : null}
+      {isKlineModalOpen && selectedStock ? <KlineModal stock={selectedStock} onClose={() => setKlineModalOpen(false)} chipsOpen={chipsOpen} /> : null}
     </aside>
   );
 }
@@ -201,152 +162,4 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 
 function Rating({ label, score, tone }: { label: string; score: string; tone: 'up' | 'warn' }) {
   return <div className={styles.r}><div className={cx(styles.s, tone === 'warn' ? styles.warn : 'up')}>{score}</div><div className={styles.l}>{label}</div></div>;
-}
-
-export function drawKLine(canvas: HTMLCanvasElement, data: KlinePoint[], theme: string, chips?: ChipDistribution) {
-  const ctx = canvas.getContext('2d');
-  if (!ctx || !data.length) return;
-  const dpr = window.devicePixelRatio || 1;
-  const width = canvas.clientWidth || 316;
-  const height = canvas.clientHeight || 190;
-  canvas.width = width * dpr;
-  canvas.height = height * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  const style = getComputedStyle(document.documentElement);
-  const gridColor = style.getPropertyValue('--kline-grid').trim();
-  const volUpColor = style.getPropertyValue('--kline-vol-up').trim();
-  const volDownColor = style.getPropertyValue('--kline-vol-down').trim();
-  const labelColor = style.getPropertyValue('--kline-label').trim();
-  const success = theme === 'light' ? '#16A34A' : '#22C55E';
-  const danger = theme === 'light' ? '#DC2626' : '#EF4444';
-  const chartTop = 8;
-  const chartBottom = height - 42;
-  const chartLeft = 60;
-  const chipWidth = chips?.points.length ? 58 : 0;
-  const chartRight = width - 8 - chipWidth;
-  const chartHeight = chartBottom - chartTop;
-  const volTop = chartBottom + 2;
-  const volHeight = 28;
-  const high = Math.max(...data.map((d) => d.high)) * 1.02;
-  const low = Math.min(...data.map((d) => d.low)) * 0.98;
-  const range = high - low || 1;
-  const maxVol = Math.max(...data.map((d) => d.volume));
-
-  drawChips(ctx, chips, chartRight + 8, width - 8, chartTop, chartBottom, low, high, theme);
-  ctx.strokeStyle = gridColor;
-  ctx.lineWidth = 0.5;
-  for (let i = 0; i <= 4; i += 1) {
-    const y = chartTop + (chartHeight / 4) * i;
-    ctx.beginPath();
-    ctx.moveTo(chartLeft, y);
-    ctx.lineTo(chartRight, y);
-    ctx.stroke();
-    ctx.fillStyle = labelColor;
-    ctx.font = '9px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText((high - (range / 4) * i).toFixed(2), chartLeft - 4, y + 3);
-  }
-
-  const gap = (chartRight - chartLeft) / data.length;
-  const candleWidth = Math.min(gap * 0.7, 5);
-  data.forEach((d, index) => {
-    const x = chartLeft + index * gap + gap / 2;
-    const openY = chartTop + ((high - d.open) / range) * chartHeight;
-    const closeY = chartTop + ((high - d.close) / range) * chartHeight;
-    const highY = chartTop + ((high - d.high) / range) * chartHeight;
-    const lowY = chartTop + ((high - d.low) / range) * chartHeight;
-    const color = d.close >= d.open ? success : danger;
-    ctx.strokeStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(x, highY);
-    ctx.lineTo(x, lowY);
-    ctx.stroke();
-    ctx.fillStyle = color;
-    ctx.fillRect(x - candleWidth / 2, Math.min(openY, closeY), candleWidth, Math.max(Math.abs(closeY - openY), 1));
-    ctx.fillStyle = d.close >= d.open ? volUpColor : volDownColor;
-    ctx.fillRect(x - candleWidth / 2, volTop + volHeight - (d.volume / maxVol) * volHeight, candleWidth, (d.volume / maxVol) * volHeight);
-  });
-
-  drawMA(ctx, data, 5, gap, chartLeft, chartTop, high, range, chartHeight, theme === 'light' ? '#2563EB' : '#60A5FA');
-  drawMA(ctx, data, 20, gap, chartLeft, chartTop, high, range, chartHeight, theme === 'light' ? '#D97706' : '#FBBF24');
-}
-
-function drawMA(ctx: CanvasRenderingContext2D, data: KlinePoint[], period: number, gap: number, chartLeft: number, chartTop: number, high: number, range: number, chartHeight: number, color: string) {
-  if (data.length < period) return;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  let started = false;
-  data.forEach((_, index) => {
-    if (index < period - 1) return;
-    const avg = data.slice(index - period + 1, index + 1).reduce((sum, item) => sum + item.close, 0) / period;
-    const x = chartLeft + index * gap + gap / 2;
-    const y = chartTop + ((high - avg) / range) * chartHeight;
-    if (!started) {
-      ctx.moveTo(x, y);
-      started = true;
-    } else {
-      ctx.lineTo(x, y);
-    }
-  });
-  ctx.stroke();
-}
-
-function makeKData(basePrice: number, days: number): KlinePoint[] {
-  let price = basePrice;
-  return Array.from({ length: days }, (_, index) => {
-    const wave = Math.sin(index / 4) * basePrice * 0.008;
-    const drift = (index - days / 2) * basePrice * 0.0002;
-    const open = price;
-    const close = Math.max(1, open + wave + drift);
-    const high = Math.max(open, close) * 1.006;
-    const low = Math.min(open, close) * 0.994;
-    const volume = 10000 + Math.abs(wave) * 2000 + (index % 7) * 1600;
-    price = close;
-    return { time: String(index + 1), open, close, high, low, volume };
-  });
-}
-
-function estimateChips(data: KlinePoint[]): ChipDistribution {
-  const recent = data.slice(-90);
-  const high = Math.max(...recent.map((d) => d.high));
-  const low = Math.min(...recent.map((d) => d.low));
-  const levels = 42;
-  const step = (high - low || 1) / levels;
-  const weights = Array.from({ length: levels }, () => 0);
-  recent.forEach((item, index) => {
-    const price = (item.open + item.close + item.high + item.low) / 4;
-    const bucket = Math.max(0, Math.min(levels - 1, Math.floor((price - low) / step)));
-    weights[bucket] += Math.max(item.volume, 1) * (0.4 + (index + 1) / recent.length * 0.6);
-  });
-  const close = recent[recent.length - 1]?.close ?? 0;
-  return {
-    date: recent[recent.length - 1]?.time ?? '--',
-    points: weights.map((weight, index) => {
-      const price = low + step * (index + 0.5);
-      return { price, weight, profit: close >= price ? 0.7 : 0.3 };
-    }).filter((point) => point.weight > 0),
-  };
-}
-
-function drawChips(ctx: CanvasRenderingContext2D, chips: ChipDistribution | undefined, left: number, right: number, top: number, bottom: number, low: number, high: number, theme: string) {
-  if (!chips?.points.length || right <= left) return;
-  const range = high - low || 1;
-  const maxWeight = Math.max(...chips.points.map((point) => point.weight), 1);
-  const chipUp = getComputedStyle(document.documentElement).getPropertyValue('--chip-up').trim() || (theme === 'light' ? 'rgba(22,163,74,0.2)' : 'rgba(34,197,94,0.25)');
-  const chipDown = getComputedStyle(document.documentElement).getPropertyValue('--chip-down').trim() || (theme === 'light' ? 'rgba(220,38,38,0.12)' : 'rgba(239,68,68,0.15)');
-  const barHeight = Math.max((bottom - top) / Math.min(chips.points.length, 90) * 0.8, 2);
-
-  ctx.save();
-  ctx.globalAlpha = 0.95;
-  chips.points.forEach((point) => {
-    if (!point.price) return;
-    const y = top + ((high - point.price) / range) * (bottom - top);
-    if (y < top || y > bottom) return;
-    const width = ((right - left) * Math.min(point.weight / maxWeight, 1));
-    ctx.fillStyle = (point.profit ?? 0) >= 0.5 ? chipUp : chipDown;
-    ctx.fillRect(left, y - barHeight / 2, Math.max(width, 1), barHeight);
-  });
-  ctx.restore();
 }

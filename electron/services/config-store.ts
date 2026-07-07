@@ -7,6 +7,7 @@ export interface StoreSchema {
 
 export const defaultConfig: AppConfig = {
   theme: 'dark',
+  marketColorMode: 'red-up-green-down',
   model: {
     provider: 'deepseek',
     apiKey: '',
@@ -27,7 +28,7 @@ export const store = new Store<StoreSchema>({
 });
 
 export function getConfig(): AppConfig {
-  return store.get('config', defaultConfig);
+  return { ...defaultConfig, ...store.get('config', defaultConfig) };
 }
 
 export function setConfig(config: AppConfig): AppConfig {

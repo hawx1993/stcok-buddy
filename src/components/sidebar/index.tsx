@@ -223,7 +223,7 @@ function HotCard({ item, onStockClick }: { item: HotFocusItem; onStockClick(item
     <>
       <span className={styles['tl-time']}>{item.time ?? '--:--'}</span>
       <div className={styles['hc-title']}><span className={styles['hc-name']}>{market ? <span className={cx(styles['market-badge'], styles[market.kind])}>{market.label}</span> : null}{item.title}</span></div>
-      {item.price !== undefined || item.changePercent ? <div className={styles['hc-desc']}>{[item.price !== undefined ? `现价 ${item.price}` : '', item.changePercent ? `涨跌幅 ${item.changePercent}` : ''].filter(Boolean).join(' · ')}</div> : item.description ? <div className={styles['hc-desc']}>{item.description}</div> : null}
+      {item.price !== undefined || item.changePercent ? <div className={styles['hc-desc']}>{item.price !== undefined ? <span>现价 {item.price}</span> : null}{item.price !== undefined && item.changePercent ? ' · ' : null}{item.changePercent ? <span className={String(item.changePercent).startsWith('-') ? 'down' : 'up'}>涨跌幅 {item.changePercent}</span> : null}</div> : item.description ? <div className={styles['hc-desc']}>{item.description}</div> : null}
     </>
   );
   if (!clickable) return <div className={styles['hot-card']}>{content}</div>;

@@ -10,9 +10,14 @@ const api = {
   listMessages: (conversationId) => ipcRenderer.invoke('message:list', conversationId),
   saveMessage: (conversationId, message) => ipcRenderer.invoke('message:save', conversationId, message),
   sendChat: (request) => ipcRenderer.invoke('chat:send', request),
+  onChatToken: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('chat:token', listener);
+    return () => ipcRenderer.removeListener('chat:token', listener);
+  },
   getStockDetail: (symbol) => ipcRenderer.invoke('stock:getDetail', symbol),
   getBoardDetail: (symbol) => ipcRenderer.invoke('board:getDetail', symbol),
-  getKline: (symbol, limit) => ipcRenderer.invoke('stock:getKline', symbol, limit),
+  getKline: (symbol, limit, period) => ipcRenderer.invoke('stock:getKline', symbol, limit, period),
   listMarketNews: (query, page, pageSize) => ipcRenderer.invoke('news:list', query, page, pageSize),
   listHotFocus: (tab) => ipcRenderer.invoke('hot:list', tab),
 };

@@ -56,39 +56,157 @@ export async function getQuote(symbolInput: string): Promise<StockDetail> {
   return toStockDetail(quotes[0], symbol);
 }
 
-export async function getKline(symbolInput: string, limit = 120): Promise<KlinePoint[]> {
+export async function getKline(symbolInput: string, limit = 120, period = '1d'): Promise<KlinePoint[]> {
   const symbol = normalizeASymbol(symbolInput);
   try {
-    const data = await sdk.kline.cn(symbol, { period: 'daily', adjust: 'qfq' as const });
+    if (period === '15m') return getTencentMinuteKline(symbol, limit, '15');
+    if (period === '1h') return getTencentMinuteKline(symbol, limit, '60');
+    if (period === '4h') return aggregateKline(await getTencentMinuteKline(symbol, limit * 4, '60'), 4).slice(-limit);
+    const tencent = await getTencentHistoryKline(symbol, limit, period);
+    if (tencent.length) return tencent;
+    const data = await sdk.kline.cn(symbol, { period: toSdkKlinePeriod(period), adjust: 'qfq' as const });
     return data.slice(-limit).map(toKlinePoint).filter((point): point is KlinePoint => Boolean(point));
   } catch {
-    return getEastmoneyKline(symbol, limit);
+    const klt = toEastmoneyKlt(period);
+    try {
+      return period === '4h' ? aggregateKline(await getEastmoneyKline(symbol, limit * 4, '60'), 4).slice(-limit) : getEastmoneyKline(symbol, limit, klt);
+    } catch {
+      return [];
+    }
   }
 }
 
-async function getEastmoneyKline(symbol: string, limit: number): Promise<KlinePoint[]> {
+function toSdkKlinePeriod(period: string): 'daily' | 'weekly' | 'monthly' {
+  return period === '1w' ? 'weekly' : period === '1mo' ? 'monthly' : 'daily';
+}
+
+function toEastmoneyKlt(period: string) {
+  return ({ '15m': '15', '1h': '60', '4h': '60', '1d': '101', '1w': '102', '1mo': '103' } as Record<string, string>)[period] ?? '101';
+}
+
+async function getEastmoneyKline(symbol: string, limit: number, klt = '101'): Promise<KlinePoint[]> {
   const market = symbol.startsWith('6') ? '1' : '0';
   const url = new URL('https://push2his.eastmoney.com/api/qt/stock/kline/get');
   url.search = new URLSearchParams({
     secid: `${market}.${symbol}`,
     fields1: 'f1,f2,f3,f4,f5,f6',
     fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
-    klt: '101',
+    klt,
     fqt: '1',
     beg: '0',
     end: '20500101',
     lmt: String(limit),
   }).toString();
-  const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://quote.eastmoney.com/' } });
-  if (!response.ok) return [];
-  const payload = await response.json() as { data?: { klines?: string[] } };
-  return (payload.data?.klines ?? []).map(parseEastmoneyKline).filter((point): point is KlinePoint => Boolean(point));
+  try {
+    const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://quote.eastmoney.com/' } });
+    if (!response.ok) return [];
+    const payload = await response.json() as { data?: { klines?: string[] } };
+    return (payload.data?.klines ?? []).map(parseEastmoneyKline).filter((point): point is KlinePoint => Boolean(point));
+  } catch {
+    return [];
+  }
+}
+
+async function getTencentHistoryKline(symbol: string, limit: number, period: string): Promise<KlinePoint[]> {
+  const quoteSymbol = toQuoteSymbol(symbol);
+  const type = period === '1w' ? 'week' : period === '1mo' ? 'month' : 'day';
+  const key = `qfq${type}`;
+  const url = new URL('https://ifzq.gtimg.cn/appstock/app/fqkline/get');
+  url.search = new URLSearchParams({ param: `${quoteSymbol},${type},,,${limit},qfq` }).toString();
+  try {
+    const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: `https://gu.qq.com/${quoteSymbol}/gp` } });
+    if (!response.ok) return [];
+    const payload = await response.json() as { data?: Record<string, Record<string, unknown[]>> };
+    const rows = payload.data?.[quoteSymbol]?.[key] ?? [];
+    return rows.map(parseTencentKline).filter((point): point is KlinePoint => Boolean(point));
+  } catch {
+    return [];
+  }
+}
+
+async function getTencentMinuteKline(symbol: string, limit: number, period: '15' | '60'): Promise<KlinePoint[]> {
+  const quoteSymbol = toQuoteSymbol(symbol);
+  const url = new URL('https://ifzq.gtimg.cn/appstock/app/kline/mkline');
+  url.search = new URLSearchParams({ param: `${quoteSymbol},m${period},,${limit}` }).toString();
+  try {
+    const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: `https://gu.qq.com/${quoteSymbol}/gp` } });
+    if (!response.ok) return [];
+    const payload = await response.json() as { data?: Record<string, Record<string, unknown[]>> };
+  const rows = payload.data?.[quoteSymbol]?.[`m${period}`] ?? [];
+    return rows.map(parseTencentKline).filter((point): point is KlinePoint => Boolean(point));
+  } catch {
+    return [];
+  }
+}
+
+function parseTencentKline(row: unknown): KlinePoint | undefined {
+  if (!Array.isArray(row)) return undefined;
+  const [time, open, close, high, low, volume, , amount] = row;
+  const point = {
+    time: String(time ?? ''),
+    timestamp: parseMarketTime(String(time ?? '')),
+    open: Number(open),
+    close: Number(close),
+    high: Number(high),
+    low: Number(low),
+    volume: Number(volume),
+    amount: amount === undefined ? undefined : Number(amount) * 10000,
+  };
+  return [point.open, point.close, point.high, point.low].every(Number.isFinite) ? point : undefined;
+}
+
+function aggregateKline(data: KlinePoint[], size: number): KlinePoint[] {
+  const result: KlinePoint[] = [];
+  for (let i = 0; i < data.length; i += size) {
+    const chunk = data.slice(i, i + size);
+    const first = chunk[0];
+    const last = chunk[chunk.length - 1];
+    if (!first || !last) continue;
+    result.push({
+      time: last.time,
+      timestamp: last.timestamp,
+      open: first.open,
+      close: last.close,
+      high: Math.max(...chunk.map((item) => item.high)),
+      low: Math.min(...chunk.map((item) => item.low)),
+      volume: chunk.reduce((sum, item) => sum + item.volume, 0),
+      amount: chunk.reduce((sum, item) => sum + (item.amount ?? 0), 0),
+      change: last.close - first.open,
+      changePercent: first.open ? ((last.close - first.open) / first.open) * 100 : undefined,
+      turnoverRate: chunk.reduce((sum, item) => sum + (item.turnoverRate ?? 0), 0),
+      pe: last.pe,
+    });
+  }
+  return result;
 }
 
 function parseEastmoneyKline(line: string): KlinePoint | undefined {
-  const [time, open, close, high, low, volume] = line.split(',');
-  const point = { time, open: Number(open), close: Number(close), high: Number(high), low: Number(low), volume: Number(volume) };
+  const [time, open, close, high, low, volume, amount, amplitude, changePercent, change, turnoverRate] = line.split(',');
+  const point = {
+    time,
+    timestamp: parseMarketTime(time),
+    open: Number(open),
+    close: Number(close),
+    high: Number(high),
+    low: Number(low),
+    volume: Number(volume),
+    amount: Number(amount),
+    change: Number(change),
+    changePercent: Number(changePercent),
+    turnoverRate: Number(turnoverRate),
+  };
+  void amplitude;
   return [point.open, point.close, point.high, point.low].every(Number.isFinite) ? point : undefined;
+}
+
+function parseMarketTime(value: string): number | undefined {
+  const text = String(value || '').trim();
+  const minute = text.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+  if (minute) return new Date(`${minute[1]}-${minute[2]}-${minute[3]}T${minute[4]}:${minute[5]}:00+08:00`).getTime();
+  const day = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (day) return new Date(`${day[1]}-${day[2]}-${day[3]}T00:00:00+08:00`).getTime();
+  const date = Date.parse(text.includes('T') ? text : `${text}T00:00:00+08:00`);
+  return Number.isFinite(date) ? date : undefined;
 }
 
 function toKlinePoint(raw: unknown): KlinePoint | undefined {
@@ -100,11 +218,17 @@ function toKlinePoint(raw: unknown): KlinePoint | undefined {
   if (open === undefined || close === undefined || high === undefined || low === undefined) return undefined;
   return {
     time: pickString(record, ['date', 'time', '日期']) ?? '',
+    timestamp: pickNumber(record, ['timestamp']) ?? parseMarketTime(pickString(record, ['date', 'time', '日期']) ?? ''),
     open,
     close,
     high,
     low,
     volume: pickNumber(record, ['volume', '成交量']) ?? 0,
+    amount: pickNumber(record, ['amount', '成交额']),
+    change: pickNumber(record, ['change', '涨跌额']),
+    changePercent: pickNumber(record, ['changePercent', '涨跌幅']),
+    turnoverRate: pickNumber(record, ['turnoverRate', '换手率']),
+    pe: pickNumber(record, ['pe', 'PE', '市盈率']),
   };
 }
 

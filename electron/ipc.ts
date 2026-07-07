@@ -26,12 +26,14 @@ export function registerIpcHandlers() {
   ipcMain.handle('message:save', (_event, conversationId: string, message: ChatMessage) => saveMessage(conversationId, message));
   ipcMain.handle('stock:getDetail', (_event, symbol: string) => getStockDetail(symbol));
   ipcMain.handle('board:getDetail', (_event, symbol: string) => getBoardDetail(symbol));
-  ipcMain.handle('stock:getKline', (_event, symbol: string, limit?: number) => getKline(symbol, limit));
+  ipcMain.handle('stock:getKline', (_event, symbol: string, limit?: number, period?: string) => getKline(symbol, limit, period));
   ipcMain.handle('hot:list', (_event, tab: HotFocusTab) => listHotFocus(tab));
   ipcMain.handle('news:list', (_event, query?: string, page?: number, pageSize?: number) => listMarketNews(query, page, pageSize));
-  ipcMain.handle('chat:send', async (_event, request: ChatRequest) => {
+  ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
     saveUserMessage(request.conversationId, request.message);
-    const response = await runOrchestrator(request);
+    const response = await runOrchestrator(request, (token) => {
+      if (request.requestId) event.sender.send('chat:token', { requestId: request.requestId, token });
+    });
     saveAssistantMessage(request.conversationId, response.message);
     return response;
   });

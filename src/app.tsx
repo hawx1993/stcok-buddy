@@ -34,9 +34,10 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = config?.theme ?? 'dark';
+    document.documentElement.dataset.marketColor = config?.marketColorMode ?? 'red-up-green-down';
     document.documentElement.classList.toggle('dark', (config?.theme ?? 'dark') === 'dark');
     document.documentElement.classList.toggle('light', config?.theme === 'light');
-  }, [config?.theme]);
+  }, [config?.marketColorMode, config?.theme]);
 
   return (
     <div className={styles.app}>

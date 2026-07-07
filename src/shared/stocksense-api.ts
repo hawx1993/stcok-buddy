@@ -15,6 +15,7 @@ import type {
 
 const defaultConfig: AppConfig = {
   theme: 'dark',
+  marketColorMode: 'red-up-green-down',
   model: {
     provider: 'deepseek',
     apiKey: '',
@@ -165,8 +166,8 @@ const webFallbackApi: StocksenseApi = {
       })),
     };
   },
-  async getKline(symbol: string, limit = 120) {
-    return makePreviewKline(symbol, limit);
+  async getKline(symbol: string, limit = 120, period = '1d') {
+    return makePreviewKline(symbol, limit, period);
   },
   async listMarketNews(query = '', page = 1, pageSize = 30) {
     const q = query.trim();
@@ -185,15 +186,16 @@ function webMessage(request: ChatRequest, content: string): ChatResponse {
   return { message, events: [{ type: 'final_answer', message: content }] };
 }
 
-function makePreviewKline(symbol: string, limit = 120) {
+function makePreviewKline(symbol: string, limit = 120, period = '1d') {
   const base = Number(findStock(symbol)?.price) || 100;
+  const step = ({ '15m': 1, '1h': 2, '4h': 3, '1d': 4, '1w': 9, '1mo': 18 } as Record<string, number>)[period] ?? 4;
   let price = base;
   return Array.from({ length: limit }, (_, index) => {
-    const wave = Math.sin(index / 4) * base * 0.008;
+    const wave = Math.sin((index * step) / 4) * base * 0.008 * Math.sqrt(step);
     const open = price;
     const close = Math.max(1, open + wave);
     price = close;
-    return { time: String(index + 1), open, close, high: Math.max(open, close) * 1.006, low: Math.min(open, close) * 0.994, volume: 10000 + index * 100 };
+    return { timestamp: Date.now() + (index - limit) * 86_400_000, time: String(index + 1), open, close, high: Math.max(open, close) * 1.006, low: Math.min(open, close) * 0.994, volume: 10000 + index * 100 * step };
   });
 }
 

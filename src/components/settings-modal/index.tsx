@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AppConfig, HoldingPeriod, ProviderKind, RiskProfile, TradeStyle } from '../../shared/types';
+import type { AppConfig, HoldingPeriod, MarketColorMode, ProviderKind, RiskProfile, TradeStyle } from '../../shared/types';
+import { getMarketColors, marketColorModes } from '../../shared/market-color';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { useAppStore } from '../../store/app-store';
 import styles from './index.module.scss';
@@ -76,6 +77,7 @@ export function SettingsModal() {
 
   const selectTradeStyle = (tradeStyle: TradeStyle) => setDraft({ ...draft, tradeStyle });
   const selectRiskProfile = (riskProfile: RiskProfile) => setDraft({ ...draft, riskProfile });
+  const selectMarketColorMode = (marketColorMode: MarketColorMode) => setDraft({ ...draft, marketColorMode });
 
   const save = async () => {
     const saved = await getStocksenseApi().setConfig(draft);
@@ -125,6 +127,24 @@ export function SettingsModal() {
           </div>
 
           <div className={styles['settings-section']}>
+            <div className={styles['settings-section-title']}>行情颜色</div>
+            <div className={styles['settings-row']}>
+              <label className={styles.label}>涨跌颜色</label>
+              <div className={`${styles['radio-group']} ${styles['market-color-group']}`}>
+                {marketColorModes.map((item) => {
+                  const colors = getMarketColors(item.value);
+                  return (
+                    <button key={item.value} className={`${styles['radio-item']} ${styles['market-color-item']} ${(draft.marketColorMode ?? 'red-up-green-down') === item.value ? styles.active : ''}`} onClick={() => selectMarketColorMode(item.value)} type="button">
+                      <CandlestickIcon upColor={colors.upColor} downColor={colors.downColor} />
+                      <span className={styles['radio-label']}>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className={styles['settings-section']}>
             <div className={styles['settings-section-title']}>交易模式</div>
             <div className={styles['settings-row']}>
               <label className={styles.label}>交易风格</label>
@@ -164,5 +184,16 @@ export function SettingsModal() {
       </div>
       {toast ? <div className={`${styles.toast} ${styles.show} ${styles.success}`}>{toast}</div> : null}
     </div>
+  );
+}
+
+function CandlestickIcon({ upColor, downColor }: { upColor: string; downColor: string }) {
+  return (
+    <svg className={styles['market-icon']} viewBox="0 0 34 24" aria-hidden="true">
+      <line x1="10" y1="2" x2="10" y2="22" stroke={upColor} strokeWidth="1.5" />
+      <rect x="6" y="5" width="8" height="14" rx="1" fill={upColor} />
+      <line x1="24" y1="4" x2="24" y2="20" stroke={downColor} strokeWidth="1.5" />
+      <rect x="20" y="9" width="8" height="7" rx="1" fill={downColor} />
+    </svg>
   );
 }
