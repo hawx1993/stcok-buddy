@@ -4,7 +4,6 @@
 .chips span { position: absolute; right: 0; height: 3px; min-width: 2px; border-radius: 1px; transform: translateY(-50%); }
 .profit { background: var(--chip-up, rgba(34,197,94,.25)); }
 .loss { background: var(--chip-down, rgba(239,68,68,.15)); }
-.periods { padding: 8px 12px; display: flex; gap: 4px; justify-content: flex-end; border-bottom: 1px solid var(--border); background: var(--surface); }
 .timeframes { position: absolute; right: 10px; bottom: 8px; display: flex; gap: 4px; z-index: 2; padding: 3px; border-radius: 6px; background: color-mix(in srgb, var(--surface) 82%, transparent); }
 .tf { font-size: 10px; padding: 2px 7px; border-radius: 4px; background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; white-space: nowrap; }
 .tf.active { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -21,3 +20,5 @@
 .header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; flex-shrink: 0; }
 .header button { width: 26px; height: 26px; border-radius: 6px; background: var(--surface-hover); color: var(--fg-secondary); cursor: pointer; }
 .header + .wrap { flex: 1 1 auto; border-radius: 0; }
+.header + .wrap .chart { height: calc(100% - 20px); }
+.header + .wrap .timeframes { bottom: 0; }

@@ -186,10 +186,7 @@ export function KlineModal({ stock, data, onClose, chipsOpen = true }: { stock: 
           <div>{stock.name}（{stock.code || '--'}）K线图</div>
           <button onClick={onClose} type="button">✕</button>
         </div>
-        <div className={styles.periods}>
-          {klineTimeframes.map((item) => <button key={item.id} className={cx(styles.tf, tf === item.id && styles.active)} onClick={() => setTf(item.id)} type="button">{item.label}</button>)}
-        </div>
-        <StockKlineChart stock={stock} data={data} height="100%" showChips chipsOpen={chipsOpen} showIndicators timeframe={tf} onTimeframeChange={setTf} />
+        <StockKlineChart stock={stock} data={data} height="100%" showSwitcher showChips chipsOpen={chipsOpen} showIndicators timeframe={tf} onTimeframeChange={setTf} />
       </div>
     </div>
   );

@@ -300,11 +300,11 @@ function findMessageKline(messages: ChatMessage[], code: string) {
 }
 
 function ThinkingBanner() {
-  return <div className="thinking-line"><span className="thinking-shimmer"><span>思</span><span>考</span><span>中</span><span>.</span><span>.</span><span>.</span></span></div>;
+  return <div className="thinking-line">Stockbuddy <span className="thinking-shimmer"><span>思</span><span>考</span><span>中</span><span>.</span><span>.</span><span>.</span></span></div>;
 }
 
 function ProcessedBanner({ seconds }: { seconds: number }) {
-  return <div className="processed-line">已处理，共耗时 {seconds.toFixed(1)}s</div>;
+  return <div className="processed-line">StockBuddy 已处理，共耗时 {seconds.toFixed(1)}s</div>;
 }
 
 function ThinkingTrace({ startedAt, steps }: { startedAt: string; steps: NonNullable<ChatMessage['steps']> }) {
