@@ -18,8 +18,10 @@
 @keyframes surge-ripple { 0% { opacity: .75; transform: scale(.65); } 100% { opacity: 0; transform: scale(1.9); } }
 .surge-filter { height: 30px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--fg-secondary); cursor: pointer; font-size: 12px; }
 .surge-filter.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.news-search-row { display: flex; align-items: center; gap: 6px; }
+.news-search-row .rp-search-row { flex: 1; min-width: 0; }
 .rp-search-row input { width: 100%; background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; color: var(--fg); font-size: 12px; outline: none; }
-.news-refresh { margin-top: 6px; width: 100%; border-radius: 6px; padding: 5px 8px; background: var(--surface-hover); color: var(--fg-secondary); cursor: pointer; }
+.news-refresh { flex: 0 0 auto; border-radius: 6px; padding: 7px 10px; background: var(--surface-hover); color: var(--fg-secondary); cursor: pointer; font-size: 12px; }
 .news-refresh:hover:not(:disabled) { color: var(--accent); }
 .news-refresh:disabled { opacity: .65; cursor: not-allowed; }
 .rp-search-row input::placeholder { color: var(--muted); }

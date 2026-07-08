@@ -241,7 +241,7 @@ export function StockDetailPanel() {
           <div className={styles['right-panel-header']}>
             <span className={styles.title}>⭐ 收藏个股</span>
           </div>
-          <div className={styles['right-panel-body']}>
+          <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
             {favoriteStocks.length ? favoriteStocks.map((item) => {
               const quote = favoriteQuotes[item.code] ?? item;
               const change = String(quote.changePercent ?? '--');
@@ -253,8 +253,10 @@ export function StockDetailPanel() {
         <>
           <div className={styles['right-panel-header']}>
             <span className={styles.title}>📰 市场热点</span>
-            <div className={styles['rp-search-row']}><input value={newsQuery} onChange={(event) => { setNewsQuery(event.target.value); setNewsPage(1); }} placeholder="搜索新闻…" /></div>
-            <button className={styles['news-refresh']} onClick={() => setNewsRefresh((value) => value + 1)} disabled={newsLoading} type="button">{newsLoading ? '刷新中…' : '刷新'}</button>
+            <div className={styles['news-search-row']}>
+              <div className={styles['rp-search-row']}><input value={newsQuery} onChange={(event) => { setNewsQuery(event.target.value); setNewsPage(1); }} placeholder="搜索新闻…" /></div>
+              <button className={styles['news-refresh']} onClick={() => setNewsRefresh((value) => value + 1)} disabled={newsLoading} type="button">{newsLoading ? '刷新中…' : '刷新'}</button>
+            </div>
           </div>
           <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
             <div className={styles['news-section-title']}>📌 热门新闻 <span>{newsTotal} 条</span></div>
@@ -298,10 +300,13 @@ export function StockDetailPanel() {
             </> : <Empty text="暂无异动个股" />}
           </div>
         </>
-      ) : selectedBoard ? (
-        <BoardDetailView />
-      ) : selectedStock ? (
-        <div className={styles['stock-detail']} ref={detailRef}>
+      ) : (
+        <>
+          <div className={styles['right-panel-header']}>
+            <span className={styles.title}>个股详情</span>
+          </div>
+          {selectedBoard ? <BoardDetailView /> : selectedStock ? (
+            <div className={styles['stock-detail']} ref={detailRef}>
           <div className={styles['stock-header']} data-stockheader>
             <div className={styles['stock-name']}>{selectedStock.name}<span className={styles.code}>{selectedStock.code} · {selectedStock.exchange ?? 'A股'}</span></div>
             <div className={styles['stock-side']}>
@@ -341,7 +346,9 @@ export function StockDetailPanel() {
           <div className={styles['summary-box']} data-summary>{selectedStock.summary ?? '暂无摘要。'}</div>
         </div>
       ) : (
-        <Empty text={<>点击聊天中的<span className={styles.hl}>股票</span>或左侧热点列表，查看个股详情。</>} />
+            <Empty text={<>点击聊天中的<span className={styles.hl}>股票</span>或左侧热点列表，查看个股详情。</>} />
+          )}
+        </>
       )}
       {isKlineModalOpen && selectedStock ? <KlineModal stock={selectedStock} data={selectedStock.kline} onClose={() => setKlineModalOpen(false)} chipsOpen={chipsOpen} /> : null}
     </aside>
