@@ -246,8 +246,8 @@ const webFallbackApi: StocksenseApi = {
   async listSurgeHistoryDates() {
     return [];
   },
-  async listSurgeHistory(_date: string) {
-    return [];
+  async listSurgeHistory(date: string) {
+    return fallbackHot.map((item, index) => ({ ...item, id: `${item.id}-${date}`, time: `${String(14 - Math.floor(index / 4)).padStart(2, '0')}:${String(50 - index).padStart(2, '0')}` }));
   },
   async listStoreItems() {
     return readStoreItems();

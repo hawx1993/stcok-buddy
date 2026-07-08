@@ -6,6 +6,7 @@ import { useAppStore } from '../../store/app-store';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type { BoardConstituent, HotFocusItem, MarketNewsItem, StockDetail } from '../../shared/types';
 import { KlineModal, StockKlineChart } from '../kline-chart';
+import { Empty } from '../empty';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
 
@@ -17,6 +18,7 @@ type SurgeFilter = typeof surgeFilters[number];
 
 export function StockDetailPanel() {
   const detailRef = useRef<HTMLDivElement>(null);
+  const surgeLoadRef = useRef(0);
   const [newsQuery, setNewsQuery] = useState('');
   const [newsPage, setNewsPage] = useState(1);
   const [newsRefresh, setNewsRefresh] = useState(0);
@@ -84,17 +86,20 @@ export function StockDetailPanel() {
   useEffect(() => {
     if (rightPanelTab !== 'surge') return;
     let alive = true;
+    const loadId = ++surgeLoadRef.current;
+    setSurgeItems([]);
+    setVisibleSurgeCount(SURGE_PAGE_SIZE);
     const showSkeleton = surgeRefreshMode === 'manual' || !surgeItems.length || selectedSurgeDate !== SURGE_DATE_OPTIONS[0];
     if (showSkeleton) setSurgeLoading(true);
     const load = selectedSurgeDate === SURGE_DATE_OPTIONS[0]
       ? getStocksenseApi().listHotFocus('surge')
       : getStocksenseApi().listSurgeHistory(selectedSurgeDate);
     load.then((items) => {
-      if (!alive) return;
+      if (!alive || loadId !== surgeLoadRef.current) return;
       setSurgeItems(items);
       setVisibleSurgeCount(SURGE_PAGE_SIZE);
     }).catch(console.error).finally(() => {
-      if (alive && showSkeleton) setSurgeLoading(false);
+      if (alive && loadId === surgeLoadRef.current && showSkeleton) setSurgeLoading(false);
     });
     return () => { alive = false; };
   }, [rightPanelTab, selectedSurgeDate, surgeRefresh]);
@@ -236,25 +241,27 @@ export function StockDetailPanel() {
           <div className={styles['right-panel-header']}>
             <span className={styles.title}>⭐ 收藏个股</span>
           </div>
-          <div className={styles['right-panel-body']}>
+          <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
             {favoriteStocks.length ? favoriteStocks.map((item) => {
               const quote = favoriteQuotes[item.code] ?? item;
               const change = String(quote.changePercent ?? '--');
               return <FavoriteStockItem key={item.code} stock={{ ...quote, code: item.code, name: quote.name ?? item.name }} pinned={Boolean(item.pinned)} isUp={!change.startsWith('-')} onOpen={() => void openFavoriteStock({ ...quote, code: item.code, name: quote.name ?? item.name })} onRemove={() => void removeFavorite(item.code)} onTogglePin={() => void toggleFavoritePin(item.code)} />;
-            }) : <div className={styles['empty-panel']}><div className={styles.hint}>暂无收藏个股。打开个股详情后点击<span className={styles.hl}>星标</span>收藏。</div></div>}
+            }) : <Empty text={<>暂无收藏个股。打开个股详情后点击<span className={styles.hl}>星标</span>收藏。</>} />}
           </div>
         </>
       ) : rightPanelTab === 'news' ? (
         <>
           <div className={styles['right-panel-header']}>
             <span className={styles.title}>📰 市场热点</span>
-            <div className={styles['rp-search-row']}><input value={newsQuery} onChange={(event) => { setNewsQuery(event.target.value); setNewsPage(1); }} placeholder="搜索新闻…" /></div>
-            <button className={styles['news-refresh']} onClick={() => setNewsRefresh((value) => value + 1)} disabled={newsLoading} type="button">{newsLoading ? '刷新中…' : '刷新'}</button>
+            <div className={styles['news-search-row']}>
+              <div className={styles['rp-search-row']}><input value={newsQuery} onChange={(event) => { setNewsQuery(event.target.value); setNewsPage(1); }} placeholder="搜索新闻…" /></div>
+              <button className={styles['news-refresh']} onClick={() => setNewsRefresh((value) => value + 1)} disabled={newsLoading} type="button">{newsLoading ? '刷新中…' : '刷新'}</button>
+            </div>
           </div>
-          <div className={styles['right-panel-body']}>
+          <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
             <div className={styles['news-section-title']}>📌 热门新闻 <span>{newsTotal} 条</span></div>
             <div className={styles['right-news-list']}>
-              {newsLoading ? <NewsSkeleton /> : news.length ? news.map((item) => <NewsItem key={item.id} item={item} />) : <div className={styles['empty-list']}>无匹配新闻</div>}
+              {newsLoading ? <NewsSkeleton rows={10} /> : news.length ? news.map((item) => <NewsItem key={item.id} item={item} />) : <div className={styles['empty-list']}>无匹配新闻</div>}
             </div>
             <div className={styles['news-pager']}>
               <button onClick={() => setNewsPage((value) => Math.max(1, value - 1))} disabled={newsPage <= 1 || newsLoading} type="button">上一页</button>
@@ -290,13 +297,16 @@ export function StockDetailPanel() {
             {surgeLoading ? <SurgeSkeleton /> : filteredSurgeItems.length ? <>
               {filteredSurgeItems.slice(0, visibleSurgeCount).map((item) => <SurgeItem key={item.id} item={item} onClick={() => void openSurgeStock(item)} />)}
               <div className={styles['surge-load-state']}>{visibleSurgeCount < filteredSurgeItems.length ? (surgePaging ? <span className={styles.spinner} /> : '向下滚动加载更多') : '没有更多数据了'}</div>
-            </> : <div className={styles['empty-list']}>暂无异动个股</div>}
+            </> : <Empty text="暂无异动个股" />}
           </div>
         </>
-      ) : selectedBoard ? (
-        <BoardDetailView />
-      ) : selectedStock ? (
-        <div className={styles['stock-detail']} ref={detailRef}>
+      ) : (
+        <>
+          <div className={styles['right-panel-header']}>
+            <span className={styles.title}>个股详情</span>
+          </div>
+          {selectedBoard ? <BoardDetailView /> : selectedStock ? (
+            <div className={styles['stock-detail']} ref={detailRef}>
           <div className={styles['stock-header']} data-stockheader>
             <div className={styles['stock-name']}>{selectedStock.name}<span className={styles.code}>{selectedStock.code} · {selectedStock.exchange ?? 'A股'}</span></div>
             <div className={styles['stock-side']}>
@@ -336,7 +346,9 @@ export function StockDetailPanel() {
           <div className={styles['summary-box']} data-summary>{selectedStock.summary ?? '暂无摘要。'}</div>
         </div>
       ) : (
-        <div className={styles['empty-panel']}><div className={styles.hint}>点击聊天中的<span className={styles.hl}>股票</span>或左侧热点列表，查看个股详情。</div></div>
+            <Empty text={<>点击聊天中的<span className={styles.hl}>股票</span>或左侧热点列表，查看个股详情。</>} />
+          )}
+        </>
       )}
       {isKlineModalOpen && selectedStock ? <KlineModal stock={selectedStock} data={selectedStock.kline} onClose={() => setKlineModalOpen(false)} chipsOpen={chipsOpen} /> : null}
     </aside>
@@ -459,10 +471,10 @@ function hasSurgeAmount(amount?: string) {
   return Boolean(amount && !/^(?:封单|成交额)?[+-]?0(?:\.00)?(?:手|万|亿)?$/.test(amount));
 }
 
-function NewsSkeleton() {
+function NewsSkeleton({ rows = 10 }: { rows?: number }) {
   return (
     <div className={styles['news-skeleton']}>
-      {Array.from({ length: 6 }, (_, index) => <Skeleton key={index} active paragraph={{ rows: 1 }} title={{ width: '72%' }} className={styles['news-skeleton-row']} />)}
+      {Array.from({ length: rows }, (_, index) => <Skeleton key={index} active paragraph={{ rows: 1 }} title={{ width: '72%' }} className={styles['news-skeleton-row']} />)}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 .msg { user-select: text; }
-.msg-text { display: inline-block; background: var(--card-bg); padding: 7px 13px; border-radius: 8px; line-height: 1.5; font-size: 13px; text-align: left; user-select: text; }
+.msg-text { display: inline-block; background: var(--card-bg); padding: 7px 13px; border-radius: 8px; line-height: 1.5; font-size: 13px; text-align: left; user-select: text; width: 100%; }
 .msg-text::selection, .msg-text *::selection { background: var(--accent); color: #fff; }
 .msg.user .msg-text code { background: rgba(255,255,255,.16); }
 .msg.user .msg-text { background: var(--accent); color: #fff; }
