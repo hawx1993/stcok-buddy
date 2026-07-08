@@ -492,11 +492,12 @@ function withTimeout<T>(promise: Promise<T>, fallback: T, ms = 4_500) {
 
 function parseStockChangeInfo(type: string | undefined, info: string) {
   const [first, second, third, fourth] = String(info ?? '').split(',').map(Number);
-  if (type === 'large_buy' || type === 'large_sell') return { hands: first / 100, price: second, pct: third * 100 };
-  if (type === 'limit_up_seal' || type === 'limit_down_seal' || type === 'limit_up_open' || type === 'limit_down_open') {
-    return { price: first, pct: fourth * 100, amount: Number.isFinite(second) ? `封单${formatMoney(second)}` : undefined };
+  if (type === 'large_buy' || type === 'large_sell') return { hands: first / 100, price: second, pct: third };
+  if (type === 'limit_up_seal' || type === 'limit_down_seal') {
+    return { price: first, pct: fourth, amount: Number.isFinite(second) ? `封单${formatMoney(second)}` : undefined };
   }
-  return { price: second, pct: first * 100 };
+  if (type === 'limit_up_open' || type === 'limit_down_open') return { price: first, pct: second };
+  return { price: second, pct: Number.isFinite(third) ? third : first };
 }
 
 function isLargeTrade(label: string, type?: string) {
