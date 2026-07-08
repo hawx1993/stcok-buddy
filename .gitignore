@@ -9,3 +9,4 @@ dist-electron/
 !.env.example
 .cache/
 release
+build/commit-hash.txt
