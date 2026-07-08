@@ -2863,8 +2863,12 @@ function Trace({ steps }: { steps: NonNullable<ChatMessage['steps']> }) {
 
 function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStockClick(stock: StockDetail): void }) {
   const [open, setOpen] = useState(!isNewsAnnouncementCard(result));
+  const [rowsOpen, setRowsOpen] = useState(false);
   const headers = result.rows?.[0] ? Object.keys(result.rows[0]) : [];
   const isCollapsible = isNewsAnnouncementCard(result);
+  const isDailyDragonTiger = isDailyDragonTigerCard(result);
+  const rows = result.rows ?? [];
+  const visibleRows = isDailyDragonTiger && !rowsOpen ? rows.slice(0, 5) : rows;
   return (
     <div className={styles.card} data-card>
       <div className={styles['card-title']}>
@@ -2879,18 +2883,35 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
       ) : null}
       {open && result.chart?.type === 'kline' ? <KlineChart data={result.chart.data} stock={result.stocks?.[0]} /> : null}
       {open && headers.length ? (
-        <table className={styles.tbl}>
-          <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
-          <tbody>
-            {result.rows!.map((row, index) => (
-              <tr key={index}>{headers.map((header) => <td key={header}>{renderCell(header, row, onStockClick)}</td>)}</tr>
-            ))}
-          </tbody>
-        </table>
+        <>
+          <table className={cx(styles.tbl, isDailyDragonTiger && styles['lhb-table'])}>
+            <thead><tr>{headers.map((header) => <th className={getTableCellClass(header)} key={header}>{header}</th>)}</tr></thead>
+            <tbody>
+              {visibleRows.map((row, index) => (
+                <tr key={index}>{headers.map((header) => <td className={getTableCellClass(header)} key={header}>{renderCell(header, row, onStockClick)}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+          {isDailyDragonTiger && rows.length > 5 ? (
+            <button className={styles['table-toggle']} onClick={() => setRowsOpen((value) => !value)} type="button">
+              {rowsOpen ? '收起列表' : `展开全部 ${rows.length} 条`}
+            </button>
+          ) : null}
+        </>
       ) : null}
       {open && result.narrative && !isCollapsible ? <div className={styles['card-narrative']} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(result.narrative) }} /> : null}
     </div>
   );
+}
+
+function isDailyDragonTigerCard(result: AgentResultCard) {
+  return result.title === '全市场龙虎榜';
+}
+
+function getTableCellClass(header: string) {
+  if (/^(名称|name|title)$/i.test(header)) return styles['col-name'];
+  if (/上榜原因|reason/i.test(header)) return styles['col-reason'];
+  return undefined;
 }
 
 function isNewsAnnouncementCard(result: AgentResultCard) {

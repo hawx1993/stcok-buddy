@@ -56,10 +56,14 @@
 .metric-item .lbl { font-size: 10px; color: var(--muted); letter-spacing: .03em; }
 .metric-item .val { font-size: 16px; font-weight: 600; }
 .metric-item .val.warn { color: var(--warning); }
-.tbl { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; table-layout: fixed; }
 .tbl th { text-align: left; font-weight: 500; color: var(--muted); padding: 3px 4px; border-bottom: 1px solid var(--border); font-size: 11px; }
 .tbl td { padding: 3px 4px; border-bottom: 1px solid var(--border); }
 .tbl tr:last-child td { border-bottom: none; }
+.lhb-table .col-name { width: 76px; }
+.lhb-table .col-reason { width: 124px; white-space: normal; word-break: break-word; }
+.table-toggle { width: 100%; margin-top: 8px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 12px; cursor: pointer; }
+.table-toggle:hover { border-color: var(--accent); }
 .card-kline { position: relative; margin: 8px 0 10px; }
 .card-kline :global(.klinecharts-pro) { border-radius: 6px; }
 .kline-expand { position: absolute; top: 6px; right: 8px; z-index: 2; width: 24px; height: 24px; border-radius: 5px; background: rgba(15,23,42,.55); color: #e2e8f0; cursor: pointer; font-size: 14px; }
