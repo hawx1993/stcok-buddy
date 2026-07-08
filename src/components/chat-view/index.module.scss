@@ -4,23 +4,27 @@
 .msg.user { flex-direction: row-reverse; padding-right: 14px; }
 .msg-avatar { width: 24px; height: 24px; border-radius: 5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; background: var(--surface-hover); }
 .msg.user .msg-avatar { background: var(--accent); }
-.msg.agent .msg-avatar { background: transparent; }
-.whale { position: relative; width: 28px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; }
-.whale-eye { position: absolute; left: 8px; top: 8px; width: 3px; height: 3px; border-radius: 50%; background: #0f172a; animation: whale-eye-look 2.8s ease-in-out infinite; pointer-events: none; }
-.whale-splash { position: absolute; left: -4px; top: 15px; width: 22px; height: 13px; opacity: 0; pointer-events: none; }
-.whale-splash span { position: absolute; left: 9px; bottom: 1px; width: 4px; height: 4px; border-radius: 50%; background: #7dd3fc; }
-.whale-splash span:nth-child(1) { --x: -10px; --y: -7px; width: 3px; height: 3px; }
-.whale-splash span:nth-child(2) { --x: 0; --y: -10px; width: 5px; height: 5px; }
-.whale-splash span:nth-child(3) { --x: 10px; --y: -6px; width: 3px; height: 3px; }
-.whale.busy { animation: whale-swim 1.1s ease-in-out infinite; }
+.msg.agent .msg-avatar { background: transparent; overflow: visible; }
+.whale { position: relative; width: 30px; height: 26px; display: inline-flex; align-items: center; justify-content: center; transform-origin: 50% 70%; }
+.whale-logo { width: 30px; height: 26px; display: block; pointer-events: none; }
+.whale-splash { position: absolute; left: 8px; top: -5px; width: 24px; height: 24px; opacity: 0; pointer-events: none; }
+.whale-splash span { position: absolute; left: 3px; bottom: 6px; width: 4px; height: 4px; border: 1.5px solid rgba(125, 211, 252, .95); border-radius: 999px; background: rgba(224, 242, 254, .55); box-shadow: 0 0 6px rgba(125, 211, 252, .55); transform-origin: 50% 50%; }
+.whale-splash span:nth-child(1) { --x: -2px; --y: -9px; --s: .65; }
+.whale-splash span:nth-child(2) { --x: 4px; --y: -15px; --s: .9; animation-delay: .06s; }
+.whale-splash span:nth-child(3) { --x: 10px; --y: -18px; --s: .55; animation-delay: .12s; }
+.whale-splash span:nth-child(4) { --x: 14px; --y: -11px; --s: .75; animation-delay: .18s; }
+.whale-splash span:nth-child(5) { --x: 8px; --y: -6px; --s: .45; animation-delay: .24s; }
+.whale.busy { animation: whale-swim 1.25s ease-in-out infinite; }
+.whale.busy .whale-logo { animation: whale-float 1.25s ease-in-out infinite; }
 .whale.busy .whale-splash { opacity: 1; }
-.whale.busy .whale-splash span { animation: whale-droplet 1.1s ease-out infinite; }
+.whale.busy .whale-splash span { animation: whale-droplet 1.05s ease-out infinite; }
 .whale.busy .whale-splash span:nth-child(2) { animation-delay: .08s; }
 .whale.busy .whale-splash span:nth-child(3) { animation-delay: .16s; }
-@keyframes whale-eye-look { 0%, 100% { transform: translate(0, 0); } 20% { transform: translate(-1px, -.5px); } 45% { transform: translate(1px, 0); } 70% { transform: translate(0, 1px); } }
-@keyframes whale-swim { 0%, 100% { transform: translate(0, 0) rotate(-2deg); } 50% { transform: translate(4px, -2px) rotate(3deg); } }
-@keyframes whale-droplet { 0% { opacity: 0; transform: translate(0, 0) scale(.45); } 18% { opacity: 1; } 72% { opacity: .9; transform: translate(var(--x), var(--y)) scale(1); } 100% { opacity: 0; transform: translate(calc(var(--x) * 1.15), calc(var(--y) * 1.2)) scale(.65); } }
-@media (prefers-reduced-motion: reduce) { .whale-eye, .whale.busy, .whale.busy .whale-splash span { animation: none; } }
+@keyframes whale-swim { 0%, 100% { transform: translate(0, 0) rotate(-2deg); } 35% { transform: translate(3px, -2px) rotate(3deg); } 70% { transform: translate(-1px, 1px) rotate(-1deg); } }
+@keyframes whale-float { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+@keyframes whale-eye-look { 0%, 100% { transform: translate(0, 0); } 18% { transform: translate(-1.4px, -.5px); } 42% { transform: translate(1.5px, -.3px); } 66% { transform: translate(.8px, 1px); } 84% { transform: translate(-.9px, .6px); } }
+@keyframes whale-droplet { 0% { opacity: 0; transform: translate(0, 0) scale(.2); } 18% { opacity: .95; } 72% { opacity: .75; transform: translate(var(--x), var(--y)) scale(var(--s)); } 100% { opacity: 0; transform: translate(calc(var(--x) * 1.08), calc(var(--y) * 1.08)) scale(.15); } }
+@media (prefers-reduced-motion: reduce) { .whale-eye::after, .whale.busy, .whale.busy .whale-logo, .whale.busy .whale-splash span { animation: none; } }
 .msg-body { max-width: calc(100% - 38px); min-width: 0; user-select: text; }
 .msg.user .msg-body { text-align: right; }
 .msg.user .msg-text code { background: rgba(255,255,255,.16); }
@@ -102,8 +106,12 @@
 .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; }
 .composer-actions { display: flex; align-items: center; gap: 8px; }
 .model-pill { color: var(--fg-secondary); font-size: 12px; }
-.send-btn { width: 34px; height: 34px; border-radius: 50%; background: #f8fafc; color: #0b1426; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 17px; box-shadow: 0 8px 20px rgba(0,0,0,.24); }
+.send-btn { width: 34px; height: 34px; border-radius: 50%; background: #f8fafc; color: #0b1426; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 17px; box-shadow: 0 8px 20px rgba(0,0,0,.24); position: relative; }
 .send-btn:hover { transform: translateY(-1px); }
+.send-btn.sending::before { content: ""; position: absolute; inset: 3px; border-radius: 50%; border: 2px solid rgba(11,20,38,.18); border-top-color: #0b1426; animation: send-spin .8s linear infinite; }
+.pause-icon { width: 9px; height: 11px; border-left: 3px solid currentColor; border-right: 3px solid currentColor; z-index: 1; }
+@keyframes send-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .send-btn.sending::before { animation: none; } }
 .send-btn:disabled { opacity: .65; cursor: not-allowed; transform: none; }
 .input-row button:disabled { opacity: .65; cursor: not-allowed; }
 .quick-entry { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 24px 24px 32px; text-align: center; }
