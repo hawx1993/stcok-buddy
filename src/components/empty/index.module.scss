@@ -1,0 +1,3 @@
+.empty { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; color: var(--muted); text-align: center; }
+.logo { width: 132px; height: 110px; object-fit: contain; filter: grayscale(1) saturate(0) opacity(.42); }
+.text { font-size: 12px; line-height: 1.6; }

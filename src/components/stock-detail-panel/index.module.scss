@@ -25,6 +25,7 @@
 .rp-search-row input::placeholder { color: var(--muted); }
 .rp-search-row input:focus { border-color: var(--accent); }
 .right-panel-body { flex: 1; overflow-y: auto; padding: 0 6px 10px 0; }
+.news-panel-body { padding: 0 10px 10px; }
 .news-section-title { font-size: 11px; font-weight: 600; color: var(--fg-secondary); margin: 10px 0 6px; padding-bottom: 3px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
 .news-item { width: 100%; display: block; background: var(--news-item-bg);  border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; color: var(--fg); text-align: left; transition: background .1s; }
 .news-item:hover { background: var(--news-item-hover); }

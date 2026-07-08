@@ -2,11 +2,11 @@
 .chat-messages { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 28px 8px; }
 .msg { width: min(980px, 100%); margin: 0 auto 18px; display: flex; gap: 10px; user-select: text; }
 .msg.user { flex-direction: row-reverse; padding-right: 14px; }
-.msg-avatar { width: 24px; height: 24px; border-radius: 5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; background: var(--surface-hover); }
+.msg-avatar { width: 32px; height: 32px; border-radius: 7px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: #fff; background: var(--surface-hover); }
 .msg.user .msg-avatar { background: var(--accent); }
 .msg.agent .msg-avatar { background: transparent; overflow: visible; }
-.whale { position: relative; width: 30px; height: 26px; display: inline-flex; align-items: center; justify-content: center; transform-origin: 50% 70%; }
-.whale-logo { width: 30px; height: 26px; display: block; pointer-events: none; }
+.whale { position: relative; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; transform-origin: 50% 70%; }
+.whale-logo { width: 32px; height: 28px; display: block; pointer-events: none; }
 .whale-splash { position: absolute; left: 8px; top: -5px; width: 24px; height: 24px; opacity: 0; pointer-events: none; }
 .whale-splash span { position: absolute; left: 3px; bottom: 6px; width: 4px; height: 4px; border: 1.5px solid rgba(125, 211, 252, .95); border-radius: 999px; background: rgba(224, 242, 254, .55); box-shadow: 0 0 6px rgba(125, 211, 252, .55); transform-origin: 50% 50%; }
 .whale-splash span:nth-child(1) { --x: -2px; --y: -9px; --s: .65; }
