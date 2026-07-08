@@ -21,6 +21,8 @@ type TimeframeId = typeof klineTimeframes[number]['id'];
 
 type KlineStock = Pick<StockDetail, 'code' | 'name' | 'pe' | 'price'>;
 
+const EMPTY_KLINE_DATA: KlinePoint[] = [];
+
 interface StockKlineChartProps {
   stock?: KlineStock;
   data?: KlinePoint[];
@@ -35,7 +37,7 @@ interface StockKlineChartProps {
   onTimeframeChange?: (timeframe: TimeframeId) => void;
 }
 
-export function StockKlineChart({ stock, data = [], className, height = 210, showSwitcher = false, showChips = false, chipsOpen = false, showIndicators = false, showLegend = true, timeframe, onTimeframeChange }: StockKlineChartProps) {
+export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, height = 210, showSwitcher = false, showChips = false, chipsOpen = false, showIndicators = false, showLegend = true, timeframe, onTimeframeChange }: StockKlineChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
   const chartDataRef = useRef<KlinePoint[]>([]);

@@ -243,6 +243,12 @@ const webFallbackApi: StocksenseApi = {
   async listHotFocus(_tab: HotFocusTab) {
     return fallbackHot;
   },
+  async listSurgeHistoryDates() {
+    return [];
+  },
+  async listSurgeHistory(_date: string) {
+    return [];
+  },
   async listStoreItems() {
     return readStoreItems();
   },

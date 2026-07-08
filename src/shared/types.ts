@@ -252,6 +252,8 @@ export interface StocksenseApi {
   getKline(symbol: string, limit?: number, period?: string): Promise<KlinePoint[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
+  listSurgeHistoryDates(): Promise<string[]>;
+  listSurgeHistory(date: string): Promise<HotFocusItem[]>;
   listStoreItems(): Promise<StoreItem[]>;
   listInstalledStoreItems(): Promise<string[]>;
   installStoreItem(id: string): Promise<string[]>;

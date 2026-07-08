@@ -96,6 +96,7 @@
     }
   },
   "dependencies": {
+    "@duckdb/node-api": "1.5.4-r.1",
     "@electron-toolkit/preload": "^3.0.2",
     "@klinecharts/pro": "0.1.1",
     "@langchain/core": "^1.2.1",
