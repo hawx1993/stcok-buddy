@@ -26,7 +26,7 @@ export function StockDetailPanel() {
   const [surgeLoading, setSurgeLoading] = useState(false);
   const [surgeItems, setSurgeItems] = useState<HotFocusItem[]>([]);
   const [selectedSurgeDate, setSelectedSurgeDate] = useState(SURGE_DATE_OPTIONS[0]);
-  const [isSurgeMonitoring, setSurgeMonitoring] = useState(true);
+  const [isSurgeMonitoring, setSurgeMonitoring] = useState(() => isChinaMarketOpen());
   const [surgeRefresh, setSurgeRefresh] = useState(0);
   const [surgeRefreshMode, setSurgeRefreshMode] = useState<'manual' | 'poll'>('manual');
   const [surgeFiltersOpen, setSurgeFiltersOpen] = useState(false);
@@ -100,6 +100,16 @@ export function StockDetailPanel() {
   }, [rightPanelTab, selectedSurgeDate, surgeRefresh]);
 
   useEffect(() => {
+    if (rightPanelTab !== 'surge' || selectedSurgeDate !== SURGE_DATE_OPTIONS[0]) return;
+    const checkMarket = () => {
+      if (!isChinaMarketOpen()) setSurgeMonitoring(false);
+    };
+    checkMarket();
+    const id = window.setInterval(checkMarket, 60_000);
+    return () => window.clearInterval(id);
+  }, [rightPanelTab, selectedSurgeDate]);
+
+  useEffect(() => {
     if (rightPanelTab !== 'surge' || selectedSurgeDate !== SURGE_DATE_OPTIONS[0] || !isSurgeMonitoring) return;
     const id = window.setInterval(() => { setSurgeRefreshMode('poll'); setSurgeRefresh((value) => value + 1); }, 15_000);
     return () => window.clearInterval(id);
@@ -124,6 +134,18 @@ export function StockDetailPanel() {
     const id = window.setInterval(refresh, 30_000);
     return () => { alive = false; window.clearInterval(id); };
   }, [favoriteStocks, rightPanelTab]);
+
+  const toggleSurgeMonitor = () => {
+    if (isSurgeMonitoring) {
+      setSurgeMonitoring(false);
+      return;
+    }
+    if (!isChinaMarketOpen()) {
+      antdMessage.error('非交易时段');
+      return;
+    }
+    setSurgeMonitoring(true);
+  };
 
   const toggleSurgeFilter = (filter: SurgeFilter) => {
     setSurgeFilter((current) => {
@@ -257,7 +279,7 @@ export function StockDetailPanel() {
               </select>
               {selectedSurgeDate === SURGE_DATE_OPTIONS[0] ? <>
                 <button className={styles['surge-date-button']} onClick={() => { setSurgeRefreshMode('manual'); setSurgeRefresh((value) => value + 1); }} type="button">刷新</button>
-                <button className={cx(styles['surge-monitor-button'], isSurgeMonitoring && styles.active)} onClick={() => setSurgeMonitoring((enabled) => !enabled)} title={isSurgeMonitoring ? '关闭监控' : '开启监控'} aria-label={isSurgeMonitoring ? '关闭监控' : '开启监控'} type="button"><span /></button>
+                <button className={cx(styles['surge-monitor-button'], isSurgeMonitoring && styles.active)} onClick={toggleSurgeMonitor} title={isSurgeMonitoring ? '关闭监控' : '开启监控'} aria-label={isSurgeMonitoring ? '关闭监控' : '开启监控'} type="button"><span /></button>
               </> : null}
             </div>
           </div>
@@ -319,6 +341,13 @@ export function StockDetailPanel() {
       {isKlineModalOpen && selectedStock ? <KlineModal stock={selectedStock} data={selectedStock.kline} onClose={() => setKlineModalOpen(false)} chipsOpen={chipsOpen} /> : null}
     </aside>
   );
+}
+
+function isChinaMarketOpen(date = new Date()) {
+  const day = date.getDay();
+  if (day === 0 || day === 6) return false;
+  const minutes = date.getHours() * 60 + date.getMinutes();
+  return (minutes >= 9 * 60 + 30 && minutes <= 11 * 60 + 30) || (minutes >= 13 * 60 && minutes <= 15 * 60);
 }
 
 function formatDateOffset(offset: number) {

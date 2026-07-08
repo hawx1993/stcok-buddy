@@ -4,13 +4,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { registerIpcHandlers } from './ipc.js';
-import { startSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
+import { closeConversationStore } from './services/conversation-store.js';
+import { startSurgeHistoryScheduler, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
+import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 const appIcon = isDev ? path.join(__dirname, '../public/icons/icon.svg') : path.join(process.resourcesPath, 'icons/icon.svg');
 
 let mainWindow: BrowserWindow | null = null;
+let cleanupStarted = false;
+let cleanupDone = false;
 
 function getPackageVersion() {
   try {
@@ -83,4 +87,15 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', (event) => {
+  stopSurgeHistoryScheduler();
+  if (cleanupDone || cleanupStarted) return;
+  event.preventDefault();
+  cleanupStarted = true;
+  void Promise.allSettled([closeSurgeHistoryStore(), Promise.resolve(closeConversationStore())]).finally(() => {
+    cleanupDone = true;
+    app.quit();
+  });
 });
