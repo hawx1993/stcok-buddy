@@ -20,6 +20,8 @@ import {
 } from './services/conversation-store.js';
 import { runOrchestrator } from './services/agent/orchestrator.js';
 import { getBoardDetail, getKline, getStockDetail, listHotFocus } from './services/stock/stock-client.js';
+import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
+import { listSurgeDates, saveSurgeSnapshot } from './services/stock/surge-history-store.js';
 import { listMarketNews } from './services/stock/news-client.js';
 import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
 
@@ -39,7 +41,13 @@ export function registerIpcHandlers() {
   ipcMain.handle('stock:getDetail', (_event, symbol: string) => getStockDetail(symbol));
   ipcMain.handle('board:getDetail', (_event, symbol: string) => getBoardDetail(symbol));
   ipcMain.handle('stock:getKline', (_event, symbol: string, limit?: number, period?: string) => getKline(symbol, limit, period));
-  ipcMain.handle('hot:list', (_event, tab: HotFocusTab) => listHotFocus(tab));
+  ipcMain.handle('hot:list', async (_event, tab: HotFocusTab) => {
+    const items = await listHotFocus(tab);
+    if (tab === 'surge' && items.length) void saveSurgeSnapshot(items).catch(console.error);
+    return items;
+  });
+  ipcMain.handle('hot:historyDates', () => listSurgeDates());
+  ipcMain.handle('hot:history', (_event, date: string) => listSurgeHistoryWithBackfill(date));
   ipcMain.handle('news:list', (_event, query?: string, page?: number, pageSize?: number) => listMarketNews(query, page, pageSize));
   ipcMain.handle('store:list', () => listStoreItems());
   ipcMain.handle('store:installed', () => listInstalledStoreItems());

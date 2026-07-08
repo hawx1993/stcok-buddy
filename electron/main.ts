@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { registerIpcHandlers } from './ipc.js';
+import { startSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -41,6 +42,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   registerIpcHandlers();
+  startSurgeHistoryScheduler();
   createWindow();
 
   app.on('activate', () => {

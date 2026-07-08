@@ -445,35 +445,58 @@ async function listMarketHot(): Promise<HotFocusItem[]> {
 }
 
 async function listSurgeHot(): Promise<HotFocusItem[]> {
-  const changes = await listStockChangeEvents();
-  if (changes.length) return changes;
-
-  return listEastmoneySurgeHot();
+  const [changes, pools] = await Promise.all([listStockChangeEvents(), listEastmoneySurgeHot().catch(() => [])]);
+  return [...changes, ...pools.filter((pool) => !changes.some((change) => change.code === pool.code && change.tag === pool.tag))]
+    .sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time));
 }
 
 type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
 
 async function listStockChangeEvents(): Promise<HotFocusItem[]> {
-  const changes = await sdk.marketEvent.stockChanges();
+  const groups = await Promise.allSettled(stockChangeTypes.map((type) => withTimeout(sdk.marketEvent.stockChanges(type), [])));
+  return groups.flatMap((group, groupIndex) => group.status === 'fulfilled' ? toStockChangeHotItems(group.value, groupIndex) : []);
+}
+
+function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEvent.stockChanges>>, groupIndex: number): HotFocusItem[] {
   return changes.flatMap((item, index): HotFocusItem[] => {
-    const [volume, price, pct] = String(item.info ?? '').split(',');
-    const hands = Number(volume) / 100;
-    if (isLargeTrade(item.changeTypeLabel, item.changeType) && hands < 10000) return [];
-    const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType, hands);
+    const parsed = parseStockChangeInfo(item.changeType, item.info);
+    if (isLargeTrade(item.changeTypeLabel, item.changeType) && (parsed.hands ?? 0) < 10000) return [];
+    const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType, parsed.hands ?? 0);
     return [{
-      id: `surge-${item.time}-${item.code}-${index}`,
+      id: `surge-${item.changeType}-${item.time}-${item.code}-${groupIndex}-${index}`,
       title: `${item.name} ${item.code}`,
       code: item.code,
       name: item.name,
       time: item.time,
-      price: price ? Number(price).toFixed(2) : undefined,
-      changePercent: pct ? formatPercent(Number(pct) * 100) : undefined,
-      amount: formatChangeHands(hands, reason),
+      price: parsed.price === undefined ? undefined : parsed.price.toFixed(2),
+      changePercent: parsed.pct === undefined ? undefined : formatPercent(parsed.pct),
+      amount: parsed.amount ?? formatChangeHands(parsed.hands, reason),
       description: reason,
       tag: reason,
-      type: /卖|跌|跳水|下挫/.test(reason) ? 'plummet' : 'surge',
+      type: /卖|跌|跳水|下挫|低|开板/.test(reason) ? 'plummet' : 'surge',
     }];
   });
+}
+
+const stockChangeTypes = [
+  'high_60d', 'low_60d', 'rocket_launch', 'quick_rebound', 'surge_60d', 'drop_60d', 'accelerate_down', 'high_dive',
+  'limit_down_seal', 'limit_up_seal', 'limit_down_open', 'limit_up_open', 'large_buy', 'large_sell',
+] as const;
+
+function withTimeout<T>(promise: Promise<T>, fallback: T, ms = 4_500) {
+  return Promise.race([
+    promise.catch(() => fallback),
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+function parseStockChangeInfo(type: string | undefined, info: string) {
+  const [first, second, third, fourth] = String(info ?? '').split(',').map(Number);
+  if (type === 'large_buy' || type === 'large_sell') return { hands: first / 100, price: second, pct: third * 100 };
+  if (type === 'limit_up_seal' || type === 'limit_down_seal' || type === 'limit_up_open' || type === 'limit_down_open') {
+    return { price: first, pct: fourth * 100, amount: Number.isFinite(second) ? `封单${formatMoney(second)}` : undefined };
+  }
+  return { price: second, pct: first * 100 };
 }
 
 function isLargeTrade(label: string, type?: string) {
@@ -481,32 +504,46 @@ function isLargeTrade(label: string, type?: string) {
 }
 
 function formatStockChangeReason(label: string, type: string | undefined, hands: number) {
+  if (type === 'high_60d') return '60日新高';
+  if (type === 'low_60d') return '60日新低';
+  if (type === 'surge_60d' || type === 'rocket_launch' || type === 'quick_rebound') return '快速涨幅';
+  if (type === 'drop_60d' || type === 'accelerate_down' || type === 'high_dive') return '快速跌幅';
+  if (type === 'limit_down_seal') return '封跌停板';
+  if (type === 'limit_up_seal') return '封涨停板';
+  if (type === 'limit_down_open') return '跌停开板';
+  if (type === 'limit_up_open') return '涨停开板';
   if ((type === 'large_buy' || label === '大笔买入') && hands >= 10000) return '特大单买入';
   if ((type === 'large_sell' || label === '大笔卖出') && hands >= 10000) return '特大单卖出';
   return label;
 }
 
-function formatChangeHands(hands: number, reason: string) {
-  if (!Number.isFinite(hands) || hands <= 0) return undefined;
+function formatChangeHands(hands: number | undefined, reason: string) {
+  if (!Number.isFinite(hands) || !hands || hands <= 0) return undefined;
   const action = reason.includes('买') ? '买入' : reason.includes('卖') ? '卖出' : '';
   const size = hands >= 10000 ? `${(hands / 10000).toFixed(2).replace(/\.00$/, '')}万手` : `${hands.toFixed(0)}手`;
-  return `${action}${size}`;
+  return action ? `${action}${size}` : size;
 }
 
 const eastmoneyPoolConfigs: Record<EastmoneyPoolKind, { endpoint: string; sort: string; tag: string; type: HotFocusItem['type'] }> = {
-  zt: { endpoint: 'getTopicZTPool', sort: 'fbt:asc', tag: '涨停池', type: 'surge' },
-  zb: { endpoint: 'getTopicZBPool', sort: 'fbt:asc', tag: '炸板池', type: 'volume' },
-  dt: { endpoint: 'getTopicDTPool', sort: 'fund:asc', tag: '跌停池', type: 'plummet' },
+  zt: { endpoint: 'getTopicZTPool', sort: 'fbt:asc', tag: '封涨停板', type: 'surge' },
+  zb: { endpoint: 'getTopicZBPool', sort: 'fbt:asc', tag: '涨停开板', type: 'volume' },
+  dt: { endpoint: 'getTopicDTPool', sort: 'fund:asc', tag: '封跌停板', type: 'plummet' },
 };
+
+export async function listEastmoneySurgeByDate(date: string): Promise<HotFocusItem[]> {
+  const normalized = date.replace(/-/g, '');
+  if (!/^\d{8}$/.test(normalized)) return [];
+  const groups = await Promise.allSettled([
+    fetchEastmoneyPool('zt', normalized),
+    fetchEastmoneyPool('zb', normalized),
+    fetchEastmoneyPool('dt', normalized),
+  ]);
+  return groups.flatMap((group) => (group.status === 'fulfilled' ? group.value : []));
+}
 
 async function listEastmoneySurgeHot(): Promise<HotFocusItem[]> {
   for (const date of recentTradeDateCandidates()) {
-    const groups = await Promise.allSettled([
-      fetchEastmoneyPool('zt', date),
-      fetchEastmoneyPool('zb', date),
-      fetchEastmoneyPool('dt', date),
-    ]);
-    const items = groups.flatMap((group) => (group.status === 'fulfilled' ? group.value : []));
+    const items = await listEastmoneySurgeByDate(date);
     if (items.length) return items;
   }
   return [];
@@ -548,11 +585,12 @@ function toEastmoneyPoolItem(row: AnyRecord, kind: EastmoneyPoolKind, config: ty
   const industry = pickString(row, ['hybk']);
   const firstSeal = formatEastmoneyPoolTime(pickNumber(row, ['fbt', 'yfbt']));
   const lastSeal = formatEastmoneyPoolTime(pickNumber(row, ['lbt']));
+  const eventTime = kind === 'dt' ? '15:00' : firstSeal || lastSeal;
   const details = [
     industry,
     limitDays ? `${limitDays}连板` : '',
     turnover === undefined ? '' : `换手 ${formatNumber(turnover)}%`,
-    amount === undefined ? '' : `${kind === 'zb' ? '成交额' : '封单'} ${formatMoney(amount)}`,
+    amount === undefined || amount === 0 ? '' : `${kind === 'zb' ? '成交额' : '封单'} ${formatMoney(amount)}`,
     breakTimes ? `开板 ${breakTimes}次` : '',
   ].filter(Boolean).join(' · ');
 
@@ -561,14 +599,27 @@ function toEastmoneyPoolItem(row: AnyRecord, kind: EastmoneyPoolKind, config: ty
     title: `${name} ${code}`,
     code,
     name,
-    time: firstSeal || lastSeal,
+    time: eventTime,
     price: price === undefined ? undefined : (price / 1000).toFixed(2),
     changePercent: pct === undefined ? undefined : formatPercent(pct),
-    amount: amount === undefined ? undefined : formatMoney(amount),
+    amount: formatPoolAmount(kind, amount),
     description: details || config.tag,
     tag: config.tag,
     type: config.type,
   };
+}
+
+function formatPoolAmount(kind: EastmoneyPoolKind, amount?: number) {
+  if (amount === undefined || amount === 0) return undefined;
+  const text = formatMoney(amount);
+  if (kind === 'zt') return `封单${text}`;
+  if (kind === 'dt') return `封单${text}`;
+  return `成交额${text}`;
+}
+
+function surgeTimeValue(time?: string) {
+  const [hour, minute, second = '0'] = String(time ?? '').split(':');
+  return (Number(hour) || 0) * 3600 + (Number(minute) || 0) * 60 + (Number(second) || 0);
 }
 
 function recentTradeDateCandidates() {
