@@ -1,4 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { registerIpcHandlers } from './ipc.js';
@@ -9,6 +11,34 @@ const isDev = !app.isPackaged;
 const appIcon = isDev ? path.join(__dirname, '../public/icons/icon.svg') : path.join(process.resourcesPath, 'icons/icon.svg');
 
 let mainWindow: BrowserWindow | null = null;
+
+function getPackageVersion() {
+  try {
+    return JSON.parse(readFileSync(path.join(__dirname, '../../package.json'), 'utf8')).version as string;
+  } catch {
+    return app.getVersion();
+  }
+}
+
+function getBuildCommitHash() {
+  const packagedHashFile = path.join(process.resourcesPath, 'commit-hash.txt');
+  if (app.isPackaged && existsSync(packagedHashFile)) return readFileSync(packagedHashFile, 'utf8').trim();
+  try {
+    return execFileSync('git', ['rev-parse', '--short=10', 'HEAD'], { encoding: 'utf8', cwd: path.join(__dirname, '..', '..') }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+function configureAboutPanel() {
+  const aboutText = `版本: ${getPackageVersion()} (${getBuildCommitHash()})\nElectron: ${process.versions.electron}\nChrome: ${process.versions.chrome}\nNode.js: ${process.versions.node}`;
+  app.setAboutPanelOptions({
+    applicationName: 'StockBuddy',
+    applicationVersion: '',
+    version: '',
+    copyright: aboutText,
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -41,6 +71,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  configureAboutPanel();
   registerIpcHandlers();
   startSurgeHistoryScheduler();
   createWindow();
