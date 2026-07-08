@@ -5,6 +5,11 @@ import type { ChatMessage, ConversationSummary } from '../../src/shared/types.js
 
 const db = new Database(path.join(app.getPath('userData'), 'stocksense-chat.sqlite'));
 db.pragma('foreign_keys = ON');
+
+export function closeConversationStore() {
+  if (db.open) db.close();
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,

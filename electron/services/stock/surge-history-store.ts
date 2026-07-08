@@ -23,6 +23,7 @@ const dbPath = path.join(app.getPath('userData'), 'stocksense-surge.duckdb');
 const dbReady = DuckDBInstance.fromCache(dbPath);
 let ready: Promise<void> | undefined;
 let queue = Promise.resolve();
+let isClosing = false;
 
 function ensureReady() {
   ready ??= exec(`
@@ -125,8 +126,19 @@ export function pruneSurgeHistory(keepDays = 7) {
   });
 }
 
+export async function closeSurgeHistoryStore() {
+  isClosing = true;
+  try {
+    await queue;
+  } catch (error) {
+    console.warn('[surge-history] close failed', error);
+  }
+}
+
 function withDb<T>(work: () => Promise<T>) {
+  if (isClosing) return Promise.reject(new Error('surge history store is closing'));
   const next = queue.then(async () => {
+    if (isClosing) throw new Error('surge history store is closing');
     await ensureReady();
     return work();
   });
