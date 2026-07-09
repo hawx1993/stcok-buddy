@@ -86,14 +86,14 @@ export function clearSurgeHistoryDate(tradeDate: string) {
 }
 
 export function listSurgeDates(limit = 7) {
-  return withDb(async () => {
+  return readDb(async () => {
     const rows = await all<{ trade_date: string }>(`SELECT DISTINCT trade_date FROM stock_surge_events ORDER BY trade_date DESC LIMIT ${Math.max(1, limit)}`);
     return rows.map((row) => row.trade_date);
   });
 }
 
 export function listSurgeHistory(date: string) {
-  return withDb(async () => {
+  return readDb(async () => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
     const rows = await all<SurgeRow>(
       `SELECT trade_date, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type
@@ -133,6 +133,11 @@ export async function closeSurgeHistoryStore() {
   } catch (error) {
     console.warn('[surge-history] close failed', error);
   }
+}
+
+function readDb<T>(work: () => Promise<T>) {
+  if (isClosing) return Promise.reject(new Error('surge history store is closing'));
+  return ensureReady().then(work);
 }
 
 function withDb<T>(work: () => Promise<T>) {

@@ -18,6 +18,7 @@ type SurgeFilter = typeof surgeFilters[number];
 export function StockDetailPanel() {
   const detailRef = useRef<HTMLDivElement>(null);
   const surgeLoadRef = useRef(0);
+  const surgeCacheRef = useRef<Record<string, HotFocusItem[]>>({});
   const [newsQuery, setNewsQuery] = useState('');
   const [newsPage, setNewsPage] = useState(1);
   const [newsRefresh, setNewsRefresh] = useState(0);
@@ -103,19 +104,20 @@ export function StockDetailPanel() {
     if (rightPanelTab !== 'surge') return;
     let alive = true;
     const loadId = ++surgeLoadRef.current;
-    setSurgeItems([]);
+    const cached = selectedSurgeDate === todaySurgeDate ? undefined : surgeCacheRef.current[selectedSurgeDate];
+    setSurgeItems(cached ?? []);
     setVisibleSurgeCount(SURGE_PAGE_SIZE);
-    const showSkeleton = surgeRefreshMode === 'manual' || !surgeItems.length || selectedSurgeDate !== todaySurgeDate;
-    if (showSkeleton) setSurgeLoading(true);
+    setSurgeLoading(selectedSurgeDate === todaySurgeDate);
     const load = selectedSurgeDate === todaySurgeDate
       ? getStocksenseApi().listHotFocus('surge')
       : getStocksenseApi().listSurgeHistory(selectedSurgeDate);
     load.then((items) => {
       if (!alive || loadId !== surgeLoadRef.current) return;
+      if (selectedSurgeDate !== todaySurgeDate) surgeCacheRef.current[selectedSurgeDate] = items;
       setSurgeItems(items);
       setVisibleSurgeCount(SURGE_PAGE_SIZE);
     }).catch(console.error).finally(() => {
-      if (alive && loadId === surgeLoadRef.current && showSkeleton) setSurgeLoading(false);
+      if (alive && loadId === surgeLoadRef.current) setSurgeLoading(false);
     });
     return () => { alive = false; };
   }, [rightPanelTab, selectedSurgeDate, surgeRefresh, todaySurgeDate]);
@@ -297,7 +299,7 @@ export function StockDetailPanel() {
               {surgeFilters.map((filter) => <button key={filter} className={cx(styles['surge-filter'], surgeFilter.includes(filter) && styles.active)} onClick={() => toggleSurgeFilter(filter)} type="button">{filter}</button>)}
             </div> : null}
             <div className={styles['surge-date-row']}>
-              <select className={styles['surge-date-select']} value={selectedSurgeDate} onChange={(event) => { setSurgeRefreshMode('manual'); setSelectedSurgeDate(event.target.value); }} aria-label="筛选异动日期">
+              <select className={styles['surge-date-select']} value={selectedSurgeDate} onChange={(event) => { setSurgeRefreshMode('manual'); setSurgeFilter(['全部']); setSelectedSurgeDate(event.target.value); }} aria-label="筛选异动日期">
                 {surgeDateOptions.map((date, index) => <option key={date} value={date}>{index === 0 ? `今天 ${date.slice(5)}` : date}</option>)}
               </select>
               {selectedSurgeDate === todaySurgeDate ? <>
