@@ -26,6 +26,67 @@ export interface AppConfig {
 
 export type ConversationTab = 'stock' | 'diagnosis' | 'market';
 
+export type EvidenceSource =
+  | 'quote'
+  | 'kline'
+  | 'technical'
+  | 'news'
+  | 'announcement'
+  | 'dragon-tiger'
+  | 'hot-focus'
+  | 'chip'
+  | 'fallback';
+
+export interface EvidenceItem {
+  id: string;
+  source: EvidenceSource;
+  title: string;
+  summary?: string;
+  value?: string | number;
+  url?: string;
+  timestamp?: string;
+  raw?: unknown;
+}
+
+export interface StructuredAgentFinding {
+  id: string;
+  dimension: 'technical' | 'fundamental' | 'capital' | 'sentiment' | 'chip' | 'overview' | 'risk';
+  stance: 'bullish' | 'neutral' | 'bearish' | 'unknown';
+  score?: number;
+  confidence: number;
+  summary: string;
+  evidenceIds: string[];
+  risks: string[];
+}
+
+export interface StructuredAgentOutput {
+  agentName: string;
+  label: string;
+  findings: StructuredAgentFinding[];
+  evidence: EvidenceItem[];
+  markdown: string;
+}
+
+export interface ToolCallRecord {
+  id: string;
+  toolName: string;
+  input: unknown;
+  output?: unknown;
+  error?: string;
+  startedAt: string;
+  endedAt?: string;
+}
+
+export interface ComplianceReview {
+  passed: boolean;
+  issues: Array<{
+    type: 'investment-advice' | 'fabricated-data' | 'missing-risk' | 'unsupported-claim' | 'forbidden-emoji' | 'other';
+    severity: 'low' | 'medium' | 'high';
+    message: string;
+  }>;
+  revisedText: string;
+}
+
 export interface ConversationSummary {
   id: string;
   title: string;
@@ -49,6 +110,10 @@ export interface ChatMessage {
   };
   processedSeconds?: number;
   result?: AgentResultCard;
+  evidence?: EvidenceItem[];
+  findings?: StructuredAgentFinding[];
+  toolCalls?: ToolCallRecord[];
+  compliance?: ComplianceReview;
 }
 
 export interface AgentStep {
@@ -73,6 +138,9 @@ export interface AgentRunEvent {
   step?: AgentStep;
   result?: AgentResultCard;
   stock?: StockDetail;
+  toolCall?: ToolCallRecord;
+  evidence?: EvidenceItem[];
+  findings?: StructuredAgentFinding[];
 }
 
 export interface ChatRequest {

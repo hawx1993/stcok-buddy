@@ -38,5 +38,5 @@ function isTradingWindow(date: Date) {
   const day = date.getDay();
   if (day === 0 || day === 6) return false;
   const minutes = date.getHours() * 60 + date.getMinutes();
-  return minutes >= 9 * 60 + 30 && minutes <= 15 * 60;
+  return minutes >= 9 * 60 + 25 && minutes <= 15 * 60;
 }

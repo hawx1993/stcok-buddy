@@ -19,7 +19,7 @@ interface SurgeRow {
   type?: HotFocusItem['type'];
 }
 
-const dbPath = path.join(app.getPath('userData'), 'stocksense-surge.duckdb');
+const dbPath = path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb');
 const dbReady = DuckDBInstance.fromCache(dbPath);
 let ready: Promise<void> | undefined;
 let queue = Promise.resolve();

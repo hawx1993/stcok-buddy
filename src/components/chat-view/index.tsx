@@ -18,7 +18,7 @@ const builtInSlashItems = [
   { id: 'fundamental-agent', section: 'Sub Agents', label: '基本面分析agent', command: '/基本面分析', description: '仅调用基本面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
   { id: 'capital-agent', section: 'Sub Agents', label: '资金面分析agent', command: '/资金面分析', description: '仅调用资金面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
   { id: 'sentiment-agent', section: 'Sub Agents', label: '情绪面分析agent', command: '/情绪面分析', description: '仅调用情绪面Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
-  { id: 'lhb-agent', section: 'Sub Agents', label: '龙虎榜分析agent', command: '/龙虎榜分析', description: '仅调用龙虎榜Agent 分析股票', argPlaceholder: '[请输入股票代码或名称]' },
+  { id: 'chip-agent', section: 'Sub Agents', label: '筹码分析agent', command: '/筹码分析', description: '分析个股当前的筹码结构、主力控盘情况以及未来走势', argPlaceholder: '[输入股票代码或名称]' },
 ] satisfies SlashItem[];
 
 type SlashItem = { id: string; section: string; label: string; command: string; description: string; argPlaceholder: string };
@@ -388,7 +388,7 @@ function MessageBubble({ message, now, slashItems, onStockClick }: { message: Ch
       </div>
       <div className={styles['msg-body']} data-msgbody>
         {message.thinking ? <ThinkingBanner /> : message.processedSeconds ? <ProcessedBanner seconds={message.processedSeconds} /> : null}
-        {message.content.trim() ? <div className="msg-text" onClick={openLinkedStock} onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(renderCommandInText(message.content, slashItems)) }} /> : null}
+        {message.content.trim() ? <div className="msg-text" onClick={openLinkedStock} onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownContent(renderCommandInText(message.content, slashItems), { disclaimer: message.role === 'assistant' }) }} /> : null}
         {message.thinking ? <ThinkingTrace startedAt={message.thinking.startedAt} steps={message.thinking.steps} /> : null}
         {message.steps?.length ? <Trace steps={message.steps} /> : null}
         {message.result ? <ResultCard result={message.result} onStockClick={onStockClick} /> : null}
@@ -2884,14 +2884,16 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
       {open && result.chart?.type === 'kline' ? <KlineChart data={result.chart.data} stock={result.stocks?.[0]} /> : null}
       {open && headers.length ? (
         <>
-          <table className={cx(styles.tbl, isDailyDragonTiger && styles['lhb-table'])}>
-            <thead><tr>{headers.map((header) => <th className={getTableCellClass(header)} key={header}>{header}</th>)}</tr></thead>
-            <tbody>
-              {visibleRows.map((row, index) => (
-                <tr key={index}>{headers.map((header) => <td className={getTableCellClass(header)} key={header}>{renderCell(header, row, onStockClick)}</td>)}</tr>
-              ))}
-            </tbody>
-          </table>
+          <div className={styles['table-wrap']}>
+            <table className={cx(styles.tbl, isDailyDragonTiger && styles['lhb-table'])}>
+              <thead><tr>{headers.map((header, index) => <th className={getTableCellClass(header, index, headers.length)} key={header}>{header}</th>)}</tr></thead>
+              <tbody>
+                {visibleRows.map((row, index) => (
+                  <tr key={index}>{headers.map((header, colIndex) => <td className={getTableCellClass(header, colIndex, headers.length)} key={header}>{renderCell(header, row, onStockClick)}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {isDailyDragonTiger && rows.length > 5 ? (
             <button className={styles['table-toggle']} onClick={() => setRowsOpen((value) => !value)} type="button">
               {rowsOpen ? '收起列表' : `展开全部 ${rows.length} 条`}
@@ -2899,7 +2901,7 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
           ) : null}
         </>
       ) : null}
-      {open && result.narrative && !isCollapsible ? <div className={styles['card-narrative']} dangerouslySetInnerHTML={{ __html: renderMarkdownWithStocks(result.narrative) }} /> : null}
+      {open && result.narrative && !isCollapsible ? <div className={styles['card-narrative']} dangerouslySetInnerHTML={{ __html: renderMarkdownContent(result.narrative, { disclaimer: result.title !== '技术指标摘要' }) }} /> : null}
     </div>
   );
 }
@@ -2908,7 +2910,9 @@ function isDailyDragonTigerCard(result: AgentResultCard) {
   return result.title === '全市场龙虎榜';
 }
 
-function getTableCellClass(header: string) {
+function getTableCellClass(header: string, index?: number, total?: number) {
+  if (total !== undefined && index === total - 1) return styles['col-last'];
+  if (index === 2) return styles['col-wrap'];
   if (/^(名称|name|title)$/i.test(header)) return styles['col-name'];
   if (/上榜原因|reason/i.test(header)) return styles['col-reason'];
   return undefined;
@@ -2978,7 +2982,7 @@ function formatMessageTime(createdAt: string, now: number) {
   const diff = Math.max(0, now - date.getTime());
   const minute = 60_000;
   const hour = 60 * minute;
-  if (diff < 30_000) return '刚刚';
+  if (diff < minute) return '刚刚';
   if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
   if (isSameDay(date, new Date(now))) return `${Math.floor(diff / hour)} 小时前`;
   if (isYesterday(date, new Date(now))) return `昨天 ${formatHM(date)}`;
@@ -3031,7 +3035,7 @@ function createThinkingSteps(text: string): NonNullable<ChatMessage['steps']> {
       { id: 'analysis-fundamental', agent: '基本面分析', description: '3/8 调用基本面子Agent', status: 'pending' },
       { id: 'analysis-capital', agent: '资金面分析', description: '4/8 调用资金面子Agent', status: 'pending' },
       { id: 'analysis-sentiment', agent: '情绪面分析', description: '5/8 调用情绪面子Agent', status: 'pending' },
-      { id: 'analysis-lhb', agent: '龙虎榜分析', description: '6/8 调用龙虎榜子Agent', status: 'pending' },
+      { id: 'analysis-chip', agent: '筹码分析', description: '6/8 调用筹码分析子Agent', status: 'pending' },
       { id: 'analysis-overview', agent: '汇总分析Agent', description: '7/8 汇总五维结果并生成报告', status: 'pending' },
     ];
   }
@@ -3073,8 +3077,55 @@ const stockAliases: Array<[string, string]> = [
 ];
 
 function renderMarkdownWithStocks(content: string) {
-  const html = marked.parse(content, { async: false, breaks: true }) as string;
+  return renderMarkdownContent(content);
+}
+
+function renderMarkdownContent(content: string, options: { disclaimer?: boolean } = {}) {
+  const normalized = normalizeAnalysisContent(content, options.disclaimer !== false);
+  const html = marked.parse(normalized, { async: false, breaks: true }) as string;
   return linkStocks(html);
+}
+
+const standardDisclaimer = '以上内容基于公开数据自动生成，仅供研究参考，不构成投资建议。';
+const disclaimerPatterns = [
+  /以上内容基于(?:当前可用)?公开数据自动生成，仅供研究参考，不构成投资建议。/g,
+  /以上内容基于当前可用公开数据自动生成，仅供研究参考，不构成投资建议。/g,
+  /仅供研究参考，不构成投资建议。/g,
+];
+
+function normalizeAnalysisContent(content: string, showDisclaimer = true) {
+  const withoutDisclaimer = disclaimerPatterns.reduce((text, pattern) => text.replace(pattern, ''), content).trim();
+  return showDisclaimer && withoutDisclaimer ? `${colorScoreTable(withoutDisclaimer)}\n\n${renderDisclaimerLine()}` : colorScoreTable(withoutDisclaimer);
+}
+
+function renderDisclaimerLine() {
+  return `<div class="disclaimer-line">${standardDisclaimer}</div>`;
+}
+
+function colorScoreTable(content: string) {
+  const lines = content.split('\n');
+  let inScoreTable = false;
+  return lines.map((line) => {
+    if (/^\|.*评分\(0-100\).*\|/.test(line)) {
+      inScoreTable = true;
+      return line;
+    }
+    if (inScoreTable && !line.trim().startsWith('|')) inScoreTable = false;
+    if (!inScoreTable || /^\|\s*-+/.test(line)) return line;
+    const cells = line.split('|');
+    cells[3] = colorScoreCell(cells[3]);
+    cells[4] = colorScoreCell(cells[4]);
+    return cells.join('|');
+  }).join('\n');
+}
+
+function colorScoreCell(cell = '') {
+  return cell.replace(/(?<![\w"'>-])(\d{1,3}(?:\.\d+)?)(?![\w"'<-])/g, (match) => {
+    const value = Number(match);
+    if (!Number.isFinite(value) || value > 100) return match;
+    const cls = value >= 80 ? 'score-high' : value >= 60 ? 'score-mid' : 'score-low';
+    return `<span class="${cls}">${match}</span>`;
+  });
 }
 
 function linkStocks(html: string) {
