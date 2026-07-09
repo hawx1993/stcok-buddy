@@ -35,6 +35,7 @@ export type EvidenceSource =
   | 'dragon-tiger'
   | 'hot-focus'
   | 'chip'
+  | 'url'
   | 'fallback';
 
 export interface EvidenceItem {
@@ -72,6 +73,8 @@ export interface ToolCallRecord {
   toolName: string;
   input: unknown;
   output?: unknown;
+  inputSummary?: string;
+  outputSummary?: string;
   error?: string;
   startedAt: string;
   endedAt?: string;
@@ -103,6 +106,7 @@ export interface ChatMessage {
   role: MessageRole;
   content: string;
   createdAt: string;
+  runEvents?: AgentRunEvent[];
   steps?: AgentStep[];
   thinking?: {
     startedAt: string;
@@ -126,19 +130,55 @@ export interface AgentStep {
 
 export type AgentRunEventType =
   | 'plan_created'
+  | 'command_detected'
+  | 'intent_detected'
   | 'step_started'
   | 'step_completed'
+  | 'tool_started'
+  | 'tool_completed'
+  | 'tool_failed'
   | 'tool_result'
+  | 'subagent_started'
+  | 'subagent_completed'
+  | 'progress_updated'
+  | 'evidence_added'
+  | 'summary_completed'
   | 'final_answer'
   | 'error';
 
 export interface AgentRunEvent {
   type: AgentRunEventType;
+  title?: string;
   message?: string;
+  progress?: { current: number; total: number };
   step?: AgentStep;
   result?: AgentResultCard;
   stock?: StockDetail;
   toolCall?: ToolCallRecord;
+  tool?: {
+    name: string;
+    purpose?: string;
+    inputSummary?: string;
+    outputSummary?: string;
+    status?: 'running' | 'success' | 'failed';
+    error?: string;
+  };
+  subAgent?: {
+    name: string;
+    description?: string;
+    status?: 'pending' | 'running' | 'completed' | 'error';
+    summary?: string;
+  };
+  command?: {
+    name: string;
+    args?: string;
+    mode?: string;
+  };
+  intent?: {
+    name: string;
+    target?: string;
+    mode?: string;
+  };
   evidence?: EvidenceItem[];
   findings?: StructuredAgentFinding[];
 }
@@ -151,7 +191,8 @@ export interface ChatRequest {
 
 export interface ChatStreamEvent {
   requestId: string;
-  token: string;
+  token?: string;
+  runEvent?: AgentRunEvent;
 }
 
 export interface ChatResponse {
@@ -321,7 +362,7 @@ export interface StocksenseApi {
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
   listSurgeHistoryDates(): Promise<string[]>;
-  listSurgeHistory(date: string): Promise<HotFocusItem[]>;
+  listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;
   listStoreItems(): Promise<StoreItem[]>;
   listInstalledStoreItems(): Promise<string[]>;
   installStoreItem(id: string): Promise<string[]>;

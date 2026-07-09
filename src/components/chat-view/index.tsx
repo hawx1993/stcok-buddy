@@ -4,7 +4,7 @@ import gsap from 'gsap';
 import { marked } from 'marked';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { KlineModal, StockKlineChart } from '../kline-chart';
-import type { AgentResultCard, ChatMessage, StockDetail, StoreCategory, StoreItem } from '../../shared/types';
+import type { AgentResultCard, AgentRunEvent, ChatMessage, StockDetail, StoreCategory, StoreItem, ToolCallRecord } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
@@ -45,6 +45,7 @@ export function ChatView() {
   const replaceLastAssistant = useAppStore((state) => state.replaceLastAssistant);
   const finalizeLastAssistant = useAppStore((state) => state.finalizeLastAssistant);
   const appendToLastAssistant = useAppStore((state) => state.appendToLastAssistant);
+  const applyRunEventToLastAssistant = useAppStore((state) => state.applyRunEventToLastAssistant);
   const setSending = useAppStore((state) => state.setSending);
   const rememberStockKline = useAppStore((state) => state.rememberStockKline);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
@@ -152,7 +153,9 @@ export function ChatView() {
       const api = getStocksenseApi();
       activeRequestRef.current = requestId;
       offToken = api.onChatToken?.((event) => {
-        if (event.requestId === requestId && activeRequestRef.current === requestId) appendToLastAssistant(event.token);
+        if (event.requestId !== requestId || activeRequestRef.current !== requestId) return;
+        if (event.runEvent) applyRunEventToLastAssistant(event.runEvent);
+        if (event.token) appendToLastAssistant(event.token);
       });
       const response = await api.sendChat({ conversationId: activeConversationId ?? 'conv-1', message: text, requestId });
       if (activeRequestRef.current !== requestId) return;
@@ -388,9 +391,10 @@ function MessageBubble({ message, now, slashItems, onStockClick }: { message: Ch
       </div>
       <div className={styles['msg-body']} data-msgbody>
         {message.thinking ? <ThinkingBanner /> : message.processedSeconds ? <ProcessedBanner seconds={message.processedSeconds} /> : null}
-        {message.content.trim() ? <div className="msg-text" onClick={openLinkedStock} onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownContent(renderCommandInText(message.content, slashItems), { disclaimer: message.role === 'assistant' }) }} /> : null}
+        {message.content.trim() ? <div className="msg-text" onClick={openLinkedStock} onMouseUp={copySelectedMessage} dangerouslySetInnerHTML={{ __html: renderMarkdownContent(renderCommandInText(message.content, slashItems), { disclaimer: message.role === 'assistant' && Boolean(message.result || message.evidence?.length || message.findings?.length || message.toolCalls?.length) }) }} /> : null}
         {message.thinking ? <ThinkingTrace startedAt={message.thinking.startedAt} steps={message.thinking.steps} /> : null}
-        {message.steps?.length ? <Trace steps={message.steps} /> : null}
+        {message.runEvents?.length ? <RunEventTrace events={message.runEvents} /> : !message.thinking && message.steps?.length ? <Trace steps={message.steps} /> : null}
+        {message.toolCalls?.length ? <ToolCallTrace toolCalls={message.toolCalls} /> : null}
         {message.result ? <ResultCard result={message.result} onStockClick={onStockClick} /> : null}
         <div className={styles['msg-time']}>{formatMessageTime(message.createdAt, now)}</div>
       </div>
@@ -2829,7 +2833,7 @@ function ThinkingTrace({ startedAt, steps }: { startedAt: string; steps: NonNull
           {steps.map((step) => (
           <div className={styles['trace-step']} key={step.id}>
             <span className={styles.tag}>{step.agent}</span>
-            <span className={styles.desc}>{step.description}</span>
+            <span className={styles.desc}>{dedupeLabelPrefix(step.agent, step.description)}</span>
             {step.detail ? <span className={styles.progress}>{step.detail}</span> : null}
           </div>
           ))}
@@ -2844,7 +2848,7 @@ function Trace({ steps }: { steps: NonNullable<ChatMessage['steps']> }) {
   return (
     <div className={cx(styles.trace, open && styles.open)} data-trace>
       <button className={styles['trace-header']} onClick={() => setOpen(!open)} type="button">
-        <span>思考链路</span><span className={styles['trace-caret']}>{open ? '▾' : '▸'}</span>
+        <span>分析步骤</span><span className={styles['trace-caret']}>{open ? '▾' : '▸'}</span>
       </button>
       {open ? (
         <div className={styles['trace-body']} data-tracebody>
@@ -2859,6 +2863,98 @@ function Trace({ steps }: { steps: NonNullable<ChatMessage['steps']> }) {
       ) : null}
     </div>
   );
+}
+
+function RunEventTrace({ events }: { events: AgentRunEvent[] }) {
+  const [open, setOpen] = useState(true);
+  const visible = events.filter((event) => event.type !== 'final_answer');
+  if (!visible.length) return null;
+  return (
+    <div className={cx(styles.trace, styles['run-event-trace'], open && styles.open)} data-trace>
+      <button className={styles['trace-header']} onClick={() => setOpen(!open)} type="button">
+        <span>执行过程</span><span className={styles['trace-caret']}>{open ? '▾' : '▸'}</span>
+      </button>
+      {open ? (
+        <div className={styles['trace-body']} data-tracebody>
+          {visible.map((event, index) => (
+            <div className={styles['trace-step']} key={`${event.type}-${index}`}>
+              <span className={styles.tag}>{eventLabel(event)}</span>
+              <span className={styles.desc}>{eventDescription(event)}</span>
+              {event.progress ? <span className={styles.progress}>{event.progress.current}/{event.progress.total}</span> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function eventLabel(event: AgentRunEvent) {
+  if (event.tool?.name) return event.tool.name;
+  if (event.subAgent?.name) return event.subAgent.name;
+  if (event.command?.name) return event.command.name;
+  return {
+    plan_created: '计划',
+    command_detected: 'Command',
+    intent_detected: '意图',
+    tool_started: '工具开始',
+    tool_completed: '工具完成',
+    tool_failed: '工具失败',
+    subagent_started: 'Agent开始',
+    subagent_completed: 'Agent完成',
+    progress_updated: '进度',
+    evidence_added: '证据',
+    summary_completed: '汇总',
+    step_started: '步骤开始',
+    step_completed: '步骤完成',
+    tool_result: '工具',
+    final_answer: '结论',
+    error: '错误',
+  }[event.type];
+}
+
+function eventDescription(event: AgentRunEvent) {
+  const label = eventLabel(event);
+  const text = event.message ?? event.step?.description ?? event.tool?.outputSummary ?? event.subAgent?.summary ?? '';
+  return dedupeLabelPrefix(label, text);
+}
+
+function dedupeLabelPrefix(label: string | undefined, text: string) {
+  if (!label) return text;
+  return text.startsWith(`${label}：`) || text.startsWith(`${label}:`) ? text.slice(label.length + 1).trim() : text;
+}
+
+function ToolCallTrace({ toolCalls }: { toolCalls: ToolCallRecord[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={cx(styles.trace, styles['tool-trace'], open && styles.open)}>
+      <button className={styles['trace-header']} onClick={() => setOpen(!open)} type="button">
+        <span>工具调用</span><span className={styles['trace-caret']}>{open ? '▾' : '▸'}</span>
+      </button>
+      {open ? (
+        <div className={cx(styles['trace-body'], styles['tool-call-body'])}>
+          {toolCalls.map((toolCall) => {
+            const duration = toolCall.endedAt ? new Date(toolCall.endedAt).getTime() - new Date(toolCall.startedAt).getTime() : undefined;
+            return (
+              <div className={styles['tool-call']} key={toolCall.id}>
+                <div className={styles['tool-call-header']}>
+                  <span>{toolCall.toolName}</span>
+                  <span className={styles['tool-call-meta']}>{toolCall.error ? '失败' : '成功'}{duration !== undefined ? ` · ${duration}ms` : ''}</span>
+                </div>
+                <div className={styles['tool-call-meta']}>输入：{toolCall.inputSummary ?? summarizeInline(toolCall.input)}</div>
+                {toolCall.error ? <div className={styles['tool-call-error']}>{toolCall.error}</div> : <div className={styles['tool-call-meta']}>输出：{toolCall.outputSummary ?? summarizeInline(toolCall.output)}</div>}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function summarizeInline(value: unknown) {
+  if (value === undefined) return '--';
+  return (typeof value === 'string' ? value : JSON.stringify(value)).replace(/\s+/g, ' ').slice(0, 160);
 }
 
 function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStockClick(stock: StockDetail): void }) {
@@ -3018,6 +3114,9 @@ function isGreeting(text: string) {
 }
 
 function createThinkingSteps(text: string): NonNullable<ChatMessage['steps']> {
+  const commandSteps = getCommandThinkingSteps(text);
+  if (commandSteps) return commandSteps;
+
   const singleAgent = getSingleAgentCommand(text);
   if (singleAgent) {
     return [
@@ -3046,6 +3145,49 @@ function createThinkingSteps(text: string): NonNullable<ChatMessage['steps']> {
     { id: 'analyze', agent: '生成结论', description: '汇总基本面、技术面与风险点，组织可执行回答', status: 'pending' },
     { id: 'risk', agent: '风险核查', description: '检查异常波动、估值偏离与潜在风险提示', status: 'pending' },
   ];
+}
+
+function getCommandThinkingSteps(text: string): NonNullable<ChatMessage['steps']> | undefined {
+  const command = text.trim().split(/\s+/, 1)[0];
+  const stockTarget = text.trim().slice(command.length).trim() || '目标股票';
+  const map: Record<string, NonNullable<ChatMessage['steps']>> = {
+    '/网页内容总结': [
+      { id: 'understand', agent: '理解问题', description: `识别网页总结任务：${text.slice(0, 36)}${text.length > 36 ? '…' : ''}`, status: 'running' },
+      { id: 'collect-web', agent: '采集网页数据', description: '使用 Crawl4AI 提取网页正文、标题与可读内容', status: 'pending' },
+      { id: 'summarize-web', agent: '汇总网页数据', description: '清洗正文并生成中文 Markdown 摘要', status: 'pending' },
+    ],
+    '/行业轮动': [
+      { id: 'understand', agent: '理解问题', description: '识别行业轮动命令', status: 'running' },
+      { id: 'collect-sector', agent: '采集行业数据', description: '拉取行业涨幅榜与板块资金流', status: 'pending' },
+      { id: 'summarize-sector', agent: '汇总行业数据', description: '整理强势行业、资金流向与轮动风险', status: 'pending' },
+    ],
+    '/龙虎榜': [
+      { id: 'understand', agent: '理解问题', description: `识别个股龙虎榜命令：${stockTarget}`, status: 'running' },
+      { id: 'collect-lhb', agent: '采集龙虎榜数据', description: '拉取个股近30日上榜记录与买卖席位', status: 'pending' },
+      { id: 'summarize-lhb', agent: '汇总龙虎榜数据', description: '整理净买入、营业部席位与短线风险', status: 'pending' },
+    ],
+    '/全市场龙虎榜': [
+      { id: 'understand', agent: '理解问题', description: '识别全市场龙虎榜命令', status: 'running' },
+      { id: 'collect-market-lhb', agent: '采集龙虎榜数据', description: '拉取全市场龙虎榜净买入排名', status: 'pending' },
+      { id: 'summarize-market-lhb', agent: '汇总龙虎榜数据', description: '整理买入席位、热门个股与短线风险', status: 'pending' },
+    ],
+    '/题材归因': [
+      { id: 'understand', agent: '理解问题', description: '识别题材归因命令', status: 'running' },
+      { id: 'collect-theme', agent: '采集题材数据', description: '拉取强势股、热点题材与资金流数据', status: 'pending' },
+      { id: 'summarize-theme', agent: '汇总题材数据', description: '归纳上涨题材、代表个股与持续性风险', status: 'pending' },
+    ],
+    '/新闻公告': [
+      { id: 'understand', agent: '理解问题', description: `识别新闻公告命令：${stockTarget}`, status: 'running' },
+      { id: 'collect-news', agent: '采集新闻公告', description: '拉取个股最近新闻、公告与事件线索', status: 'pending' },
+      { id: 'summarize-news', agent: '汇总新闻公告', description: '解读利好利空、事件影响与信息风险', status: 'pending' },
+    ],
+    '/综合投研报告': [
+      { id: 'understand', agent: '理解问题', description: `识别综合投研报告命令：${stockTarget}`, status: 'running' },
+      { id: 'collect-stock', agent: '采集个股数据', description: '拉取行情、K线、新闻、资金与筹码数据', status: 'pending' },
+      { id: 'summarize-stock', agent: '汇总投研结论', description: '调用多维分析 Agent 并生成综合投研报告', status: 'pending' },
+    ],
+  };
+  return map[command];
 }
 
 function getSingleAgentCommand(text: string) {
@@ -3129,12 +3271,15 @@ function colorScoreCell(cell = '') {
 }
 
 function linkStocks(html: string) {
-  const pattern = new RegExp(`(${stockAliases.map(([name]) => escapeRegExp(name)).join('|')})（(\\d{6})）|(\\d{6})`, 'g');
-  return html.replace(pattern, (match, name: string | undefined, pairedCode: string | undefined, codeOnly: string | undefined) => {
-    const code = pairedCode ?? codeOnly ?? stockAliases.find(([alias]) => alias === name)?.[1];
-    const stockName = name ?? stockAliases.find(([, aliasCode]) => aliasCode === code)?.[0] ?? code;
-    return `<a href="#" class="stock-link" data-stock-code="${code}" data-stock-name="${stockName}">${match}</a>`;
-  });
+  const stockPattern = new RegExp(`(${stockAliases.map(([name]) => escapeRegExp(name)).join('|')})（(\\d{6})）|(?<![\\w/.-])(\\d{6})(?![\\w/.-])`, 'g');
+  return html.split(/(<[^>]+>)/g).map((part) => {
+    if (part.startsWith('<')) return part;
+    return part.replace(stockPattern, (match, name: string | undefined, pairedCode: string | undefined, codeOnly: string | undefined) => {
+      const code = pairedCode ?? codeOnly ?? stockAliases.find(([alias]) => alias === name)?.[1];
+      const stockName = name ?? stockAliases.find(([, aliasCode]) => aliasCode === code)?.[0] ?? code;
+      return `<a href="#" class="stock-link" data-stock-code="${code}" data-stock-name="${stockName}">${match}</a>`;
+    });
+  }).join('');
 }
 
 function escapeRegExp(value: string) {

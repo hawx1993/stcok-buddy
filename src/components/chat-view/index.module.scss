@@ -46,6 +46,15 @@
 .trace-step .tag { font-size: 10px; padding: 0 4px; border-radius: 2px; background: var(--surface-active); color: var(--muted); flex-shrink: 0; }
 .trace-step .desc { color: var(--fg-secondary); font-size: 12px; }
 .trace-step .progress { margin-left: auto; color: var(--accent); font-size: 10px; white-space: nowrap; }
+.tool-trace { margin-top: 6px; }
+.run-event-trace .trace-body { max-height: 220px; overflow-y: auto; }
+.run-event-trace .trace-step .tag { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-call { padding: 7px 0; border-top: 1px solid var(--border); }
+.tool-call:first-child { border-top: none; }
+.tool-call-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--fg-secondary); font-size: 12px; font-weight: 600; }
+.tool-call-meta { color: var(--muted); font-size: 11px; line-height: 1.45; word-break: break-word; }
+.tool-call-body { padding-bottom: 6px; }
+.tool-call-error { color: var(--danger); font-size: 11px; line-height: 1.45; word-break: break-word; }
 .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 6px; user-select: text; overflow: hidden; }
 .card-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .card-title .sub { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: auto; }

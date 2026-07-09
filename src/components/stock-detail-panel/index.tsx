@@ -18,7 +18,6 @@ type SurgeFilter = typeof surgeFilters[number];
 export function StockDetailPanel() {
   const detailRef = useRef<HTMLDivElement>(null);
   const surgeLoadRef = useRef(0);
-  const surgeCacheRef = useRef<Record<string, HotFocusItem[]>>({});
   const [newsQuery, setNewsQuery] = useState('');
   const [newsPage, setNewsPage] = useState(1);
   const [newsRefresh, setNewsRefresh] = useState(0);
@@ -34,7 +33,7 @@ export function StockDetailPanel() {
   const [surgeRefreshMode, setSurgeRefreshMode] = useState<'manual' | 'poll'>('manual');
   const [surgeFiltersOpen, setSurgeFiltersOpen] = useState(false);
   const [surgeFilter, setSurgeFilter] = useState<SurgeFilter[]>(['全部']);
-  const [visibleSurgeCount, setVisibleSurgeCount] = useState(SURGE_PAGE_SIZE);
+  const [surgeHasMore, setSurgeHasMore] = useState(true);
   const [surgePaging, setSurgePaging] = useState(false);
   const [isKlineModalOpen, setKlineModalOpen] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(true);
@@ -104,18 +103,16 @@ export function StockDetailPanel() {
     if (rightPanelTab !== 'surge') return;
     let alive = true;
     const loadId = ++surgeLoadRef.current;
-    const cached = selectedSurgeDate === todaySurgeDate ? undefined : surgeCacheRef.current[selectedSurgeDate];
-    setSurgeItems(cached ?? []);
-    setVisibleSurgeCount(SURGE_PAGE_SIZE);
-    setSurgeLoading(selectedSurgeDate === todaySurgeDate);
+    setSurgeItems([]);
+    setSurgeHasMore(true);
+    setSurgeLoading(true);
     const load = selectedSurgeDate === todaySurgeDate
-      ? getStocksenseApi().listHotFocus('surge')
-      : getStocksenseApi().listSurgeHistory(selectedSurgeDate);
+      ? getStocksenseApi().listHotFocus('surge').then((items) => items.slice(0, SURGE_PAGE_SIZE))
+      : getStocksenseApi().listSurgeHistory(selectedSurgeDate, 0, SURGE_PAGE_SIZE);
     load.then((items) => {
       if (!alive || loadId !== surgeLoadRef.current) return;
-      if (selectedSurgeDate !== todaySurgeDate) surgeCacheRef.current[selectedSurgeDate] = items;
       setSurgeItems(items);
-      setVisibleSurgeCount(SURGE_PAGE_SIZE);
+      setSurgeHasMore(items.length === SURGE_PAGE_SIZE);
     }).catch(console.error).finally(() => {
       if (alive && loadId === surgeLoadRef.current) setSurgeLoading(false);
     });
@@ -142,7 +139,7 @@ export function StockDetailPanel() {
   const selectedIsFavorite = Boolean(selectedStock && favoriteStocks.some((item) => item.code === selectedStock.code));
 
   useEffect(() => {
-    setVisibleSurgeCount(SURGE_PAGE_SIZE);
+    if (!filteredSurgeItems.length && surgeHasMore && !surgeLoading) loadMoreSurge();
   }, [surgeFilter]);
 
   useEffect(() => {
@@ -180,12 +177,16 @@ export function StockDetailPanel() {
   };
 
   const loadMoreSurge = () => {
-    if (surgePaging || visibleSurgeCount >= filteredSurgeItems.length) return;
+    if (surgePaging || surgeLoading || !surgeHasMore) return;
+    if (selectedSurgeDate === todaySurgeDate) {
+      setSurgeHasMore(false);
+      return;
+    }
     setSurgePaging(true);
-    window.setTimeout(() => {
-      setVisibleSurgeCount((count) => Math.min(count + SURGE_PAGE_SIZE, filteredSurgeItems.length));
-      setSurgePaging(false);
-    }, 250);
+    getStocksenseApi().listSurgeHistory(selectedSurgeDate, surgeItems.length, SURGE_PAGE_SIZE).then((items) => {
+      setSurgeItems((current) => [...current, ...items]);
+      setSurgeHasMore(items.length === SURGE_PAGE_SIZE);
+    }).catch(console.error).finally(() => setSurgePaging(false));
   };
 
   const openSurgeStock = async (item: HotFocusItem) => {
@@ -313,8 +314,8 @@ export function StockDetailPanel() {
             if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreSurge();
           }}>
             {surgeLoading ? <SurgeSkeleton /> : filteredSurgeItems.length ? <>
-              {filteredSurgeItems.slice(0, visibleSurgeCount).map((item) => <SurgeItem key={item.id} item={item} onClick={() => void openSurgeStock(item)} />)}
-              <div className={styles['surge-load-state']}>{visibleSurgeCount < filteredSurgeItems.length ? (surgePaging ? <span className={styles.spinner} /> : '向下滚动加载更多') : '没有更多数据了'}</div>
+              {filteredSurgeItems.map((item) => <SurgeItem key={item.id} item={item} onClick={() => void openSurgeStock(item)} />)}
+              <div className={styles['surge-load-state']}>{surgeHasMore ? (surgePaging ? <span className={styles.spinner} /> : '向下滚动加载更多') : '没有更多数据了'}</div>
             </> : <Empty text="暂无异动个股" />}
           </div>
         </>

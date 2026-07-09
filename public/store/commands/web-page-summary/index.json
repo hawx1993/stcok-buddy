@@ -1,0 +1,10 @@
+{
+  "id": "web-page-summary",
+  "name": "网页内容总结",
+  "section": "Commands",
+  "category": "commands",
+  "command": "/网页内容总结",
+  "description": "提取分析网页并总结输出有价值的内容。",
+  "argPlaceholder": "[URL]",
+  "handler": "index.js"
+}

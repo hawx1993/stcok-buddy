@@ -92,14 +92,17 @@ export function listSurgeDates(limit = 7) {
   });
 }
 
-export function listSurgeHistory(date: string) {
+export function listSurgeHistory(date: string, offset = 0, limit = 20) {
   return readDb(async () => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+    const safeOffset = Math.max(0, Math.floor(offset));
+    const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
     const rows = await all<SurgeRow>(
       `SELECT trade_date, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type
        FROM stock_surge_events
        WHERE trade_date = ${sqlValue(date)}
-       ORDER BY COALESCE(time, '') DESC, id DESC`,
+       ORDER BY COALESCE(time, '') DESC, id DESC
+       LIMIT ${safeLimit} OFFSET ${safeOffset}`,
     );
     return rows.map((row) => ({
       id: row.id,

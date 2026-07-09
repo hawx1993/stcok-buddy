@@ -29,6 +29,7 @@ const slashCommands = [
 interface AgentContext {
   query: string;
   intent: Intent;
+  urls: string[];
   symbol?: string;
   boardKeyword?: string;
   quote?: StockDetail;
@@ -41,6 +42,7 @@ interface AgentContext {
   chip?: unknown;
   largeOrders?: HotFocusItem[];
   dailyDragonTiger?: DailyDragonTigerItem[];
+  linkedPages?: Array<{ url: string; title?: string; content: string }>;
   analysisResults?: StockAnalysisResult[];
   analysisOverview?: string;
   themeAttribution?: string;
@@ -49,16 +51,22 @@ interface AgentContext {
   toolCalls: ToolCallRecord[];
   findings: StructuredAgentFinding[];
   compliance?: ComplianceReview;
+  emitEvent?: (event: AgentRunEvent) => void;
 }
 
-export async function runOrchestrator(request: ChatRequest, onToken?: (token: string) => void): Promise<ChatResponse> {
+export async function runOrchestrator(request: ChatRequest, onToken?: (token: string) => void, onEvent?: (event: AgentRunEvent) => void): Promise<ChatResponse> {
   const storeResponse = await runStoreCommand(request.message);
   if (storeResponse) return storeResponse;
 
   const events: AgentRunEvent[] = [];
+  const emitEvent = (event: AgentRunEvent) => {
+    events.push(event);
+    onEvent?.(event);
+  };
   const command = parseSlashCommand(request.message);
   let intent = command?.intent ?? classifyIntent(request.message);
   const symbolText = command?.args ?? request.message;
+  const urls = extractUrls(request.message);
   const resolvedSymbol = needsSymbol(intent) && symbolText ? await callTool('resolveStockSymbol', { query: symbolText }) : undefined;
   let symbol = typeof resolvedSymbol?.output === 'string' ? resolvedSymbol.output : (resolvedSymbol?.output as { symbol?: string } | undefined)?.symbol;
   if (!command && intent === 'chat' && isPossibleStockOnlyQuery(symbolText)) {
@@ -73,55 +81,84 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
   const context: AgentContext = {
     query: request.message,
     intent,
+    urls,
     symbol,
     boardKeyword: extractBoardKeyword(request.message),
     singleAgent: command?.singleAgent,
     evidence: [],
     toolCalls: [],
     findings: [],
+    emitEvent,
   };
 
   if (command && !command.args && !command.allowEmptyArgs) return commandUsageResponse(request, command.usage);
 
-  const nodes = buildDag(context, onToken);
-  events.push({
-    type: 'plan_created',
-    message: `识别为 ${intentLabel(intent)}，规划 ${nodes.length} 个可审计步骤。`,
+  emitEvent(command ? {
+    type: 'command_detected',
+    title: 'Command 识别',
+    message: `${command.name}${command.args ? ` ${command.args}` : ''}`,
+    command: { name: command.name, args: command.args, mode: command.singleAgent ? '单 Agent 分析' : '多 Agent 协同分析' },
+  } : {
+    type: 'intent_detected',
+    title: '意图识别',
+    message: `${intentLabel(intent)}${symbol ? `：${symbol}` : ''}`,
+    intent: { name: intentLabel(intent), target: symbol ?? context.boardKeyword, mode: intent === 'analysis' ? '多 Agent 协同分析' : '单流程分析' },
   });
 
+  const nodes = buildDag(context, onToken);
+  emitEvent({
+    type: 'plan_created',
+    title: '分析计划',
+    message: `1. 识别用户意图\n2. 解析股票代码 / 板块 / 关键词\n3. 调用必要工具获取数据\n4. 分配子 Agent 专项分析\n5. 汇总证据并生成投研结论`,
+    progress: { current: 0, total: nodes.length },
+  });
+
+  let completedSteps = 0;
   await executeDag(nodes, context, (step) => {
-    events.push({ type: step.status === 'running' ? 'step_started' : 'step_completed', step });
+    if (step.status === 'completed' || step.status === 'error') completedSteps += 1;
+    emitEvent({
+      type: step.status === 'running' ? 'subagent_started' : 'subagent_completed',
+      title: step.status === 'running' ? '子 Agent 启动' : '子 Agent 结果',
+      message: step.description,
+      step,
+      subAgent: { name: step.agent, description: step.description, status: step.status, summary: step.detail },
+      progress: { current: completedSteps, total: nodes.length },
+    });
   });
 
   const draft = context.singleAgent && context.analysisResults?.[0]
     ? context.analysisResults[0].content
     : context.themeAttribution ?? context.analysisOverview ?? await runReportAgent({
-      query: request.message,
+      query: buildReportQuery(request.message, context.linkedPages),
       intent,
       quote: context.quote,
       technical: context.technical,
       board: context.board,
       news: context.news,
       announcements: context.announcements,
+      linkedPages: context.linkedPages,
     }, onToken);
   const review = reviewComplianceStructured({ text: draft, evidence: context.evidence, findings: context.findings });
   context.compliance = review;
   const content = review.revisedText;
   const result = context.board ?? (context.technical && context.quote ? { ...context.technical, stocks: [context.quote] } : context.technical) ?? quoteToCard(context.quote);
 
-  events.push({ type: 'final_answer', message: content, result, stock: context.quote, evidence: context.evidence, findings: context.findings });
+  emitEvent({
+    type: 'summary_completed',
+    title: '汇总完成',
+    message: `工具调用：${context.toolCalls.length} 次\n子 Agent：${(context.analysisResults?.length ?? 0) || nodes.length} 个\n有效证据：${dedupeEvidence(context.evidence).length} 条\n数据缺口：${dataGaps(context).join('、') || '无明确缺口'}`,
+    evidence: dedupeEvidence(context.evidence),
+  });
+  emitEvent({ type: 'final_answer', title: '最终结论', message: content, result, stock: context.quote, evidence: context.evidence, findings: context.findings });
 
   return {
-    events: [
-      ...events.slice(0, -1),
-      ...context.toolCalls.map((toolCall) => ({ type: 'tool_result' as const, message: toolCall.error ?? `${toolCall.toolName} completed`, toolCall })),
-      events[events.length - 1],
-    ],
+    events,
     message: {
       id: `assistant-${Date.now()}`,
       role: 'assistant',
       content,
       createdAt: new Date().toISOString(),
+      runEvents: events,
       steps: events.map((event) => event.step).filter((step): step is NonNullable<typeof step> => Boolean(step)),
       result,
       evidence: context.evidence,
@@ -150,8 +187,27 @@ function commandUsageResponse(_request: ChatRequest, usage: string): ChatRespons
 }
 
 function buildDag(context: AgentContext, onToken?: (token: string) => void): DagNode<AgentContext>[] {
+  const linkNodes: DagNode<AgentContext>[] = context.urls.length ? [{
+    id: 'read-links',
+    agent: 'WebTool',
+    description: `读取用户提供的 ${context.urls.length} 个链接`,
+    run: async (ctx) => {
+      const pages = await Promise.all(ctx.urls.map((url) => runContextTool<{ url: string; title?: string; content: string } | undefined>(ctx, 'readUrl', { url }, () => undefined)));
+      ctx.linkedPages = pages.filter((page): page is { url: string; title?: string; content: string } => Boolean(page));
+      ctx.evidence.push(...ctx.linkedPages.map((page, index) => ({
+        id: `url-${index + 1}`,
+        source: 'url' as const,
+        title: page.title ?? page.url,
+        summary: page.content.slice(0, 240),
+        url: page.url,
+        raw: { title: page.title },
+      })));
+    },
+  }] : [];
+
   if (context.intent === 'board') {
     return [
+      ...linkNodes,
       {
         id: 'board-data',
         agent: 'DataAgent',
@@ -165,6 +221,7 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 
   if (context.intent === 'portfolio') {
     return [
+      ...linkNodes,
       {
         id: 'memory-placeholder',
         agent: 'MemoryAgent',
@@ -181,6 +238,7 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 
   if (context.intent === 'theme-attribution') {
     return [
+      ...linkNodes,
       {
         id: 'theme-attribution-data',
         agent: 'a-stock-data',
@@ -202,6 +260,7 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 
   if (context.intent === 'daily-lhb') {
     return [
+      ...linkNodes,
       {
         id: 'daily-lhb-data',
         agent: 'a-stock-data',
@@ -218,6 +277,7 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 
   if (!context.symbol) {
     return [
+      ...linkNodes,
       {
         id: 'chat',
         agent: 'Orchestrator',
@@ -228,6 +288,7 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
   }
 
   const nodes: DagNode<AgentContext>[] = [
+    ...linkNodes,
     {
       id: 'quote',
       agent: 'DataAgent',
@@ -342,6 +403,22 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
   return nodes;
 }
 
+function extractUrls(text: string) {
+  return [...new Set([...text.matchAll(/https?:\/\/[^\s，。；、)）]+/g)].map((match) => match[0]))];
+}
+
+function buildReportQuery(query: string, pages?: Array<{ url: string; title?: string; content: string }>) {
+  if (!pages?.length) return query;
+  let used = 0;
+  const blocks = pages.map((page, index) => {
+    const remaining = Math.max(0, 8000 - used);
+    const content = page.content.slice(0, Math.min(4000, remaining));
+    used += content.length;
+    return ` ${index + 1}. 标题：${page.title ?? '未提取'}\nURL：${page.url}\n正文摘录：\n${content}`;
+  }).filter((block) => block.trim());
+  return `${query}\n\n用户提供的链接内容：\n${blocks.join('\n\n')}`;
+}
+
 function classifyIntent(query: string): Intent {
   if (/全市场龙虎榜|龙虎榜.*净买入|净买入.*龙虎榜/.test(query)) return 'daily-lhb';
   if (/题材归因|哪些股票走强|主要是什么题材/.test(query)) return 'theme-attribution';
@@ -376,7 +453,7 @@ function intentLabel(intent: Intent) {
 
 function stockAnalysisInput(ctx: AgentContext) {
   return {
-    query: ctx.query,
+    query: buildReportQuery(ctx.query, ctx.linkedPages),
     symbol: ctx.symbol!,
     stockLabel: ctx.quote?.name ?? ctx.symbol!,
     quote: ctx.quote,
@@ -390,9 +467,45 @@ function stockAnalysisInput(ctx: AgentContext) {
 }
 
 async function runContextTool<T>(ctx: AgentContext, name: string, input: unknown, fallback: () => T): Promise<T> {
+  const startedAt = new Date().toISOString();
+  ctx.emitEvent?.({
+    type: 'tool_started',
+    title: '工具调用',
+    message: `正在执行 ${name}`,
+    toolCall: { id: `tool-pending-${startedAt}-${name}`, toolName: name, input, inputSummary: summarizeEventValue(input), startedAt },
+    tool: { name, inputSummary: summarizeEventValue(input), status: 'running' },
+  });
   const record = await callTool(name, input);
   ctx.toolCalls.push(record);
+  ctx.emitEvent?.({
+    type: record.error ? 'tool_failed' : 'tool_completed',
+    title: record.error ? '工具失败' : '工具结果',
+    message: record.error ? `${name} 失败，已使用兜底策略继续分析` : `${name} completed`,
+    toolCall: record,
+    tool: { name, inputSummary: record.inputSummary, outputSummary: record.outputSummary, status: record.error ? 'failed' : 'success', error: record.error },
+  });
+  if (!record.error) ctx.emitEvent?.({
+    type: 'evidence_added',
+    title: '证据更新',
+    message: `${name} 返回可用数据`,
+    evidence: dedupeEvidence(ctx.evidence),
+  });
   return record.error ? fallback() : record.output as T;
+}
+
+function summarizeEventValue(value: unknown) {
+  if (value === undefined) return undefined;
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return text.replace(/\s+/g, ' ').slice(0, 300);
+}
+
+function dataGaps(ctx: AgentContext) {
+  const gaps: string[] = [];
+  if (needsSymbol(ctx.intent) && !ctx.quote) gaps.push('行情');
+  if ((ctx.intent === 'analysis' || ctx.intent === 'technical') && !ctx.technical) gaps.push('技术指标');
+  if ((ctx.intent === 'analysis' || ctx.intent === 'news-announcements') && !ctx.news?.length) gaps.push('新闻');
+  if (ctx.intent === 'news-announcements' && !ctx.announcements?.length) gaps.push('公告');
+  return gaps;
 }
 
 function dedupeEvidence(items: EvidenceItem[]) {

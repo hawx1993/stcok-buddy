@@ -79,7 +79,11 @@ function writeInstalledStoreItems(items: string[]) {
 }
 
 async function readStoreItems(): Promise<StoreItem[]> {
-  const paths = ['/store/commands/dragon-tiger/index.json', '/store/commands/industry-rotation/index.json'];
+  const paths = [
+    '/store/commands/dragon-tiger/index.json',
+    '/store/commands/industry-rotation/index.json',
+    '/store/commands/web-page-summary/index.json',
+  ];
   const items = await Promise.all(paths.map(async (path) => {
     const response = await fetch(path).catch(() => undefined);
     return response?.ok ? await response.json() as StoreItem : undefined;
@@ -246,8 +250,8 @@ const webFallbackApi: StocksenseApi = {
   async listSurgeHistoryDates() {
     return [];
   },
-  async listSurgeHistory(date: string) {
-    return fallbackHot.map((item, index) => ({ ...item, id: `${item.id}-${date}`, time: `${String(14 - Math.floor(index / 4)).padStart(2, '0')}:${String(50 - index).padStart(2, '0')}` }));
+  async listSurgeHistory(date: string, offset = 0, limit = 20) {
+    return fallbackHot.map((item, index) => ({ ...item, id: `${item.id}-${date}`, time: `${String(14 - Math.floor(index / 4)).padStart(2, '0')}:${String(50 - index).padStart(2, '0')}` })).slice(offset, offset + limit);
   },
   async listStoreItems() {
     return readStoreItems();

@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentRunEvent, ChatMessage, ChatResponse, StoreItem } from '../../src/shared/types.js';
 import { installStoreItem, listInstalledStoreItems, uninstallStoreItem } from './config-store.js';
+import { generateReport } from './llm/index.js';
 
 const categoryDirs = ['commands', 'skills', 'sub-agents'] as const;
 
@@ -38,9 +39,9 @@ export async function runStoreCommand(query: string): Promise<ChatResponse | und
   const handlerPath = await resolveHandlerPath(item);
   const source = await readFile(handlerPath, 'utf8');
   const encoded = Buffer.from(`${source}\n//# sourceURL=${handlerPath}`).toString('base64');
-  const mod = await import(`data:text/javascript;base64,${encoded}#${Date.now()}`) as { run?: (input: { args: string; query: string; item: StoreItem }) => Promise<StoreCommandResult> };
+  const mod = await import(`data:text/javascript;base64,${encoded}#${Date.now()}`) as { run?: (input: { args: string; query: string; item: StoreItem; llm?: { generate: typeof generateReport } }) => Promise<StoreCommandResult> };
   if (typeof mod.run !== 'function') throw new Error(`Store plugin ${item.id} missing run()`);
-  const output = await mod.run({ args, query, item });
+  const output = await mod.run({ args, query, item, llm: { generate: generateReport } });
   const events = output.events ?? [{ type: 'final_answer' as const, message: output.content }];
   return {
     events,
