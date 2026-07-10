@@ -19,7 +19,7 @@ interface SurgeRow {
   type?: HotFocusItem['type'];
 }
 
-const dbPath = path.join(app.getPath('userData'), 'stocksense-surge.duckdb');
+const dbPath = path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb');
 const dbReady = DuckDBInstance.fromCache(dbPath);
 let ready: Promise<void> | undefined;
 let queue = Promise.resolve();
@@ -86,20 +86,23 @@ export function clearSurgeHistoryDate(tradeDate: string) {
 }
 
 export function listSurgeDates(limit = 7) {
-  return withDb(async () => {
+  return readDb(async () => {
     const rows = await all<{ trade_date: string }>(`SELECT DISTINCT trade_date FROM stock_surge_events ORDER BY trade_date DESC LIMIT ${Math.max(1, limit)}`);
     return rows.map((row) => row.trade_date);
   });
 }
 
-export function listSurgeHistory(date: string) {
-  return withDb(async () => {
+export function listSurgeHistory(date: string, offset = 0, limit = 20) {
+  return readDb(async () => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+    const safeOffset = Math.max(0, Math.floor(offset));
+    const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
     const rows = await all<SurgeRow>(
       `SELECT trade_date, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type
        FROM stock_surge_events
        WHERE trade_date = ${sqlValue(date)}
-       ORDER BY COALESCE(time, '') DESC, id DESC`,
+       ORDER BY COALESCE(time, '') DESC, id DESC
+       LIMIT ${safeLimit} OFFSET ${safeOffset}`,
     );
     return rows.map((row) => ({
       id: row.id,
@@ -133,6 +136,11 @@ export async function closeSurgeHistoryStore() {
   } catch (error) {
     console.warn('[surge-history] close failed', error);
   }
+}
+
+function readDb<T>(work: () => Promise<T>) {
+  if (isClosing) return Promise.reject(new Error('surge history store is closing'));
+  return ensureReady().then(work);
 }
 
 function withDb<T>(work: () => Promise<T>) {

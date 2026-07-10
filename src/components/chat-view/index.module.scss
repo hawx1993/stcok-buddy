@@ -46,7 +46,16 @@
 .trace-step .tag { font-size: 10px; padding: 0 4px; border-radius: 2px; background: var(--surface-active); color: var(--muted); flex-shrink: 0; }
 .trace-step .desc { color: var(--fg-secondary); font-size: 12px; }
 .trace-step .progress { margin-left: auto; color: var(--accent); font-size: 10px; white-space: nowrap; }
-.card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 6px; user-select: text; }
+.tool-trace { margin-top: 6px; }
+.run-event-trace .trace-body { max-height: 220px; overflow-y: auto; }
+.run-event-trace .trace-step .tag { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-call { padding: 7px 0; border-top: 1px solid var(--border); }
+.tool-call:first-child { border-top: none; }
+.tool-call-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--fg-secondary); font-size: 12px; font-weight: 600; }
+.tool-call-meta { color: var(--muted); font-size: 11px; line-height: 1.45; word-break: break-word; }
+.tool-call-body { padding-bottom: 6px; }
+.tool-call-error { color: var(--danger); font-size: 11px; line-height: 1.45; word-break: break-word; }
+.card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 6px; user-select: text; overflow: hidden; }
 .card-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .card-title .sub { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: auto; }
 .card-toggle { color: var(--accent); font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; background: var(--surface); cursor: pointer; flex-shrink: 0; }
@@ -56,12 +65,15 @@
 .metric-item .lbl { font-size: 10px; color: var(--muted); letter-spacing: .03em; }
 .metric-item .val { font-size: 16px; font-weight: 600; }
 .metric-item .val.warn { color: var(--warning); }
-.tbl { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; table-layout: fixed; }
-.tbl th { text-align: left; font-weight: 500; color: var(--muted); padding: 3px 4px; border-bottom: 1px solid var(--border); font-size: 11px; }
-.tbl td { padding: 3px 4px; border-bottom: 1px solid var(--border); }
+.table-wrap { overflow-x: auto; margin-top: 4px; }
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; table-layout: fixed; }
+.tbl th { text-align: left; font-weight: 500; color: var(--muted); padding: 3px 4px; border-bottom: 1px solid var(--border); font-size: 11px; background: var(--card-bg); }
+.tbl td { padding: 3px 4px; border-bottom: 1px solid var(--border); background: var(--card-bg); }
 .tbl tr:last-child td { border-bottom: none; }
 .lhb-table .col-name { width: 76px; }
 .lhb-table .col-reason { width: 124px; white-space: normal; word-break: break-word; }
+.col-wrap { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+.col-last { position: sticky; right: 0; width: 72px; text-align: right; white-space: nowrap; box-shadow: -8px 0 10px rgba(0,0,0,.12); }
 .table-toggle { width: 100%; margin-top: 8px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 12px; cursor: pointer; }
 .table-toggle:hover { border-color: var(--accent); }
 .card-kline { position: relative; margin: 8px 0 10px; }

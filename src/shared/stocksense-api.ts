@@ -79,7 +79,11 @@ function writeInstalledStoreItems(items: string[]) {
 }
 
 async function readStoreItems(): Promise<StoreItem[]> {
-  const paths = ['/store/commands/dragon-tiger/index.json', '/store/commands/industry-rotation/index.json'];
+  const paths = [
+    '/store/commands/dragon-tiger/index.json',
+    '/store/commands/industry-rotation/index.json',
+    '/store/commands/web-page-summary/index.json',
+  ];
   const items = await Promise.all(paths.map(async (path) => {
     const response = await fetch(path).catch(() => undefined);
     return response?.ok ? await response.json() as StoreItem : undefined;
@@ -180,7 +184,7 @@ const webFallbackApi: StocksenseApi = {
     saveLocalMessage(conversationId, message);
   },
   async sendChat(request: ChatRequest): Promise<ChatResponse> {
-    const command = request.message.trim().match(/^\/(综合投研报告|新闻公告|技术面分析|基本面分析|资金面分析|情绪面分析|龙虎榜分析)\s*(.*)$/);
+    const command = request.message.trim().match(/^\/(综合投研报告|新闻公告|技术面分析|基本面分析|资金面分析|情绪面分析|筹码分布|筹码分析)\s*(.*)$/);
     const reportTarget = command?.[2].trim();
     if (command && reportTarget === '') return webMessage(request, `请输入股票代码或股票名称，例如：/${command[1]} 中公教育`);
     const stock = findStock(reportTarget ?? request.message);
@@ -246,8 +250,8 @@ const webFallbackApi: StocksenseApi = {
   async listSurgeHistoryDates() {
     return [];
   },
-  async listSurgeHistory(date: string) {
-    return fallbackHot.map((item, index) => ({ ...item, id: `${item.id}-${date}`, time: `${String(14 - Math.floor(index / 4)).padStart(2, '0')}:${String(50 - index).padStart(2, '0')}` }));
+  async listSurgeHistory(date: string, offset = 0, limit = 20) {
+    return fallbackHot.map((item, index) => ({ ...item, id: `${item.id}-${date}`, time: `${String(14 - Math.floor(index / 4)).padStart(2, '0')}:${String(50 - index).padStart(2, '0')}` })).slice(offset, offset + limit);
   },
   async listStoreItems() {
     return readStoreItems();

@@ -8,6 +8,7 @@ import type {
   StockDetail,
   BoardDetail,
   ThemeMode,
+  AgentRunEvent,
 } from '../shared/types';
 
 export type SidebarTab = 'all' | 'surge' | 'stock' | 'diagnosis' | 'market';
@@ -58,6 +59,7 @@ interface AppState {
   replaceLastAssistant(message: ChatMessage): void;
   finalizeLastAssistant(message: ChatMessage): void;
   appendToLastAssistant(token: string): void;
+  applyRunEventToLastAssistant(event: AgentRunEvent): void;
   clearMessages(): void;
   setSelectedStock(stock?: StockDetail): void;
   setSelectedBoard(board?: BoardDetail): void;
@@ -146,6 +148,28 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
       if (index >= 0) messages[index] = { ...messages[index], content: `${messages[index].content}${token}` };
+      return { messages };
+    }),
+  applyRunEventToLastAssistant: (event) =>
+    set((state) => {
+      const messages = [...state.messages];
+      let index = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if (messages[i].role === 'assistant') {
+          index = i;
+          break;
+        }
+      }
+      if (index < 0) return { messages };
+      const current = messages[index];
+      const steps = event.step
+        ? [...(current.steps ?? []).filter((step) => step.id !== event.step!.id), event.step]
+        : current.steps;
+      const toolCalls = event.toolCall && !event.toolCall.id.startsWith('tool-pending-')
+        ? [...(current.toolCalls ?? []).filter((tool) => tool.id !== event.toolCall!.id), event.toolCall]
+        : current.toolCalls;
+      const runEvents = [...(current.runEvents ?? []).filter((item) => item.type !== 'final_answer'), event];
+      messages[index] = { ...current, runEvents, steps, thinking: current.thinking ? { ...current.thinking, steps: steps ?? current.thinking.steps } : current.thinking, toolCalls };
       return { messages };
     }),
   clearMessages: () => set({ messages: [] }),

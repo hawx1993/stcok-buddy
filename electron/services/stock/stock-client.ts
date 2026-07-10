@@ -1,5 +1,5 @@
 import StockSDK from 'stock-sdk';
-import type { AgentResultCard, BoardDetail, HotFocusItem, HotFocusTab, KlinePoint, StockDetail } from '../../../src/shared/types.js';
+import type { AgentResultCard, BoardDetail, ChipDistribution, ChipPoint, HotFocusItem, HotFocusTab, KlinePoint, StockDetail } from '../../../src/shared/types.js';
 import { formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { analyzeIndicators } from './indicators.js';
 import { extractSymbolCandidate, normalizeASymbol, inferExchange, toQuoteSymbol } from './symbols.js';
@@ -283,6 +283,45 @@ export async function getBoardDetail(symbol: string): Promise<BoardDetail> {
   };
 }
 
+export async function getChipDistribution(symbolInput: string): Promise<{ latest?: ChipDistribution; trend: Array<{ days: number; concentration70?: number; concentration90?: number }> }> {
+  const symbol = normalizeASymbol(symbolInput);
+  const rows = await sdk.chips.cn(symbol, { days: 20, includeHistogram: 'last' });
+  const latest = rows.at(-1) as AnyRecord | undefined;
+  const at = (n: number) => rows.at(-n) as AnyRecord | undefined;
+  return {
+    latest: latest ? toChipDistribution(latest) : undefined,
+    trend: [5, 10, 20].map((days) => {
+      const row = at(days) ?? latest;
+      return { days, concentration70: pickNumber(row ?? {}, ['concentration70']), concentration90: pickNumber(row ?? {}, ['concentration90']) };
+    }),
+  };
+}
+
+function toChipDistribution(row: AnyRecord): ChipDistribution {
+  const histogram = row.histogram as { prices?: unknown[]; weights?: unknown[]; profit?: unknown[] } | undefined;
+  const prices = histogram?.prices ?? [];
+  const weights = histogram?.weights ?? [];
+  const profits = histogram?.profit ?? [];
+  const cost70Low = pickNumber(row, ['cost70Low']);
+  const cost70High = pickNumber(row, ['cost70High']);
+  const cost90Low = pickNumber(row, ['cost90Low']);
+  const cost90High = pickNumber(row, ['cost90High']);
+  return {
+    date: pickString(row, ['date']) ?? '',
+    profitRatio: pickNumber(row, ['profitRatio']),
+    avgCost: pickNumber(row, ['avgCost']),
+    cost70: cost70Low === undefined || cost70High === undefined ? undefined : `${cost70Low.toFixed(2)}-${cost70High.toFixed(2)}`,
+    cost90: cost90Low === undefined || cost90High === undefined ? undefined : `${cost90Low.toFixed(2)}-${cost90High.toFixed(2)}`,
+    concentration70: pickNumber(row, ['concentration70']),
+    concentration90: pickNumber(row, ['concentration90']),
+    points: prices.map((price, index): ChipPoint => ({
+      price: Number(price),
+      weight: Number(weights[index]) || 0,
+      profit: profits[index] === undefined ? undefined : Number(profits[index]),
+    })).filter((point) => Number.isFinite(point.price) && point.weight > 0),
+  };
+}
+
 export async function analyzeTechnical(symbolInput: string): Promise<AgentResultCard> {
   const klines = await getKline(symbolInput, 140);
   return analyzeIndicators(klines);
@@ -445,6 +484,7 @@ async function listMarketHot(): Promise<HotFocusItem[]> {
 }
 
 async function listSurgeHot(): Promise<HotFocusItem[]> {
+  if (isBeforeChinaMarketOpen()) return [];
   const [changes, pools] = await Promise.all([listStockChangeEvents(), listEastmoneySurgeHot().catch(() => [])]);
   return [...changes, ...pools.filter((pool) => !changes.some((change) => change.code === pool.code && change.tag === pool.tag))]
     .sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time));
@@ -453,15 +493,22 @@ async function listSurgeHot(): Promise<HotFocusItem[]> {
 type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
 
 async function listStockChangeEvents(): Promise<HotFocusItem[]> {
+  if (isBeforeChinaMarketOpen()) return [];
   const groups = await Promise.allSettled(stockChangeTypes.map((type) => withTimeout(sdk.marketEvent.stockChanges(type), [])));
   return groups.flatMap((group, groupIndex) => group.status === 'fulfilled' ? toStockChangeHotItems(group.value, groupIndex) : []);
+}
+
+function isBeforeChinaMarketOpen(date = new Date()) {
+  const day = date.getDay();
+  if (day === 0 || day === 6) return false;
+  const minutes = date.getHours() * 60 + date.getMinutes();
+  return minutes < 9 * 60 + 25;
 }
 
 function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEvent.stockChanges>>, groupIndex: number): HotFocusItem[] {
   return changes.flatMap((item, index): HotFocusItem[] => {
     const parsed = parseStockChangeInfo(item.changeType, item.info);
-    if (isLargeTrade(item.changeTypeLabel, item.changeType) && (parsed.hands ?? 0) < 10000) return [];
-    const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType, parsed.hands ?? 0);
+    const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType);
     return [{
       id: `surge-${item.changeType}-${item.time}-${item.code}-${groupIndex}-${index}`,
       title: `${item.name} ${item.code}`,
@@ -470,7 +517,7 @@ function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEven
       time: item.time,
       price: parsed.price === undefined ? undefined : parsed.price.toFixed(2),
       changePercent: parsed.pct === undefined ? undefined : formatPercent(parsed.pct),
-      amount: parsed.amount ?? formatChangeHands(parsed.hands, reason),
+      amount: formatChangeHands(parsed.hands, reason) ?? parsed.amount,
       description: reason,
       tag: reason,
       type: /卖|跌|跳水|下挫|低|开板/.test(reason) ? 'plummet' : 'surge',
@@ -492,7 +539,7 @@ function withTimeout<T>(promise: Promise<T>, fallback: T, ms = 4_500) {
 
 function parseStockChangeInfo(type: string | undefined, info: string) {
   const [first, second, third, fourth] = String(info ?? '').split(',').map(Number);
-  if (type === 'large_buy' || type === 'large_sell') return { hands: first / 100, price: second, pct: third };
+  if (type === 'large_buy' || type === 'large_sell') return { hands: first / 100, price: second, pct: third, amount: Number.isFinite(fourth) ? formatMoney(fourth) : undefined };
   if (type === 'limit_up_seal' || type === 'limit_down_seal') {
     return { price: first, pct: fourth, amount: Number.isFinite(second) ? `封单${formatMoney(second)}` : undefined };
   }
@@ -500,11 +547,7 @@ function parseStockChangeInfo(type: string | undefined, info: string) {
   return { price: second, pct: Number.isFinite(third) ? third : first };
 }
 
-function isLargeTrade(label: string, type?: string) {
-  return type === 'large_buy' || type === 'large_sell' || label === '大笔买入' || label === '大笔卖出';
-}
-
-function formatStockChangeReason(label: string, type: string | undefined, hands: number) {
+function formatStockChangeReason(label: string, type: string | undefined) {
   if (type === 'high_60d') return '60日新高';
   if (type === 'low_60d') return '60日新低';
   if (type === 'surge_60d' || type === 'rocket_launch' || type === 'quick_rebound') return '快速涨幅';
@@ -513,8 +556,8 @@ function formatStockChangeReason(label: string, type: string | undefined, hands:
   if (type === 'limit_up_seal') return '封涨停板';
   if (type === 'limit_down_open') return '跌停开板';
   if (type === 'limit_up_open') return '涨停开板';
-  if ((type === 'large_buy' || label === '大笔买入') && hands >= 10000) return '特大单买入';
-  if ((type === 'large_sell' || label === '大笔卖出') && hands >= 10000) return '特大单卖出';
+  if (type === 'large_buy' || label === '大笔买入') return '特大单买入';
+  if (type === 'large_sell' || label === '大笔卖出') return '特大单卖出';
   return label;
 }
 
@@ -543,11 +586,8 @@ export async function listEastmoneySurgeByDate(date: string): Promise<HotFocusIt
 }
 
 async function listEastmoneySurgeHot(): Promise<HotFocusItem[]> {
-  for (const date of recentTradeDateCandidates()) {
-    const items = await listEastmoneySurgeByDate(date);
-    if (items.length) return items;
-  }
-  return [];
+  const items = await listEastmoneySurgeByDate(formatTradeDate(new Date()));
+  return items;
 }
 
 async function fetchEastmoneyPool(kind: EastmoneyPoolKind, date: string): Promise<HotFocusItem[]> {
@@ -623,14 +663,8 @@ function surgeTimeValue(time?: string) {
   return (Number(hour) || 0) * 3600 + (Number(minute) || 0) * 60 + (Number(second) || 0);
 }
 
-function recentTradeDateCandidates() {
-  const result: string[] = [];
-  const date = new Date();
-  for (let i = 0; i < 7; i += 1) {
-    result.push(`${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`);
-    date.setDate(date.getDate() - 1);
-  }
-  return result;
+function formatTradeDate(date: Date) {
+  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function formatEastmoneyPoolTime(value?: number) {

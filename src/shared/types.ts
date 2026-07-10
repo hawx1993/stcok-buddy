@@ -26,6 +26,70 @@ export interface AppConfig {
 
 export type ConversationTab = 'stock' | 'diagnosis' | 'market';
 
+export type EvidenceSource =
+  | 'quote'
+  | 'kline'
+  | 'technical'
+  | 'news'
+  | 'announcement'
+  | 'dragon-tiger'
+  | 'hot-focus'
+  | 'chip'
+  | 'url'
+  | 'fallback';
+
+export interface EvidenceItem {
+  id: string;
+  source: EvidenceSource;
+  title: string;
+  summary?: string;
+  value?: string | number;
+  url?: string;
+  timestamp?: string;
+  raw?: unknown;
+}
+
+export interface StructuredAgentFinding {
+  id: string;
+  dimension: 'technical' | 'fundamental' | 'capital' | 'sentiment' | 'chip' | 'overview' | 'risk';
+  stance: 'bullish' | 'neutral' | 'bearish' | 'unknown';
+  score?: number;
+  confidence: number;
+  summary: string;
+  evidenceIds: string[];
+  risks: string[];
+}
+
+export interface StructuredAgentOutput {
+  agentName: string;
+  label: string;
+  findings: StructuredAgentFinding[];
+  evidence: EvidenceItem[];
+  markdown: string;
+}
+
+export interface ToolCallRecord {
+  id: string;
+  toolName: string;
+  input: unknown;
+  output?: unknown;
+  inputSummary?: string;
+  outputSummary?: string;
+  error?: string;
+  startedAt: string;
+  endedAt?: string;
+}
+
+export interface ComplianceReview {
+  passed: boolean;
+  issues: Array<{
+    type: 'investment-advice' | 'fabricated-data' | 'missing-risk' | 'unsupported-claim' | 'forbidden-emoji' | 'other';
+    severity: 'low' | 'medium' | 'high';
+    message: string;
+  }>;
+  revisedText: string;
+}
+
 export interface ConversationSummary {
   id: string;
   title: string;
@@ -42,6 +106,7 @@ export interface ChatMessage {
   role: MessageRole;
   content: string;
   createdAt: string;
+  runEvents?: AgentRunEvent[];
   steps?: AgentStep[];
   thinking?: {
     startedAt: string;
@@ -49,6 +114,10 @@ export interface ChatMessage {
   };
   processedSeconds?: number;
   result?: AgentResultCard;
+  evidence?: EvidenceItem[];
+  findings?: StructuredAgentFinding[];
+  toolCalls?: ToolCallRecord[];
+  compliance?: ComplianceReview;
 }
 
 export interface AgentStep {
@@ -61,18 +130,57 @@ export interface AgentStep {
 
 export type AgentRunEventType =
   | 'plan_created'
+  | 'command_detected'
+  | 'intent_detected'
   | 'step_started'
   | 'step_completed'
+  | 'tool_started'
+  | 'tool_completed'
+  | 'tool_failed'
   | 'tool_result'
+  | 'subagent_started'
+  | 'subagent_completed'
+  | 'progress_updated'
+  | 'evidence_added'
+  | 'summary_completed'
   | 'final_answer'
   | 'error';
 
 export interface AgentRunEvent {
   type: AgentRunEventType;
+  title?: string;
   message?: string;
+  progress?: { current: number; total: number };
   step?: AgentStep;
   result?: AgentResultCard;
   stock?: StockDetail;
+  toolCall?: ToolCallRecord;
+  tool?: {
+    name: string;
+    purpose?: string;
+    inputSummary?: string;
+    outputSummary?: string;
+    status?: 'running' | 'success' | 'failed';
+    error?: string;
+  };
+  subAgent?: {
+    name: string;
+    description?: string;
+    status?: 'pending' | 'running' | 'completed' | 'error';
+    summary?: string;
+  };
+  command?: {
+    name: string;
+    args?: string;
+    mode?: string;
+  };
+  intent?: {
+    name: string;
+    target?: string;
+    mode?: string;
+  };
+  evidence?: EvidenceItem[];
+  findings?: StructuredAgentFinding[];
 }
 
 export interface ChatRequest {
@@ -83,7 +191,8 @@ export interface ChatRequest {
 
 export interface ChatStreamEvent {
   requestId: string;
-  token: string;
+  token?: string;
+  runEvent?: AgentRunEvent;
 }
 
 export interface ChatResponse {
@@ -253,7 +362,7 @@ export interface StocksenseApi {
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
   listSurgeHistoryDates(): Promise<string[]>;
-  listSurgeHistory(date: string): Promise<HotFocusItem[]>;
+  listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;
   listStoreItems(): Promise<StoreItem[]>;
   listInstalledStoreItems(): Promise<string[]>;
   installStoreItem(id: string): Promise<string[]>;

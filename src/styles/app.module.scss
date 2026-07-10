@@ -9,7 +9,7 @@
 .right-wrapper { width: calc(var(--right-width) + 48px); min-width: calc(var(--right-width) + 48px); display: flex; flex-shrink: 0; transition: width .2s ease, min-width .2s ease; position: relative; z-index: 20; -webkit-app-region: no-drag; }
 .right-wrapper.collapsed { width: 48px; min-width: 48px; }
 .right-wrapper.collapsed :global(.right-panel) { width: 0; min-width: 0; border-left-color: transparent; overflow: hidden; }
-.right-rail { width: 48px; min-width: 48px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 8px; background: var(--glass-bg); border-left: 1px solid var(--glass-border); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+.right-rail { width: 48px; min-width: 48px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 8px; background: var(--glass-bg);  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
 .rail-btn { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: transparent; color: var(--muted); cursor: pointer; }
 .rail-btn:hover, .rail-btn.active { background: var(--list-item-active); color: var(--accent); }
 @media (max-width: 900px) { .right-wrapper { display: none; } }

@@ -1,15 +1,15 @@
-import type { AgentResultCard, AgentRunEvent, AnnouncementItem, ChatRequest, ChatResponse, HotFocusItem, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
-import { getKline, listDailyDragonTiger, listHotFocus, resolveASymbol, type DailyDragonTigerItem } from '../stock/stock-client.js';
-import { listMarketNews, listStockNewsAnnouncements } from '../stock/news-client.js';
+import type { AgentResultCard, AgentRunEvent, AnnouncementItem, ChatRequest, ChatResponse, ComplianceReview, EvidenceItem, HotFocusItem, KlinePoint, MarketNewsItem, StockDetail, StructuredAgentFinding, ToolCallRecord } from '../../../src/shared/types.js';
+import { type DailyDragonTigerItem } from '../stock/stock-client.js';
 import { executeDag, type DagNode } from './dag-executor.js';
-import { fetchBoard, fetchQuote } from './data-agent.js';
-import { runTechnicalAnalysis } from './analysis-agent.js';
+import { fetchBoard } from './data-agent.js';
 import { runReportAgent } from './report-agent.js';
 import { runNewsAnalysisAgent } from './news-analysis-agent.js';
-import { reviewCompliance } from './risk-agent.js';
+import { reviewComplianceStructured } from './compliance-critic.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
 import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisAgentName, type StockAnalysisResult } from './stock-analysis-agents.js';
 import { runStoreCommand } from '../store-service.js';
+import { callTool } from '../tools/tool-registry.js';
+import { evidenceFromAnnouncements, evidenceFromChip, evidenceFromDragonTiger, evidenceFromHotFocus, evidenceFromKline, evidenceFromNews, evidenceFromQuote, evidenceFromTechnical } from './evidence.js';
 
 type Intent = 'quote' | 'technical' | 'analysis' | 'news-announcements' | 'theme-attribution' | 'daily-lhb' | 'board' | 'portfolio' | 'chat';
 
@@ -22,12 +22,14 @@ const slashCommands = [
   { name: '/基本面分析', intent: 'analysis' as const, singleAgent: 'fundamental' as const, usage: '请输入股票代码或股票名称，例如：/基本面分析 000858' },
   { name: '/资金面分析', intent: 'analysis' as const, singleAgent: 'capital' as const, usage: '请输入股票代码或股票名称，例如：/资金面分析 000858' },
   { name: '/情绪面分析', intent: 'analysis' as const, singleAgent: 'sentiment' as const, usage: '请输入股票代码或股票名称，例如：/情绪面分析 000858' },
-  { name: '/龙虎榜分析', intent: 'analysis' as const, singleAgent: 'lhb' as const, usage: '请输入股票代码或股票名称，例如：/龙虎榜分析 000858' },
+  { name: '/筹码分布', intent: 'analysis' as const, singleAgent: 'chip' as const, usage: '请输入股票代码或股票名称，例如：/筹码分布 000858' },
+  { name: '/筹码分析', intent: 'analysis' as const, singleAgent: 'chip' as const, usage: '请输入股票代码或股票名称，例如：/筹码分析 000858' },
 ];
 
 interface AgentContext {
   query: string;
   intent: Intent;
+  urls: string[];
   symbol?: string;
   boardKeyword?: string;
   quote?: StockDetail;
@@ -37,24 +39,40 @@ interface AgentContext {
   news?: MarketNewsItem[];
   announcements?: AnnouncementItem[];
   hotFocus?: HotFocusItem[];
+  chip?: unknown;
+  largeOrders?: HotFocusItem[];
   dailyDragonTiger?: DailyDragonTigerItem[];
+  linkedPages?: Array<{ url: string; title?: string; content: string }>;
   analysisResults?: StockAnalysisResult[];
   analysisOverview?: string;
   themeAttribution?: string;
   singleAgent?: StockAnalysisAgentName;
+  evidence: EvidenceItem[];
+  toolCalls: ToolCallRecord[];
+  findings: StructuredAgentFinding[];
+  compliance?: ComplianceReview;
+  emitEvent?: (event: AgentRunEvent) => void;
 }
 
-export async function runOrchestrator(request: ChatRequest, onToken?: (token: string) => void): Promise<ChatResponse> {
+export async function runOrchestrator(request: ChatRequest, onToken?: (token: string) => void, onEvent?: (event: AgentRunEvent) => void): Promise<ChatResponse> {
   const storeResponse = await runStoreCommand(request.message);
   if (storeResponse) return storeResponse;
 
   const events: AgentRunEvent[] = [];
+  const emitEvent = (event: AgentRunEvent) => {
+    events.push(event);
+    onEvent?.(event);
+  };
   const command = parseSlashCommand(request.message);
   let intent = command?.intent ?? classifyIntent(request.message);
   const symbolText = command?.args ?? request.message;
-  let symbol = needsSymbol(intent) && symbolText ? await resolveASymbol(symbolText) : undefined;
+  const urls = extractUrls(request.message);
+  const resolvedSymbol = needsSymbol(intent) && symbolText ? await callTool('resolveStockSymbol', { query: symbolText }) : undefined;
+  let symbol = typeof resolvedSymbol?.output === 'string' ? resolvedSymbol.output : (resolvedSymbol?.output as { symbol?: string } | undefined)?.symbol;
   if (!command && intent === 'chat' && isPossibleStockOnlyQuery(symbolText)) {
-    const candidate = await resolveASymbol(symbolText);
+    const record = await callTool('resolveStockSymbol', { query: symbolText });
+    const candidateOutput = record.output as { symbol?: string } | undefined;
+    const candidate = candidateOutput?.symbol ?? (typeof record.output === 'string' ? record.output : '');
     if (/^\d{6}$/.test(candidate)) {
       intent = 'analysis';
       symbol = candidate;
@@ -63,38 +81,75 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
   const context: AgentContext = {
     query: request.message,
     intent,
+    urls,
     symbol,
     boardKeyword: extractBoardKeyword(request.message),
     singleAgent: command?.singleAgent,
+    evidence: [],
+    toolCalls: [],
+    findings: [],
+    emitEvent,
   };
 
   if (command && !command.args && !command.allowEmptyArgs) return commandUsageResponse(request, command.usage);
 
-  const nodes = buildDag(context, onToken);
-  events.push({
-    type: 'plan_created',
-    message: `识别为 ${intentLabel(intent)}，规划 ${nodes.length} 个可审计步骤。`,
+  emitEvent(command ? {
+    type: 'command_detected',
+    title: 'Command 识别',
+    message: `${command.name}${command.args ? ` ${command.args}` : ''}`,
+    command: { name: command.name, args: command.args, mode: command.singleAgent ? '单 Agent 分析' : '多 Agent 协同分析' },
+  } : {
+    type: 'intent_detected',
+    title: '意图识别',
+    message: `${intentLabel(intent)}${symbol ? `：${symbol}` : ''}`,
+    intent: { name: intentLabel(intent), target: symbol ?? context.boardKeyword, mode: intent === 'analysis' ? '多 Agent 协同分析' : '单流程分析' },
   });
 
+  const nodes = buildDag(context, onToken);
+  emitEvent({
+    type: 'plan_created',
+    title: '分析计划',
+    message: `1. 识别用户意图\n2. 解析股票代码 / 板块 / 关键词\n3. 调用必要工具获取数据\n4. 分配子 Agent 专项分析\n5. 汇总证据并生成投研结论`,
+    progress: { current: 0, total: nodes.length },
+  });
+
+  let completedSteps = 0;
   await executeDag(nodes, context, (step) => {
-    events.push({ type: step.status === 'running' ? 'step_started' : 'step_completed', step });
+    if (step.status === 'completed' || step.status === 'error') completedSteps += 1;
+    emitEvent({
+      type: step.status === 'running' ? 'subagent_started' : 'subagent_completed',
+      title: step.status === 'running' ? '子 Agent 启动' : '子 Agent 结果',
+      message: step.description,
+      step,
+      subAgent: { name: step.agent, description: step.description, status: step.status, summary: step.detail },
+      progress: { current: completedSteps, total: nodes.length },
+    });
   });
 
   const draft = context.singleAgent && context.analysisResults?.[0]
     ? context.analysisResults[0].content
     : context.themeAttribution ?? context.analysisOverview ?? await runReportAgent({
-      query: request.message,
+      query: buildReportQuery(request.message, context.linkedPages),
       intent,
       quote: context.quote,
       technical: context.technical,
       board: context.board,
       news: context.news,
       announcements: context.announcements,
+      linkedPages: context.linkedPages,
     }, onToken);
-  const content = reviewCompliance(draft);
+  const review = reviewComplianceStructured({ text: draft, evidence: context.evidence, findings: context.findings });
+  context.compliance = review;
+  const content = review.revisedText;
   const result = context.board ?? (context.technical && context.quote ? { ...context.technical, stocks: [context.quote] } : context.technical) ?? quoteToCard(context.quote);
 
-  events.push({ type: 'final_answer', message: content, result, stock: context.quote });
+  emitEvent({
+    type: 'summary_completed',
+    title: '汇总完成',
+    message: `工具调用：${context.toolCalls.length} 次\n子 Agent：${(context.analysisResults?.length ?? 0) || nodes.length} 个\n有效证据：${dedupeEvidence(context.evidence).length} 条\n数据缺口：${dataGaps(context).join('、') || '无明确缺口'}`,
+    evidence: dedupeEvidence(context.evidence),
+  });
+  emitEvent({ type: 'final_answer', title: '最终结论', message: content, result, stock: context.quote, evidence: context.evidence, findings: context.findings });
 
   return {
     events,
@@ -103,8 +158,13 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
       role: 'assistant',
       content,
       createdAt: new Date().toISOString(),
+      runEvents: events,
       steps: events.map((event) => event.step).filter((step): step is NonNullable<typeof step> => Boolean(step)),
       result,
+      evidence: context.evidence,
+      findings: context.findings,
+      toolCalls: context.toolCalls,
+      compliance: context.compliance,
     },
   };
 }
@@ -127,8 +187,27 @@ function commandUsageResponse(_request: ChatRequest, usage: string): ChatRespons
 }
 
 function buildDag(context: AgentContext, onToken?: (token: string) => void): DagNode<AgentContext>[] {
+  const linkNodes: DagNode<AgentContext>[] = context.urls.length ? [{
+    id: 'read-links',
+    agent: 'WebTool',
+    description: `读取用户提供的 ${context.urls.length} 个链接`,
+    run: async (ctx) => {
+      const pages = await Promise.all(ctx.urls.map((url) => runContextTool<{ url: string; title?: string; content: string } | undefined>(ctx, 'readUrl', { url }, () => undefined)));
+      ctx.linkedPages = pages.filter((page): page is { url: string; title?: string; content: string } => Boolean(page));
+      ctx.evidence.push(...ctx.linkedPages.map((page, index) => ({
+        id: `url-${index + 1}`,
+        source: 'url' as const,
+        title: page.title ?? page.url,
+        summary: page.content.slice(0, 240),
+        url: page.url,
+        raw: { title: page.title },
+      })));
+    },
+  }] : [];
+
   if (context.intent === 'board') {
     return [
+      ...linkNodes,
       {
         id: 'board-data',
         agent: 'DataAgent',
@@ -142,6 +221,7 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 
   if (context.intent === 'portfolio') {
     return [
+      ...linkNodes,
       {
         id: 'memory-placeholder',
         agent: 'MemoryAgent',
@@ -158,17 +238,19 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 
   if (context.intent === 'theme-attribution') {
     return [
+      ...linkNodes,
       {
         id: 'theme-attribution-data',
         agent: 'a-stock-data',
         description: '拉取今日强势股、热点题材与资金流数据',
         run: async (ctx) => {
           const [surge, sector, flow] = await Promise.all([
-            listHotFocus('surge').catch(() => []),
-            listHotFocus('sector').catch(() => []),
-            listHotFocus('flow').catch(() => []),
+            runContextTool<HotFocusItem[]>(ctx, 'getHotFocus', { tab: 'surge' }, () => []),
+            runContextTool<HotFocusItem[]>(ctx, 'getHotFocus', { tab: 'sector' }, () => []),
+            runContextTool<HotFocusItem[]>(ctx, 'getHotFocus', { tab: 'flow' }, () => []),
           ]);
           ctx.hotFocus = [...surge, ...sector, ...flow];
+          ctx.evidence.push(...evidenceFromHotFocus(ctx.hotFocus));
           ctx.board = themeAttributionToCard(surge, sector, flow);
           ctx.themeAttribution = ctx.board.narrative;
         },
@@ -178,12 +260,14 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 
   if (context.intent === 'daily-lhb') {
     return [
+      ...linkNodes,
       {
         id: 'daily-lhb-data',
         agent: 'a-stock-data',
         description: '拉取全市场龙虎榜净买入排名',
         run: async (ctx) => {
-          ctx.dailyDragonTiger = await listDailyDragonTiger().catch(() => []);
+          ctx.dailyDragonTiger = await runContextTool<DailyDragonTigerItem[]>(ctx, 'getDragonTiger', { limit: 500 }, () => []);
+          ctx.evidence.push(...evidenceFromDragonTiger(ctx.dailyDragonTiger));
           ctx.board = dailyDragonTigerToCard(ctx.dailyDragonTiger);
           ctx.analysisOverview = ctx.board.narrative;
         },
@@ -193,6 +277,7 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
 
   if (!context.symbol) {
     return [
+      ...linkNodes,
       {
         id: 'chat',
         agent: 'Orchestrator',
@@ -203,12 +288,14 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
   }
 
   const nodes: DagNode<AgentContext>[] = [
+    ...linkNodes,
     {
       id: 'quote',
       agent: 'DataAgent',
       description: `获取 ${context.symbol} 实时行情`,
       run: async (ctx) => {
-        ctx.quote = await fetchQuote(ctx.symbol!);
+        ctx.quote = await runContextTool<StockDetail | undefined>(ctx, 'getStockQuote', { symbol: ctx.symbol! }, () => undefined);
+        ctx.evidence.push(...evidenceFromQuote(ctx.quote));
       },
     },
   ];
@@ -221,10 +308,11 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
         description: `拉取 ${context.symbol} 最近新闻和公告`,
         dependsOn: ['quote'],
         run: async (ctx) => {
-          const { news, announcements } = await listStockNewsAnnouncements(ctx.symbol!, 10);
-          ctx.news = news;
-          ctx.announcements = announcements;
-          ctx.board = newsAnnouncementsToCard(ctx.quote, news, announcements);
+          const data = await runContextTool<{ news: MarketNewsItem[]; announcements: AnnouncementItem[] }>(ctx, 'getStockNewsAnnouncements', { symbol: ctx.symbol!, limit: 10 }, () => ({ news: [], announcements: [] }));
+          ctx.news = data.news;
+          ctx.announcements = data.announcements;
+          ctx.evidence.push(...evidenceFromNews(ctx.news), ...evidenceFromAnnouncements(ctx.announcements));
+          ctx.board = newsAnnouncementsToCard(ctx.quote, data.news, data.announcements);
         },
       },
       {
@@ -245,6 +333,9 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
       ? stockAnalysisAgentNames().filter((agent) => agent.name === context.singleAgent)
       : stockAnalysisAgentNames();
 
+    const needsLargeOrders = analysisAgents.some((agent) => agent.name === 'capital');
+    const needsChip = analysisAgents.some((agent) => agent.name === 'chip');
+
     nodes.push(
       {
         id: 'market-data',
@@ -252,14 +343,20 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
         description: `拉取 ${context.symbol} K线、指标与新闻样本`,
         dependsOn: ['quote'],
         run: async (ctx) => {
-          const [kline, technical, news] = await Promise.all([
-            getKline(ctx.symbol!, 120).catch(() => []),
-            runTechnicalAnalysis(ctx.symbol!).catch(() => undefined),
-            listMarketNews(ctx.quote?.name ?? ctx.symbol, 1, 10).then((page) => page.items).catch(() => []),
+          const [kline, technical, news, largeOrders, chip] = await Promise.all([
+            runContextTool<KlinePoint[]>(ctx, 'getStockKline', { symbol: ctx.symbol!, limit: 120 }, () => []),
+            runContextTool<AgentResultCard | undefined>(ctx, 'getTechnicalIndicators', { symbol: ctx.symbol! }, () => undefined),
+            runContextTool<MarketNewsItem[]>(ctx, 'getMarketNews', { query: ctx.quote?.name ?? ctx.symbol, page: 1, pageSize: 10 }, () => []),
+            needsLargeOrders ? runContextTool<HotFocusItem[]>(ctx, 'getHotFocus', { tab: 'surge' }, () => []) : Promise.resolve([]),
+            needsChip ? runContextTool<unknown>(ctx, 'getStockChipDistribution', { symbol: ctx.symbol! }, () => undefined) : Promise.resolve(undefined),
           ]);
           ctx.kline = kline;
           ctx.technical = technical?.chart ? technical : technical ? { ...technical, chart: { type: 'kline', data: kline } } : undefined;
           ctx.news = news;
+          ctx.chip = chip;
+          ctx.largeOrders = filterLargeOrders(largeOrders, ctx.symbol!);
+          ctx.evidence.push(...evidenceFromKline(ctx.symbol!, kline), ...evidenceFromTechnical(ctx.symbol!, ctx.technical), ...evidenceFromNews(news), ...evidenceFromHotFocus(ctx.largeOrders));
+          if (needsChip) ctx.evidence.push(...evidenceFromChip(ctx.symbol!, ctx.chip));
         },
       },
       ...analysisAgents.map((agent) => ({
@@ -268,8 +365,11 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
         description: `${agent.label}：${context.symbol}`,
         dependsOn: ['market-data'],
         run: async (ctx: AgentContext) => {
-          const result = await runStockAnalysisSubAgent(agent.name, stockAnalysisInput(ctx), context.singleAgent ? onToken : undefined);
+          const shouldStream = Boolean(context.singleAgent);
+          const result = await runStockAnalysisSubAgent(agent.name, stockAnalysisInput(ctx), shouldStream ? onToken : undefined);
           ctx.analysisResults = [...(ctx.analysisResults ?? []), result];
+          ctx.evidence.push(...result.output.evidence);
+          ctx.findings.push(...result.output.findings);
         },
       })),
     );
@@ -294,12 +394,29 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
       description: `计算 ${context.symbol} MACD/KDJ/均线与信号`,
       dependsOn: ['quote'],
       run: async (ctx) => {
-        ctx.technical = await runTechnicalAnalysis(ctx.symbol!);
+        ctx.technical = await runContextTool<AgentResultCard | undefined>(ctx, 'getTechnicalIndicators', { symbol: ctx.symbol! }, () => undefined);
+        ctx.evidence.push(...evidenceFromTechnical(ctx.symbol!, ctx.technical));
       },
     });
   }
 
   return nodes;
+}
+
+function extractUrls(text: string) {
+  return [...new Set([...text.matchAll(/https?:\/\/[^\s，。；、)）]+/g)].map((match) => match[0]))];
+}
+
+function buildReportQuery(query: string, pages?: Array<{ url: string; title?: string; content: string }>) {
+  if (!pages?.length) return query;
+  let used = 0;
+  const blocks = pages.map((page, index) => {
+    const remaining = Math.max(0, 8000 - used);
+    const content = page.content.slice(0, Math.min(4000, remaining));
+    used += content.length;
+    return ` ${index + 1}. 标题：${page.title ?? '未提取'}\nURL：${page.url}\n正文摘录：\n${content}`;
+  }).filter((block) => block.trim());
+  return `${query}\n\n用户提供的链接内容：\n${blocks.join('\n\n')}`;
 }
 
 function classifyIntent(query: string): Intent {
@@ -336,14 +453,67 @@ function intentLabel(intent: Intent) {
 
 function stockAnalysisInput(ctx: AgentContext) {
   return {
-    query: ctx.query,
+    query: buildReportQuery(ctx.query, ctx.linkedPages),
     symbol: ctx.symbol!,
     stockLabel: ctx.quote?.name ?? ctx.symbol!,
     quote: ctx.quote,
     technical: ctx.technical,
     kline: ctx.kline,
     news: ctx.news,
+    chip: ctx.chip,
+    largeOrders: ctx.largeOrders,
+    evidence: dedupeEvidence(ctx.evidence),
   };
+}
+
+async function runContextTool<T>(ctx: AgentContext, name: string, input: unknown, fallback: () => T): Promise<T> {
+  const startedAt = new Date().toISOString();
+  ctx.emitEvent?.({
+    type: 'tool_started',
+    title: '工具调用',
+    message: `正在执行 ${name}`,
+    toolCall: { id: `tool-pending-${startedAt}-${name}`, toolName: name, input, inputSummary: summarizeEventValue(input), startedAt },
+    tool: { name, inputSummary: summarizeEventValue(input), status: 'running' },
+  });
+  const record = await callTool(name, input);
+  ctx.toolCalls.push(record);
+  ctx.emitEvent?.({
+    type: record.error ? 'tool_failed' : 'tool_completed',
+    title: record.error ? '工具失败' : '工具结果',
+    message: record.error ? `${name} 失败，已使用兜底策略继续分析` : `${name} completed`,
+    toolCall: record,
+    tool: { name, inputSummary: record.inputSummary, outputSummary: record.outputSummary, status: record.error ? 'failed' : 'success', error: record.error },
+  });
+  if (!record.error) ctx.emitEvent?.({
+    type: 'evidence_added',
+    title: '证据更新',
+    message: `${name} 返回可用数据`,
+    evidence: dedupeEvidence(ctx.evidence),
+  });
+  return record.error ? fallback() : record.output as T;
+}
+
+function summarizeEventValue(value: unknown) {
+  if (value === undefined) return undefined;
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return text.replace(/\s+/g, ' ').slice(0, 300);
+}
+
+function dataGaps(ctx: AgentContext) {
+  const gaps: string[] = [];
+  if (needsSymbol(ctx.intent) && !ctx.quote) gaps.push('行情');
+  if ((ctx.intent === 'analysis' || ctx.intent === 'technical') && !ctx.technical) gaps.push('技术指标');
+  if ((ctx.intent === 'analysis' || ctx.intent === 'news-announcements') && !ctx.news?.length) gaps.push('新闻');
+  if (ctx.intent === 'news-announcements' && !ctx.announcements?.length) gaps.push('公告');
+  return gaps;
+}
+
+function dedupeEvidence(items: EvidenceItem[]) {
+  return items.filter((item, index, arr) => arr.findIndex((other) => other.id === item.id) === index);
+}
+
+function filterLargeOrders(items: HotFocusItem[], symbol: string) {
+  return items.filter((item) => item.code === symbol && /特大单/.test(`${item.description ?? ''}${item.tag ?? ''}${item.amount ?? ''}`));
 }
 
 function extractBoardKeyword(query: string) {

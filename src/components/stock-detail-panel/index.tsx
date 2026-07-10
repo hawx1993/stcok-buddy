@@ -12,7 +12,6 @@ import cx from '../../shared/cx';
 
 const NEWS_PAGE_SIZE = 30;
 const SURGE_PAGE_SIZE = 20;
-const SURGE_DATE_OPTIONS = Array.from({ length: 7 }, (_, index) => formatDateOffset(index));
 const surgeFilters = ['全部', '60日新高', '60日新低', '快速涨幅', '快速跌幅', '封跌停板', '封涨停板', '跌停开板', '涨停开板', '特大单买入', '特大单卖出'] as const;
 type SurgeFilter = typeof surgeFilters[number];
 
@@ -27,13 +26,14 @@ export function StockDetailPanel() {
   const [news, setNews] = useState<MarketNewsItem[]>([]);
   const [surgeLoading, setSurgeLoading] = useState(false);
   const [surgeItems, setSurgeItems] = useState<HotFocusItem[]>([]);
-  const [selectedSurgeDate, setSelectedSurgeDate] = useState(SURGE_DATE_OPTIONS[0]);
+  const [surgeDateOptions, setSurgeDateOptions] = useState(() => makeSurgeDateOptions());
+  const [selectedSurgeDate, setSelectedSurgeDate] = useState(surgeDateOptions[0]);
   const [isSurgeMonitoring, setSurgeMonitoring] = useState(() => isChinaMarketOpen());
   const [surgeRefresh, setSurgeRefresh] = useState(0);
   const [surgeRefreshMode, setSurgeRefreshMode] = useState<'manual' | 'poll'>('manual');
   const [surgeFiltersOpen, setSurgeFiltersOpen] = useState(false);
   const [surgeFilter, setSurgeFilter] = useState<SurgeFilter[]>(['全部']);
-  const [visibleSurgeCount, setVisibleSurgeCount] = useState(SURGE_PAGE_SIZE);
+  const [surgeHasMore, setSurgeHasMore] = useState(true);
   const [surgePaging, setSurgePaging] = useState(false);
   const [isKlineModalOpen, setKlineModalOpen] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(true);
@@ -46,6 +46,22 @@ export function StockDetailPanel() {
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
+
+  const todaySurgeDate = surgeDateOptions[0];
+
+  useEffect(() => {
+    const refreshDates = () => {
+      const next = makeSurgeDateOptions();
+      setSurgeDateOptions(next);
+      setSelectedSurgeDate((date) => date === todaySurgeDate ? next[0] : next.includes(date) ? date : next[0]);
+      setSurgeRefreshMode('manual');
+      setSurgeRefresh((value) => value + 1);
+    };
+    const id = window.setInterval(() => {
+      if (makeSurgeDateOptions()[0] !== todaySurgeDate) refreshDates();
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [todaySurgeDate]);
 
   useLayoutEffect(() => {
     if (!selectedStock || !detailRef.current) return;
@@ -88,43 +104,42 @@ export function StockDetailPanel() {
     let alive = true;
     const loadId = ++surgeLoadRef.current;
     setSurgeItems([]);
-    setVisibleSurgeCount(SURGE_PAGE_SIZE);
-    const showSkeleton = surgeRefreshMode === 'manual' || !surgeItems.length || selectedSurgeDate !== SURGE_DATE_OPTIONS[0];
-    if (showSkeleton) setSurgeLoading(true);
-    const load = selectedSurgeDate === SURGE_DATE_OPTIONS[0]
-      ? getStocksenseApi().listHotFocus('surge')
-      : getStocksenseApi().listSurgeHistory(selectedSurgeDate);
+    setSurgeHasMore(true);
+    setSurgeLoading(true);
+    const load = selectedSurgeDate === todaySurgeDate
+      ? getStocksenseApi().listHotFocus('surge').then((items) => items.slice(0, SURGE_PAGE_SIZE))
+      : getStocksenseApi().listSurgeHistory(selectedSurgeDate, 0, SURGE_PAGE_SIZE);
     load.then((items) => {
       if (!alive || loadId !== surgeLoadRef.current) return;
       setSurgeItems(items);
-      setVisibleSurgeCount(SURGE_PAGE_SIZE);
+      setSurgeHasMore(items.length === SURGE_PAGE_SIZE);
     }).catch(console.error).finally(() => {
-      if (alive && loadId === surgeLoadRef.current && showSkeleton) setSurgeLoading(false);
+      if (alive && loadId === surgeLoadRef.current) setSurgeLoading(false);
     });
     return () => { alive = false; };
-  }, [rightPanelTab, selectedSurgeDate, surgeRefresh]);
+  }, [rightPanelTab, selectedSurgeDate, surgeRefresh, todaySurgeDate]);
 
   useEffect(() => {
-    if (rightPanelTab !== 'surge' || selectedSurgeDate !== SURGE_DATE_OPTIONS[0]) return;
+    if (rightPanelTab !== 'surge' || selectedSurgeDate !== todaySurgeDate) return;
     const checkMarket = () => {
       if (!isChinaMarketOpen()) setSurgeMonitoring(false);
     };
     checkMarket();
     const id = window.setInterval(checkMarket, 60_000);
     return () => window.clearInterval(id);
-  }, [rightPanelTab, selectedSurgeDate]);
+  }, [rightPanelTab, selectedSurgeDate, todaySurgeDate]);
 
   useEffect(() => {
-    if (rightPanelTab !== 'surge' || selectedSurgeDate !== SURGE_DATE_OPTIONS[0] || !isSurgeMonitoring) return;
+    if (rightPanelTab !== 'surge' || selectedSurgeDate !== todaySurgeDate || !isSurgeMonitoring) return;
     const id = window.setInterval(() => { setSurgeRefreshMode('poll'); setSurgeRefresh((value) => value + 1); }, 15_000);
     return () => window.clearInterval(id);
-  }, [isSurgeMonitoring, rightPanelTab, selectedSurgeDate]);
+  }, [isSurgeMonitoring, rightPanelTab, selectedSurgeDate, todaySurgeDate]);
 
   const filteredSurgeItems = useMemo(() => surgeFilter.includes('全部') ? surgeItems : surgeItems.filter((item) => surgeFilter.includes(surgeReason(item) as SurgeFilter)), [surgeFilter, surgeItems]);
   const selectedIsFavorite = Boolean(selectedStock && favoriteStocks.some((item) => item.code === selectedStock.code));
 
   useEffect(() => {
-    setVisibleSurgeCount(SURGE_PAGE_SIZE);
+    if (!filteredSurgeItems.length && surgeHasMore && !surgeLoading) loadMoreSurge();
   }, [surgeFilter]);
 
   useEffect(() => {
@@ -162,12 +177,16 @@ export function StockDetailPanel() {
   };
 
   const loadMoreSurge = () => {
-    if (surgePaging || visibleSurgeCount >= filteredSurgeItems.length) return;
+    if (surgePaging || surgeLoading || !surgeHasMore) return;
+    if (selectedSurgeDate === todaySurgeDate) {
+      setSurgeHasMore(false);
+      return;
+    }
     setSurgePaging(true);
-    window.setTimeout(() => {
-      setVisibleSurgeCount((count) => Math.min(count + SURGE_PAGE_SIZE, filteredSurgeItems.length));
-      setSurgePaging(false);
-    }, 250);
+    getStocksenseApi().listSurgeHistory(selectedSurgeDate, surgeItems.length, SURGE_PAGE_SIZE).then((items) => {
+      setSurgeItems((current) => [...current, ...items]);
+      setSurgeHasMore(items.length === SURGE_PAGE_SIZE);
+    }).catch(console.error).finally(() => setSurgePaging(false));
   };
 
   const openSurgeStock = async (item: HotFocusItem) => {
@@ -281,10 +300,10 @@ export function StockDetailPanel() {
               {surgeFilters.map((filter) => <button key={filter} className={cx(styles['surge-filter'], surgeFilter.includes(filter) && styles.active)} onClick={() => toggleSurgeFilter(filter)} type="button">{filter}</button>)}
             </div> : null}
             <div className={styles['surge-date-row']}>
-              <select className={styles['surge-date-select']} value={selectedSurgeDate} onChange={(event) => { setSurgeRefreshMode('manual'); setSelectedSurgeDate(event.target.value); }} aria-label="筛选异动日期">
-                {SURGE_DATE_OPTIONS.map((date, index) => <option key={date} value={date}>{index === 0 ? `今天 ${date.slice(5)}` : date}</option>)}
+              <select className={styles['surge-date-select']} value={selectedSurgeDate} onChange={(event) => { setSurgeRefreshMode('manual'); setSurgeFilter(['全部']); setSelectedSurgeDate(event.target.value); }} aria-label="筛选异动日期">
+                {surgeDateOptions.map((date, index) => <option key={date} value={date}>{index === 0 ? `今天 ${date.slice(5)}` : date}</option>)}
               </select>
-              {selectedSurgeDate === SURGE_DATE_OPTIONS[0] ? <>
+              {selectedSurgeDate === todaySurgeDate ? <>
                 <button className={styles['surge-date-button']} onClick={() => { setSurgeRefreshMode('manual'); setSurgeRefresh((value) => value + 1); }} type="button">刷新</button>
                 <button className={cx(styles['surge-monitor-button'], isSurgeMonitoring && styles.active)} onClick={toggleSurgeMonitor} title={isSurgeMonitoring ? '关闭监控' : '开启监控'} aria-label={isSurgeMonitoring ? '关闭监控' : '开启监控'} type="button"><span /></button>
               </> : null}
@@ -295,8 +314,8 @@ export function StockDetailPanel() {
             if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreSurge();
           }}>
             {surgeLoading ? <SurgeSkeleton /> : filteredSurgeItems.length ? <>
-              {filteredSurgeItems.slice(0, visibleSurgeCount).map((item) => <SurgeItem key={item.id} item={item} onClick={() => void openSurgeStock(item)} />)}
-              <div className={styles['surge-load-state']}>{visibleSurgeCount < filteredSurgeItems.length ? (surgePaging ? <span className={styles.spinner} /> : '向下滚动加载更多') : '没有更多数据了'}</div>
+              {filteredSurgeItems.map((item) => <SurgeItem key={item.id} item={item} onClick={() => void openSurgeStock(item)} />)}
+              <div className={styles['surge-load-state']}>{surgeHasMore ? (surgePaging ? <span className={styles.spinner} /> : '向下滚动加载更多') : '没有更多数据了'}</div>
             </> : <Empty text="暂无异动个股" />}
           </div>
         </>
@@ -359,7 +378,11 @@ function isChinaMarketOpen(date = new Date()) {
   const day = date.getDay();
   if (day === 0 || day === 6) return false;
   const minutes = date.getHours() * 60 + date.getMinutes();
-  return (minutes >= 9 * 60 + 30 && minutes <= 11 * 60 + 30) || (minutes >= 13 * 60 && minutes <= 15 * 60);
+  return (minutes >= 9 * 60 + 25 && minutes <= 11 * 60 + 30) || (minutes >= 13 * 60 && minutes <= 15 * 60);
+}
+
+function makeSurgeDateOptions() {
+  return Array.from({ length: 7 }, (_, index) => formatDateOffset(index));
 }
 
 function formatDateOffset(offset: number) {

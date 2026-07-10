@@ -47,7 +47,7 @@ export function registerIpcHandlers() {
     return items;
   });
   ipcMain.handle('hot:historyDates', () => listSurgeDates());
-  ipcMain.handle('hot:history', (_event, date: string) => listSurgeHistoryWithBackfill(date));
+  ipcMain.handle('hot:history', (_event, date: string, offset?: number, limit?: number) => listSurgeHistoryWithBackfill(date, offset, limit));
   ipcMain.handle('news:list', (_event, query?: string, page?: number, pageSize?: number) => listMarketNews(query, page, pageSize));
   ipcMain.handle('store:list', () => listStoreItems());
   ipcMain.handle('store:installed', () => listInstalledStoreItems());
@@ -57,6 +57,8 @@ export function registerIpcHandlers() {
     saveUserMessage(request.conversationId, request.message);
     const response = await runOrchestrator(request, (token) => {
       if (request.requestId) event.sender.send('chat:token', { requestId: request.requestId, token });
+    }, (runEvent) => {
+      if (request.requestId) event.sender.send('chat:token', { requestId: request.requestId, runEvent });
     });
     saveAssistantMessage(request.conversationId, response.message);
     return response;

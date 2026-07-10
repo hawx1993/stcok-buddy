@@ -1,0 +1,95 @@
+import type { HotFocusTab } from '../../../src/shared/types.js';
+import { runTechnicalAnalysis } from '../agent/analysis-agent.js';
+import { listMarketNews, listStockNewsAnnouncements } from '../stock/news-client.js';
+import { getChipDistribution, getKline, getQuote, listDailyDragonTiger, listHotFocus, resolveASymbol } from '../stock/stock-client.js';
+import type { AgentTool } from './types.js';
+
+function asRecord(input: unknown): Record<string, unknown> {
+  return input && typeof input === 'object' ? input as Record<string, unknown> : {};
+}
+
+function text(input: Record<string, unknown>, key: string, fallback = '') {
+  return String(input[key] ?? fallback);
+}
+
+function num(input: Record<string, unknown>, key: string, fallback: number) {
+  const value = Number(input[key]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+export const resolveStockSymbol: AgentTool<{ query: string }, { symbol: string; name?: string }> = {
+  name: 'resolveStockSymbol',
+  description: 'Resolve A-share stock code from a user query.',
+  inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+  async run(input) {
+    const symbol = await resolveASymbol(text(asRecord(input), 'query'));
+    return { symbol };
+  },
+};
+
+export const getStockQuote: AgentTool<{ symbol: string }, Awaited<ReturnType<typeof getQuote>>> = {
+  name: 'getStockQuote',
+  description: 'Fetch current A-share quote.',
+  inputSchema: { type: 'object', properties: { symbol: { type: 'string' } }, required: ['symbol'] },
+  run: (input) => getQuote(text(asRecord(input), 'symbol')),
+};
+
+export const getStockKline: AgentTool<{ symbol: string; limit?: number; period?: string }, Awaited<ReturnType<typeof getKline>>> = {
+  name: 'getStockKline',
+  description: 'Fetch A-share K-line data.',
+  inputSchema: { type: 'object', properties: { symbol: { type: 'string' }, limit: { type: 'number' }, period: { type: 'string' } }, required: ['symbol'] },
+  run: (input) => {
+    const record = asRecord(input);
+    return getKline(text(record, 'symbol'), num(record, 'limit', 120), text(record, 'period', '1d'));
+  },
+};
+
+export const getTechnicalIndicators: AgentTool<{ symbol: string }, Awaited<ReturnType<typeof runTechnicalAnalysis>>> = {
+  name: 'getTechnicalIndicators',
+  description: 'Calculate technical indicator summary.',
+  inputSchema: { type: 'object', properties: { symbol: { type: 'string' } }, required: ['symbol'] },
+  run: (input) => runTechnicalAnalysis(text(asRecord(input), 'symbol')),
+};
+
+export const getMarketNews: AgentTool<{ query: string; page?: number; pageSize?: number }, Awaited<ReturnType<typeof listMarketNews>>['items']> = {
+  name: 'getMarketNews',
+  description: 'Fetch market news list.',
+  inputSchema: { type: 'object', properties: { query: { type: 'string' }, page: { type: 'number' }, pageSize: { type: 'number' } } },
+  async run(input) {
+    const record = asRecord(input);
+    return (await listMarketNews(text(record, 'query'), num(record, 'page', 1), num(record, 'pageSize', 10))).items;
+  },
+};
+
+export const getStockNewsAnnouncements: AgentTool<{ symbol: string; limit?: number }, Awaited<ReturnType<typeof listStockNewsAnnouncements>>> = {
+  name: 'getStockNewsAnnouncements',
+  description: 'Fetch stock news and announcements.',
+  inputSchema: { type: 'object', properties: { symbol: { type: 'string' }, limit: { type: 'number' } }, required: ['symbol'] },
+  run: (input) => {
+    const record = asRecord(input);
+    return listStockNewsAnnouncements(text(record, 'symbol'), num(record, 'limit', 10));
+  },
+};
+
+export const getStockChipDistribution: AgentTool<{ symbol: string }, Awaited<ReturnType<typeof getChipDistribution>>> = {
+  name: 'getStockChipDistribution',
+  description: 'Fetch A-share chip distribution data.',
+  inputSchema: { type: 'object', properties: { symbol: { type: 'string' } }, required: ['symbol'] },
+  run: (input) => getChipDistribution(text(asRecord(input), 'symbol')),
+};
+
+export const getDragonTiger: AgentTool<{ symbol?: string; limit?: number }, Awaited<ReturnType<typeof listDailyDragonTiger>>> = {
+  name: 'getDragonTiger',
+  description: 'Fetch daily market-wide dragon tiger board records.',
+  inputSchema: { type: 'object', properties: { symbol: { type: 'string' }, limit: { type: 'number' } } },
+  async run(input) {
+    return (await listDailyDragonTiger()).slice(0, num(asRecord(input), 'limit', 50));
+  },
+};
+
+export const getHotFocus: AgentTool<{ tab: HotFocusTab }, Awaited<ReturnType<typeof listHotFocus>>> = {
+  name: 'getHotFocus',
+  description: 'Fetch hot focus list by tab.',
+  inputSchema: { type: 'object', properties: { tab: { type: 'string' } }, required: ['tab'] },
+  run: (input) => listHotFocus(text(asRecord(input), 'tab', 'surge') as HotFocusTab),
+};

@@ -9,6 +9,7 @@
 .score-low { color: var(--danger); font-weight: 700; }
 .score-mid { color: var(--warning); font-weight: 700; }
 .score-high { color: var(--success); font-weight: 700; }
+.disclaimer-line { display: block; width: 100%; margin: 12px 0 0; padding: 8px 10px; border-radius: 6px; color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); font-weight: 700; }
 .stock-link, .btn-link { color: var(--accent); font-weight: 500; cursor: pointer; background: transparent; padding: 0; }
 .msg.user .stock-link { color: #fff; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .stock-link:hover, .btn-link:hover { text-decoration: underline; }

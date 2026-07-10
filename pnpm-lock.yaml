@@ -57,8 +57,8 @@ importers:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
       stock-sdk:
-        specifier: ^2.2.2
-        version: 2.2.2
+        specifier: ^2.3.0
+        version: 2.3.0
       zod:
         specifier: ^3.23.8
         version: 3.25.76
@@ -2604,8 +2604,8 @@ packages:
     resolution: {integrity: sha512-jH9EhtKIjuXZ2cWxmXS8ZP80XyC3iasQxMDV8jzhNJpfDb7VbQLVW4Wvsxz9QZvzV+G4YoSfBUVKDOyxLzi/sg==}
     engines: {node: '>= 6'}
 
-  stock-sdk@2.2.2:
-    resolution: {integrity: sha512-nYPIrdd9vm28w2dHXLWBgyXF/bnC3eXFaM7vhxeXBDQJs7imaFR3rWBQUBfhPPxMuhrunnnNDdEPLCq8Uv839Q==}
+  stock-sdk@2.3.0:
+    resolution: {integrity: sha512-cuexwxOeQ/Gp+yHHBeNfI/5F4h7m3OTRTPdR1LOim5bXDCihyriwDQCCgbSuyJUeB2GVH2SEus+pP5zZwXuiEg==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -5483,7 +5483,7 @@ snapshots:
 
   stat-mode@1.0.0: {}
 
-  stock-sdk@2.2.2: {}
+  stock-sdk@2.3.0: {}
 
   string-convert@0.2.1: {}
 
