@@ -9,10 +9,10 @@ export async function run({ args, llm }) {
   const url = normalizeHttpUrl(args);
   if (!url) return usage();
   const page = await (isGithubRepoUrl(url)
-    ? readGithubReadme(url).catch(() => readWithCrawl4AI(url))
-    : readWithCrawl4AI(url))
+    ? readGithubReadme(url).catch(() => readWithCrawl4AI(url)).catch(() => readDirectUrl(url))
+    : readWithCrawl4AI(url).catch(() => readDirectUrl(url)))
     .catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
-  if (page.error) return errorResponse(`网页读取失败：${page.error}\n\n请确认已安装 Crawl4AI 和浏览器内核：.venv/bin/python -m pip install crawl4ai && .venv/bin/python -m playwright install chromium`);
+  if (page.error) return errorResponse(`网页读取失败：${page.error}`);
   const translated = await translatePageIfNeeded(page, llm);
   return toResponse(translated);
 }
@@ -75,6 +75,13 @@ async function readGithubReadme(url) {
   throw new Error('GitHub README 兜底未读取到内容');
 }
 
+async function readDirectUrl(url) {
+  const response = await fetchWithTimeout(url);
+  const text = await response.text();
+  const html = /html/i.test(response.headers.get('content-type') ?? '') || /<html|<!doctype html/i.test(text);
+  return html ? { url, ...cleanHtml(text), method: 'direct' } : { url, content: truncateText(text), method: 'direct' };
+}
+
 function toResponse(page) {
   const bullets = summarize(page.content);
   const translatedNote = page.translated ? '；非中文网页已先翻译为中文' : '';
@@ -89,11 +96,11 @@ function toResponse(page) {
     bullets.value.length ? bullets.value.map((item) => `- ${item}`).join('\n') : '- 当前页面信息密度有限，建议结合原文上下文判断。',
     '',
     '## ⚠️ 限制与风险',
-    '- ⚡ 内容由 Crawl4AI 提取；网页可能存在登录墙、动态渲染或反爬导致正文缺失。',
+    `- ⚡ 内容由 ${methodLabel(page.method)} 提取；网页可能存在登录墙、动态渲染或反爬导致正文缺失。`,
     ...(page.translationError ? [`- ⚡ 检测到非中文内容，但翻译失败：${page.translationError}`] : []),
     '',
     '## 🎯 综合结论',
-    `🟡 中性：该网页主要围绕“${stripMarkdown(page.title ?? page.url)}”展开，上述摘要仅基于 Crawl4AI 可提取正文${translatedNote}。`,
+    `🟡 中性：该网页主要围绕“${stripMarkdown(page.title ?? page.url)}”展开，上述摘要仅基于可提取正文${translatedNote}。`,
   ].join('\n');
   return {
     content,
@@ -101,7 +108,7 @@ function toResponse(page) {
       title: '网页内容总结',
       subtitle: page.title ?? page.url,
       metrics: [
-        { label: '提取方式', value: page.method === 'github-readme' ? 'GitHub README' : 'Crawl4AI' },
+        { label: '提取方式', value: methodLabel(page.method) },
         { label: '正文长度', value: `${page.content.length}字` },
         ...(page.translated ? [{ label: '翻译', value: '已转中文' }] : []),
       ],
@@ -190,6 +197,37 @@ function errorResponse(content) {
 
 function extractMarkdownTitle(content) {
   return (content.match(/^Title:\s*(.+)$/m)?.[1] ?? content.match(/^#\s+(.+)$/m)?.[1])?.trim();
+}
+
+function methodLabel(method) {
+  return ({
+    crawl4ai: 'Crawl4AI',
+    direct: '直接请求',
+    'github-readme': 'GitHub README',
+    'github-readme-jsdelivr': 'GitHub README',
+  })[method] ?? '网页读取器';
+}
+
+function cleanHtml(html) {
+  const title = decodeEntities(String(html).match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').trim();
+  const content = decodeEntities(String(html)
+    .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<svg\b[\s\S]*?<\/svg>/gi, ' ')
+    .replace(/<[^>]+>/g, ' '));
+  return { title, content: truncateText(content) };
+}
+
+function decodeEntities(text) {
+  return text
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ');
 }
 
 function cleanMarkdownText(text) {
