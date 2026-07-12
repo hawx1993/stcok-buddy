@@ -253,6 +253,18 @@ const webFallbackApi: StocksenseApi = {
   async listSurgeHistory(date: string, offset = 0, limit = 20) {
     return fallbackHot.map((item, index) => ({ ...item, id: `${item.id}-${date}`, time: `${String(14 - Math.floor(index / 4)).padStart(2, '0')}:${String(50 - index).padStart(2, '0')}` })).slice(offset, offset + limit);
   },
+  async getMarketDataSyncStatus() {
+    return { state: 'idle' as const, processedSymbols: 0, totalSymbols: 0, succeededSymbols: 0, failedSymbols: 0, message: '本地市场数据库仅在 Electron 桌面端可用' };
+  },
+  async startMarketDataSync() {
+    return this.getMarketDataSyncStatus();
+  },
+  async retryMarketDataFailures() {
+    return this.getMarketDataSyncStatus();
+  },
+  async getMarketDataStats() {
+    return { securityCount: 0, dailyBarCount: 0, databaseBytes: 0, failedSymbols: 0 };
+  },
   async listStoreItems() {
     return readStoreItems();
   },

@@ -2,7 +2,9 @@ import type { AgentTool, ToolCallRecord } from './types.js';
 import { readUrl } from './web-tools.js';
 import {
   getDragonTiger,
+  getHistoricalDailyBars,
   getHotFocus,
+  getMarketDataStatus,
   getMarketNews,
   getStockChipDistribution,
   getStockKline,
@@ -17,6 +19,8 @@ export const stockToolRegistry = {
   getStockQuote,
   getStockChipDistribution,
   getStockKline,
+  getHistoricalDailyBars,
+  getMarketDataStatus,
   getTechnicalIndicators,
   getMarketNews,
   getStockNewsAnnouncements,

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, StocksenseApi } from '../src/shared/types.js';
+import type { AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, MarketDataSyncStatus, StocksenseApi } from '../src/shared/types.js';
 
 const api: StocksenseApi = {
   getConfig: () => ipcRenderer.invoke('config:get'),
@@ -27,6 +27,15 @@ const api: StocksenseApi = {
   listHotFocus: (tab: HotFocusTab) => ipcRenderer.invoke('hot:list', tab),
   listSurgeHistoryDates: () => ipcRenderer.invoke('hot:historyDates'),
   listSurgeHistory: (date: string, offset?: number, limit?: number) => ipcRenderer.invoke('hot:history', date, offset, limit),
+  getMarketDataSyncStatus: () => ipcRenderer.invoke('marketData:getStatus'),
+  startMarketDataSync: () => ipcRenderer.invoke('marketData:startSync'),
+  retryMarketDataFailures: () => ipcRenderer.invoke('marketData:retryFailures'),
+  getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
+  onMarketDataProgress: (handler: (status: MarketDataSyncStatus) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: MarketDataSyncStatus) => handler(status);
+    ipcRenderer.on('marketData:progress', listener);
+    return () => ipcRenderer.removeListener('marketData:progress', listener);
+  },
   listStoreItems: () => ipcRenderer.invoke('store:list'),
   listInstalledStoreItems: () => ipcRenderer.invoke('store:installed'),
   installStoreItem: (id: string) => ipcRenderer.invoke('store:install', id),

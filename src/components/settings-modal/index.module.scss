@@ -29,6 +29,16 @@
 .modal-footer button { padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; }
 .btn-cancel { background: var(--surface-hover); color: var(--fg-secondary); }
 .btn-save { background: var(--accent); color: #fff; }
+.market-db-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 8px; }
+.market-db-item { background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.market-db-item span { color: var(--muted); font-size: 11px; }
+.market-db-item strong { color: var(--fg); font-size: 12px; font-weight: 600; }
+.market-db-progress { height: 4px; overflow: hidden; background: var(--surface-hover); border-radius: 999px; margin: 8px 0 6px; }
+.market-db-progress div { height: 100%; background: var(--accent); transition: width .2s ease; }
+.market-db-actions { display: flex; gap: 6px; margin-top: 8px; }
+.market-db-actions button { flex: 1; border: 1px solid var(--border); background: var(--surface-hover); color: var(--fg-secondary); border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+.market-db-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--fg); }
+.market-db-actions button:disabled { opacity: .45; cursor: not-allowed; }
 .toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 18px; font-size: 13px; color: var(--fg); box-shadow: 0 4px 16px rgba(0,0,0,.4); z-index: 10000; display: none; white-space: nowrap; }
 .toast.show { display: block; }
 .toast.success { border-color: var(--success); }

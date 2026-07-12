@@ -1,5 +1,6 @@
 import StockSDK from 'stock-sdk';
 import type { AgentResultCard, BoardDetail, ChipDistribution, ChipPoint, HotFocusItem, HotFocusTab, KlinePoint, StockDetail } from '../../../src/shared/types.js';
+import { queryHistoricalBars, queryLatestQuote } from '../market-data/market-data-query.js';
 import { formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { analyzeIndicators } from './indicators.js';
 import { extractSymbolCandidate, normalizeASymbol, inferExchange, toQuoteSymbol } from './symbols.js';
@@ -51,13 +52,12 @@ export async function resolveASymbol(input: string): Promise<string> {
 }
 
 export async function getQuote(symbolInput: string): Promise<StockDetail> {
-  const symbol = normalizeASymbol(symbolInput);
-  const quotes = await sdk.quotes.cn([toQuoteSymbol(symbol)]);
-  return toStockDetail(quotes[0], symbol);
+  return (await queryLatestQuote(symbolInput)).data;
 }
 
 export async function getKline(symbolInput: string, limit = 120, period = '1d'): Promise<KlinePoint[]> {
   const symbol = normalizeASymbol(symbolInput);
+  if (period === '1d') return (await queryHistoricalBars(symbol, { limit, period: '1d', adjustType: 'qfq' })).data;
   try {
     if (period === '15m') return getTencentMinuteKline(symbol, limit, '15');
     if (period === '1h') return getTencentMinuteKline(symbol, limit, '60');

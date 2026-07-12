@@ -26,6 +26,15 @@ const api = {
   listHotFocus: (tab) => ipcRenderer.invoke('hot:list', tab),
   listSurgeHistoryDates: () => ipcRenderer.invoke('hot:historyDates'),
   listSurgeHistory: (date, offset, limit) => ipcRenderer.invoke('hot:history', date, offset, limit),
+  getMarketDataSyncStatus: () => ipcRenderer.invoke('marketData:getStatus'),
+  startMarketDataSync: () => ipcRenderer.invoke('marketData:startSync'),
+  retryMarketDataFailures: () => ipcRenderer.invoke('marketData:retryFailures'),
+  getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
+  onMarketDataProgress: (handler) => {
+    const listener = (_event, status) => handler(status);
+    ipcRenderer.on('marketData:progress', listener);
+    return () => ipcRenderer.removeListener('marketData:progress', listener);
+  },
   listStoreItems: () => ipcRenderer.invoke('store:list'),
   listInstalledStoreItems: () => ipcRenderer.invoke('store:installed'),
   installStoreItem: (id) => ipcRenderer.invoke('store:install', id),

@@ -4,6 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { registerIpcHandlers } from './ipc.js';
+import { closeMarketDataStore, initializeMarketDataStore } from './services/market-data/market-data-store.js';
+import { startMarketDataScheduler, stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
 import { startSurgeHistoryScheduler, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
@@ -77,6 +79,7 @@ function createWindow() {
 app.whenReady().then(() => {
   configureAboutPanel();
   registerIpcHandlers();
+  void initializeMarketDataStore().then(startMarketDataScheduler).catch((error) => console.warn('[market-data] initialization failed', error));
   startSurgeHistoryScheduler();
   createWindow();
 
@@ -90,11 +93,16 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
+  stopMarketDataScheduler();
   stopSurgeHistoryScheduler();
   if (cleanupDone || cleanupStarted) return;
   event.preventDefault();
   cleanupStarted = true;
-  void Promise.allSettled([closeSurgeHistoryStore(), Promise.resolve(closeConversationStore())]).finally(() => {
+  void Promise.allSettled([
+    waitForMarketDataScheduler().then(closeMarketDataStore),
+    closeSurgeHistoryStore(),
+    Promise.resolve(closeConversationStore()),
+  ]).finally(() => {
     cleanupDone = true;
     app.quit();
   });

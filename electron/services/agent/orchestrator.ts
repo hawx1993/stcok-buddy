@@ -9,7 +9,8 @@ import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
 import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisAgentName, type StockAnalysisResult } from './stock-analysis-agents.js';
 import { runStoreCommand } from '../store-service.js';
 import { callTool } from '../tools/tool-registry.js';
-import { evidenceFromAnnouncements, evidenceFromChip, evidenceFromDragonTiger, evidenceFromHotFocus, evidenceFromKline, evidenceFromNews, evidenceFromQuote, evidenceFromTechnical } from './evidence.js';
+import type { HistoricalBarsResult } from '../market-data/types.js';
+import { evidenceFromAnnouncements, evidenceFromChip, evidenceFromDragonTiger, evidenceFromHistoricalBars, evidenceFromHotFocus, evidenceFromNews, evidenceFromQuote, evidenceFromTechnical } from './evidence.js';
 
 type Intent = 'quote' | 'technical' | 'analysis' | 'news-announcements' | 'theme-attribution' | 'daily-lhb' | 'board' | 'portfolio' | 'chat';
 
@@ -343,19 +344,20 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
         description: `拉取 ${context.symbol} K线、指标与新闻样本`,
         dependsOn: ['quote'],
         run: async (ctx) => {
-          const [kline, technical, news, largeOrders, chip] = await Promise.all([
-            runContextTool<KlinePoint[]>(ctx, 'getStockKline', { symbol: ctx.symbol!, limit: 120 }, () => []),
+          const [historical, technical, news, largeOrders, chip] = await Promise.all([
+            runContextTool<HistoricalBarsResult>(ctx, 'getHistoricalDailyBars', { symbol: ctx.symbol!, limit: 120, adjustType: 'qfq' }, () => ({ data: [], meta: { source: 'fallback', storage: 'local', freshness: 'fallback', isComplete: false, warnings: ['历史日线获取失败'], adjustType: 'qfq' } })),
             runContextTool<AgentResultCard | undefined>(ctx, 'getTechnicalIndicators', { symbol: ctx.symbol! }, () => undefined),
             runContextTool<MarketNewsItem[]>(ctx, 'getMarketNews', { query: ctx.quote?.name ?? ctx.symbol, page: 1, pageSize: 10 }, () => []),
             needsLargeOrders ? runContextTool<HotFocusItem[]>(ctx, 'getHotFocus', { tab: 'surge' }, () => []) : Promise.resolve([]),
             needsChip ? runContextTool<unknown>(ctx, 'getStockChipDistribution', { symbol: ctx.symbol! }, () => undefined) : Promise.resolve(undefined),
           ]);
+          const kline = historical.data;
           ctx.kline = kline;
           ctx.technical = technical?.chart ? technical : technical ? { ...technical, chart: { type: 'kline', data: kline } } : undefined;
           ctx.news = news;
           ctx.chip = chip;
           ctx.largeOrders = filterLargeOrders(largeOrders, ctx.symbol!);
-          ctx.evidence.push(...evidenceFromKline(ctx.symbol!, kline), ...evidenceFromTechnical(ctx.symbol!, ctx.technical), ...evidenceFromNews(news), ...evidenceFromHotFocus(ctx.largeOrders));
+          ctx.evidence.push(...evidenceFromHistoricalBars(ctx.symbol!, historical), ...evidenceFromTechnical(ctx.symbol!, ctx.technical), ...evidenceFromNews(news), ...evidenceFromHotFocus(ctx.largeOrders));
           if (needsChip) ctx.evidence.push(...evidenceFromChip(ctx.symbol!, ctx.chip));
         },
       },
