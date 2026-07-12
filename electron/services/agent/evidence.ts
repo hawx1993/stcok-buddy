@@ -1,4 +1,5 @@
 import type { AgentResultCard, AnnouncementItem, EvidenceItem, HotFocusItem, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
+import type { HistoricalBarsResult } from '../market-data/types.js';
 import type { DailyDragonTigerItem } from '../stock/stock-client.js';
 
 export function fallbackEvidence(id: string, title: string, summary = '数据不足，当前结论仅作为研究占位。'): EvidenceItem {
@@ -28,6 +29,28 @@ export function evidenceFromKline(symbol: string, kline?: KlinePoint[]): Evidenc
     value: latest.close,
     timestamp: latest.time,
     raw: latest,
+  }];
+}
+
+export function evidenceFromHistoricalBars(symbol: string, result: HistoricalBarsResult): EvidenceItem[] {
+  const first = result.data[0];
+  const latest = result.data.at(-1);
+  if (!latest) return [fallbackEvidence(`local-kline:${symbol}`, '本地历史行情数据不足')];
+  return [{
+    id: `${result.meta.storage === 'local' ? 'local' : 'mixed'}-kline:${symbol}:${first?.time ?? 'unknown'}:${latest.time}`,
+    source: result.meta.storage === 'local' ? 'local-market-data' : 'remote-market-data',
+    title: `${symbol} 历史日K`,
+    summary: `${result.data.length} 条${result.meta.adjustType === 'qfq' ? '前复权' : '不复权'}日线，截止 ${latest.time}，最新收盘 ${latest.close}。`,
+    value: latest.close,
+    timestamp: latest.time,
+    dataSource: result.meta.source,
+    storage: result.meta.storage,
+    freshness: result.meta.freshness,
+    periodStart: first?.time,
+    periodEnd: latest.time,
+    isComplete: result.meta.isComplete,
+    adjustType: result.meta.adjustType,
+    raw: { count: result.data.length, latest: { time: latest.time, open: latest.open, high: latest.high, low: latest.low, close: latest.close } },
   }];
 }
 

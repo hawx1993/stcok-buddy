@@ -26,6 +26,30 @@ export interface AppConfig {
 
 export type ConversationTab = 'stock' | 'diagnosis' | 'market';
 
+export type DataFreshness = 'live' | 'current' | 'historical' | 'stale' | 'fallback';
+
+export interface MarketDataSyncStatus {
+  state: 'idle' | 'checking' | 'initializing' | 'syncing' | 'completed' | 'partial' | 'failed';
+  jobType?: 'initial_backfill' | 'daily_incremental' | 'repair';
+  targetTradeDate?: string;
+  processedSymbols: number;
+  totalSymbols: number;
+  succeededSymbols: number;
+  failedSymbols: number;
+  startedAt?: string;
+  finishedAt?: string;
+  latestLocalTradeDate?: string;
+  message?: string;
+}
+
+export interface MarketDataStats {
+  securityCount: number;
+  dailyBarCount: number;
+  latestTradeDate?: string;
+  databaseBytes: number;
+  failedSymbols: number;
+}
+
 export type EvidenceSource =
   | 'quote'
   | 'kline'
@@ -36,6 +60,8 @@ export type EvidenceSource =
   | 'hot-focus'
   | 'chip'
   | 'url'
+  | 'local-market-data'
+  | 'remote-market-data'
   | 'fallback';
 
 export interface EvidenceItem {
@@ -46,6 +72,13 @@ export interface EvidenceItem {
   value?: string | number;
   url?: string;
   timestamp?: string;
+  dataSource?: string;
+  storage?: 'local' | 'remote' | 'mixed';
+  freshness?: DataFreshness;
+  periodStart?: string;
+  periodEnd?: string;
+  isComplete?: boolean;
+  adjustType?: 'qfq' | 'none';
   raw?: unknown;
 }
 
@@ -363,6 +396,11 @@ export interface StocksenseApi {
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
   listSurgeHistoryDates(): Promise<string[]>;
   listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;
+  getMarketDataSyncStatus(): Promise<MarketDataSyncStatus>;
+  startMarketDataSync(): Promise<MarketDataSyncStatus>;
+  retryMarketDataFailures(): Promise<MarketDataSyncStatus>;
+  getMarketDataStats(): Promise<MarketDataStats>;
+  onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;
   listStoreItems(): Promise<StoreItem[]>;
   listInstalledStoreItems(): Promise<string[]>;
   installStoreItem(id: string): Promise<string[]>;

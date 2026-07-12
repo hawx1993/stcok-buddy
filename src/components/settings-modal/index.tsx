@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AppConfig, HoldingPeriod, MarketColorMode, ProviderKind, RiskProfile, TradeStyle } from '../../shared/types';
+import type { AppConfig, HoldingPeriod, MarketColorMode, MarketDataStats, MarketDataSyncStatus, ProviderKind, RiskProfile, TradeStyle } from '../../shared/types';
 import { getMarketColors, marketColorModes } from '../../shared/market-color';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { useAppStore } from '../../store/app-store';
@@ -51,8 +51,23 @@ export function SettingsModal() {
   const [draft, setDraft] = useState<AppConfig | undefined>(config);
   const [showKey, setShowKey] = useState(false);
   const [toast, setToast] = useState('');
+  const [marketStatus, setMarketStatus] = useState<MarketDataSyncStatus>();
+  const [marketStats, setMarketStats] = useState<MarketDataStats>();
+  const [marketActionPending, setMarketActionPending] = useState(false);
 
   useEffect(() => setDraft(config), [config]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const api = getStocksenseApi();
+    void Promise.all([api.getMarketDataSyncStatus(), api.getMarketDataStats()]).then(([status, stats]) => {
+      setMarketStatus(status);
+      setMarketStats(stats);
+    });
+    return api.onMarketDataProgress?.((status) => {
+      setMarketStatus(status);
+      void api.getMarketDataStats().then(setMarketStats);
+    });
+  }, [isOpen]);
 
   const currentProvider = useMemo(
     () => providers.find((item) => item.id === draft?.model.provider) ?? providers[0],
@@ -89,6 +104,18 @@ export function SettingsModal() {
     }, 650);
   };
 
+  const runMarketAction = async (action: 'sync' | 'retry') => {
+    setMarketActionPending(true);
+    try {
+      const api = getStocksenseApi();
+      const status = action === 'sync' ? await api.startMarketDataSync() : await api.retryMarketDataFailures();
+      setMarketStatus(status);
+      setMarketStats(await api.getMarketDataStats());
+    } finally {
+      setMarketActionPending(false);
+    }
+  };
+
   return (
     <div className={`${styles['modal-overlay']} ${styles.open}`} onClick={() => setSettingsOpen(false)}>
       <div className={`${styles.modal} ${styles['settings-system-modal'] ?? ''}`} onClick={(event) => event.stopPropagation()}>
@@ -123,6 +150,28 @@ export function SettingsModal() {
               <label className={styles.label} htmlFor="model-name">模型名称（可选）</label>
               <input id="model-name" value={draft.model.customModel ?? draft.model.model} onChange={(event) => setDraft({ ...draft, model: { ...draft.model, customModel: event.target.value, model: event.target.value || currentProvider.model } })} placeholder={currentProvider.model || '自定义模型名称'} />
               <div className={styles.hint}>{currentProvider.hint}</div>
+            </div>
+          </div>
+
+          <div className={styles['settings-section']}>
+            <div className={styles['settings-section-title']}>本地行情数据库</div>
+            <div className={styles['market-db-grid']}>
+              <StatusItem label="状态" value={marketStatusLabel(marketStatus)} />
+              <StatusItem label="最新交易日" value={marketStats?.latestTradeDate ?? marketStatus?.latestLocalTradeDate ?? '--'} />
+              <StatusItem label="股票数量" value={marketStats ? marketStats.securityCount.toLocaleString() : '--'} />
+              <StatusItem label="日K记录" value={marketStats ? marketStats.dailyBarCount.toLocaleString() : '--'} />
+              <StatusItem label="数据库大小" value={marketStats ? formatBytes(marketStats.databaseBytes) : '--'} />
+              <StatusItem label="失败股票" value={String(marketStatus?.failedSymbols ?? marketStats?.failedSymbols ?? 0)} />
+            </div>
+            {marketStatus?.totalSymbols ? (
+              <div className={styles['market-db-progress']}>
+                <div style={{ width: `${Math.min(100, (marketStatus.processedSymbols / marketStatus.totalSymbols) * 100)}%` }} />
+              </div>
+            ) : null}
+            <div className={styles.hint}>{marketStatus?.message ?? '首次使用会在后台回填最近 10 年 A 股日线，App 可正常使用。'}</div>
+            <div className={styles['market-db-actions']}>
+              <button type="button" disabled={marketActionPending || marketStatus?.state === 'syncing' || marketStatus?.state === 'initializing'} onClick={() => void runMarketAction('sync')}>立即同步</button>
+              <button type="button" disabled={marketActionPending || !(marketStats?.failedSymbols || marketStatus?.failedSymbols)} onClick={() => void runMarketAction('retry')}>重试失败项</button>
             </div>
           </div>
 
@@ -185,6 +234,20 @@ export function SettingsModal() {
       {toast ? <div className={`${styles.toast} ${styles.show} ${styles.success}`}>{toast}</div> : null}
     </div>
   );
+}
+
+function StatusItem({ label, value }: { label: string; value: string }) {
+  return <div className={styles['market-db-item']}><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function marketStatusLabel(status?: MarketDataSyncStatus) {
+  return ({ idle: '空闲', checking: '检查中', initializing: '初始化中', syncing: '同步中', completed: '已完成', partial: '部分完成', failed: '失败' } as Record<string, string>)[status?.state ?? 'idle'];
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 function CandlestickIcon({ upColor, downColor }: { upColor: string; downColor: string }) {

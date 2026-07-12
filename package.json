@@ -18,7 +18,8 @@
     "dist:all": "npm run build && electron-builder --mac dmg --arm64 && electron-builder --win nsis --x64",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-    "lint": "tsc --noEmit -p tsconfig.json"
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "selfcheck:market-data": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/market-data/market-data.selfcheck.js"
   },
   "keywords": [
     "electron",

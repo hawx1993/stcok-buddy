@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import type { AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab } from '../src/shared/types.js';
 import {
   getConfig,
@@ -18,6 +18,7 @@ import {
   saveMessage,
   saveUserMessage,
 } from './services/conversation-store.js';
+import { getMarketDataStats, getMarketDataSyncStatus, onMarketDataProgress, retryMarketDataFailures, startMarketDataSync } from './services/market-data/market-data-sync.js';
 import { runOrchestrator } from './services/agent/orchestrator.js';
 import { getBoardDetail, getKline, getStockDetail, listHotFocus } from './services/stock/stock-client.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
@@ -48,6 +49,14 @@ export function registerIpcHandlers() {
   });
   ipcMain.handle('hot:historyDates', () => listSurgeDates());
   ipcMain.handle('hot:history', (_event, date: string, offset?: number, limit?: number) => listSurgeHistoryWithBackfill(date, offset, limit));
+  ipcMain.handle('marketData:getStatus', () => getMarketDataSyncStatus());
+  ipcMain.handle('marketData:startSync', () => startMarketDataSync(true));
+  ipcMain.handle('marketData:retryFailures', () => retryMarketDataFailures());
+  ipcMain.handle('marketData:getStats', () => getMarketDataStats());
+  const removeMarketDataListener = onMarketDataProgress((status) => {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send('marketData:progress', status);
+  });
+  app.once('before-quit', removeMarketDataListener);
   ipcMain.handle('news:list', (_event, query?: string, page?: number, pageSize?: number) => listMarketNews(query, page, pageSize));
   ipcMain.handle('store:list', () => listStoreItems());
   ipcMain.handle('store:installed', () => listInstalledStoreItems());
