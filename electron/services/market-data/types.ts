@@ -1,4 +1,4 @@
-import type { KlinePoint, StockDetail } from '../../../src/shared/types.js';
+import type { BoardDetail, KlinePoint, MarketBoardRow, StockDetail } from '../../../src/shared/types.js';
 
 export type AdjustType = 'qfq' | 'none';
 export type DataFreshness = 'live' | 'current' | 'historical' | 'stale' | 'fallback';
@@ -104,6 +104,16 @@ export interface SyncJobRecord extends MarketDataSyncStatus {
   status: SyncJobStatus;
   checkpointSymbol?: string;
   errorMessage?: string;
+}
+
+export interface BoardSnapshotRecord {
+  rows: MarketBoardRow[];
+  updatedAt: string;
+}
+
+export interface BoardDetailCacheRecord {
+  detail: BoardDetail;
+  updatedAt: string;
 }
 
 export type HistoricalBarsResult = DataResult<KlinePoint[]>;

@@ -46,6 +46,10 @@ export function StockDetailPanel() {
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
+  const setConversations = useAppStore((state) => state.setConversations);
+  const setActiveConversation = useAppStore((state) => state.setActiveConversation);
+  const clearMessages = useAppStore((state) => state.clearMessages);
+  const setMainView = useAppStore((state) => state.setMainView);
 
   const todaySurgeDate = surgeDateOptions[0];
 
@@ -201,8 +205,14 @@ export function StockDetailPanel() {
     }
   };
 
-  const sendStockReport = (code: string) => {
-    window.dispatchEvent(new CustomEvent('stocksense:send-report', { detail: code }));
+  const sendStockReport = async (code: string) => {
+    const api = getStocksenseApi();
+    const conversation = await api.createConversation();
+    setConversations([conversation, ...useAppStore.getState().conversations]);
+    setActiveConversation(conversation.id);
+    clearMessages();
+    setMainView('chat');
+    (window as typeof window & { __stocksensePendingReport?: string }).__stocksensePendingReport = code;
   };
 
   const toggleSelectedFavorite = async () => {
@@ -289,6 +299,13 @@ export function StockDetailPanel() {
             </div>
           </div>
         </>
+      ) : rightPanelTab === 'board' ? (
+        <>
+          <div className={styles['right-panel-header']}>
+            <span className={styles.title}>板块详情</span>
+          </div>
+          {selectedBoard ? <BoardDetailView /> : <Empty text={<>点击行情板块或聊天中的<span className={styles.hl}>板块代码</span>，查看板块详情。</>} />}
+        </>
       ) : rightPanelTab === 'surge' ? (
         <>
           <div className={styles['right-panel-header']}>
@@ -324,13 +341,13 @@ export function StockDetailPanel() {
           <div className={styles['right-panel-header']}>
             <span className={styles.title}>个股详情</span>
           </div>
-          {selectedBoard ? <BoardDetailView /> : selectedStock ? (
+          {selectedStock ? (
             <div className={styles['stock-detail']} ref={detailRef}>
           <div className={styles['stock-header']} data-stockheader>
             <div className={styles['stock-name']}>{selectedStock.name}<span className={styles.code}>{selectedStock.code} · {selectedStock.exchange ?? 'A股'}</span></div>
             <div className={styles['stock-side']}>
               <div className={styles['stock-actions']}>
-                <button className={styles['robot-btn']} onClick={() => sendStockReport(selectedStock.code)} title="诊股" aria-label="诊股" type="button"><Bot size={15} /></button>
+                <button className={styles['robot-btn']} onClick={() => void sendStockReport(selectedStock.code)} title="诊股" aria-label="诊股" type="button"><Bot size={15} /></button>
                 <button className={cx(styles['robot-btn'], styles['favorite-btn'], selectedIsFavorite && styles.active)} onClick={() => void toggleSelectedFavorite()} title={selectedIsFavorite ? '取消收藏' : '收藏'} aria-label={selectedIsFavorite ? '取消收藏' : '收藏'} type="button"><Star size={15} fill={selectedIsFavorite ? 'currentColor' : 'none'} /></button>
               </div>
               <div className={styles['stock-price']}><div className={styles.price}>{selectedStock.price ?? '--'}</div><div className={cx(styles.chg, String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up')}>{selectedStock.changePercent ?? '--'} ({selectedStock.change ?? '--'})</div></div>
@@ -345,12 +362,14 @@ export function StockDetailPanel() {
             </div>
           </div>
           <div className={styles['stock-grid']} data-stockgrid>
-            <Metric label="PE(TTM)" value={selectedStock.pe ?? '--'} />
-            <Metric label="PB" value={selectedStock.pb ?? '--'} />
-            <Metric label="ROE" value={selectedStock.roe ?? '--'} />
-            <Metric label="市值" value={selectedStock.marketCap ?? '--'} />
+            <Metric label="今开" value={selectedStock.open ?? '--'} />
+            <Metric label="最高" value={selectedStock.high ?? '--'} />
+            <Metric label="最低" value={selectedStock.low ?? '--'} />
+            <Metric label="昨收" value={selectedStock.prevClose ?? '--'} />
             <Metric label="成交量" value={selectedStock.volume ?? '--'} />
             <Metric label="成交额" value={selectedStock.turnover ?? '--'} />
+            <Metric label="换手率" value={selectedStock.turnoverRate ?? '--'} />
+            <Metric label="市值" value={selectedStock.marketCap ?? '--'} />
           </div>
           <div className={styles.divider} />
           <div className={styles['section-title']}>综合评级</div>
@@ -417,18 +436,32 @@ function FavoriteStockItem({ stock, pinned, isUp, onOpen, onRemove, onTogglePin 
 function BoardDetailView() {
   const board = useAppStore((state) => state.selectedBoard);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   if (!board) return null;
   const stocks = board.constituents ?? [];
+  const openBoardStock = async (stock: BoardConstituent) => {
+    const fallback: StockDetail = { ...stock, turnover: stock.turnover ?? stock.amount, summary: `${board.name}板块成分股。` };
+    setRightPanelTab('stock');
+    setSelectedStock(fallback);
+    try {
+      setSelectedStock({ ...fallback, ...(await getStocksenseApi().getStockDetail(stock.code)) });
+    } catch {
+      setSelectedStock(fallback);
+    }
+  };
   return (
     <div className={styles['board-detail']}>
       <div className={styles['stock-header']}>
         <div className={styles['stock-name']}>{board.name}<span className={styles.code}>{board.code} · 板块</span></div>
         <div className={cx(styles['board-change'], String(board.changePercent).startsWith('-') ? 'down' : 'up')}>{board.changePercent ?? '--'}</div>
       </div>
+      <div className={styles['board-kline-box']}>
+        {board.kline?.length ? <StockKlineChart stock={{ code: board.code, name: board.name }} data={board.kline} height="100%" showLegend={false} staticData /> : <div className={styles['empty-list']}>暂无图表数据</div>}
+      </div>
       <div className={styles['board-stock-section']}>
         <div className={styles['section-title']}>成分股 <span>{stocks.length} 只</span></div>
         <div className={styles['board-stock-list']}>
-          {stocks.length ? stocks.map((stock) => <BoardStockItem key={stock.code} stock={stock} onClick={() => setSelectedStock({ ...stock, turnover: stock.turnover ?? stock.amount, summary: `${board.name}板块成分股。` })} />) : <div className={styles['empty-list']}>暂无成分股数据</div>}
+          {stocks.length ? stocks.map((stock) => <BoardStockItem key={stock.code} stock={stock} onClick={() => void openBoardStock(stock)} />) : <div className={styles['empty-list']}>暂无成分股数据</div>}
         </div>
       </div>
     </div>
@@ -439,7 +472,10 @@ function BoardStockItem({ stock, onClick }: { stock: BoardConstituent; onClick()
   return (
     <button className={styles['board-stock-item']} onClick={onClick} type="button">
       <span><b>{stock.name}</b><em>{stock.code}</em></span>
-      <span className={String(stock.changePercent).startsWith('-') ? 'down' : 'up'}>{stock.changePercent ?? '--'}</span>
+      <span className={styles['board-stock-side']}>
+        <strong>{stock.price ?? '--'}</strong>
+        <em className={String(stock.changePercent).startsWith('-') ? 'down' : 'up'}>{stock.changePercent ?? '--'}</em>
+      </span>
     </button>
   );
 }

@@ -1,8 +1,9 @@
-import { Activity, LineChart, Newspaper, Search, Star } from 'lucide-react';
+import { Activity, Layers, LineChart, Newspaper, Search, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAppStore } from './store/app-store';
 import { Sidebar } from './components/sidebar';
 import { ChatView } from './components/chat-view';
+import { MarketView } from './components/market-view';
 import { StockDetailPanel } from './components/stock-detail-panel';
 import { SettingsModal } from './components/settings-modal';
 import { ErrorBoundary } from './components/error-boundary';
@@ -18,6 +19,7 @@ export function App() {
   const setConversations = useAppStore((state) => state.setConversations);
   const setFavoriteStocks = useAppStore((state) => state.setFavoriteStocks);
   const activeConversationId = useAppStore((state) => state.activeConversationId);
+  const mainView = useAppStore((state) => state.mainView);
   const setMessages = useAppStore((state) => state.setMessages);
   const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
   const isRightPanelCollapsed = useAppStore((state) => state.isRightPanelCollapsed);
@@ -34,7 +36,12 @@ export function App() {
 
   useEffect(() => {
     if (!activeConversationId) return;
-    getStocksenseApi().listMessages(activeConversationId).then(setMessages).catch(console.error);
+    getStocksenseApi().listMessages(activeConversationId).then((items) => {
+      const state = useAppStore.getState();
+      if (state.activeConversationId !== activeConversationId) return;
+      if ((state.isSending || state.messages.some((message) => message.thinking)) && items.length < state.messages.length) return;
+      setMessages(items);
+    }).catch(console.error);
   }, [activeConversationId, setMessages]);
 
   useEffect(() => {
@@ -59,7 +66,7 @@ export function App() {
         </div>
         <ErrorBoundary name="左侧栏"><Sidebar searchOpen={searchOpen} /></ErrorBoundary>
         <main className={styles.main}>
-          <ErrorBoundary name="聊天区"><ChatView /></ErrorBoundary>
+          <ErrorBoundary name={mainView === 'market' ? '行情区' : '聊天区'}>{mainView === 'market' ? <MarketView /> : <ChatView />}</ErrorBoundary>
         </main>
         <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)}>
           <div className={styles['right-rail']}>
@@ -68,6 +75,9 @@ export function App() {
             </button>
             <button className={cx(styles['rail-btn'], rightPanelTab === 'stock' && !isRightPanelCollapsed && styles.active)} onClick={() => setRightPanelTab('stock')} type="button" title="个股详情" aria-label="个股详情">
               <LineChart size={18} />
+            </button>
+            <button className={cx(styles['rail-btn'], rightPanelTab === 'board' && !isRightPanelCollapsed && styles.active)} onClick={() => setRightPanelTab('board')} type="button" title="板块详情" aria-label="板块详情">
+              <Layers size={18} />
             </button>
             <button className={cx(styles['rail-btn'], rightPanelTab === 'surge' && !isRightPanelCollapsed && styles.active)} onClick={() => setRightPanelTab('surge')} type="button" title="个股异动" aria-label="个股异动">
               <Activity size={18} />

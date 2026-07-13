@@ -14,7 +14,8 @@ import type {
 export type SidebarTab = 'all' | 'surge' | 'stock' | 'diagnosis' | 'market';
 export type SidebarMainTab = 'session' | 'hot';
 export type HotSubTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
-export type RightPanelTab = 'favorites' | 'stock' | 'surge' | 'news';
+export type RightPanelTab = 'favorites' | 'stock' | 'board' | 'surge' | 'news';
+export type MainView = 'chat' | 'market';
 
 export interface SurgeStock extends StockDetail {
   type: 'surge' | 'plummet' | 'volume';
@@ -29,6 +30,7 @@ interface AppState {
   sidebarMainTab: SidebarMainTab;
   hotSubTab: HotSubTab;
   rightPanelTab: RightPanelTab;
+  mainView: MainView;
   isLeftSidebarCollapsed: boolean;
   isRightPanelCollapsed: boolean;
   search: string;
@@ -48,9 +50,11 @@ interface AppState {
   setSidebarMainTab(tab: SidebarMainTab): void;
   setHotSubTab(tab: HotSubTab): void;
   setRightPanelTab(tab: RightPanelTab): void;
+  setMainView(view: MainView): void;
   toggleLeftSidebar(): void;
   toggleRightPanel(): void;
   openRightPanel(): void;
+  openBoardPanel(): void;
   setSearch(search: string): void;
   addMessage(message: ChatMessage): void;
   setFavoriteStocks(favoriteStocks: FavoriteStock[]): void;
@@ -74,6 +78,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sidebarMainTab: 'session',
   hotSubTab: 'sector',
   rightPanelTab: 'stock',
+  mainView: 'chat',
   isLeftSidebarCollapsed: false,
   isRightPanelCollapsed: true,
   search: '',
@@ -90,14 +95,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => (state.config ? { config: { ...state.config, theme } } : state)),
   setConversations: (conversations) =>
     set({ conversations, activeConversationId: get().activeConversationId ?? conversations[0]?.id }),
-  setActiveConversation: (id) => set({ activeConversationId: id }),
+  setActiveConversation: (id) => set({ activeConversationId: id, mainView: 'chat' }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
   setSidebarMainTab: (tab) => set({ sidebarMainTab: tab, search: '' }),
   setHotSubTab: (tab) => set({ hotSubTab: tab }),
   setRightPanelTab: (tab) => set((state) => ({ rightPanelTab: tab, isRightPanelCollapsed: state.rightPanelTab === tab ? !state.isRightPanelCollapsed : false })),
+  setMainView: (view) => set({ mainView: view }),
   toggleLeftSidebar: () => set((state) => ({ isLeftSidebarCollapsed: !state.isLeftSidebarCollapsed })),
   toggleRightPanel: () => set((state) => ({ isRightPanelCollapsed: !state.isRightPanelCollapsed })),
   openRightPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'stock' }),
+  openBoardPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'board' }),
   setSearch: (search) => set({ search }),
   rememberStockKline: (code, data) => {
     if (data?.length) set((state) => ({ stockKlines: { ...state.stockKlines, [code]: data } }));

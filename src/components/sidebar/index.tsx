@@ -1,5 +1,5 @@
 import { message as antdMessage } from 'antd';
-import { MessageCircle, MoreHorizontal, Pencil, Settings, Trash2 } from 'lucide-react';
+import { BarChart3, MessageCircle, MoreHorizontal, Pencil, Settings, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../../store/app-store';
 import { ThemeToggle } from '../theme-toggle';
@@ -16,6 +16,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const [editingTitle, setEditingTitle] = useState('');
   const conversations = useAppStore((state) => state.conversations);
   const activeConversationId = useAppStore((state) => state.activeConversationId);
+  const mainView = useAppStore((state) => state.mainView);
   const search = useAppStore((state) => state.search);
   const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
   const setSearch = useAppStore((state) => state.setSearch);
@@ -25,6 +26,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const clearMessages = useAppStore((state) => state.clearMessages);
   const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
+  const setMainView = useAppStore((state) => state.setMainView);
 
   const createConversation = async () => {
     if (activeConversationId === conversations[0]?.id && conversations[0]?.count === 0) {
@@ -83,6 +85,9 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
       <div className={styles['sidebar-header']}>
         <button className={styles['btn-new-conversation']} onMouseMove={moveGlow} onClick={createConversation} type="button">
           <span>＋</span>新建会话
+        </button>
+        <button className={cx(styles['market-entry'], mainView === 'market' && styles.active)} onMouseMove={moveGlow} onClick={() => { setConversationMenuId(undefined); setMainView('market'); }} type="button">
+          <BarChart3 size={17} />行情
         </button>
         {searchOpen ? <input ref={searchRef} className={styles['sidebar-search']} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索…" /> : null}
       </div>

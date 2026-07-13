@@ -4,7 +4,7 @@ import gsap from 'gsap';
 import { marked } from 'marked';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { KlineModal, StockKlineChart } from '../kline-chart';
-import type { AgentResultCard, AgentRunEvent, ChatMessage, StockDetail, StoreCategory, StoreItem, ToolCallRecord } from '../../shared/types';
+import type { AgentResultCard, AgentRunEvent, BoardDetail, ChatMessage, StockDetail, StoreCategory, StoreItem, ToolCallRecord } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
@@ -49,7 +49,9 @@ export function ChatView() {
   const setSending = useAppStore((state) => state.setSending);
   const rememberStockKline = useAppStore((state) => state.rememberStockKline);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
+  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
   const slashItems = useMemo(() => [
     ...builtInSlashItems,
     ...storeItems.filter((item) => installedStoreItems.includes(item.id) && item.command).map(storeItemToSlashItem),
@@ -102,6 +104,16 @@ export function ChatView() {
       setSelectedStock({ ...detail, kline });
     } catch {
       setSelectedStock({ ...stock, kline } as StockDetail);
+    }
+  };
+
+  const openBoardDetail = async (board: Pick<BoardDetail, 'code' | 'name'>) => {
+    openBoardPanel();
+    setSelectedBoard(board as BoardDetail);
+    try {
+      setSelectedBoard(await getStocksenseApi().getBoardDetail(board.code));
+    } catch {
+      setSelectedBoard(board as BoardDetail);
     }
   };
 
@@ -190,13 +202,18 @@ export function ChatView() {
       if (code) void send(`/综合投研报告 ${code}`);
     };
     window.addEventListener('stocksense:send-report', handleReport);
+    const pending = (window as typeof window & { __stocksensePendingReport?: string }).__stocksensePendingReport;
+    if (pending) {
+      delete (window as typeof window & { __stocksensePendingReport?: string }).__stocksensePendingReport;
+      void send(`/综合投研报告 ${pending}`);
+    }
     return () => window.removeEventListener('stocksense:send-report', handleReport);
   });
 
   return (
     <div className={styles['chat-wrap']} ref={rootRef}>
       <div className={styles['chat-messages']} ref={listRef}>
-        {messages.length === 0 ? <QuickEntry onSubmit={send} slashItems={slashItems} /> : messages.map((message) => <MessageBubble key={message.id} message={message} now={now} slashItems={slashItems} onStockClick={openStockDetail} />)}
+        {messages.length === 0 ? <QuickEntry onSubmit={send} slashItems={slashItems} /> : messages.map((message) => <MessageBubble key={message.id} message={message} now={now} slashItems={slashItems} onStockClick={openStockDetail} onBoardClick={openBoardDetail} />)}
       </div>
       {messages.length ? (
         <div className={styles['chat-input']}>
@@ -356,7 +373,7 @@ function QuickEntry({ onSubmit, slashItems }: { onSubmit(text: string): void; sl
   );
 }
 
-function MessageBubble({ message, now, slashItems, onStockClick }: { message: ChatMessage; now: number; slashItems: SlashItem[]; onStockClick(stock: StockDetail): void }) {
+function MessageBubble({ message, now, slashItems, onStockClick, onBoardClick }: { message: ChatMessage; now: number; slashItems: SlashItem[]; onStockClick(stock: StockDetail): void; onBoardClick(board: Pick<BoardDetail, 'code' | 'name'>): void }) {
   const copySelectedMessage = async (event: React.MouseEvent<HTMLDivElement>) => {
     if (message.role !== 'user') return;
     const selection = window.getSelection();
@@ -367,6 +384,12 @@ function MessageBubble({ message, now, slashItems, onStockClick }: { message: Ch
   };
 
   const openLinkedStock = (event: React.MouseEvent<HTMLDivElement>) => {
+    const boardLink = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[data-board-code]');
+    if (boardLink) {
+      event.preventDefault();
+      onBoardClick({ code: boardLink.dataset.boardCode!, name: boardLink.dataset.boardName ?? boardLink.textContent ?? boardLink.dataset.boardCode! });
+      return;
+    }
     const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[data-stock-code]');
     if (!link) return;
     event.preventDefault();
@@ -395,7 +418,7 @@ function MessageBubble({ message, now, slashItems, onStockClick }: { message: Ch
         {message.thinking ? <ThinkingTrace startedAt={message.thinking.startedAt} steps={message.thinking.steps} /> : null}
         {message.runEvents?.length ? <RunEventTrace events={message.runEvents} /> : !message.thinking && message.steps?.length ? <Trace steps={message.steps} /> : null}
         {message.toolCalls?.length ? <ToolCallTrace toolCalls={message.toolCalls} /> : null}
-        {message.result ? <ResultCard result={message.result} onStockClick={onStockClick} /> : null}
+        {message.result ? <ResultCard result={message.result} onStockClick={onStockClick} onBoardClick={onBoardClick} /> : null}
         <div className={styles['msg-time']}>{formatMessageTime(message.createdAt, now)}</div>
       </div>
     </div>
@@ -2957,7 +2980,7 @@ function summarizeInline(value: unknown) {
   return (typeof value === 'string' ? value : JSON.stringify(value)).replace(/\s+/g, ' ').slice(0, 160);
 }
 
-function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStockClick(stock: StockDetail): void }) {
+function ResultCard({ result, onStockClick, onBoardClick }: { result: AgentResultCard; onStockClick(stock: StockDetail): void; onBoardClick(board: Pick<BoardDetail, 'code' | 'name'>): void }) {
   const [open, setOpen] = useState(!isNewsAnnouncementCard(result));
   const [rowsOpen, setRowsOpen] = useState(false);
   const headers = result.rows?.[0] ? Object.keys(result.rows[0]) : [];
@@ -2985,7 +3008,7 @@ function ResultCard({ result, onStockClick }: { result: AgentResultCard; onStock
               <thead><tr>{headers.map((header, index) => <th className={getTableCellClass(header, index, headers.length)} key={header}>{header}</th>)}</tr></thead>
               <tbody>
                 {visibleRows.map((row, index) => (
-                  <tr key={index}>{headers.map((header, colIndex) => <td className={getTableCellClass(header, colIndex, headers.length)} key={header}>{renderCell(header, row, onStockClick)}</td>)}</tr>
+                  <tr key={index}>{headers.map((header, colIndex) => <td className={getTableCellClass(header, colIndex, headers.length)} key={header}>{renderCell(header, row, onStockClick, onBoardClick)}</td>)}</tr>
                 ))}
               </tbody>
             </table>
@@ -3029,11 +3052,14 @@ function KlineChart({ data, stock }: { data: NonNullable<AgentResultCard['chart'
   );
 }
 
-function renderCell(header: string, row: Record<string, unknown>, onStockClick: (stock: StockDetail) => void) {
+function renderCell(header: string, row: Record<string, unknown>, onStockClick: (stock: StockDetail) => void, onBoardClick: (board: Pick<BoardDetail, 'code' | 'name'>) => void) {
   const value = stringifyCell(row[header]);
   const name = pickCell(row, ['名称', 'name', 'title']);
   const code = pickCell(row, ['代码', 'code', 'symbol']);
-  if (/^(名称|name|title)$/i.test(header) && code) return <button className="stock-link btn-link" onClick={() => onStockClick({ code, name: name || value })} type="button">{value}</button>;
+  if (/^(名称|name|title)$/i.test(header) && code) {
+    if (isBoardCode(code) || /板块|行业|概念/.test(name || value)) return <button className="stock-link btn-link" onClick={() => onBoardClick({ code, name: name || value })} type="button">{value}</button>;
+    return <button className="stock-link btn-link" onClick={() => onStockClick({ code, name: name || value })} type="button">{value}</button>;
+  }
   if (/涨跌幅|涨幅|涨跌|change|pct/i.test(header)) return <span className={getChinaMarketTone(value)}>{value}</span>;
   if (/净流入|资金|amount|turnover|flow/i.test(header)) return <span className={getChinaMarketTone(value)}>{formatChinaMoney(value)}</span>;
   if (/链接|url/i.test(header) && /^https?:\/\//.test(value)) return <a href={value} target="_blank" rel="noreferrer">查看</a>;
@@ -3225,7 +3251,7 @@ function renderMarkdownWithStocks(content: string) {
 function renderMarkdownContent(content: string, options: { disclaimer?: boolean } = {}) {
   const normalized = normalizeAnalysisContent(content, options.disclaimer !== false);
   const html = marked.parse(normalized, { async: false, breaks: true }) as string;
-  return linkStocks(html);
+  return linkMarkets(html);
 }
 
 const standardDisclaimer = '以上内容基于公开数据自动生成，仅供研究参考，不构成投资建议。';
@@ -3270,16 +3296,21 @@ function colorScoreCell(cell = '') {
   });
 }
 
-function linkStocks(html: string) {
-  const stockPattern = new RegExp(`(${stockAliases.map(([name]) => escapeRegExp(name)).join('|')})（(\\d{6})）|(?<![\\w/.-])(\\d{6})(?![\\w/.-])`, 'g');
+function linkMarkets(html: string) {
+  const stockPattern = new RegExp(`(${stockAliases.map(([name]) => escapeRegExp(name)).join('|')})（(\\d{6})）|(?<![\\w/.-])(BK\\d{3,6}|\\d{6})(?![\\w/.-])`, 'gi');
   return html.split(/(<[^>]+>)/g).map((part) => {
     if (part.startsWith('<')) return part;
     return part.replace(stockPattern, (match, name: string | undefined, pairedCode: string | undefined, codeOnly: string | undefined) => {
-      const code = pairedCode ?? codeOnly ?? stockAliases.find(([alias]) => alias === name)?.[1];
+      const code = pairedCode ?? codeOnly ?? stockAliases.find(([alias]) => alias === name)?.[1] ?? '';
+      if (isBoardCode(code)) return `<a href="#" class="stock-link" data-board-code="${code.toUpperCase()}" data-board-name="${code.toUpperCase()}">${match}</a>`;
       const stockName = name ?? stockAliases.find(([, aliasCode]) => aliasCode === code)?.[0] ?? code;
       return `<a href="#" class="stock-link" data-stock-code="${code}" data-stock-name="${stockName}">${match}</a>`;
     });
   }).join('');
+}
+
+function isBoardCode(code: string) {
+  return /^BK\d{3,6}$/i.test(code);
 }
 
 function escapeRegExp(value: string) {

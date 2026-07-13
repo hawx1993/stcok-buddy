@@ -20,6 +20,7 @@ const api = {
     return () => ipcRenderer.removeListener('chat:token', listener);
   },
   getStockDetail: (symbol) => ipcRenderer.invoke('stock:getDetail', symbol),
+  searchStocks: (query) => ipcRenderer.invoke('stock:search', query),
   getBoardDetail: (symbol) => ipcRenderer.invoke('board:getDetail', symbol),
   getKline: (symbol, limit, period) => ipcRenderer.invoke('stock:getKline', symbol, limit, period),
   listMarketNews: (query, page, pageSize) => ipcRenderer.invoke('news:list', query, page, pageSize),
@@ -30,6 +31,12 @@ const api = {
   startMarketDataSync: () => ipcRenderer.invoke('marketData:startSync'),
   retryMarketDataFailures: () => ipcRenderer.invoke('marketData:retryFailures'),
   getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
+  getMarketPageSnapshot: (tab, period) => ipcRenderer.invoke('market:getPageSnapshot', tab, period),
+  onMarketPageSnapshotUpdated: (handler) => {
+    const listener = (_event, snapshot) => handler(snapshot);
+    ipcRenderer.on('market:pageSnapshotUpdated', listener);
+    return () => ipcRenderer.removeListener('market:pageSnapshotUpdated', listener);
+  },
   onMarketDataProgress: (handler) => {
     const listener = (_event, status) => handler(status);
     ipcRenderer.on('marketData:progress', listener);

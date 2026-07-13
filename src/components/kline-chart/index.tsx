@@ -3,7 +3,7 @@ import { dispose, init } from 'klinecharts';
 import type { Chart, Crosshair, KLineData, Period } from 'klinecharts';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { useAppStore } from '../../store/app-store';
-import type { ChipDistribution, KlinePoint, MarketColorMode, StockDetail } from '../../shared/types';
+import type { ChipDistribution, KlinePoint, StockDetail } from '../../shared/types';
 import { getMarketColors } from '../../shared/market-color';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
@@ -35,9 +35,10 @@ interface StockKlineChartProps {
   showLegend?: boolean;
   timeframe?: TimeframeId;
   onTimeframeChange?: (timeframe: TimeframeId) => void;
+  staticData?: boolean;
 }
 
-export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, height = 210, showSwitcher = false, showChips = false, chipsOpen = false, showIndicators = false, showLegend = true, timeframe, onTimeframeChange }: StockKlineChartProps) {
+export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, height = 210, showSwitcher = false, showChips = false, chipsOpen = false, showIndicators = false, showLegend = true, timeframe, onTimeframeChange, staticData = false }: StockKlineChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
   const chartDataRef = useRef<KlinePoint[]>([]);
@@ -45,9 +46,9 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
   const marketColors = useMemo(() => getMarketColors(marketColorMode), [marketColorMode]);
   const [localTf, setLocalTf] = useState<TimeframeId>('1d');
   const requestedTf = timeframe ?? localTf;
-  const usesProvidedData = data.length > 0 && requestedTf === '1d';
+  const usesProvidedData = data.length > 0 && (staticData || requestedTf === '1d');
   const tf = requestedTf;
-  const [loadedData, setLoadedData] = useState<KlinePoint[]>(data);
+  const [loadedData, setLoadedData] = useState<KlinePoint[]>(usesProvidedData ? data : []);
   const [hoverIndex, setHoverIndex] = useState<number | undefined>();
   const [hoverPoint, setHoverPoint] = useState<KlinePoint | undefined>();
   const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('right');
@@ -62,7 +63,7 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
   const chips = tf === '1d' && showChips && chipsOpen ? estimateChips(chartData, hoverIndex) : undefined;
 
   useEffect(() => {
-    setLoadedData(usesProvidedData ? data : []);
+    if (usesProvidedData) setLoadedData(data);
   }, [data, usesProvidedData]);
 
   useEffect(() => {

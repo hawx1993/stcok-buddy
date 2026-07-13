@@ -11,6 +11,7 @@ import type {
   HotFocusItem,
   HotFocusTab,
   MarketNewsItem,
+  MarketTab,
   PagedMarketNews,
   StoreItem,
 } from './types.js';
@@ -43,10 +44,10 @@ const fallbackNews: MarketNewsItem[] = [
 ];
 
 const stockMap: Record<string, StockDetail> = {
-  '600519': { code: '600519', name: '贵州茅台', exchange: '沪市', price: 1548, change: '+13.20', changePercent: '+0.86%', pe: 27.8, pb: 8.6, marketCap: '1.94万亿', turnover: '95.2亿', rating: { fundamental: '优质', valuation: '中性', tech: '中性偏多', risk: '低' }, summary: '高端白酒龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
-  '000858': { code: '000858', name: '五粮液', exchange: '深市', price: 140.2, change: '+2.93', changePercent: '+2.13%', pe: 21.4, pb: 5.2, marketCap: '5440亿', turnover: '28.6亿', rating: { fundamental: '优质', valuation: '偏低', tech: '中性偏多', risk: '低' }, summary: '浓香白酒龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
-  '300750': { code: '300750', name: '宁德时代', exchange: '深市', price: 222, change: '-13.37', changePercent: '-5.68%', pe: 18.5, pb: 4.2, marketCap: '9760亿', turnover: '68.5亿', rating: { fundamental: '优质', valuation: '合理', tech: '偏空', risk: '中等' }, summary: '动力电池龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
-  '600036': { code: '600036', name: '招商银行', exchange: '沪市', price: 32.45, change: '+0.23', changePercent: '+0.72%', pe: 5.6, pb: 0.72, marketCap: '8180亿', turnover: '18.2亿', rating: { fundamental: '良好', valuation: '偏低', tech: '中性', risk: '低' }, summary: '零售银行标杆。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
+  '600519': { code: '600519', name: '贵州茅台', exchange: '沪市', price: 1548, change: '+13.20', changePercent: '+0.86%', open: 1532, high: 1555, low: 1528, prevClose: 1534.8, pe: 27.8, pb: 8.6, marketCap: '1.94万亿', volume: '6.2万手', turnover: '95.2亿', turnoverRate: '0.49%', rating: { fundamental: '优质', valuation: '中性', tech: '中性偏多', risk: '低' }, summary: '高端白酒龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
+  '000858': { code: '000858', name: '五粮液', exchange: '深市', price: 140.2, change: '+2.93', changePercent: '+2.13%', open: 137.8, high: 141.5, low: 136.9, prevClose: 137.27, pe: 21.4, pb: 5.2, marketCap: '5440亿', volume: '20.3万手', turnover: '28.6亿', turnoverRate: '0.52%', rating: { fundamental: '优质', valuation: '偏低', tech: '中性偏多', risk: '低' }, summary: '浓香白酒龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
+  '300750': { code: '300750', name: '宁德时代', exchange: '深市', price: 222, change: '-13.37', changePercent: '-5.68%', open: 235.1, high: 236.8, low: 219.8, prevClose: 235.37, pe: 18.5, pb: 4.2, marketCap: '9760亿', volume: '30.5万手', turnover: '68.5亿', turnoverRate: '0.76%', rating: { fundamental: '优质', valuation: '合理', tech: '偏空', risk: '中等' }, summary: '动力电池龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
+  '600036': { code: '600036', name: '招商银行', exchange: '沪市', price: 32.45, change: '+0.23', changePercent: '+0.72%', open: 32.18, high: 32.55, low: 32.06, prevClose: 32.22, pe: 5.6, pb: 0.72, marketCap: '8180亿', volume: '56.1万手', turnover: '18.2亿', turnoverRate: '0.27%', rating: { fundamental: '良好', valuation: '偏低', tech: '中性', risk: '低' }, summary: '零售银行标杆。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
 };
 
 export function getStocksenseApi(): StocksenseApi {
@@ -223,10 +224,19 @@ const webFallbackApi: StocksenseApi = {
   async getStockDetail(symbol: string) {
     return findStock(symbol) ?? { code: symbol, name: symbol, summary: '浏览器/PWA 预览模式暂无该股票示例数据。' };
   },
+  async searchStocks(query: string) {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return Object.values(stockMap)
+      .filter((stock) => stock.code.includes(q) || stock.name.toLowerCase().includes(q))
+      .slice(0, 50)
+      .map((stock) => ({ code: stock.code, name: stock.name, price: stock.price, changePercent: Number.parseFloat(String(stock.changePercent ?? '0')) }));
+  },
   async getBoardDetail(symbol: string): Promise<BoardDetail> {
     return {
       code: symbol,
       name: symbol,
+      kline: [],
       constituents: [stockMap['600519'], stockMap['000858'], stockMap['600036']].map((stock) => ({
         code: stock.code,
         name: stock.name,
@@ -265,6 +275,29 @@ const webFallbackApi: StocksenseApi = {
   async getMarketDataStats() {
     return { securityCount: 0, dailyBarCount: 0, databaseBytes: 0, failedSymbols: 0 };
   },
+  async getMarketPageSnapshot(tab: MarketTab, period = '1d') {
+    const stocks = Object.values(stockMap);
+    const rows = stocks.map((stock) => ({
+      code: stock.code,
+      name: stock.name,
+      price: stock.price,
+      changePercent: Number.parseFloat(String(stock.changePercent ?? '0')),
+      volume: stock.volume,
+      amount: stock.turnover,
+      open: stock.open,
+      high: stock.high,
+      low: stock.low,
+      prevClose: stock.prevClose,
+      turnoverRate: stock.turnoverRate,
+      marketCap: stock.marketCap,
+    }));
+    const boards = [
+      { code: 'BK0475', name: '半导体', price: 1288.6, changePercent: 1.86, volume: '1260万手', amount: '520亿', marketCap: '3.2万亿', turnoverRate: '2.1%', minutes: [] },
+      { code: 'BK0437', name: '酿酒行业', price: 954.4, changePercent: 1.12, volume: '320万手', amount: '185亿', marketCap: '2.8万亿', turnoverRate: '0.8%', minutes: [] },
+      { code: 'BK0428', name: '证券', price: 803.2, changePercent: 0.94, volume: '2100万手', amount: '410亿', marketCap: '4.1万亿', turnoverRate: '1.6%', minutes: [] },
+    ];
+    return { tab, updatedAt: new Date().toISOString(), indices: makePreviewIndices(), rows, boards: tab === 'boards' || tab === 'leaders' ? boards : [] };
+  },
   async listStoreItems() {
     return readStoreItems();
   },
@@ -285,6 +318,13 @@ function webMessage(request: ChatRequest, content: string): ChatResponse {
   saveLocalMessage(request.conversationId, { id: `web-user-${Date.now()}`, role: 'user', content: request.message, createdAt: new Date().toISOString() });
   saveLocalMessage(request.conversationId, message);
   return { message, events: [{ type: 'final_answer', message: content }] };
+}
+
+function makePreviewIndices() {
+  return [
+    { code: '000001', name: '上证指数', price: 3996.16, change: -40.43, changePercent: -1.00, open: 4031.54, prevClose: 4036.59, high: 4074.83, low: 3995.81, volume: 627450065, amount: 1563108691543, minutes: [] },
+    { code: '399001', name: '深证成指', price: 15046.67, change: -352.06, changePercent: -2.29, open: 15480.41, prevClose: 15398.73, high: 15581.94, low: 15046.67, volume: 828811174, amount: 1825441561910, minutes: [] },
+  ];
 }
 
 function makePreviewKline(symbol: string, limit = 120, period = '1d') {
