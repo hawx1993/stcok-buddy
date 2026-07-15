@@ -162,7 +162,7 @@ export function MarketView() {
         <div><h1>行情</h1><p>全市场快照 · {updatedAt ? new Date(updatedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '加载中'}</p></div>
         <div className={styles.headerActions}>
           <div className={styles.searchBox}>
-            <input value={searchText} onChange={(event) => setSearchText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setSuggestions([]); }} placeholder="搜索代码 / 名称" />
+            <input value={searchText} onChange={(event) => setSearchText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setSuggestions([]); }} placeholder="搜索代码 / 股票名称 / 板块" />
             {searchText ? <div className={styles.suggestions}>
               {searching ? <div className={styles.suggestionEmpty}>搜索中…</div> : suggestions.length ? suggestions.map((row) => (
                 <button key={`${row.kind ?? 'stock'}-${row.code}`} className={styles.suggestionItem} onMouseDown={(event) => { event.preventDefault(); openSearchResult(row); }} type="button">
