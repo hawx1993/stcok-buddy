@@ -240,12 +240,17 @@ export interface StockDetail {
   price?: number | string;
   change?: string;
   changePercent?: string;
+  open?: number | string;
+  high?: number | string;
+  low?: number | string;
+  prevClose?: number | string;
   pe?: number | string;
   pb?: number | string;
   roe?: number | string;
   marketCap?: string;
   volume?: string;
   turnover?: string;
+  turnoverRate?: string | number;
   rating?: {
     fundamental: string;
     valuation: string;
@@ -276,6 +281,7 @@ export interface BoardDetail {
   code: string;
   name: string;
   changePercent?: string;
+  kline?: KlinePoint[];
   constituents?: BoardConstituent[];
 }
 
@@ -339,6 +345,68 @@ export interface PagedMarketNews {
 }
 
 export type HotFocusTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
+export type MarketTab = 'sh-main' | 'sz-main' | 'bj' | 'gem' | 'star';
+export type MarketIndexPeriod = '15m' | '1h' | '4h' | '1d';
+
+export interface MarketQuoteRow {
+  code: string;
+  name: string;
+  price?: number | string;
+  changePercent?: number | string;
+  volume?: number | string;
+  amount?: number | string;
+  open?: number | string;
+  high?: number | string;
+  low?: number | string;
+  prevClose?: number | string;
+  turnoverRate?: number | string;
+  marketCap?: number | string;
+}
+
+export interface MarketBoardRow {
+  code: string;
+  name: string;
+  price?: number | string;
+  changePercent?: number | string;
+  volume?: number | string;
+  amount?: number | string;
+  marketCap?: number | string;
+  turnoverRate?: number | string;
+  minutes: KlinePoint[];
+}
+
+export type MarketSearchResult = (MarketQuoteRow & { kind?: 'stock' }) | (MarketBoardRow & { kind: 'board' });
+
+export interface MarketMinutePoint {
+  time: string;
+  price: number;
+  volume?: number;
+  amount?: number;
+}
+
+export interface MarketIndexSnapshot {
+  code: string;
+  name: string;
+  price?: number | string;
+  change?: number | string;
+  changePercent?: number | string;
+  open?: number | string;
+  prevClose?: number | string;
+  high?: number | string;
+  low?: number | string;
+  volume?: number | string;
+  amount?: number | string;
+  minutes: KlinePoint[];
+}
+
+export interface MarketPageSnapshot {
+  tab: MarketTab;
+  period?: MarketIndexPeriod;
+  updatedAt: string;
+  indices: MarketIndexSnapshot[];
+  rows: MarketQuoteRow[];
+  boards: MarketBoardRow[];
+}
 
 export interface HotFocusItem {
   id: string;
@@ -390,6 +458,7 @@ export interface StocksenseApi {
   sendChat(request: ChatRequest): Promise<ChatResponse>;
   onChatToken?(handler: (event: ChatStreamEvent) => void): () => void;
   getStockDetail(symbol: string): Promise<StockDetail>;
+  searchStocks(query: string): Promise<MarketSearchResult[]>;
   getBoardDetail(symbol: string): Promise<BoardDetail>;
   getKline(symbol: string, limit?: number, period?: string): Promise<KlinePoint[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
@@ -400,6 +469,8 @@ export interface StocksenseApi {
   startMarketDataSync(): Promise<MarketDataSyncStatus>;
   retryMarketDataFailures(): Promise<MarketDataSyncStatus>;
   getMarketDataStats(): Promise<MarketDataStats>;
+  getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
+  onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;
   listStoreItems(): Promise<StoreItem[]>;
   listInstalledStoreItems(): Promise<string[]>;

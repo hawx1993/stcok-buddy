@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, MarketDataSyncStatus, StocksenseApi } from '../src/shared/types.js';
+import type { AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, MarketDataSyncStatus, MarketIndexPeriod, MarketPageSnapshot, MarketTab, StocksenseApi } from '../src/shared/types.js';
 
 const api: StocksenseApi = {
   getConfig: () => ipcRenderer.invoke('config:get'),
@@ -21,6 +21,7 @@ const api: StocksenseApi = {
     return () => ipcRenderer.removeListener('chat:token', listener);
   },
   getStockDetail: (symbol: string) => ipcRenderer.invoke('stock:getDetail', symbol),
+  searchStocks: (query: string) => ipcRenderer.invoke('stock:search', query),
   getBoardDetail: (symbol: string) => ipcRenderer.invoke('board:getDetail', symbol),
   getKline: (symbol: string, limit?: number, period?: string) => ipcRenderer.invoke('stock:getKline', symbol, limit, period),
   listMarketNews: (query?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('news:list', query, page, pageSize),
@@ -31,6 +32,12 @@ const api: StocksenseApi = {
   startMarketDataSync: () => ipcRenderer.invoke('marketData:startSync'),
   retryMarketDataFailures: () => ipcRenderer.invoke('marketData:retryFailures'),
   getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
+  getMarketPageSnapshot: (tab: MarketTab, period?: MarketIndexPeriod) => ipcRenderer.invoke('market:getPageSnapshot', tab, period),
+  onMarketPageSnapshotUpdated: (handler: (snapshot: MarketPageSnapshot) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: MarketPageSnapshot) => handler(snapshot);
+    ipcRenderer.on('market:pageSnapshotUpdated', listener);
+    return () => ipcRenderer.removeListener('market:pageSnapshotUpdated', listener);
+  },
   onMarketDataProgress: (handler: (status: MarketDataSyncStatus) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, status: MarketDataSyncStatus) => handler(status);
     ipcRenderer.on('marketData:progress', listener);

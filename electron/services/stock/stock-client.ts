@@ -1,11 +1,24 @@
+import { EventEmitter } from 'node:events';
 import StockSDK from 'stock-sdk';
-import type { AgentResultCard, BoardDetail, ChipDistribution, ChipPoint, HotFocusItem, HotFocusTab, KlinePoint, StockDetail } from '../../../src/shared/types.js';
+import type { AgentResultCard, BoardDetail, ChipDistribution, ChipPoint, HotFocusItem, HotFocusTab, KlinePoint, MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketSearchResult, MarketTab, StockDetail } from '../../../src/shared/types.js';
+import { getLatestDailyBar, listDailyBars, listLatestMarketRows, listSecurities, readBoardDetail, readBoardSnapshot, writeBoardDetail, writeBoardSnapshot } from '../market-data/market-data-store.js';
 import { queryHistoricalBars, queryLatestQuote } from '../market-data/market-data-query.js';
+import { remoteMarketStatus } from '../market-data/providers.js';
 import { formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { analyzeIndicators } from './indicators.js';
+import { getStoredQuoteRows, getStoredQuoteRowsByTab, upsertQuoteRows } from './quote-store.js';
 import { extractSymbolCandidate, normalizeASymbol, inferExchange, toQuoteSymbol } from './symbols.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
+let quoteCache: { rows: MarketQuoteRow[]; updatedAt: number; promise?: Promise<MarketQuoteRow[]> } = { rows: [], updatedAt: 0 };
+const marketPageEvents = new EventEmitter();
+const marketPageCache = new Map<string, { snapshot?: MarketPageSnapshot; refreshing?: Promise<MarketPageSnapshot> }>();
+const marketIndexCache = new Map<MarketIndexPeriod, { rows?: MarketIndexSnapshot[]; refreshing?: Promise<MarketIndexSnapshot[]> }>();
+let marketBoardsCache: { rows: MarketBoardRow[]; updatedAt: number; promise?: Promise<MarketBoardRow[]>; loadedFromDb?: boolean } = { rows: [], updatedAt: 0 };
+let marketBoardsLastPersistedAt = 0;
+type BoardKind = 'industry' | 'concept';
+type BoardApi = typeof sdk.board.industry;
+const boardKindCache = new Map<string, BoardKind>();
 
 type AnyRecord = Record<string, unknown>;
 
@@ -21,6 +34,11 @@ function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
   const pe = pickNumber(record, ['pe', 'PE', '市盈率', 'f9']);
   const pb = pickNumber(record, ['pb', 'PB', '市净率', 'f23']);
   const marketCap = pickNumber(record, ['marketCap', 'totalMarketCap', '总市值', 'f20']);
+  const open = pickNumber(record, ['open', '今开', '开盘价', 'f17']);
+  const high = pickNumber(record, ['high', '最高', '最高价', 'f15']);
+  const low = pickNumber(record, ['low', '最低', '最低价', 'f16']);
+  const prevClose = pickNumber(record, ['prevClose', '昨收', '昨收价', 'f18']);
+  const turnoverRate = pickNumber(record, ['turnoverRate', '换手率', 'f8']);
 
   return {
     code,
@@ -29,11 +47,16 @@ function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
     price: price === undefined ? '--' : price,
     change: change === undefined ? '--' : `${change >= 0 ? '+' : ''}${formatNumber(change)}`,
     changePercent: changePercent === undefined ? '--' : formatPercent(changePercent),
+    open: open === undefined ? '--' : formatNumber(open),
+    high: high === undefined ? '--' : formatNumber(high),
+    low: low === undefined ? '--' : formatNumber(low),
+    prevClose: prevClose === undefined ? '--' : formatNumber(prevClose),
     pe: pe === undefined ? '--' : formatNumber(pe),
     pb: pb === undefined ? '--' : formatNumber(pb),
     marketCap: marketCap === undefined ? '--' : `${(marketCap / 100000000).toFixed(1)}亿`,
     volume: volume === undefined ? '--' : `${(volume / 10000).toFixed(1)}万手`,
     turnover: turnover === undefined ? '--' : `${(turnover / 100000000).toFixed(2)}亿`,
+    turnoverRate: turnoverRate === undefined ? '--' : `${formatNumber(turnoverRate)}%`,
     rating: {
       fundamental: '待评估',
       valuation: pe && pe < 25 ? '相对合理' : '需核查',
@@ -212,13 +235,14 @@ function parseMarketTime(value: string): number | undefined {
 function toKlinePoint(raw: unknown): KlinePoint | undefined {
   const record = (raw ?? {}) as AnyRecord;
   const open = pickNumber(record, ['open', '开盘价']);
-  const close = pickNumber(record, ['close', '收盘价']);
-  const high = pickNumber(record, ['high', '最高价']);
-  const low = pickNumber(record, ['low', '最低价']);
+  const close = pickNumber(record, ['close', 'price', '最新价', '收盘价']);
+  const high = pickNumber(record, ['high', '最高价']) ?? close;
+  const low = pickNumber(record, ['low', '最低价']) ?? close;
   if (open === undefined || close === undefined || high === undefined || low === undefined) return undefined;
+  const time = pickString(record, ['date', 'time', '日期']) ?? '';
   return {
-    time: pickString(record, ['date', 'time', '日期']) ?? '',
-    timestamp: pickNumber(record, ['timestamp']) ?? parseMarketTime(pickString(record, ['date', 'time', '日期']) ?? ''),
+    time,
+    timestamp: pickNumber(record, ['timestamp']) ?? parseMarketTime(time),
     open,
     close,
     high,
@@ -230,6 +254,65 @@ function toKlinePoint(raw: unknown): KlinePoint | undefined {
     turnoverRate: pickNumber(record, ['turnoverRate', '换手率']),
     pe: pickNumber(record, ['pe', 'PE', '市盈率']),
   };
+}
+
+export async function searchStocks(query: string): Promise<MarketSearchResult[]> {
+  const text = query.trim();
+  if (!text) return [];
+  const q = text.toLowerCase();
+
+  const sdkRows = await sdk.search(text).catch(() => []) as Array<{ code?: string; name?: string; category?: string; type?: string }>;
+  const fromSdk = sdkRows
+    .filter((item) => item.code && (item.category === 'stock' || /^GP-|A股|stock/i.test(String(item.type ?? item.category ?? ''))))
+    .map((item) => ({ code: normalizeSearchCode(item.code), name: item.name || normalizeSearchCode(item.code), kind: 'stock' as const }))
+    .filter((item) => item.code.includes(q) || item.name.toLowerCase().includes(q));
+  const stockRows = fromSdk.length ? dedupeSearchRows(fromSdk).slice(0, 50) : await searchFallbackStocks(text, q);
+  const boardRows = await searchMarketBoards(q);
+  return [...stockRows, ...boardRows].slice(0, 50);
+}
+
+async function searchFallbackStocks(text: string, q: string): Promise<MarketSearchResult[]> {
+  const suggested = await searchEastmoneyStocks(text);
+  if (suggested.length) return suggested.map((row) => ({ ...row, kind: 'stock' as const }));
+
+  const marketRows = await getAllMarketQuoteRows().catch(() => []);
+  return marketRows
+    .filter((row) => row.code.includes(q) || row.name.toLowerCase().includes(q))
+    .slice(0, 50)
+    .map((row) => ({ ...row, kind: 'stock' as const }));
+}
+
+async function searchMarketBoards(q: string): Promise<MarketSearchResult[]> {
+  const rows = await getCachedMarketBoardRows().catch(() => []);
+  return rows
+    .filter((row) => row.code.toLowerCase().includes(q) || row.name.toLowerCase().includes(q))
+    .slice(0, 20)
+    .map((row) => ({ ...row, kind: 'board' as const, minutes: row.minutes ?? [] }));
+}
+
+function dedupeSearchRows(rows: MarketQuoteRow[]) {
+  const seen = new Set<string>();
+  return rows.filter((row) => row.code && !seen.has(row.code) && seen.add(row.code));
+}
+
+function normalizeSearchCode(value?: string) {
+  return String(value ?? '').replace(/^(sh|sz|bj)/i, '').replace(/^\D+/, '');
+}
+
+async function searchEastmoneyStocks(query: string): Promise<MarketQuoteRow[]> {
+  const url = new URL('https://searchapi.eastmoney.com/api/suggest/get');
+  url.search = new URLSearchParams({ input: query, type: '14' }).toString();
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(4_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://www.eastmoney.com/' } });
+    if (!response.ok) return [];
+    const payload = await response.json() as { QuotationCodeTable?: { Data?: Array<{ Code?: string; Name?: string; Classify?: string }> } };
+    return (payload.QuotationCodeTable?.Data ?? [])
+      .filter((item) => item.Classify === 'AStock' && item.Code)
+      .slice(0, 50)
+      .map((item) => ({ code: String(item.Code), name: item.Name || String(item.Code) }));
+  } catch {
+    return [];
+  }
 }
 
 export async function getStockDetail(symbolInput: string): Promise<StockDetail> {
@@ -264,23 +347,1013 @@ export async function getStockDetail(symbolInput: string): Promise<StockDetail> 
 }
 
 export async function getBoardDetail(symbol: string): Promise<BoardDetail> {
-  const [industries, concepts] = await Promise.all([sdk.board.industry.list(), sdk.board.concept.list()]);
-  const board = [...industries, ...concepts].find((item) => item.code === symbol) ?? { code: symbol, name: symbol, changePercent: null };
-  const loader = industries.some((item) => item.code === symbol) ? sdk.board.industry.constituents : sdk.board.concept.constituents;
-  const rows = await loader(symbol);
+  if (symbol.startsWith('LOCAL-')) return getLocalBoardDetail(symbol);
+  try {
+    const detail = await getRemoteBoardDetail(symbol);
+    if (detail.kline?.length || detail.constituents?.length) void writeBoardDetail({ detail, updatedAt: new Date().toISOString() });
+    return detail;
+  } catch (error) {
+    console.warn('[market] board detail unavailable, using local fallback', symbol, error instanceof Error ? error.message : error);
+    const cached = await readBoardDetail(symbol).catch(() => undefined);
+    if (cached?.detail) return cached.detail;
+    const localDetail = await getLocalBoardDetail(symbol).catch(() => undefined);
+    return localDetail ?? { code: symbol, name: symbol, kline: [], constituents: [] };
+  }
+}
+
+async function completeBoardDetail(detail: BoardDetail): Promise<BoardDetail> {
+  const constituents = shouldUseRemoteMarketData() ? await enrichBoardConstituents(detail.constituents ?? []) : detail.constituents ?? [];
+  const kline = detail.kline?.length ? detail.kline : constituents.length ? await aggregateRemoteBoardKline(constituents.map((row) => row.code)).catch(() => []) : [];
+  return { ...detail, kline, constituents };
+}
+
+function hasValue(value: unknown) {
+  return value !== undefined && value !== null && value !== '' && value !== '--';
+}
+
+async function enrichBoardConstituents(rows: NonNullable<BoardDetail['constituents']>): Promise<NonNullable<BoardDetail['constituents']>> {
+  if (!rows.length) return rows;
+  const latestRows = await listLatestMarketRows().catch(() => []);
+  const byCode = new Map(latestRows.map((row) => [row.code, row]));
+  return rows.map((row) => {
+    const latest = byCode.get(row.code);
+    if (!latest) return row;
+    return {
+      ...row,
+      price: latest.price ?? row.price ?? '--',
+      changePercent: latest.changePercent === undefined ? row.changePercent ?? '--' : formatPercent(latest.changePercent),
+      amount: latest.amount === undefined ? row.amount : formatMoney(latest.amount),
+      turnover: latest.turnoverRate === undefined ? row.turnover : `${formatNumber(latest.turnoverRate)}%`,
+    };
+  });
+}
+
+async function getRemoteBoardDetail(symbol: string): Promise<BoardDetail> {
+  const boards = await getCachedMarketBoardRows().catch(() => []);
+  const board = boards.find((item) => item.code === symbol || item.name === symbol) ?? { code: symbol, name: symbol, changePercent: undefined };
+  const targets = getBoardDetailTargets(symbol, board.name, boards);
+  const [kline, sdkRows] = await Promise.all([
+    fetchSdkBoardSeries(board.code, '1d', board.name, targets).catch(() => []),
+    getSdkBoardConstituents(board.code, board.name, targets).catch(() => []),
+  ]);
+  const fallbackRows = sdkRows.length ? [] : await firstBoardConstituentsFromTargets(targets).catch(() => []);
+  const baseConstituents = (sdkRows.length ? sdkRows : fallbackRows).slice(0, 200);
+  const constituents = await enrichBoardConstituents(baseConstituents);
+  const localDetail = constituents.length && kline.length ? undefined : await getLocalBoardDetail(board.code).catch(() => undefined);
   return {
     code: board.code,
     name: board.name,
-    changePercent: board.changePercent === null ? '--' : formatPercent(board.changePercent),
+    changePercent: board.changePercent === undefined ? localDetail?.changePercent ?? '--' : formatPercent(board.changePercent),
+    kline: kline.length ? kline : localDetail?.kline ?? [],
+    constituents: constituents.length ? constituents : localDetail?.constituents ?? [],
+  };
+}
+
+function getBoardDetailTargets(symbol: string, boardName?: string, boards = marketBoardsCache.rows): string[] {
+  const selected = boards.find((item) => item.code === symbol || item.name === symbol || item.name === boardName);
+  const normalized = normalizeBoardName(boardName ?? selected?.name ?? symbol);
+  const siblings = normalized ? boards.filter((item) => normalizeBoardName(item.name) === normalized) : [];
+  return [...new Set([
+    selected?.code,
+    selected?.name,
+    symbol,
+    boardName,
+    ...siblings.flatMap((item) => [item.code, item.name]),
+  ].filter(Boolean))] as string[];
+}
+
+async function firstBoardConstituentsFromTargets(targets: string[]): Promise<NonNullable<BoardDetail['constituents']>> {
+  for (const target of targets) {
+    const rows = await getEastmoneyBoardConstituents(target).catch(() => []);
+    if (rows.length) return rows;
+  }
+  return [];
+}
+
+async function getAStockBoardKline(symbol: string, period: MarketIndexPeriod): Promise<KlinePoint[]> {
+  if (!/^BK\d+/i.test(symbol)) return [];
+  const klt = ({ '15m': '15', '1h': '60', '4h': '60', '1d': '101' } as const)[period];
+  const limit = period === '4h' ? 80 : period === '1d' ? 120 : 60;
+  const params = new URLSearchParams({
+    secid: `90.${symbol.toUpperCase()}`,
+    fields1: 'f1,f2,f3,f4,f5,f6',
+    fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+    klt,
+    fqt: '1',
+    beg: '0',
+    end: '20500101',
+    lmt: String(limit),
+  });
+  const payload = await fetchFirstJson<{ data?: { klines?: string[] } }>([
+    `https://push2his.eastmoney.com/api/qt/stock/kline/get?${params}`,
+    `https://7.push2his.eastmoney.com/api/qt/stock/kline/get?${params}`,
+  ], 'https://quote.eastmoney.com/', 3_000);
+  const rows = (payload.data?.klines ?? []).map(parseEastmoneyKline).filter((point): point is KlinePoint => Boolean(point));
+  return period === '4h' ? aggregateKline(rows, 4) : rows;
+}
+
+async function fetchFirstJson<T>(urls: string[], referer: string, timeout = 12_000): Promise<T> {
+  let lastError: unknown;
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(timeout), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: referer } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json() as T;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('a-stock-data board request failed');
+}
+
+async function aggregateRemoteBoardKline(codes: string[]): Promise<KlinePoint[]> {
+  const topCodes = codes.slice(0, 20);
+  const series = await Promise.all(topCodes.map((code) => listDailyBars(code, { limit: 120, adjustType: 'qfq' }).catch(() => [])));
+  return averageKlineSeries(series.map((rows) => rows.map((row) => ({
+    time: row.tradeDate,
+    timestamp: parseMarketTime(row.tradeDate),
+    open: row.open,
+    close: row.close,
+    high: row.high,
+    low: row.low,
+    volume: row.volume,
+    amount: row.amount,
+    change: row.change,
+    changePercent: row.changePercent,
+    turnoverRate: row.turnoverRate,
+  }))));
+}
+
+function averageKlineSeries(series: KlinePoint[][]): KlinePoint[] {
+  const byDate = new Map<string, { open: number; close: number; high: number; low: number; volume: number; amount: number; count: number }>();
+  for (const rows of series) {
+    for (const row of rows) {
+      const group = byDate.get(row.time) ?? { open: 0, close: 0, high: 0, low: 0, volume: 0, amount: 0, count: 0 };
+      group.open += row.open;
+      group.close += row.close;
+      group.high += row.high;
+      group.low += row.low;
+      group.volume += row.volume;
+      group.amount += row.amount ?? 0;
+      group.count += 1;
+      byDate.set(row.time, group);
+    }
+  }
+  return [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([time, group]) => ({
+    time,
+    timestamp: parseMarketTime(time),
+    open: group.open / group.count,
+    close: group.close / group.count,
+    high: group.high / group.count,
+    low: group.low / group.count,
+    volume: group.volume,
+    amount: group.amount,
+  }));
+}
+
+async function getSdkBoardConstituents(symbol: string, boardName: string, targets = getBoardDetailTargets(symbol, boardName)): Promise<NonNullable<BoardDetail['constituents']>> {
+  for (const board of await getBoardApis(symbol, boardName)) {
+    for (const target of targets) {
+      try {
+        const rows = await board.constituents(target);
+        if (rows.length) return rows.map(toBoardConstituent);
+      } catch {
+        // Try name/code and the other board namespace, then the real-data HTTP fallback.
+      }
+    }
+  }
+  return [];
+}
+
+async function getBoardApis(symbol: string, boardName?: string): Promise<BoardApi[]> {
+  const cachedKind = boardKindCache.get(symbol);
+  if (cachedKind) return orderBoardApis(cachedKind);
+  const [industries, concepts] = await Promise.allSettled([
+    sdk.board.industry.list(),
+    sdk.board.concept.list(),
+  ]);
+  const industryRows = industries.status === 'fulfilled' ? industries.value : [];
+  const conceptRows = concepts.status === 'fulfilled' ? concepts.value : [];
+  for (const item of industryRows) boardKindCache.set(item.code, 'industry');
+  for (const item of conceptRows) boardKindCache.set(item.code, 'concept');
+  const kind = boardKindCache.get(symbol)
+    ?? (industryRows.some((item) => item.name === boardName) ? 'industry' : conceptRows.some((item) => item.name === boardName) ? 'concept' : undefined);
+  if (kind) boardKindCache.set(symbol, kind);
+  return orderBoardApis(kind);
+}
+
+function orderBoardApis(kind?: BoardKind): BoardApi[] {
+  return kind === 'concept' ? [sdk.board.concept, sdk.board.industry] : [sdk.board.industry, sdk.board.concept];
+}
+
+async function getEastmoneyBoardConstituents(symbol: string): Promise<NonNullable<BoardDetail['constituents']>> {
+  if (!/^BK\d+/i.test(symbol)) return [];
+  try {
+    return (await fetchEastmoneyClist(`b:${symbol} f:!50`, 200, 'https://29.push2.eastmoney.com/api/qt/clist/get')).map((row) => toBoardConstituent(toMarketQuoteRow(row))).filter((row) => row.code && row.name);
+  } catch {
+    return [];
+  }
+}
+
+function toBoardConstituent(item: { code?: string; symbol?: string; name?: string; price?: unknown; changePercent?: unknown; amount?: unknown; turnover?: unknown; turnoverRate?: unknown }): NonNullable<BoardDetail['constituents']>[number] {
+  const code = String(item.code ?? item.symbol ?? '').replace(/^(sh|sz|bj)/i, '').replace(/^\D+/, '');
+  return {
+    code,
+    name: String(item.name ?? code),
+    price: item.price === null || item.price === undefined ? '--' : formatNumber(item.price),
+    changePercent: item.changePercent === null || item.changePercent === undefined ? '--' : formatPercent(item.changePercent),
+    amount: item.amount === null || item.amount === undefined ? '--' : formatMoney(item.amount),
+    turnover: item.turnoverRate === null || item.turnoverRate === undefined ? item.turnover === undefined ? '--' : String(item.turnover) : `${formatNumber(item.turnoverRate)}%`,
+  };
+}
+
+async function getLocalBoardDetail(symbol: string): Promise<BoardDetail> {
+  const boards = await getLocalIndustryBoardRows();
+  const remoteBoard = marketBoardsCache.rows.find((item) => item.code === symbol);
+  const board = boards.find((item) => item.code === symbol || item.name === remoteBoard?.name) ?? remoteBoard ?? { code: symbol, name: symbol, changePercent: undefined, minutes: [] };
+  const securities = await listSecurities().catch(() => []);
+  const industryByCode = new Map(securities.map((item) => [item.symbol, item.industry]).filter((item): item is [string, string] => Boolean(item[1])));
+  const localName = normalizeBoardName(board.name);
+  const rows = (await listLatestMarketRows().catch(() => []))
+    .filter((row) => {
+      const industry = industryByCode.get(row.code);
+      return industry && boardNamesMatch(industry, localName);
+    })
+    .sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
+  const kline = await aggregateLocalBoardKline(rows.map((row) => row.code));
+  return {
+    code: board.code,
+    name: board.name,
+    changePercent: formatPercent(board.changePercent ?? 0),
+    kline,
     constituents: rows.slice(0, 80).map((item) => ({
       code: item.code,
       name: item.name,
       price: item.price ?? '--',
-      changePercent: item.changePercent === null ? '--' : formatPercent(item.changePercent),
-      amount: item.amount === null ? '--' : formatMoney(item.amount),
-      turnover: item.turnoverRate === null ? '--' : `${formatNumber(item.turnoverRate)}%`,
+      changePercent: item.changePercent === undefined ? '--' : formatPercent(item.changePercent),
+      amount: item.amount === undefined ? '--' : formatMoney(item.amount),
+      turnover: item.turnoverRate === undefined ? '--' : `${formatNumber(item.turnoverRate)}%`,
     })),
   };
+}
+
+async function aggregateLocalBoardKline(codes: string[]): Promise<KlinePoint[]> {
+  const topCodes = codes.slice(0, 20);
+  const series = await Promise.all(topCodes.map((code) => listDailyBars(code, { limit: 120, adjustType: 'qfq' }).catch(() => [])));
+  const byDate = new Map<string, { open: number; close: number; high: number; low: number; volume: number; amount: number; count: number }>();
+  for (const rows of series) {
+    for (const row of rows) {
+      const group = byDate.get(row.tradeDate) ?? { open: 0, close: 0, high: 0, low: 0, volume: 0, amount: 0, count: 0 };
+      group.open += row.open;
+      group.close += row.close;
+      group.high += row.high;
+      group.low += row.low;
+      group.volume += row.volume;
+      group.amount += row.amount ?? 0;
+      group.count += 1;
+      byDate.set(row.tradeDate, group);
+    }
+  }
+  return [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([time, group]) => ({
+    time,
+    timestamp: parseMarketTime(time),
+    open: group.open / group.count,
+    close: group.close / group.count,
+    high: group.high / group.count,
+    low: group.low / group.count,
+    volume: group.volume,
+    amount: group.amount,
+  }));
+}
+
+export function onMarketPageSnapshotUpdated(listener: (snapshot: MarketPageSnapshot) => void) {
+  marketPageEvents.on('updated', listener);
+  return () => marketPageEvents.off('updated', listener);
+}
+
+export async function getMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod = '1d'): Promise<MarketPageSnapshot> {
+  if (!shouldUseRemoteMarketData()) {
+    const snapshot = getCachedMarketPageSnapshot(tab, period);
+    if (!snapshot.rows.length || hasSparseQuoteRows(snapshot.rows)) return getRemoteMarketPageSnapshot(tab, period).then((remote) => {
+      marketPageCache.set(marketPageKey(tab, period), { snapshot: remote });
+      return remote.rows.length ? remote : snapshot;
+    }).catch(() => {
+      setTimeout(() => void hydrateLocalMarketPageSnapshot(tab, period), 0);
+      return snapshot;
+    });
+    setTimeout(() => void hydrateLocalMarketPageSnapshot(tab, period), 0);
+    return snapshot;
+  }
+  const snapshot = await getLocalMarketPageSnapshot(tab, period);
+  if (!snapshot.rows.length || hasSparseQuoteRows(snapshot.rows)) return getRemoteMarketPageSnapshot(tab, period).then((remote) => {
+    if (remote.rows.length) marketPageCache.set(marketPageKey(tab, period), { snapshot: remote });
+    return remote.rows.length ? remote : snapshot;
+  }).catch(() => snapshot);
+  void refreshMarketPageSnapshot(tab, period).catch((error) => console.warn('[market] background refresh failed', error));
+  return snapshot;
+}
+
+function getCachedMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod): MarketPageSnapshot {
+  const cached = marketPageCache.get(marketPageKey(tab, period))?.snapshot;
+  return {
+    tab,
+    period,
+    updatedAt: cached?.updatedAt ?? new Date().toISOString(),
+    indices: marketIndexCache.get(period)?.rows ?? cached?.indices ?? fallbackIndices(period),
+    rows: cached?.rows?.length ? cached.rows : cachedQuoteRows(tab),
+    boards: [],
+  };
+}
+
+async function hydrateLocalMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod) {
+  const snapshot = await getLocalMarketPageSnapshot(tab, period).catch(() => getCachedMarketPageSnapshot(tab, period));
+  marketPageCache.set(marketPageKey(tab, period), { snapshot });
+  marketPageEvents.emit('updated', snapshot);
+}
+
+async function getLocalMarketIndices(period: MarketIndexPeriod): Promise<MarketIndexSnapshot[]> {
+  const symbols = [
+    { db: '000001', code: '000001', name: '上证指数' },
+    { db: '399001', code: '399001', name: '深证成指' },
+  ];
+  const rows = await Promise.all(symbols.map(async (item) => {
+    const bars = await listDailyBars(item.db, { limit: period === '1d' ? 120 : 60, adjustType: 'qfq' }).catch(() => []);
+    const minutes = bars.map((bar) => ({
+      time: bar.tradeDate,
+      timestamp: parseMarketTime(bar.tradeDate),
+      open: bar.open,
+      close: bar.close,
+      high: bar.high,
+      low: bar.low,
+      volume: bar.volume,
+      amount: bar.amount,
+      change: bar.change,
+      changePercent: bar.changePercent,
+      turnoverRate: bar.turnoverRate,
+    }));
+    const latest = bars.at(-1);
+    return latest ? {
+      code: item.code,
+      name: item.name,
+      price: latest.close,
+      change: latest.change,
+      changePercent: latest.changePercent,
+      open: latest.open,
+      prevClose: latest.change === undefined ? undefined : Number((latest.close - latest.change).toFixed(2)),
+      high: latest.high,
+      low: latest.low,
+      volume: latest.volume,
+      amount: latest.amount,
+      minutes,
+    } : fallbackIndex(item.code, period);
+  }));
+  if (rows.some((row) => row.minutes.length)) marketIndexCache.set(period, { rows });
+  else void getCachedMarketIndices(period).then((indices) => emitIndexSnapshots(period, indices));
+  return rows;
+}
+
+function emitIndexSnapshots(period: MarketIndexPeriod, indices: MarketIndexSnapshot[]) {
+  for (const tab of tabsWithCachedSnapshots(period)) {
+    const key = marketPageKey(tab, period);
+    const cached = marketPageCache.get(key)?.snapshot ?? getCachedMarketPageSnapshot(tab, period);
+    const snapshot = { ...cached, indices };
+    marketPageCache.set(key, { snapshot });
+    marketPageEvents.emit('updated', snapshot);
+  }
+}
+
+function tabsWithCachedSnapshots(period: MarketIndexPeriod): MarketTab[] {
+  const prefix = `:${period}`;
+  return [...marketPageCache.keys()]
+    .filter((key) => key.endsWith(prefix))
+    .map((key) => key.slice(0, -prefix.length) as MarketTab);
+}
+
+async function getRemoteMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod): Promise<MarketPageSnapshot> {
+  if (needsSpotQuotePatch(tab)) {
+    const rows = await getRemoteMarketQuotes(tab);
+    if (rows.length) upsertQuoteRows(rows, `market:${tab}`);
+    return { tab, period, updatedAt: new Date().toISOString(), indices: marketIndexCache.get(period)?.rows ?? fallbackIndices(period), rows, boards: [] };
+  }
+  const [indices, rows] = await Promise.all([
+    getCachedMarketIndices(period),
+    getRemoteMarketQuotes(tab),
+  ]);
+  if (rows.length) upsertQuoteRows(rows, `market:${tab}`);
+  return { tab, period, updatedAt: new Date().toISOString(), indices, rows, boards: [] };
+}
+
+async function getLocalMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod): Promise<MarketPageSnapshot> {
+  const cached = marketPageCache.get(marketPageKey(tab, period))?.snapshot;
+  const localRows = (await listLatestMarketRows().then((rows) => rows.map(toMarketQuoteRow)).catch(() => []))
+    .filter((row) => quoteMatchesTab(row.code, tab))
+    .sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
+  const persistedRows = cachedQuoteRows(tab);
+  const rows = localRows.length ? mergeQuoteRows(localRows, quoteCache.rows.length ? quoteCache.rows : getStoredQuoteRows()) : cached?.rows?.length ? cached.rows : persistedRows;
+  if (hasSparseQuoteRows(rows)) return getRemoteMarketPageSnapshot(tab, period);
+  const indices = marketIndexCache.get(period)?.rows ?? cached?.indices ?? await getLocalMarketIndices(period);
+  return {
+    tab,
+    period,
+    updatedAt: cached?.updatedAt ?? new Date().toISOString(),
+    indices,
+    rows,
+    boards: [],
+  };
+}
+
+async function refreshMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod) {
+  const key = marketPageKey(tab, period);
+  const entry = marketPageCache.get(key) ?? {};
+  if (entry.refreshing) return entry.refreshing;
+  const refreshing = getRemoteMarketPageSnapshot(tab, period).then((snapshot) => {
+    marketPageCache.set(key, { snapshot });
+    marketPageEvents.emit('updated', snapshot);
+    return snapshot;
+  }).finally(() => {
+    const latest = marketPageCache.get(key);
+    if (latest?.refreshing === refreshing) marketPageCache.set(key, { snapshot: latest.snapshot });
+  });
+  marketPageCache.set(key, entry.snapshot ? { ...entry, refreshing } : { refreshing });
+  return refreshing;
+}
+
+function marketPageKey(tab: MarketTab, period: MarketIndexPeriod) {
+  return `${tab}:${period}`;
+}
+
+function cachedQuoteRows(tab: MarketTab) {
+  const rows = quoteCache.rows.length ? quoteCache.rows : getStoredQuoteRows();
+  return rows.filter((row) => quoteMatchesTab(row.code, tab));
+}
+
+let eastmoneyClistWarned = false;
+const eastmoneyClistDisabledUntil = new Map<string, number>();
+
+async function getRemoteMarketQuotes(tab: MarketTab): Promise<MarketQuoteRow[]> {
+  const cachedRows = quoteCache.rows.filter((row) => quoteMatchesTab(row.code, tab));
+  if (needsSpotQuotePatch(tab) && (!cachedRows.length || hasSparseQuoteRows(cachedRows))) {
+    const rows = await fetchSpecialMarketQuoteRows([tab]).catch(() => []);
+    if (rows.length) {
+      quoteCache = { rows: mergeByCode(quoteCache.rows, rows), updatedAt: Date.now() };
+      upsertQuoteRows(rows, `market:${tab}`);
+    }
+    return quoteCache.rows.filter((row) => quoteMatchesTab(row.code, tab)).sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
+  }
+  const quotes = await refreshQuoteCache();
+  return quotes.filter((row) => quoteMatchesTab(row.code, tab)).sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
+}
+
+async function getMarketQuotes(tab: MarketTab): Promise<MarketQuoteRow[]> {
+  const quotes = await getAllMarketQuoteRows();
+  return quotes.filter((row) => quoteMatchesTab(row.code, tab)).sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
+}
+
+async function getAllMarketQuoteRows(): Promise<MarketQuoteRow[]> {
+  const local = await listLatestMarketRows().then((rows) => rows.map(toMarketQuoteRow)).catch(() => []);
+  if (local.length) {
+    void refreshQuoteCache();
+    return mergeQuoteRows(local, quoteCache.rows.length ? quoteCache.rows : getStoredQuoteRows());
+  }
+  if (quoteCache.rows.length) {
+    void refreshQuoteCache();
+    return quoteCache.rows;
+  }
+  const stored = getStoredQuoteRows();
+  if (stored.length) {
+    void refreshQuoteCache();
+    return stored;
+  }
+  return refreshQuoteCache();
+}
+
+async function refreshQuoteCache() {
+  if (quoteCache.promise) return quoteCache.promise;
+  if (quoteCache.rows.length && Date.now() - quoteCache.updatedAt < 4_500) return quoteCache.rows;
+  quoteCache.promise = fetchRemoteQuoteRows()
+    .then((rows) => {
+      quoteCache = { rows: mergeByCode(quoteCache.rows, rows), updatedAt: Date.now() };
+      upsertQuoteRows(quoteCache.rows, 'stock-sdk');
+      return quoteCache.rows;
+    })
+    .catch(() => quoteCache.rows)
+    .finally(() => { quoteCache.promise = undefined; }) as Promise<MarketQuoteRow[]>;
+  return quoteCache.promise;
+}
+
+async function fetchRemoteQuoteRows() {
+  const sdkRows = await withTimeoutReject((sdk as unknown as { quoteService: { getAllAShareQuotes(): Promise<unknown[]> } }).quoteService.getAllAShareQuotes(), 10_000, 'Tencent quotes timeout')
+    .then((rows) => mergeByCode(quoteCache.rows, (rows as AnyRecord[]).map(toMarketQuoteRow).filter((row) => row.code)))
+    .catch(() => quoteCache.rows);
+  const sparseTabs = (['sh-main', 'sz-main', 'bj', 'gem', 'star'] as const).filter((tab) => hasSparseQuoteRows(sdkRows.filter((row) => quoteMatchesTab(row.code, tab))));
+  if (!sparseTabs.length) return sdkRows;
+
+  const eastmoneyRows = await fetchSpecialMarketQuoteRows(sparseTabs).catch(() => []);
+  return mergeByCode(sdkRows, eastmoneyRows);
+}
+
+async function fetchSpecialMarketQuoteRows(tabs: MarketTab[]) {
+  const sdkRows = await Promise.all(tabs.map(async (tab) => {
+    const market = marketTabSdkMarket(tab);
+    if (!market) return [];
+    return withTimeoutReject((sdk as unknown as { quoteService: { getAllAShareQuotes(options?: { market?: string; batchSize?: number; concurrency?: number }): Promise<unknown[]> } }).quoteService.getAllAShareQuotes({ market, batchSize: 500, concurrency: 6 }), 5_000, `${market} quotes timeout`)
+      .then((rows) => (rows as AnyRecord[]).map(toMarketQuoteRow).filter((row) => row.code));
+  })).then((rows) => rows.flat()).catch(() => []);
+  if (sdkRows.length && !hasSparseQuoteMetrics(sdkRows)) return sdkRows;
+  return fetchEastmoneyQuoteRows(tabs);
+}
+
+async function fetchEastmoneyQuoteRows(tabs: MarketTab[]) {
+  const rows = await Promise.all(tabs.map(async (tab) => {
+    const fs = marketTabFs(tab);
+    if (!fs) return [];
+    return fetchEastmoneyClist(fs, 5000).then((items) => items.map(toMarketQuoteRow).filter((row) => row.code));
+  }));
+  if (rows.some((items) => items.length)) warnEastmoneyFallback('quotes', new Error('stock-sdk sparse market quote metrics'));
+  return rows.flat();
+}
+
+function marketTabFs(tab: MarketTab) {
+  if (tab === 'sh-main') return 'm:1 t:2,m:1 t:1';
+  if (tab === 'sz-main') return 'm:0 t:6,m:0 t:13';
+  if (tab === 'bj') return 'm:0 t:81 s:2048';
+  if (tab === 'gem') return 'm:0 t:80';
+  if (tab === 'star') return 'm:1 t:23';
+  return '';
+}
+
+function marketTabSdkMarket(tab: MarketTab) {
+  if (tab === 'sh-main') return 'sh';
+  if (tab === 'sz-main') return 'sz';
+  if (tab === 'bj') return 'bj';
+  if (tab === 'gem') return 'cy';
+  if (tab === 'star') return 'kc';
+  return undefined;
+}
+
+function needsSpotQuotePatch(_tab: MarketTab) {
+  return true;
+}
+
+function mergeQuoteRows(local: MarketQuoteRow[], live: MarketQuoteRow[]) {
+  if (!live.length) return local;
+  return mergeByCode(local, live);
+}
+
+function mergeByCode<T extends { code: string }>(current: T[], incoming: T[]) {
+  const byCode = new Map(current.map((row) => [row.code, row]));
+  for (const row of incoming) byCode.set(row.code, { ...byCode.get(row.code), ...compactRow(row) } as T);
+  return [...byCode.values()];
+}
+
+function compactRow<T extends object>(row: T) {
+  return Object.fromEntries(Object.entries(row).filter(([, value]) => {
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== undefined && value !== null && value !== '';
+  })) as Partial<T>;
+}
+
+async function warmBoardDetailCache(rows: MarketBoardRow[]) {
+  for (const row of rows) {
+    const cached = await readBoardDetail(row.code).catch(() => undefined);
+    if (cached?.detail.kline?.length && cached.detail.constituents?.length) continue;
+    void getBoardDetail(row.code).catch(() => undefined);
+    break;
+  }
+}
+
+async function getCachedMarketBoardRows(): Promise<MarketBoardRow[]> {
+  if (shouldUseRemoteMarketData()) {
+    const live = await refreshMarketBoardRows().catch(() => []);
+    if (live.length) return live;
+  }
+  if (marketBoardsCache.rows.length) return marketBoardsCache.rows;
+  const disk = await readBoardSnapshot().catch(() => undefined);
+  if (disk?.rows.length) {
+    marketBoardsCache = { rows: disk.rows, updatedAt: Date.parse(disk.updatedAt) || Date.now(), loadedFromDb: true };
+    return marketBoardsCache.rows;
+  }
+  const local = await getLocalIndustryBoardRows();
+  if (local.length) {
+    marketBoardsCache = { rows: local, updatedAt: Date.now() };
+    void persistMarketBoardRows(local);
+    return local;
+  }
+  return [];
+}
+
+async function refreshMarketBoardRows(): Promise<MarketBoardRow[]> {
+  if (marketBoardsCache.promise) return marketBoardsCache.promise;
+  marketBoardsCache.promise = getRemoteMarketBoardRows()
+    .then((rows) => rows.length ? rows : getLocalIndustryBoardRows())
+    .then((rows) => {
+      if (rows.length) {
+        const merged = mergeByCode(marketBoardsCache.rows, rows);
+        marketBoardsCache = { rows: merged, updatedAt: Date.now(), loadedFromDb: false };
+        if (Date.now() - marketBoardsLastPersistedAt >= 30_000) void persistMarketBoardRows(merged);
+      }
+      return marketBoardsCache.rows;
+    })
+    .catch(() => marketBoardsCache.rows)
+    .finally(() => { marketBoardsCache.promise = undefined; }) as Promise<MarketBoardRow[]>;
+  return marketBoardsCache.promise;
+}
+
+async function persistMarketBoardRows(rows: MarketBoardRow[]) {
+  marketBoardsLastPersistedAt = Date.now();
+  await writeBoardSnapshot({ rows, updatedAt: new Date().toISOString() }).catch((error) => console.warn('[market] persist board snapshot failed', error));
+}
+
+function shouldUseRemoteMarketData() {
+  const status = remoteMarketStatus();
+  return status === 'open' || status === 'pre_market' || status === 'lunch_break';
+}
+
+async function getRemoteMarketBoardRows(): Promise<MarketBoardRow[]> {
+  const sdkRows = await getSdkMarketBoardRows();
+  if (sdkRows.length) return sdkRows;
+  warnEastmoneyFallback('boards', new Error('stock-sdk board.list empty'));
+  return fetchEastmoneyBoardRows();
+}
+
+async function fetchEastmoneyBoardRows(): Promise<MarketBoardRow[]> {
+  const [industries, concepts] = await Promise.allSettled([
+    fetchEastmoneyClist('m:90 t:2 f:!50', 200, 'https://29.push2.eastmoney.com/api/qt/clist/get'),
+    fetchEastmoneyClist('m:90 t:3 f:!50', 200, 'https://29.push2.eastmoney.com/api/qt/clist/get'),
+  ]);
+  const rows = [
+    ...(industries.status === 'fulfilled' ? industries.value.map((row) => ({ ...row, kind: 'industry' })) : []),
+    ...(concepts.status === 'fulfilled' ? concepts.value.map((row) => ({ ...row, kind: 'concept' })) : []),
+  ].map(toMarketBoardRow).filter((row) => row.code && row.name);
+  if (rows.length) return rows;
+  return getLocalIndustryBoardRows();
+}
+
+async function getSdkMarketBoardRows(kinds: BoardKind[] = ['industry', 'concept']): Promise<MarketBoardRow[]> {
+  const [industries, concepts] = await Promise.allSettled([
+    kinds.includes('industry') ? withTimeoutReject(sdk.board.industry.list(), 5_000, 'industry boards timeout') : Promise.resolve([]),
+    kinds.includes('concept') ? withTimeoutReject(sdk.board.concept.list(), 5_000, 'concept boards timeout') : Promise.resolve([]),
+  ]);
+  const industryRows = industries.status === 'fulfilled' ? industries.value : [];
+  const conceptRows = concepts.status === 'fulfilled' ? concepts.value : [];
+  for (const item of industryRows) boardKindCache.set(item.code, 'industry');
+  for (const item of conceptRows) boardKindCache.set(item.code, 'concept');
+  const rows = [
+    ...industryRows.map((row) => ({ ...row, kind: 'industry' })),
+    ...conceptRows.map((row) => ({ ...row, kind: 'concept' })),
+  ].map(toMarketBoardRow).filter((row) => row.code && row.name);
+  return enrichBoardSpotRows(rows);
+}
+
+async function enrichBoardSpotRows(rows: MarketBoardRow[]): Promise<MarketBoardRow[]> {
+  const result = [...rows];
+  for (let start = 0; start < result.length; start += 8) {
+    const updates = await Promise.all(result.slice(start, start + 8).map(async (row) => {
+      if (row.volume !== undefined && row.amount !== undefined) return row;
+      for (const board of orderBoardApis(boardKindCache.get(row.code))) {
+        try {
+          const spot = await board.spot(row.code);
+          const metrics = Object.fromEntries(spot.map((item) => [item.item, item.value]));
+          const volume = Number(metrics['成交量']);
+          const amount = Number(metrics['成交额']);
+          if (Number.isFinite(volume) || Number.isFinite(amount)) return {
+            ...row,
+            volume: Number.isFinite(volume) ? volume : row.volume,
+            amount: Number.isFinite(amount) ? amount : row.amount,
+          };
+        } catch {
+          // Try the other board namespace; keep missing values explicit if both fail.
+        }
+      }
+      return row;
+    }));
+    updates.forEach((row, index) => { result[start + index] = row; });
+  }
+  return result;
+}
+
+async function getLocalIndustryBoardRows(): Promise<MarketBoardRow[]> {
+  const rows = await listLatestMarketRows().catch(() => []);
+  const securities = await listSecurities().catch(() => []);
+  const industryByCode = new Map(securities.map((item) => [item.symbol, item.industry]).filter((item): item is [string, string] => Boolean(item[1])));
+  const groups = new Map<string, { amount: number; volume: number; marketCap: number; changeSum: number; changeCount: number }>();
+  for (const row of rows) {
+    const industry = industryByCode.get(row.code);
+    if (!industry) continue;
+    const group = groups.get(industry) ?? { amount: 0, volume: 0, marketCap: 0, changeSum: 0, changeCount: 0 };
+    group.amount += Number(row.amount) || 0;
+    group.volume += Number(row.volume) || 0;
+    group.changeSum += Number(row.changePercent) || 0;
+    group.changeCount += Number.isFinite(Number(row.changePercent)) ? 1 : 0;
+    groups.set(industry, group);
+  }
+  return [...groups.entries()].map(([name, group]) => ({
+    code: `LOCAL-${safeBoardCode(name)}`,
+    name,
+    price: undefined,
+    changePercent: group.changeCount ? group.changeSum / group.changeCount : undefined,
+    volume: group.volume || undefined,
+    amount: group.amount || undefined,
+    marketCap: group.marketCap || undefined,
+    minutes: [],
+  })).sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
+}
+
+function safeBoardCode(name: string) {
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return hash.toString(36).toUpperCase();
+}
+
+function normalizeBoardName(name: string) {
+  return name.replace(/行业|板块|Ⅱ|Ⅲ|II|III|\s/g, '');
+}
+
+function boardNamesMatch(industry: string, boardName: string) {
+  const local = normalizeBoardName(industry);
+  return local === boardName || local.includes(boardName) || boardName.includes(local);
+}
+
+async function fetchEastmoneyClist(fs: string, pageSize = 10000, endpoint = 'https://push2.eastmoney.com/api/qt/clist/get'): Promise<AnyRecord[]> {
+  if (Date.now() < (eastmoneyClistDisabledUntil.get(endpoint) ?? 0)) throw new Error('东财行情临时不可用，使用备用源');
+  const url = new URL(endpoint);
+  url.search = new URLSearchParams({
+    pn: '1',
+    pz: String(pageSize),
+    po: '1',
+    np: '1',
+    fltt: '2',
+    invt: '2',
+    fs,
+    fields: 'f2,f3,f4,f5,f6,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f104,f105,f128,f136,f140',
+  }).toString();
+  const response = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://quote.eastmoney.com/' } });
+  if (!response.ok) {
+    if (response.status === 502 || response.status === 403 || response.status === 429) eastmoneyClistDisabledUntil.set(endpoint, Date.now() + 5 * 60_000);
+    throw new Error(`东财行情 HTTP ${response.status}`);
+  }
+  const payload = await response.json() as { data?: { diff?: AnyRecord[] | Record<string, AnyRecord> } };
+  const diff = payload.data?.diff ?? [];
+  return Array.isArray(diff) ? diff : Object.values(diff);
+}
+
+function warnEastmoneyFallback(scope: string, error: unknown) {
+  if (eastmoneyClistWarned) return;
+  eastmoneyClistWarned = true;
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(`[market] eastmoney ${scope} unavailable (${message}); fallback enabled for 5 minutes`);
+}
+
+function withTimeoutReject<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ]);
+}
+
+function quoteMatchesTab(code: string, tab: MarketTab) {
+  if (tab === 'star') return code.startsWith('688');
+  if (tab === 'gem') return code.startsWith('300') || code.startsWith('301');
+  if (tab === 'bj') return code.startsWith('4') || code.startsWith('8') || code.startsWith('92');
+  if (tab === 'sh-main') return code.startsWith('6') && !code.startsWith('688');
+  if (tab === 'sz-main') return /^(000|001|002|003)/.test(code);
+  return true;
+}
+
+function toMarketQuoteRow(row: AnyRecord): MarketQuoteRow {
+  const code = pickString(row, ['f12', 'code', 'symbol'])?.replace(/^(sh|sz|bj)/i, '').replace(/^\D+/, '') ?? '';
+  const name = pickStockName(row, code);
+  return {
+    code,
+    name,
+    price: pickNumber(row, ['f2', 'price', 'latestPrice', 'lastPrice', 'close']),
+    changePercent: pickNumber(row, ['f3', 'changePercent', 'pctChg', 'pctChange', 'change_rate']),
+    volume: pickNumber(row, ['f5', 'volume', 'volume2']),
+    amount: normalizeAmount(pickNumber(row, ['f6', 'amount', 'turnover'])),
+    open: pickNumber(row, ['f17', 'open']),
+    high: pickNumber(row, ['f15', 'high']),
+    low: pickNumber(row, ['f16', 'low']),
+    prevClose: pickNumber(row, ['f18', 'prevClose']),
+    turnoverRate: pickNumber(row, ['f8', 'turnoverRate']),
+    marketCap: normalizeMarketCap(pickNumber(row, ['f20', 'totalMarketCap', 'marketCap'])),
+  };
+}
+
+function pickStockName(row: AnyRecord, code: string) {
+  const name = pickString(row, ['f14', 'name', '名称']);
+  return name && !/^\d{6}$/.test(name) ? name : code;
+}
+
+function normalizeAmount(value?: number) {
+  return value !== undefined && Math.abs(value) < 1_000_000 ? value * 10_000 : value;
+}
+
+function normalizeMarketCap(value?: number) {
+  return value !== undefined && value < 100_000 ? value * 100_000_000 : value;
+}
+
+function hasQuoteMetrics(row: MarketQuoteRow | MarketBoardRow) {
+  return hasValue(row.price) && hasValue(row.changePercent) && hasValue(row.turnoverRate) && hasValue(row.volume) && hasValue(row.amount);
+}
+
+function hasSparseQuoteMetrics(rows: MarketQuoteRow[]) {
+  return rows.length > 0 && rows.filter(hasQuoteMetrics).length / rows.length < 0.8;
+}
+
+function hasSparseQuoteRows(rows: MarketQuoteRow[]) {
+  return hasSparseQuoteMetrics(rows) || rows.some((row) => !row.name || row.name === row.code);
+}
+
+function toMarketBoardRow(row: AnyRecord): MarketBoardRow {
+  const code = pickString(row, ['f12', 'code', 'boardCode', 'symbol'])?.replace(/^(sh|sz|bj)/i, '').replace(/^\D+/, '') ?? '';
+  const name = pickString(row, ['f14', 'name', 'boardName', '名称']) ?? code;
+  const kind = row.kind === 'concept' || row.kind === 'industry' ? row.kind : undefined;
+  if (kind && code) boardKindCache.set(code, kind);
+  return {
+    code,
+    name,
+    price: pickNumber(row, ['f2', 'price', 'latestPrice', 'lastPrice', 'close']),
+    changePercent: pickNumber(row, ['f3', 'changePercent', 'pctChg', 'pctChange', 'change_rate']),
+    volume: pickNumber(row, ['f5', 'volume']),
+    amount: pickNumber(row, ['f6', 'amount', 'turnover']),
+    marketCap: pickNumber(row, ['f20', 'totalMarketCap', 'marketCap']),
+    turnoverRate: pickNumber(row, ['f8', 'turnoverRate']),
+    minutes: [],
+  };
+}
+
+async function getMarketIndices(period: MarketIndexPeriod): Promise<MarketIndexSnapshot[]> {
+  const result = await Promise.all(['sh000001', 'sz399001'].map((code) => fetchMarketIndex(code, period)));
+  return result.filter((item): item is MarketIndexSnapshot => Boolean(item));
+}
+
+async function getCachedMarketIndices(period: MarketIndexPeriod) {
+  const entry = marketIndexCache.get(period) ?? {};
+  if (entry.refreshing) return entry.refreshing;
+  if (entry.rows?.length) return entry.rows;
+  const refreshing = getMarketIndices(period).then((rows) => {
+    const merged = mergeByCode(entry.rows ?? [], rows);
+    marketIndexCache.set(period, { rows: merged });
+    return merged;
+  }).catch(() => entry.rows ?? []).finally(() => {
+    const latest = marketIndexCache.get(period);
+    if (latest?.refreshing === refreshing) marketIndexCache.set(period, { rows: latest.rows });
+  }) as Promise<MarketIndexSnapshot[]>;
+  marketIndexCache.set(period, { ...entry, refreshing });
+  return refreshing;
+}
+
+async function fetchSdkBoardSeries(code: string, period: MarketIndexPeriod, name?: string, targets = getBoardDetailTargets(code, name)): Promise<KlinePoint[]> {
+  const limit = period === '4h' ? 80 : period === '1d' ? 120 : 60;
+  const load = async (board: BoardApi, target: string) => {
+    const rows = period === '1d'
+      ? await board.kline(target, { period: 'daily', adjust: 'qfq' })
+      : await board.minuteKline(target, { period: period === '15m' ? '15' : '60' });
+    const points = rows.map(toKlinePoint).filter((point): point is KlinePoint => Boolean(point)).slice(-limit);
+    return period === '4h' ? aggregateKline(points, 4) : points;
+  };
+  for (const board of await getBoardApis(code, name)) {
+    for (const target of targets) {
+      try {
+        const rows = await load(board, target);
+        if (rows.length) return rows;
+      } catch {
+        // Try name/code and the other board namespace, then the real-data HTTP fallback.
+      }
+    }
+  }
+  return [];
+}
+
+async function fetchEastmoneyBoardSeries(code: string, period: MarketIndexPeriod): Promise<KlinePoint[]> {
+  const klt = ({ '15m': '15', '1h': '60', '4h': '60', '1d': '101' } as const)[period];
+  const limit = period === '4h' ? 80 : period === '1d' ? 120 : 60;
+  const url = new URL('https://7.push2his.eastmoney.com/api/qt/stock/kline/get');
+  url.search = new URLSearchParams({
+    secid: `90.${code}`,
+    fields1: 'f1,f2,f3,f4,f5,f6',
+    fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+    klt,
+    fqt: '1',
+    beg: '0',
+    end: '20500101',
+    lmt: String(limit),
+  }).toString();
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(4_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://quote.eastmoney.com/' } });
+    if (!response.ok) return [];
+    const payload = await response.json() as { data?: { klines?: string[] } };
+    const rows = (payload.data?.klines ?? []).map(parseBoardKlinePoint).filter((item): item is KlinePoint => Boolean(item));
+    return period === '4h' ? aggregateBoardSeries(rows, 4) : rows;
+  } catch {
+    return [];
+  }
+}
+
+function aggregateBoardSeries(data: KlinePoint[], size: number) {
+  return aggregateKline(data, size);
+}
+
+function parseBoardKlinePoint(line: string): KlinePoint | undefined {
+  return parseEastmoneyKline(line);
+}
+
+function mergeKlineRows(current: KlinePoint[], incoming: KlinePoint[]) {
+  const byTime = new Map(current.map((row) => [row.time, row]));
+  for (const row of incoming) byTime.set(row.time, { ...byTime.get(row.time), ...row });
+  return [...byTime.values()].sort((a, b) => (a.timestamp ?? parseMarketTime(a.time) ?? 0) - (b.timestamp ?? parseMarketTime(b.time) ?? 0));
+}
+
+async function fetchMarketIndex(code: string, period: MarketIndexPeriod): Promise<MarketIndexSnapshot | undefined> {
+  try {
+    const [quote, minutes] = await Promise.all([fetchIndexQuote(code), fetchIndexSeries(code, period)]);
+    return quote ? { ...quote, minutes } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function fetchIndexQuote(code: string): Promise<Omit<MarketIndexSnapshot, 'minutes'> | undefined> {
+  const url = `https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=${code}`;
+  const response = await fetch(url, { signal: AbortSignal.timeout(4_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://gu.qq.com/' } });
+  if (!response.ok) return undefined;
+  const payload = await response.json() as { data?: Record<string, AnyRecord> };
+  return toMarketIndexSnapshot(code, payload.data?.[code]);
+}
+
+async function fetchIndexSeries(code: string, period: MarketIndexPeriod) {
+  if (period === '1d') return fetchIndexDailySeries(code);
+  const k = period === '15m' ? '15' : '60';
+  const limit = period === '4h' ? 80 : 60;
+  const rows = await fetchIndexMinuteSeries(code, k, limit);
+  return period === '4h' ? aggregateIndexSeries(rows, 4) : rows;
+}
+
+async function fetchIndexMinuteSeries(code: string, k: '15' | '60', limit: number) {
+  const url = new URL('https://ifzq.gtimg.cn/appstock/app/kline/mkline');
+  url.search = new URLSearchParams({ param: `${code},m${k},,${limit}` }).toString();
+  const response = await fetch(url, { signal: AbortSignal.timeout(4_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://gu.qq.com/' } });
+  if (!response.ok) return [];
+  const payload = await response.json() as { data?: Record<string, Record<string, unknown[]>> };
+  return ((payload.data?.[code]?.[`m${k}`] ?? []) as unknown[]).map(parseIndexKlinePoint).filter((item): item is NonNullable<ReturnType<typeof parseIndexKlinePoint>> => Boolean(item));
+}
+
+function aggregateIndexSeries(data: KlinePoint[], size: number) {
+  return aggregateKline(data, size);
+}
+
+async function fetchIndexDailySeries(code: string) {
+  const url = new URL('https://ifzq.gtimg.cn/appstock/app/fqkline/get');
+  url.search = new URLSearchParams({ param: `${code},day,,,120,qfq` }).toString();
+  const response = await fetch(url, { signal: AbortSignal.timeout(4_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://gu.qq.com/' } });
+  if (!response.ok) return [];
+  const payload = await response.json() as { data?: Record<string, { day?: unknown[] }> };
+  return (payload.data?.[code]?.day ?? []).map(parseIndexKlinePoint).filter((item): item is NonNullable<ReturnType<typeof parseIndexKlinePoint>> => Boolean(item));
+}
+
+function toMarketIndexSnapshot(code: string, raw?: AnyRecord): MarketIndexSnapshot | undefined {
+  const qt = (raw?.qt as Record<string, unknown[]> | undefined)?.[code];
+  if (!qt) return undefined;
+  return {
+    code: code.replace(/^(sh|sz)/, ''),
+    name: String(qt[1] ?? code),
+    price: Number(qt[3]),
+    open: Number(qt[5]),
+    prevClose: Number(qt[4]),
+    volume: Number(qt[36]),
+    amount: Number(qt[37]) * 10_000,
+    change: Number(qt[31]),
+    changePercent: Number(qt[32]),
+    high: Number(qt[33]),
+    low: Number(qt[34]),
+    minutes: [],
+  };
+}
+
+function parseIndexKlinePoint(row: unknown): KlinePoint | undefined {
+  if (!Array.isArray(row)) return undefined;
+  const [time, open, close, high, low, volume, , amount] = row;
+  const point = {
+    time: String(time ?? ''),
+    timestamp: parseMarketTime(String(time ?? '')),
+    open: Number(open),
+    close: Number(close),
+    high: Number(high),
+    low: Number(low),
+    volume: Number(volume),
+    amount: amount === undefined ? undefined : Number(amount) * 10_000,
+  };
+  return [point.open, point.close, point.high, point.low].every(Number.isFinite) ? point : undefined;
+}
+
+function fallbackIndices(period: MarketIndexPeriod): MarketIndexSnapshot[] {
+  return [fallbackIndex('sh000001', period), fallbackIndex('sz399001', period)];
+}
+
+function fallbackIndex(code: string, _period: MarketIndexPeriod): MarketIndexSnapshot {
+  const symbol = code === '399001' || code === 'sz399001' ? '399001' : '000001';
+  const name = symbol === '399001' ? '深证成指' : '上证指数';
+  return { code: symbol, name, price: '--', change: '--', changePercent: '--', minutes: [] };
 }
 
 export async function getChipDistribution(symbolInput: string): Promise<{ latest?: ChipDistribution; trend: Array<{ days: number; concentration70?: number; concentration90?: number }> }> {

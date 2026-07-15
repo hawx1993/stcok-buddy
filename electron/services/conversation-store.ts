@@ -3,14 +3,21 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import type { ChatMessage, ConversationSummary } from '../../src/shared/types.js';
 
-const db = new Database(path.join(app.getPath('userData'), 'stocksense-chat.sqlite'));
-db.pragma('foreign_keys = ON');
+let db: Database.Database | undefined;
 
-export function closeConversationStore() {
-  if (db.open) db.close();
+function getDb() {
+  if (db?.open) return db;
+  db = new Database(path.join(app.getPath('userData'), 'stocksense-chat.sqlite'));
+  db.pragma('foreign_keys = ON');
+  db.exec(schemaSql);
+  return db;
 }
 
-db.exec(`
+export function closeConversationStore() {
+  if (db?.open) db.close();
+}
+
+const schemaSql = `
   CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -31,7 +38,9 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
     ON messages(conversation_id, created_at);
-`);
+`;
+
+getDb();
 
 interface ConversationRow {
   id: string;
@@ -51,7 +60,7 @@ function nowLabel() {
 }
 
 export function listConversations(): ConversationSummary[] {
-  return db.prepare('SELECT id, title, preview, date, tab, count FROM conversations ORDER BY updated_at DESC').all() as ConversationSummary[];
+  return getDb().prepare('SELECT id, title, preview, date, tab, count FROM conversations ORDER BY updated_at DESC').all() as ConversationSummary[];
 }
 
 export function createConversation(): ConversationSummary {
@@ -64,7 +73,7 @@ export function createConversation(): ConversationSummary {
     tab: 'stock',
     count: 0,
   };
-  db.prepare(`
+  getDb().prepare(`
     INSERT INTO conversations (id, title, preview, date, tab, count, created_at, updated_at)
     VALUES (@id, @title, @preview, @date, @tab, @count, @createdAt, @createdAt)
   `).run({ ...conversation, createdAt });
@@ -72,24 +81,24 @@ export function createConversation(): ConversationSummary {
 }
 
 export function deleteConversation(id: string): ConversationSummary[] {
-  db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
+  getDb().prepare('DELETE FROM conversations WHERE id = ?').run(id);
   return listConversations();
 }
 
 export function renameConversation(id: string, title: string): ConversationSummary[] {
   const nextTitle = title.trim();
-  if (nextTitle) db.prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?').run(nextTitle, new Date().toISOString(), id);
+  if (nextTitle) getDb().prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?').run(nextTitle, new Date().toISOString(), id);
   return listConversations();
 }
 
 export function listMessages(conversationId: string): ChatMessage[] {
-  return (db.prepare('SELECT payload FROM messages WHERE conversation_id = ? ORDER BY created_at ASC').all(conversationId) as MessageRow[])
+  return (getDb().prepare('SELECT payload FROM messages WHERE conversation_id = ? ORDER BY created_at ASC').all(conversationId) as MessageRow[])
     .map((row) => JSON.parse(row.payload) as ChatMessage);
 }
 
 export function saveMessage(conversationId: string, message: ChatMessage) {
   ensureConversation(conversationId);
-  db.prepare(`
+  getDb().prepare(`
     INSERT OR REPLACE INTO messages (id, conversation_id, payload, created_at)
     VALUES (?, ?, ?, ?)
   `).run(message.id, conversationId, JSON.stringify(message), message.createdAt);
@@ -110,20 +119,21 @@ export function saveAssistantMessage(conversationId: string, message: ChatMessag
 }
 
 function ensureConversation(conversationId: string) {
-  const exists = db.prepare('SELECT id FROM conversations WHERE id = ?').get(conversationId);
+  const exists = getDb().prepare('SELECT id FROM conversations WHERE id = ?').get(conversationId);
   if (exists) return;
   const createdAt = new Date().toISOString();
-  db.prepare(`
+  getDb().prepare(`
     INSERT INTO conversations (id, title, preview, date, tab, count, created_at, updated_at)
     VALUES (?, '新建对话', '开始新的投研分析', '刚刚', 'stock', 0, ?, ?)
   `).run(conversationId, createdAt, createdAt);
 }
 
 function updateConversation(conversationId: string, preview: string) {
-  const conversation = db.prepare('SELECT id, title FROM conversations WHERE id = ?').get(conversationId) as Pick<ConversationRow, 'id' | 'title'> | undefined;
+  const store = getDb();
+  const conversation = store.prepare('SELECT id, title FROM conversations WHERE id = ?').get(conversationId) as Pick<ConversationRow, 'id' | 'title'> | undefined;
   if (!conversation) return;
-  const count = (db.prepare('SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?').get(conversationId) as { count: number }).count;
-  db.prepare(`
+  const count = (store.prepare('SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?').get(conversationId) as { count: number }).count;
+  store.prepare(`
     UPDATE conversations
     SET title = ?, preview = ?, date = ?, tab = ?, count = ?, updated_at = ?
     WHERE id = ?

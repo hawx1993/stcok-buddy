@@ -2,7 +2,7 @@ import { app } from 'electron';
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import type { AdjustType, DailyBarRecord, MarketDataStats, MarketDataSyncStatus, SecurityRecord, SyncJobRecord, SyncJobStatus, SyncJobType, TradeCalendarRecord } from './types.js';
+import type { AdjustType, BoardDetailCacheRecord, BoardSnapshotRecord, DailyBarRecord, MarketDataStats, MarketDataSyncStatus, SecurityRecord, SyncJobRecord, SyncJobStatus, SyncJobType, TradeCalendarRecord } from './types.js';
 
 const defaultPath = path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-market.duckdb' : 'stocksense-market-dev.duckdb');
 const dbPath = process.env.STOCKSENSE_MARKET_DB_PATH || defaultPath;
@@ -51,6 +51,14 @@ const schemaSql = `
     error_message TEXT NOT NULL, retry_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL,
     PRIMARY KEY (job_id, symbol, stage)
+  );
+
+  CREATE TABLE IF NOT EXISTS market_board_snapshots (
+    snapshot_key TEXT PRIMARY KEY, rows_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS market_board_details (
+    board_code TEXT PRIMARY KEY, detail_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
   );
 `;
 
@@ -143,6 +151,36 @@ export async function listSecurities() {
   });
 }
 
+export async function listLatestMarketRows() {
+  return read(async (connection) => {
+    const rows = await all<Record<string, unknown>>(connection, `
+      WITH latest AS (
+        SELECT symbol, max(trade_date) AS trade_date FROM daily_bars WHERE adjust_type = 'qfq' GROUP BY symbol
+      )
+      SELECT s.symbol, s.name, s.exchange, b.open, b.high, b.low, b.close, b.volume, b.amount, b.change, b.change_percent, b.turnover_rate
+      FROM securities s
+      LEFT JOIN latest l ON l.symbol = s.symbol
+      LEFT JOIN daily_bars b ON b.symbol = s.symbol AND b.trade_date = l.trade_date AND b.adjust_type = 'qfq'
+      WHERE s.status = 'listed'
+      ORDER BY s.symbol
+    `);
+    return rows.map((row) => ({
+      code: String(row.symbol),
+      name: String(row.name),
+      exchange: String(row.exchange),
+      open: optionalNumber(row.open),
+      high: optionalNumber(row.high),
+      low: optionalNumber(row.low),
+      price: optionalNumber(row.close),
+      volume: optionalNumber(row.volume),
+      amount: optionalNumber(row.amount),
+      change: optionalNumber(row.change),
+      changePercent: optionalNumber(row.change_percent),
+      turnoverRate: optionalNumber(row.turnover_rate),
+    }));
+  });
+}
+
 export async function listDailyBars(symbol: string, options: { startDate?: string; endDate?: string; limit?: number; adjustType: AdjustType }) {
   return read(async (connection) => {
     const conditions = ['symbol = $symbol', 'adjust_type = $adjustType'];
@@ -161,6 +199,36 @@ export async function listDailyBars(symbol: string, options: { startDate?: strin
 
 export async function getLatestDailyBar(symbol: string, adjustType: AdjustType = 'qfq') {
   return (await listDailyBars(symbol, { limit: 1, adjustType }))[0];
+}
+
+export async function readBoardSnapshot(snapshotKey = 'all'): Promise<BoardSnapshotRecord | undefined> {
+  return read(async (connection) => {
+    const row = (await all<{ rows_json?: string; updated_at?: string }>(connection, 'SELECT rows_json, updated_at FROM market_board_snapshots WHERE snapshot_key = $snapshotKey', { snapshotKey }))[0];
+    if (!row?.rows_json) return undefined;
+    return { rows: JSON.parse(row.rows_json), updatedAt: String(row.updated_at ?? '') };
+  });
+}
+
+export function writeBoardSnapshot(record: BoardSnapshotRecord, snapshotKey = 'all') {
+  return write((connection) => connection.run(`
+    INSERT OR REPLACE INTO market_board_snapshots (snapshot_key, rows_json, updated_at)
+    VALUES ($snapshotKey, $rowsJson, $updatedAt)
+  `, { snapshotKey, rowsJson: JSON.stringify(record.rows), updatedAt: record.updatedAt }).then(() => undefined));
+}
+
+export async function readBoardDetail(boardCode: string): Promise<BoardDetailCacheRecord | undefined> {
+  return read(async (connection) => {
+    const row = (await all<{ detail_json?: string; updated_at?: string }>(connection, 'SELECT detail_json, updated_at FROM market_board_details WHERE board_code = $boardCode', { boardCode }))[0];
+    if (!row?.detail_json) return undefined;
+    return { detail: JSON.parse(row.detail_json), updatedAt: String(row.updated_at ?? '') };
+  });
+}
+
+export function writeBoardDetail(record: BoardDetailCacheRecord) {
+  return write((connection) => connection.run(`
+    INSERT OR REPLACE INTO market_board_details (board_code, detail_json, updated_at)
+    VALUES ($boardCode, $detailJson, $updatedAt)
+  `, { boardCode: record.detail.code, detailJson: JSON.stringify(record.detail), updatedAt: record.updatedAt }).then(() => undefined));
 }
 
 export function getLatestTradeDate() {

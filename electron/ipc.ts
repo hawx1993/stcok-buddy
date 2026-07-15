@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import type { AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab } from '../src/shared/types.js';
+import type { AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab, MarketIndexPeriod, MarketTab } from '../src/shared/types.js';
 import {
   getConfig,
   listFavoriteStocks,
@@ -20,7 +20,7 @@ import {
 } from './services/conversation-store.js';
 import { getMarketDataStats, getMarketDataSyncStatus, onMarketDataProgress, retryMarketDataFailures, startMarketDataSync } from './services/market-data/market-data-sync.js';
 import { runOrchestrator } from './services/agent/orchestrator.js';
-import { getBoardDetail, getKline, getStockDetail, listHotFocus } from './services/stock/stock-client.js';
+import { getBoardDetail, getKline, getMarketPageSnapshot, getStockDetail, listHotFocus, onMarketPageSnapshotUpdated, searchStocks } from './services/stock/stock-client.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { listSurgeDates, saveSurgeSnapshot } from './services/stock/surge-history-store.js';
 import { listMarketNews } from './services/stock/news-client.js';
@@ -40,8 +40,14 @@ export function registerIpcHandlers() {
   ipcMain.handle('message:list', (_event, conversationId: string) => listMessages(conversationId));
   ipcMain.handle('message:save', (_event, conversationId: string, message: ChatMessage) => saveMessage(conversationId, message));
   ipcMain.handle('stock:getDetail', (_event, symbol: string) => getStockDetail(symbol));
+  ipcMain.handle('stock:search', (_event, query: string) => searchStocks(query));
   ipcMain.handle('board:getDetail', (_event, symbol: string) => getBoardDetail(symbol));
   ipcMain.handle('stock:getKline', (_event, symbol: string, limit?: number, period?: string) => getKline(symbol, limit, period));
+  ipcMain.handle('market:getPageSnapshot', (_event, tab: MarketTab, period?: MarketIndexPeriod) => getMarketPageSnapshot(tab, period));
+  const removeMarketPageListener = onMarketPageSnapshotUpdated((snapshot) => {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send('market:pageSnapshotUpdated', snapshot);
+  });
+  app.once('before-quit', removeMarketPageListener);
   ipcMain.handle('hot:list', async (_event, tab: HotFocusTab) => {
     const items = await listHotFocus(tab);
     if (tab === 'surge' && items.length) void saveSurgeSnapshot(items).catch(console.error);

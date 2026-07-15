@@ -8,6 +8,7 @@ import { closeMarketDataStore, initializeMarketDataStore } from './services/mark
 import { startMarketDataScheduler, stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
 import { startSurgeHistoryScheduler, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
+import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -78,6 +79,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   configureAboutPanel();
+  initializeQuoteStore();
   registerIpcHandlers();
   void initializeMarketDataStore().then(startMarketDataScheduler).catch((error) => console.warn('[market-data] initialization failed', error));
   startSurgeHistoryScheduler();
@@ -100,6 +102,7 @@ app.on('before-quit', (event) => {
   cleanupStarted = true;
   void Promise.allSettled([
     waitForMarketDataScheduler().then(closeMarketDataStore),
+    Promise.resolve(closeQuoteStore()),
     closeSurgeHistoryStore(),
     Promise.resolve(closeConversationStore()),
   ]).finally(() => {
