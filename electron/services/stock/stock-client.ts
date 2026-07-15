@@ -853,14 +853,27 @@ async function fetchRemoteQuoteRows() {
 }
 
 async function fetchSpecialMarketQuoteRows(tabs: MarketTab[]) {
-  const sdkRows = await Promise.all(tabs.map(async (tab) => {
-    const market = marketTabSdkMarket(tab);
-    if (!market) return [];
-    return withTimeoutReject((sdk as unknown as { quoteService: { getAllAShareQuotes(options?: { market?: string; batchSize?: number; concurrency?: number }): Promise<unknown[]> } }).quoteService.getAllAShareQuotes({ market, batchSize: 500, concurrency: 6 }), 5_000, `${market} quotes timeout`)
-      .then((rows) => (rows as AnyRecord[]).map(toMarketQuoteRow).filter((row) => row.code));
-  })).then((rows) => rows.flat()).catch(() => []);
+  const sdkRows = await Promise.all(tabs.map(fetchSdkMarketQuoteRows)).then((rows) => rows.flat()).catch(() => []);
   if (sdkRows.length && !hasSparseQuoteMetrics(sdkRows)) return sdkRows;
   return fetchEastmoneyQuoteRows(tabs);
+}
+
+async function fetchSdkMarketQuoteRows(tab: MarketTab) {
+  const market = marketTabSdkMarket(tab);
+  if (!market) return [];
+  if (tab === 'sz-main') {
+    const service = (sdk as unknown as {
+      quoteService: {
+        getAShareCodeList(options?: { market?: string }): Promise<string[]>;
+        getAllQuotesByCodes(codes: string[], options?: { batchSize?: number; concurrency?: number }): Promise<unknown[]>;
+      };
+    }).quoteService;
+    const codes = (await withTimeoutReject(service.getAShareCodeList({ market }), 5_000, `${market} code list timeout`)).filter((code) => quoteMatchesTab(code.replace(/^(sh|sz|bj)/i, ''), tab));
+    return withTimeoutReject(service.getAllQuotesByCodes(codes, { batchSize: 500, concurrency: 6 }), 5_000, `${market} quotes timeout`)
+      .then((rows) => (rows as AnyRecord[]).map(toMarketQuoteRow).filter((row) => row.code));
+  }
+  return withTimeoutReject((sdk as unknown as { quoteService: { getAllAShareQuotes(options?: { market?: string; batchSize?: number; concurrency?: number }): Promise<unknown[]> } }).quoteService.getAllAShareQuotes({ market, batchSize: 500, concurrency: 6 }), 5_000, `${market} quotes timeout`)
+    .then((rows) => (rows as AnyRecord[]).map(toMarketQuoteRow).filter((row) => row.code));
 }
 
 async function fetchEastmoneyQuoteRows(tabs: MarketTab[]) {
