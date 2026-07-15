@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { StockKlineChart } from '../kline-chart';
+import { KlineModal, StockKlineChart } from '../kline-chart';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import type { MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketTab, StockDetail } from '../../shared/types';
+import type { MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketSearchResult, MarketTab, StockDetail } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
@@ -9,13 +9,11 @@ import styles from './index.module.scss';
 const MARKET_PAGE_SIZE = 20;
 
 const tabs: Array<{ id: MarketTab; label: string }> = [
-  { id: 'leaders', label: '领涨板块' },
   { id: 'sh-main', label: '上海主板' },
   { id: 'sz-main', label: '深证主板' },
   { id: 'bj', label: '北交所' },
   { id: 'gem', label: '创业板' },
   { id: 'star', label: '科创板' },
-  { id: 'boards', label: '所有板块' },
 ];
 
 const periods: Array<{ id: MarketIndexPeriod; label: string }> = [
@@ -25,19 +23,22 @@ const periods: Array<{ id: MarketIndexPeriod; label: string }> = [
   { id: '1d', label: '天' },
 ];
 
+type SortDirection = 'asc' | 'desc' | undefined;
+
 export function MarketView() {
-  const [activeTab, setActiveTab] = useState<MarketTab>('leaders');
+  const [activeTab, setActiveTab] = useState<MarketTab>('sh-main');
   const [indexPeriod, setIndexPeriod] = useState<MarketIndexPeriod>('1d');
   const [indices, setIndices] = useState<MarketIndexSnapshot[]>([]);
   const [rowsByTab, setRowsByTab] = useState<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
-  const [boardsByTab, setBoardsByTab] = useState<Partial<Record<MarketTab, MarketBoardRow[]>>>({});
   const [updatedAt, setUpdatedAt] = useState('');
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [suggestions, setSuggestions] = useState<MarketQuoteRow[]>([]);
+  const [suggestions, setSuggestions] = useState<MarketSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [visibleRowCount, setVisibleRowCount] = useState(MARKET_PAGE_SIZE);
+  const [sortDirection, setSortDirection] = useState<SortDirection>();
+  const [expandedIndex, setExpandedIndex] = useState<MarketIndexSnapshot>();
   const refreshTimer = useRef<number>();
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
@@ -49,12 +50,11 @@ export function MarketView() {
     let alive = true;
     const api = getStocksenseApi();
     setLoading(true);
-    const hasContent = (data: MarketPageSnapshot) => data.tab === 'leaders' || data.tab === 'boards' ? data.boards.length > 0 : data.rows.length > 0;
+    const hasContent = (data: MarketPageSnapshot) => data.rows.length > 0;
     const applySnapshot = (data: MarketPageSnapshot, done = true) => {
       if (!alive) return;
       if (data.indices.length) setIndices(data.indices);
       setRowsByTab((current) => ({ ...current, [data.tab]: data.rows }));
-      setBoardsByTab((current) => ({ ...current, [data.tab]: data.boards }));
       if (data.tab === activeTab) {
         setUpdatedAt(data.updatedAt);
         if (done || hasContent(data)) setLoading(false);
@@ -66,7 +66,6 @@ export function MarketView() {
       if (!alive || (data.period ?? '1d') !== indexPeriod) return;
       if (data.indices.length) setIndices(data.indices);
       setRowsByTab((current) => ({ ...current, [data.tab]: data.rows }));
-      setBoardsByTab((current) => ({ ...current, [data.tab]: data.boards }));
       if (data.tab === activeTab) {
         setUpdatedAt(data.updatedAt);
         setLoading(false);
@@ -97,10 +96,9 @@ export function MarketView() {
     return () => { alive = false; };
   }, [debouncedSearch]);
 
-  const isBoardTab = activeTab === 'leaders' || activeTab === 'boards';
   const visibleRows = rowsByTab[activeTab] ?? [];
-  const renderedRows = visibleRows.slice(0, visibleRowCount);
-  const visibleBoards = boardsByTab[activeTab] ?? [];
+  const sortedRows = sortDirection ? [...visibleRows].sort((a, b) => (parsePercent(a.changePercent) - parsePercent(b.changePercent)) * (sortDirection === 'asc' ? 1 : -1)) : visibleRows;
+  const renderedRows = sortedRows.slice(0, visibleRowCount);
 
   const changeTab = (tab: MarketTab) => {
     setActiveTab(tab);
@@ -109,8 +107,8 @@ export function MarketView() {
   };
 
   const loadMoreRows = () => {
-    if (isBoardTab || visibleRowCount >= visibleRows.length) return;
-    setVisibleRowCount((count) => Math.min(count + MARKET_PAGE_SIZE, visibleRows.length));
+    if (visibleRowCount >= sortedRows.length) return;
+    setVisibleRowCount((count) => Math.min(count + MARKET_PAGE_SIZE, sortedRows.length));
   };
 
   const openStock = useCallback(async (row: MarketQuoteRow) => {
@@ -139,20 +137,23 @@ export function MarketView() {
   }, [openRightPanel, setSelectedStock]);
 
   const openBoard = useCallback(async (row: MarketBoardRow) => {
+    const preview = { code: row.code, name: row.name, changePercent: formatPercent(row.changePercent), kline: row.minutes ?? [], constituents: [] };
     openBoardPanel();
-    setSelectedBoard({ code: row.code, name: row.name, changePercent: formatPercent(row.changePercent) });
+    setSelectedBoard(preview);
     try {
-      setSelectedBoard(await getStocksenseApi().getBoardDetail(row.code));
+      const detail = await getStocksenseApi().getBoardDetail(row.code);
+      setSelectedBoard({ ...detail, name: detail.name === detail.code ? row.name : detail.name, changePercent: detail.changePercent ?? preview.changePercent });
     } catch {
-      setSelectedBoard({ code: row.code, name: row.name, changePercent: formatPercent(row.changePercent) });
+      setSelectedBoard(preview);
     }
   }, [openBoardPanel, setSelectedBoard]);
 
-  const openSearchResult = (row: MarketQuoteRow) => {
+  const openSearchResult = (row: MarketSearchResult) => {
     setSearchText('');
     setDebouncedSearch('');
     setSuggestions([]);
-    void openStock(row);
+    if (row.kind === 'board') void openBoard(row);
+    else void openStock(row);
   };
 
   return (
@@ -164,8 +165,8 @@ export function MarketView() {
             <input value={searchText} onChange={(event) => setSearchText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setSuggestions([]); }} placeholder="搜索代码 / 名称" />
             {searchText ? <div className={styles.suggestions}>
               {searching ? <div className={styles.suggestionEmpty}>搜索中…</div> : suggestions.length ? suggestions.map((row) => (
-                <button key={row.code} className={styles.suggestionItem} onMouseDown={(event) => { event.preventDefault(); openSearchResult(row); }} type="button">
-                  <span>{row.name}</span><code>{row.code}</code>
+                <button key={`${row.kind ?? 'stock'}-${row.code}`} className={styles.suggestionItem} onMouseDown={(event) => { event.preventDefault(); openSearchResult(row); }} type="button">
+                  <span>{row.name}<em>{row.kind === 'board' ? '板块' : '股票'}</em></span><code>{row.code}</code>
                 </button>
               )) : debouncedSearch ? <div className={styles.suggestionEmpty}>无匹配股票</div> : null}
             </div> : null}
@@ -174,26 +175,26 @@ export function MarketView() {
         </div>
       </div>
       <div className={styles.indices}>
-        {(indices.length ? indices : [undefined, undefined]).map((item, index) => item ? <IndexCard key={item.code} item={item} /> : <div key={index} className={styles.indexCard}><div className={styles.noChart}>指数刷新中…</div></div>)}
+        {(indices.length ? indices : [undefined, undefined]).map((item, index) => item ? <IndexCard key={item.code} item={item} onExpand={setExpandedIndex} /> : <div key={index} className={styles.indexCard}><div className={styles.noChart}>指数刷新中…</div></div>)}
       </div>
       <div className={styles.tabs}>{tabs.map((tab) => <button key={tab.id} className={cx(activeTab === tab.id && styles.active)} onClick={() => changeTab(tab.id)} type="button">{tab.label}</button>)}</div>
       <div ref={tableWrapRef} className={styles.tableWrap} onScroll={(event) => {
         const el = event.currentTarget;
         if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreRows();
       }}>
-        {activeTab === 'leaders' ? <BoardCharts rows={visibleBoards.slice(0, 4)} onOpen={openBoard} loading={loading} /> : isBoardTab ? <BoardTable rows={visibleBoards} onOpen={openBoard} /> : <>
-          <StockTable rows={renderedRows} onOpen={openStock} />
-          {visibleRows.length ? <div className={styles.loadState}>{visibleRowCount < visibleRows.length ? '向下滚动加载更多' : `已加载全部 ${visibleRows.length} 只`}</div> : null}
-        </>}
+        <StockTable rows={renderedRows} sortDirection={sortDirection} onSortChange={() => { setSortDirection((direction) => direction === undefined ? 'desc' : direction === 'desc' ? 'asc' : undefined); setVisibleRowCount(MARKET_PAGE_SIZE); }} onOpen={openStock} />
+        {sortedRows.length ? <div className={styles.loadState}>{visibleRowCount < sortedRows.length ? '向下滚动加载更多' : `已加载全部 ${sortedRows.length} 只`}</div> : null}
       </div>
+      {expandedIndex ? <KlineModal stock={expandedIndex} data={expandedIndex.minutes} onClose={() => setExpandedIndex(undefined)} chipsOpen={false} /> : null}
     </section>
   );
 }
 
-const IndexCard = memo(function IndexCard({ item }: { item: MarketIndexSnapshot }) {
+const IndexCard = memo(function IndexCard({ item, onExpand }: { item: MarketIndexSnapshot; onExpand(item: MarketIndexSnapshot): void }) {
   const isDown = Number(item.changePercent) < 0;
   return (
     <div className={styles.indexCard}>
+      <button className={styles.expandButton} onClick={() => onExpand(item)} title="放大指数图" type="button">⛶</button>
       <div className={styles.indexTitle}><span>{item.name}</span><strong className={isDown ? 'down' : 'up'}>{item.price ?? '--'}</strong><em className={isDown ? 'down' : 'up'}>{formatSigned(item.change)} {formatPercent(item.changePercent)}</em></div>
       <div className={styles.chart}>
         {item.minutes.length ? <StockKlineChart key={`${item.code}-${item.minutes[0]?.time}-${item.minutes[item.minutes.length - 1]?.time}`} stock={item} data={item.minutes} height="100%" showLegend={false} staticData /> : <span className={styles.noChart}>暂无数据</span>}
@@ -203,24 +204,9 @@ const IndexCard = memo(function IndexCard({ item }: { item: MarketIndexSnapshot 
   );
 });
 
-const BoardCharts = memo(function BoardCharts({ rows, onOpen, loading }: { rows: MarketBoardRow[]; onOpen(row: MarketBoardRow): void; loading: boolean }) {
-  if (!rows.length) return <div className={styles.emptyState}>{loading ? '领涨板块加载中…' : '暂无领涨板块数据'}</div>;
-  return <div className={styles.boardCharts}>{rows.map((row) => {
-    const change = Number(row.changePercent) || 0;
-    return <button key={row.code} className={styles.boardChart} onClick={() => onOpen(row)} type="button">
-      <div className={styles.boardChartTitle}><span>{row.name}</span><strong className={tone(change)}>{formatPercent(change)}</strong></div>
-      <div className={styles.boardKline}>{row.minutes.length ? <StockKlineChart key={`${row.code}-${row.minutes[0]?.time}-${row.minutes[row.minutes.length - 1]?.time}`} stock={row} data={row.minutes} height="100%" showLegend={false} staticData /> : <div className={styles.emptyState}>{loading ? '图表加载中…' : '暂无图表数据'}</div>}</div>
-      <div className={styles.boardChartMeta}><span>成交额 {formatMoney(row.amount)}</span><span>最新 {row.price ?? '--'}</span></div>
-    </button>;
-  })}</div>;
-});
-
-function StockTable({ rows, onOpen }: { rows: MarketQuoteRow[]; onOpen(row: MarketQuoteRow): void }) {
-  return <table className={styles.marketTable}><thead><tr><th>序号</th><th>代码</th><th>名称</th><th>涨跌幅</th><th>成交量</th><th>成交额</th><th>最新价</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.code} onClick={() => onOpen(row)}><td>{index + 1}</td><td>{row.code}</td><td>{row.name}</td><td className={tone(row.changePercent)}>{formatPercent(row.changePercent)}</td><td>{formatVolume(row.volume)}</td><td>{formatMoney(row.amount)}</td><td className={tone(row.changePercent)}>{row.price ?? '--'}</td></tr>)}</tbody></table>;
-}
-
-function BoardTable({ rows, onOpen }: { rows: MarketBoardRow[]; onOpen(row: MarketBoardRow): void }) {
-  return <table className={styles.marketTable}><thead><tr><th>序号</th><th>代码</th><th>名称</th><th>涨跌幅</th><th>成交量</th><th>成交额</th><th>最新价</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.code} onClick={() => onOpen(row)}><td>{index + 1}</td><td>{row.code}</td><td>{row.name}</td><td className={tone(row.changePercent)}>{formatPercent(row.changePercent)}</td><td>{formatVolume(row.volume)}</td><td>{formatMoney(row.amount)}</td><td className={tone(row.changePercent)}>{row.price ?? '--'}</td></tr>)}</tbody></table>;
+function StockTable({ rows, sortDirection, onSortChange, onOpen }: { rows: MarketQuoteRow[]; sortDirection: SortDirection; onSortChange(): void; onOpen(row: MarketQuoteRow): void }) {
+  const sortMark = sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : '↕';
+  return <table className={styles.marketTable}><thead><tr><th>序号</th><th>代码</th><th>名称</th><th><button className={styles.sortButton} onClick={onSortChange} type="button">涨跌幅 {sortMark}</button></th><th>换手率</th><th>成交量</th><th>成交额</th><th>最新价</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.code} onClick={() => onOpen(row)}><td>{index + 1}</td><td>{row.code}</td><td>{row.name}</td><td className={tone(row.changePercent)}>{formatPercent(row.changePercent)}</td><td>{formatPercent(row.turnoverRate)}</td><td>{formatVolume(row.volume)}</td><td>{formatMoney(row.amount)}</td><td className={tone(row.changePercent)}>{row.price ?? '--'}</td></tr>)}</tbody></table>;
 }
 
 function isChinaMarketOpen(date = new Date()) {
@@ -231,8 +217,9 @@ function isChinaMarketOpen(date = new Date()) {
 }
 
 function tone(value: unknown) { return Number(value) < 0 || String(value).startsWith('-') ? 'down' : 'up'; }
+function parsePercent(value: unknown) { const num = Number.parseFloat(String(value ?? '').replace('%', '')); return Number.isFinite(num) ? num : 0; }
 function formatSigned(value: unknown) { const num = Number(value); return Number.isFinite(num) ? `${num > 0 ? '+' : ''}${num.toFixed(2)}` : '--'; }
-function formatPercent(value: unknown) { const num = Number.parseFloat(String(value ?? '').replace('%', '')); return Number.isFinite(num) ? `${num > 0 ? '+' : ''}${num.toFixed(2)}%` : String(value ?? '--'); }
+function formatPercent(value: unknown) { const raw = String(value ?? ''); const num = Number.parseFloat(raw.replace('%', '')); return Number.isFinite(num) ? `${num > 0 ? '+' : ''}${num.toFixed(2)}%` : String(value ?? '--'); }
 function formatVolume(value: unknown) { const num = Number(value); if (!Number.isFinite(num)) return String(value ?? '--'); return num >= 100_000_000 ? `${(num / 100_000_000).toFixed(2)}亿手` : num >= 10_000 ? `${(num / 10_000).toFixed(2)}万手` : `${num.toFixed(0)}手`; }
 function formatMoney(value: unknown) { const num = Number(value); if (!Number.isFinite(num)) return String(value ?? '--'); return num >= 100_000_000 ? `${(num / 100_000_000).toFixed(2)}亿` : num >= 10_000 ? `${(num / 10_000).toFixed(2)}万` : `${num.toFixed(0)}`; }
 function formatMarketCap(value: unknown) { const num = Number(value); if (!Number.isFinite(num)) return String(value ?? '--'); return num >= 10_000 ? `${(num / 10_000).toFixed(2)}万亿` : `${num.toFixed(1)}亿`; }

@@ -250,9 +250,7 @@ function KlineHoverInfo({ point, previous, pe, side }: { point: KlinePoint; prev
       <KlineInfoRow label="收盘" value={formatPrice(point.close)} tone={point.close >= point.open ? 'up' : 'down'} />
       <KlineInfoRow label="涨跌额" value={formatSigned(change)} tone={change >= 0 ? 'up' : 'down'} />
       <KlineInfoRow label="涨跌幅" value={`${formatSigned(changePercent)}%`} tone={changePercent >= 0 ? 'up' : 'down'} />
-      <KlineInfoRow label="换手率" value={point.turnoverRate === undefined || Number.isNaN(point.turnoverRate) ? '--' : `${point.turnoverRate.toFixed(2)}%`} />
       <KlineInfoRow label="成交量" value={formatVolume(point.volume)} />
-      <KlineInfoRow label="成交额" value={formatMoney(point.amount)} />
       <KlineInfoRow label="市盈率" value={String(point.pe ?? pe ?? '--')} />
     </div>
   );

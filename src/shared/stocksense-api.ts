@@ -291,12 +291,7 @@ const webFallbackApi: StocksenseApi = {
       turnoverRate: stock.turnoverRate,
       marketCap: stock.marketCap,
     }));
-    const boards = [
-      { code: 'BK0475', name: '半导体', price: 1288.6, changePercent: 1.86, volume: '1260万手', amount: '520亿', marketCap: '3.2万亿', turnoverRate: '2.1%', minutes: [] },
-      { code: 'BK0437', name: '酿酒行业', price: 954.4, changePercent: 1.12, volume: '320万手', amount: '185亿', marketCap: '2.8万亿', turnoverRate: '0.8%', minutes: [] },
-      { code: 'BK0428', name: '证券', price: 803.2, changePercent: 0.94, volume: '2100万手', amount: '410亿', marketCap: '4.1万亿', turnoverRate: '1.6%', minutes: [] },
-    ];
-    return { tab, updatedAt: new Date().toISOString(), indices: makePreviewIndices(), rows, boards: tab === 'boards' || tab === 'leaders' ? boards : [] };
+    return { tab, updatedAt: new Date().toISOString(), indices: makePreviewIndices(), rows, boards: [] };
   },
   async listStoreItems() {
     return readStoreItems();

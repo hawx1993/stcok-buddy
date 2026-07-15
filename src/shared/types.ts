@@ -345,7 +345,7 @@ export interface PagedMarketNews {
 }
 
 export type HotFocusTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
-export type MarketTab = 'leaders' | 'sh-main' | 'sz-main' | 'bj' | 'gem' | 'star' | 'boards';
+export type MarketTab = 'sh-main' | 'sz-main' | 'bj' | 'gem' | 'star';
 export type MarketIndexPeriod = '15m' | '1h' | '4h' | '1d';
 
 export interface MarketQuoteRow {
@@ -374,6 +374,8 @@ export interface MarketBoardRow {
   turnoverRate?: number | string;
   minutes: KlinePoint[];
 }
+
+export type MarketSearchResult = (MarketQuoteRow & { kind?: 'stock' }) | (MarketBoardRow & { kind: 'board' });
 
 export interface MarketMinutePoint {
   time: string;
@@ -456,7 +458,7 @@ export interface StocksenseApi {
   sendChat(request: ChatRequest): Promise<ChatResponse>;
   onChatToken?(handler: (event: ChatStreamEvent) => void): () => void;
   getStockDetail(symbol: string): Promise<StockDetail>;
-  searchStocks(query: string): Promise<MarketQuoteRow[]>;
+  searchStocks(query: string): Promise<MarketSearchResult[]>;
   getBoardDetail(symbol: string): Promise<BoardDetail>;
   getKline(symbol: string, limit?: number, period?: string): Promise<KlinePoint[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
