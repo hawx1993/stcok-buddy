@@ -101,7 +101,7 @@ export function ChatView() {
     setSelectedStock({ ...stock, kline } as StockDetail);
     try {
       const detail = await getStocksenseApi().getStockDetail(stock.code);
-      setSelectedStock({ ...detail, kline });
+      setSelectedStock({ ...detail, kline: kline?.length ? kline : detail.kline });
     } catch {
       setSelectedStock({ ...stock, kline } as StockDetail);
     }

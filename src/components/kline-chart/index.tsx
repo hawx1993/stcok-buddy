@@ -51,8 +51,8 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
   const marketColors = useMemo(() => getMarketColors(marketColorMode), [marketColorMode]);
   const [localTf, setLocalTf] = useState<TimeframeId>('1d');
   const requestedTf = timeframe ?? localTf;
-  const usesProvidedData = data.length > 0 && staticData;
   const tf = requestedTf;
+  const usesProvidedData = data.length > 0 && (staticData || tf === '1d');
   const [loadedData, setLoadedData] = useState<KlinePoint[]>(usesProvidedData ? data : []);
   const [hoverIndex, setHoverIndex] = useState<number | undefined>();
   const [hoverPoint, setHoverPoint] = useState<KlinePoint | undefined>();
@@ -210,7 +210,7 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
   return (
     <div className={cx(styles.wrap, className)} style={{ height }}>
       <div className={styles.chart} ref={hostRef} />
-      {hoverPoint ? <KlineHoverInfo point={hoverPoint} previous={hoverIndex ? chartData[hoverIndex - 1] : undefined} pe={stock?.pe} side={tooltipSide} /> : null}
+      {hoverPoint ? <KlineHoverInfo point={hoverPoint} previous={hoverIndex ? chartData[hoverIndex - 1] : undefined} pe={stock?.pe} side={tooltipSide} period={frame.period} /> : null}
       {chips ? <ChipOverlay chips={chips} data={chartData} /> : null}
       {showSwitcher ? (
         <div className={styles.timeframes}>
@@ -285,12 +285,12 @@ function clampIndex(index: number, length: number) {
   return Math.max(0, Math.min(length - 1, index));
 }
 
-function KlineHoverInfo({ point, previous, pe, side }: { point: KlinePoint; previous?: KlinePoint; pe?: string | number; side: 'left' | 'right' }) {
+function KlineHoverInfo({ point, previous, pe, side, period }: { point: KlinePoint; previous?: KlinePoint; pe?: string | number; side: 'left' | 'right'; period: Period }) {
   const change = point.change ?? point.close - (previous?.close ?? point.open);
   const changePercent = point.changePercent ?? (previous?.close ? (change / previous.close) * 100 : 0);
   return (
     <div className={cx(styles['hover-tooltip'], styles[side])}>
-      <div className={styles.date}>{formatKlineTime(point.time)}</div>
+      <div className={styles.date}>{formatKlineTime(point, period)}</div>
       <KlineInfoRow label="开盘" value={formatPrice(point.open)} />
       <KlineInfoRow label="最高" value={formatPrice(point.high)} tone={point.high >= point.open ? 'up' : 'down'} />
       <KlineInfoRow label="最低" value={formatPrice(point.low)} tone={point.low >= point.open ? 'up' : 'down'} />
@@ -298,7 +298,7 @@ function KlineHoverInfo({ point, previous, pe, side }: { point: KlinePoint; prev
       <KlineInfoRow label="涨跌额" value={formatSigned(change)} tone={change >= 0 ? 'up' : 'down'} />
       <KlineInfoRow label="涨跌幅" value={`${formatSigned(changePercent)}%`} tone={changePercent >= 0 ? 'up' : 'down'} />
       <KlineInfoRow label="成交量" value={formatVolume(point.volume)} />
-      <KlineInfoRow label="市盈率" value={String(point.pe ?? pe ?? '--')} />
+      {point.pe ?? pe ? <KlineInfoRow label="市盈率" value={String(point.pe ?? pe)} /> : null}
     </div>
   );
 }
@@ -307,14 +307,18 @@ function KlineInfoRow({ label, value, tone }: { label: string; value: string; to
   return <div className={styles['info-row']}><span>{label}</span><b className={tone ? styles[tone] : undefined}>{value}</b></div>;
 }
 
-function formatKlineTime(value: string) {
-  const text = String(value || '').trim();
-  if (/^\d{4}-\d{1,2}-\d{1,2}/.test(text)) return text;
-  const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
-  const timestamp = Number(text);
-  if (Number.isFinite(timestamp) && timestamp > 10_000_000_000) return new Date(timestamp).toLocaleDateString('zh-CN');
-  return text || '--';
+function formatKlineTime(point: KlinePoint, period: Period) {
+  const timestamp = point.timestamp ?? parseKlineTimestamp(point.time, 0, 1, period);
+  if (!Number.isFinite(timestamp)) return point.time || '--';
+  const date = new Date(timestamp);
+  const dateText = `${date.getFullYear()}/${pad2(date.getMonth() + 1)}/${pad2(date.getDate())}`;
+  const weekText = `周${'日一二三四五六'[date.getDay()]}`;
+  if (period.type === 'day') return `${dateText} ${weekText}`;
+  return `${dateText} ${pad2(date.getHours())}:${pad2(date.getMinutes())} ${weekText}`;
+}
+
+function pad2(value: number) {
+  return String(value).padStart(2, '0');
 }
 
 function formatPrice(value: number) {

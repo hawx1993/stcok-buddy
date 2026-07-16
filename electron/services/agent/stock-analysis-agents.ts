@@ -149,7 +149,7 @@ export function parseStructuredAgentOutput(raw: string, agent: Pick<StockAnalysi
     return {
       agentName: agent.name,
       label: agent.label,
-      findings: findings.length ? findings : [fallbackFinding(agent, input, fallbackId)],
+      findings: findings.length ? findings : [fallbackFinding(agent, input, fallbackId, markdown)],
       evidence,
       markdown,
     };
@@ -173,7 +173,7 @@ function sanitizeFinding(item: unknown, agent: Pick<StockAnalysisAgentDef, 'name
     id: String(record.id ?? `${agent.name}-${index + 1}`),
     dimension: sanitizeDimension(record.dimension, agent.dimension),
     stance: sanitizeStance(record.stance),
-    score: record.score === undefined ? undefined : clamp(Number(record.score), 0, 100),
+    score: clamp(Number(record.score ?? 50), 0, 100),
     confidence: clamp(Number(record.confidence ?? 0.5), 0, 1),
     summary: String(record.summary ?? '数据不足，暂不形成强结论。'),
     evidenceIds: evidenceIds.length ? evidenceIds : [fallbackId],
@@ -186,22 +186,34 @@ function fallbackStructuredAgentOutput(agent: Pick<StockAnalysisAgentDef, 'name'
   return {
     agentName: agent.name,
     label: agent.label,
-    findings: [fallbackFinding(agent, input, usableEvidence[0].id)],
+    findings: [fallbackFinding(agent, input, usableEvidence[0].id, agent.fallback?.(input))],
     evidence: usableEvidence,
     markdown: agent.fallback ? agent.fallback(input) : fallbackMarkdown(agent, input),
   };
 }
 
-function fallbackFinding(agent: Pick<StockAnalysisAgentDef, 'name' | 'dimension'>, input: StockAnalysisInput, evidenceId: string): StructuredAgentFinding {
+function fallbackFinding(agent: Pick<StockAnalysisAgentDef, 'name' | 'dimension'>, input: StockAnalysisInput, evidenceId: string, markdown?: string): StructuredAgentFinding {
   return {
     id: `${agent.name}-fallback`,
     dimension: agent.dimension,
     stance: 'unknown',
+    score: 50,
     confidence: 0.35,
-    summary: `${input.stockLabel} 当前可用数据不足，需继续补充公开信息。`,
+    summary: oneLineSummary(markdown) ?? `${input.stockLabel} 当前可用数据不足，需继续补充公开信息。`,
     evidenceIds: [evidenceId],
-    risks: ['数据源不足或上游接口暂不可用。'],
+    risks: ['数据样本不足或上游接口暂不可用。'],
   };
+}
+
+function oneLineSummary(markdown?: string) {
+  const text = markdown
+    ?.replace(/#{1,6}\s*/g, '')
+    .replace(/[|`*_>\-]/g, '')
+    .replace(/\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return undefined;
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text;
 }
 
 function fallbackMarkdown(agent: Pick<StockAnalysisAgentDef, 'label'>, input: StockAnalysisInput) {

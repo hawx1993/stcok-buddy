@@ -2,8 +2,9 @@ import { generateReport } from '../llm/index.js';
 import type { StockAnalysisInput, StockAnalysisResult } from './stock-analysis-agents.js';
 
 export async function runStockAnalysisOverview(input: StockAnalysisInput, results: StockAnalysisResult[], onToken?: (token: string) => void): Promise<string> {
+  if (onToken) return streamText(fallbackOverview(input, results), onToken);
   try {
-    return await generateReport([
+    const report = await generateReport([
       {
         role: 'system',
         content: `你是一位精通A股的资深投研分析师。请只根据输入的 findings 和 evidence 输出综合投研报告，不得编造不存在的数据。
@@ -23,6 +24,7 @@ export async function runStockAnalysisOverview(input: StockAnalysisInput, result
         content: `股票：${input.stockLabel}（${input.symbol}）\n用户问题：${input.query}\n\n结构化 findings/evidence：\n${JSON.stringify(toOverviewInput(results), null, 2)}`,
       },
     ], onToken);
+    return ensureScoredOverview(report, input, results);
   } catch {
     return fallbackOverview(input, results);
   }
@@ -35,6 +37,21 @@ function toOverviewInput(results: StockAnalysisResult[]) {
     findings: result.output.findings,
     evidence: result.output.evidence.map((item) => ({ id: item.id, source: item.source, title: item.title, summary: item.summary, value: item.value, timestamp: item.timestamp })),
   }));
+}
+
+async function streamText(text: string, onToken: (token: string) => void) {
+  for (const chunk of text.match(/[\s\S]{1,16}/g) ?? [text]) {
+    onToken(chunk);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return text;
+}
+
+function ensureScoredOverview(report: string, input: StockAnalysisInput, results: StockAnalysisResult[]) {
+  if (!/\|\s*维度\s*\|\s*权重\s*\|/.test(report) || !/\|[^\n]*\s--\s*\|[^\n]*\s--\s*\|/.test(report)) return report;
+  const fallbackTable = fallbackOverview(input, results).match(/\|\s*维度\s*\|[\s\S]*?(?=\n\n###|$)/)?.[0];
+  if (!fallbackTable) return report;
+  return report.replace(/\|\s*维度\s*\|[\s\S]*?(?=\n\n###|$)/, fallbackTable);
 }
 
 const overviewWeights: Record<string, number> = {
@@ -63,7 +80,7 @@ function fallbackOverview(input: StockAnalysisInput, results: StockAnalysisResul
     const finding = result.output.findings[0];
     const score = finding?.score;
     const weight = overviewWeights[result.name] ?? 0;
-    lines.push(`| ${result.label} | ${formatWeight(weight)} | ${formatScore(score)} | ${formatScore(score === undefined ? undefined : score * weight)} | ${finding?.summary ?? '数据不足，暂不输出硬评分。'} |`);
+    lines.push(`| ${result.label} | ${formatWeight(weight)} | ${formatScore(score)} | ${formatScore(score === undefined ? undefined : score * weight)} | ${summaryForResult(result)} |`);
   }
   lines.push(`| **总分** | **100%** | **${formatScore(avg)}** | **--** | ${conclusion} |`);
   lines.push('', '### 📄 证据摘要');
@@ -78,13 +95,44 @@ function fallbackOverview(input: StockAnalysisInput, results: StockAnalysisResul
   lines.push('- 资金流、特大单和财报细项数据可能不完整，判断置信度有限。');
   lines.push('- 短期行情波动可能放大技术信号误判。');
   lines.push('', '### 🧩 各维度一句话总结');
-  for (const result of results) lines.push(`- **${result.label}**：${result.output.findings[0]?.summary ?? result.content}`);
-  lines.push('', `### 🎯 综合结论\n${conclusion}：以上内容基于当前可用公开数据自动生成，仅供研究参考，不构成投资建议。`);
+  for (const result of results) lines.push(`- **${result.label}**：${summaryForResult(result)}`);
+  lines.push('', `### 🎯 综合结论：${conclusion}\n以上内容基于当前可用公开数据自动生成，仅供研究参考，不构成投资建议。`);
   return lines.join('\n');
 }
 
 function formatWeight(weight: number) {
   return `${Math.round(weight * 100)}%`;
+}
+
+function summaryForResult(result: StockAnalysisResult) {
+  const summary = result.output.findings[0]?.summary;
+  const text = summary && !/当前可用数据不足|数据不足，暂不形成强结论/.test(summary) ? summary : oneLine(result.content) ?? summary;
+  return stripRepeatedLabel(text, result.label) ?? '数据不足，暂不输出硬评分。';
+}
+
+function stripRepeatedLabel(text: string | undefined, label: string) {
+  if (!text) return undefined;
+  const plainLabel = label.replace(/^\S+\s*/, '').trim();
+  const emoji = label.match(/^\S+/)?.[0] ?? '';
+  return text
+    .replace(new RegExp(`^${escapeRegExp(label)}[：:\s]*`), '')
+    .replace(new RegExp(`^${escapeRegExp(emoji)}\\s*${escapeRegExp(plainLabel.replace(/分析$/, ''))}(?:分析)?[：:\s]*`), '')
+    .trim();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function oneLine(markdown?: string) {
+  const text = markdown
+    ?.replace(/#{1,6}\s*/g, '')
+    .replace(/[|`*_>\-]/g, '')
+    .replace(/\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return undefined;
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text;
 }
 
 function formatScore(score?: number) {
