@@ -338,8 +338,9 @@ export function StockDetailPanel() {
         </>
       ) : (
         <>
-          <div className={styles['right-panel-header']}>
+          <div className={cx(styles['right-panel-header'], styles['stock-panel-header'])}>
             <span className={styles.title}>个股详情</span>
+            {selectedStock ? <div className={styles['stock-price']}><div className={styles.price}>{selectedStock.price ?? '--'}</div><div className={cx(styles.chg, String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up')}>{selectedStock.changePercent ?? '--'}</div></div> : null}
           </div>
           {selectedStock ? (
             <div className={styles['stock-detail']} ref={detailRef}>
@@ -350,7 +351,6 @@ export function StockDetailPanel() {
                 <button className={styles['robot-btn']} onClick={() => void sendStockReport(selectedStock.code)} title="诊股" aria-label="诊股" type="button"><Bot size={15} /></button>
                 <button className={cx(styles['robot-btn'], styles['favorite-btn'], selectedIsFavorite && styles.active)} onClick={() => void toggleSelectedFavorite()} title={selectedIsFavorite ? '取消收藏' : '收藏'} aria-label={selectedIsFavorite ? '取消收藏' : '收藏'} type="button"><Star size={15} fill={selectedIsFavorite ? 'currentColor' : 'none'} /></button>
               </div>
-              <div className={styles['stock-price']}><div className={styles.price}>{selectedStock.price ?? '--'}</div><div className={cx(styles.chg, String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up')}>{selectedStock.changePercent ?? '--'} ({selectedStock.change ?? '--'})</div></div>
             </div>
           </div>
           <div className={styles['kline-box']} data-klinebox>

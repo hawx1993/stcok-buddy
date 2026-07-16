@@ -323,6 +323,12 @@ async function searchEastmoneyStocks(query: string): Promise<MarketQuoteRow[]> {
 }
 
 export async function getStockDetail(symbolInput: string): Promise<StockDetail> {
+  const local = await getLocalStockDetail(symbolInput).catch(() => undefined);
+  if (local) {
+    void refreshQuoteCache();
+    return local;
+  }
+
   try {
     const quote = await getQuote(symbolInput);
     try {
@@ -351,6 +357,53 @@ export async function getStockDetail(symbolInput: string): Promise<StockDetail> 
       summary: `暂时无法从 stock-sdk 获取 ${code} 的实时详情：${error instanceof Error ? error.message : '未知错误'}`,
     };
   }
+}
+
+async function getLocalStockDetail(symbolInput: string): Promise<StockDetail | undefined> {
+  const code = normalizeASymbol(symbolInput);
+  const quote = getStoredQuoteRows().find((row) => row.code === code);
+  const bars = await listDailyBars(code, { limit: 120, adjustType: 'qfq' }).catch(() => []);
+  const latest = bars.at(-1);
+  if (!quote && !latest) return undefined;
+
+  const detail = quote ? toStockDetail(quote, code) : {
+    code,
+    name: code,
+    exchange: inferExchange(code),
+    price: latest?.close ?? '--',
+    change: latest?.change === undefined ? '--' : `${latest.change >= 0 ? '+' : ''}${formatNumber(latest.change)}`,
+    changePercent: latest?.changePercent === undefined ? '--' : formatPercent(latest.changePercent),
+    open: latest?.open === undefined ? '--' : formatNumber(latest.open),
+    high: latest?.high === undefined ? '--' : formatNumber(latest.high),
+    low: latest?.low === undefined ? '--' : formatNumber(latest.low),
+    prevClose: latest?.change === undefined || latest?.close === undefined ? '--' : formatNumber(latest.close - latest.change),
+    volume: latest?.volume === undefined ? '--' : `${(latest.volume / 10000).toFixed(1)}万手`,
+    turnover: latest?.amount === undefined ? '--' : formatMoney(latest.amount),
+    turnoverRate: latest?.turnoverRate === undefined ? '--' : `${formatNumber(latest.turnoverRate)}%`,
+    rating: { fundamental: '待评估', valuation: '需核查', tech: '待分析', risk: '中性' },
+    summary: latest ? `${code} 本地历史行情，最近交易日 ${latest.tradeDate}。` : undefined,
+  } satisfies StockDetail;
+
+  return {
+    ...detail,
+    open: hasValue(detail.open) ? detail.open : latest?.open,
+    high: hasValue(detail.high) ? detail.high : latest?.high,
+    low: hasValue(detail.low) ? detail.low : latest?.low,
+    prevClose: hasValue(detail.prevClose) ? detail.prevClose : latest?.change === undefined || latest?.close === undefined ? detail.prevClose : formatNumber(latest.close - latest.change),
+    kline: bars.map((bar) => ({
+      time: bar.tradeDate,
+      timestamp: parseMarketTime(bar.tradeDate),
+      open: bar.open,
+      close: bar.close,
+      high: bar.high,
+      low: bar.low,
+      volume: bar.volume,
+      amount: bar.amount,
+      change: bar.change,
+      changePercent: bar.changePercent,
+      turnoverRate: bar.turnoverRate,
+    })),
+  };
 }
 
 export async function getBoardDetail(symbol: string): Promise<BoardDetail> {
