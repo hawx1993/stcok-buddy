@@ -1,8 +1,10 @@
 # StockBuddy
 
-对话式 A 股投研助手桌面端 / PWA Demo。项目基于 Electron + React + TypeScript，数据层接入 `stock-sdk`，支持用户在系统设置中自由选择常用大模型厂商并填写自己的 API Key。
+对话式 A 股投研助手，面向个人投资者与研究人员，聚合行情、K 线、板块、资金流与新闻信息，用自然语言完成股票研究、风险梳理和投研报告生成。
 
-> 定位：研究辅助与信息聚合工具，不构成投资建议。
+> StockBuddy 仅用于公开数据研究与信息辅助，不构成任何投资建议。
+
+![StockBuddy 产品展示](public/images/preview-11.png)
 
 ## 功能特性
 
@@ -15,26 +17,66 @@
   - DeepSeek（含 deepseek-chat / deepseek-reasoner / 自定义 DeepSeek v4 模型名）
   - OpenAI
   - 通义千问 Qwen
-  - 文心一言 ERNIE
+  - MiniMax
   - 智谱 GLM
-  - 月之暗面 Moonshot
+  - Kimi
   - OpenAI Compatible
   - 自定义 API
 - 深浅色主题切换
-- PWA 支持：manifest + service worker + 浏览器 fallback API
-- Electron 打包支持：macOS DMG
+- PWA 支持：service worker + 离线支持
+- Electron 打包支持：macOS DMG / Windows 
 
-## 技术栈
+## 产品定位
 
-- Electron
-- React 18
-- TypeScript
-- Vite
-- Zustand：跨组件状态管理
-- GSAP：界面动效
-- electron-store：本地配置与会话存储
-- stock-sdk：股票行情与指标数据
-- electron-builder：桌面端打包
+StockBuddy 希望把传统投研终端里的信息检索、行情观察、指标分析和报告整理，压缩到一个更自然的对话入口中。用户可以像和研究助理沟通一样提出问题，系统会围绕股票、板块、行情和风险给出结构化分析。
+
+适合用于：
+
+- 快速了解一只股票的行情表现、技术形态与核心变化
+- 整理公开信息、新闻事件、公告与板块联动
+- 生成更易阅读的投研摘要、风险提示和综合结论
+- 记录个人偏好、交易风格与本地会话上下文
+
+## 核心能力
+
+### 对话式投研
+
+通过自然语言提问，完成股票查询、行情解读、技术分析、风险提示和报告生成，降低传统行情软件的信息检索成本。
+
+![对话式投研](public/images/preview-1.png)
+
+### 股票详情与行情面板
+
+在对话过程中同步展示股票详情、价格表现、图表与相关市场信息，方便边问边看。
+
+![股票详情与行情面板](public/images/preview-2.png)
+
+### 多 Agent 分析流程
+
+围绕数据采集、行情分析、报告生成和风险识别进行分工，让输出更接近“研究助理”的工作流。
+
+![多 Agent 分析流程](public/images/preview-10.png)
+
+![多 Agent 分析流程](public/images/preview-12.png)
+
+### 本地配置与个性化偏好
+
+支持配置常用大模型服务、API Key、模型名称、交易风格、风险偏好和持仓周期。配置保存在本地，便于个人化使用。
+
+![系统设置](public/images/preview-7.png)
+
+### 专业化报告展示
+
+报告内容采用结构化 Markdown 展示，突出核心事件、利好因素、利空因素、短期影响、中长期影响、风险提示和综合结论。
+
+![投研报告展示](public/images/preview-1.png)
+
+### 深浅色主题与桌面体验
+
+提供适合长时间阅读的桌面端界面，支持深浅色主题切换，兼顾行情浏览、对话分析和报告阅读。
+
+![桌面端体验](public/images/preview-9.png)
+
 
 ## 安装
 
@@ -42,123 +84,12 @@
 
 ```bash
 pnpm install
-```
-
-如果使用 npm：
-
-```bash
-npm install
-```
-
-## 开发
-
-### Electron 桌面端开发
-
-```bash
 pnpm run dev
+pnpm run dist:mac // 打包mac 应用
+pnpm run dist:all // 打包mac和windows 应用
 ```
 
-该命令会同时启动 Vite Renderer 与 Electron Main Process。
 
-### 浏览器 / PWA 预览
-
-```bash
-pnpm run dev:web
-```
-
-浏览器环境没有 Electron preload，因此应用会启用 Web fallback API：
-
-- 可体验 UI、主题、动效、系统设置、PWA
-- 使用本地示例股票数据
-- 实时 `stock-sdk` 与本机安全 API Key 存储在 Electron 桌面端中启用
-
-## 系统设置
-
-点击左下角用户菜单中的 **系统设置**：
-
-1. 选择大模型厂商
-2. 确认或修改 API 地址
-3. 填写 API Key
-4. 可选：填写模型名称，例如：
-   - `deepseek-chat`
-   - `deepseek-reasoner`
-   - `deepseek-v4`
-   - `qwen-plus`
-   - `glm-4-plus`
-   - `moonshot-v1-8k`
-5. 配置交易风格、风险偏好、持仓周期
-6. 点击保存
-
-API Key 只存储在本地：
-
-- Electron：`electron-store`
-- Web/PWA 预览：`localStorage`
-
-## 构建
-
-```bash
-pnpm run build
-```
-
-该命令会执行：
-
-1. TypeScript 类型检查
-2. Vite 前端构建
-3. Electron Main/Preload 编译
-
-## PWA 构建
-
-```bash
-pnpm run build:pwa
-```
-
-PWA 相关文件：
-
-- `public/manifest.webmanifest`
-- `public/sw.js`
-- `public/icons/icon.svg`
-- `src/register-service-worker.ts`
-
-Service Worker 仅在生产构建中注册，开发环境不注册，避免缓存影响调试。
-
-## macOS DMG 打包
-
-```bash
-pnpm run dist:mac
-```
-
-输出目录：
-
-```text
-release/
-```
-
-DMG 文件示例：
-
-```text
-StockBuddy-0.1.0-arm64.dmg
-StockBuddy-0.1.0-x64.dmg
-```
-
-如果出现 `electron-builder` 未安装：
-
-```bash
-pnpm add -D electron-builder
-pnpm run dist:mac
-```
-
-## 常用脚本
-
-```bash
-pnpm run dev        # Electron 桌面端开发
-pnpm run dev:web    # 浏览器/PWA 预览
-pnpm run typecheck  # TypeScript 检查
-pnpm run build      # 构建 renderer + electron
-pnpm run build:pwa  # PWA 构建
-pnpm run pack       # Electron 目录打包
-pnpm run dist       # Electron 分发包
-pnpm run dist:mac   # macOS DMG
-```
 
 ## 合规提示
 

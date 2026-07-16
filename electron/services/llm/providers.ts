@@ -31,11 +31,11 @@ export const providerPresets: ProviderPreset[] = [
     help: 'DashScope OpenAI 兼容模式。',
   },
   {
-    id: 'baidu',
-    name: '文心一言',
-    baseUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat',
-    models: ['ernie-4.0', 'ernie-3.5'],
-    help: '可后续扩展为百度专用鉴权适配器。',
+    id: 'minimax',
+    name: 'MiniMax',
+    baseUrl: 'https://api.minimax.chat/v1',
+    models: ['MiniMax-M1', 'MiniMax-Text-01'],
+    help: 'MiniMax OpenAI 兼容接口。',
   },
   {
     id: 'zhipu',
@@ -46,10 +46,10 @@ export const providerPresets: ProviderPreset[] = [
   },
   {
     id: 'moonshot',
-    name: '月之暗面',
+    name: 'Kimi',
     baseUrl: 'https://api.moonshot.cn/v1',
     models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
-    help: 'Moonshot OpenAI 兼容接口。',
+    help: 'Kimi / Moonshot OpenAI 兼容接口。',
   },
   {
     id: 'openai-compatible',
