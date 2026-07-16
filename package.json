@@ -1,6 +1,6 @@
 {
   "name": "stockbuddy-desktop",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "StockBuddy - 对话式 A 股投研助手 Electron 桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
@@ -131,15 +131,15 @@
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.0.3",
     "concurrently": "^9.1.0",
     "electron": "^43.1.0",
     "electron-builder": "^26.15.3",
     "electron-builder-squirrel-windows": "26.15.3",
     "sass": "^1.101.0",
     "tailwindcss": "^4.3.2",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.4",
     "wait-on": "^8.0.1"
   }
 }
