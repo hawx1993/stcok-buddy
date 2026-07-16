@@ -17,6 +17,7 @@ const marketIndexCache = new Map<MarketIndexPeriod, { rows?: MarketIndexSnapshot
 let marketBoardsCache: { rows: MarketBoardRow[]; updatedAt: number; promise?: Promise<MarketBoardRow[]>; loadedFromDb?: boolean } = { rows: [], updatedAt: 0 };
 let marketBoardsLastPersistedAt = 0;
 type BoardKind = 'industry' | 'concept';
+type IndexKlinePeriod = MarketIndexPeriod | '1w' | '1mo';
 type BoardApi = typeof sdk.board.industry;
 const boardKindCache = new Map<string, BoardKind>();
 
@@ -79,6 +80,12 @@ export async function getQuote(symbolInput: string): Promise<StockDetail> {
 }
 
 export async function getKline(symbolInput: string, limit = 120, period = '1d'): Promise<KlinePoint[]> {
+  const indexCode = normalizeIndexSymbol(symbolInput);
+  if (indexCode) {
+    const snapshot = isIndexKlinePeriod(period) ? await fetchMarketIndex(indexCode, period, limit) : undefined;
+    return (snapshot?.minutes ?? []).slice(-limit);
+  }
+
   const symbol = normalizeASymbol(symbolInput);
   if (period === '1d') return (await queryHistoricalBars(symbol, { limit, period: '1d', adjustType: 'qfq' })).data;
   try {
@@ -1200,6 +1207,17 @@ async function getMarketIndices(period: MarketIndexPeriod): Promise<MarketIndexS
   return result.filter((item): item is MarketIndexSnapshot => Boolean(item));
 }
 
+function normalizeIndexSymbol(input: string): 'sh000001' | 'sz399001' | undefined {
+  const text = input.trim().toLowerCase();
+  if (text === '上证指数' || text === 'sh000001') return 'sh000001';
+  if (text === '深证成指' || text === 'sz399001') return 'sz399001';
+  return undefined;
+}
+
+function isIndexKlinePeriod(period: string): period is IndexKlinePeriod {
+  return period === '15m' || period === '1h' || period === '4h' || period === '1d' || period === '1w' || period === '1mo';
+}
+
 async function getCachedMarketIndices(period: MarketIndexPeriod) {
   const entry = marketIndexCache.get(period) ?? {};
   if (entry.refreshing) return entry.refreshing;
@@ -1277,10 +1295,10 @@ function mergeKlineRows(current: KlinePoint[], incoming: KlinePoint[]) {
   return [...byTime.values()].sort((a, b) => (a.timestamp ?? parseMarketTime(a.time) ?? 0) - (b.timestamp ?? parseMarketTime(b.time) ?? 0));
 }
 
-async function fetchMarketIndex(code: string, period: MarketIndexPeriod): Promise<MarketIndexSnapshot | undefined> {
+async function fetchMarketIndex(code: string, period: IndexKlinePeriod, limit?: number): Promise<MarketIndexSnapshot | undefined> {
   try {
-    const [quote, minutes] = await Promise.all([fetchIndexQuote(code), fetchIndexSeries(code, period)]);
-    return quote ? { ...quote, minutes } : undefined;
+    const [quote, series] = await Promise.all([fetchIndexQuote(code), fetchIndexSeries(code, period, limit)]);
+    return quote ? { ...quote, minutes: patchLatestIndexBar(series, quote) } : undefined;
   } catch {
     return undefined;
   }
@@ -1294,12 +1312,12 @@ async function fetchIndexQuote(code: string): Promise<Omit<MarketIndexSnapshot, 
   return toMarketIndexSnapshot(code, payload.data?.[code]);
 }
 
-async function fetchIndexSeries(code: string, period: MarketIndexPeriod) {
-  if (period === '1d') return fetchIndexDailySeries(code);
+async function fetchIndexSeries(code: string, period: IndexKlinePeriod, limit?: number) {
+  if (period === '1d' || period === '1w' || period === '1mo') return fetchIndexHistorySeries(code, period, limit ?? (period === '1d' ? 120 : period === '1w' ? 240 : 120));
   const k = period === '15m' ? '15' : '60';
-  const limit = period === '4h' ? 80 : 60;
-  const rows = await fetchIndexMinuteSeries(code, k, limit);
-  return period === '4h' ? aggregateIndexSeries(rows, 4) : rows;
+  const count = limit ?? (period === '4h' ? 80 : 60);
+  const rows = await fetchIndexMinuteSeries(code, k, period === '4h' ? count * 4 : count);
+  return period === '4h' ? aggregateIndexSeries(rows, 4).slice(-count) : rows;
 }
 
 async function fetchIndexMinuteSeries(code: string, k: '15' | '60', limit: number) {
@@ -1315,13 +1333,27 @@ function aggregateIndexSeries(data: KlinePoint[], size: number) {
   return aggregateKline(data, size);
 }
 
-async function fetchIndexDailySeries(code: string) {
+function patchLatestIndexBar(data: KlinePoint[], quote: Omit<MarketIndexSnapshot, 'minutes'>): KlinePoint[] {
+  const latest = data.at(-1);
+  if (!latest || typeof quote.price !== 'number') return data;
+  return [...data.slice(0, -1), {
+    ...latest,
+    close: quote.price,
+    high: Math.max(latest.high, quote.price),
+    low: Math.min(latest.low, quote.price),
+    change: typeof quote.prevClose === 'number' ? Number((quote.price - quote.prevClose).toFixed(2)) : latest.change,
+    changePercent: typeof quote.prevClose === 'number' && quote.prevClose ? Number((((quote.price - quote.prevClose) / quote.prevClose) * 100).toFixed(2)) : latest.changePercent,
+  }];
+}
+
+async function fetchIndexHistorySeries(code: string, period: '1d' | '1w' | '1mo', limit = 120) {
+  const type = period === '1w' ? 'week' : period === '1mo' ? 'month' : 'day';
   const url = new URL('https://ifzq.gtimg.cn/appstock/app/fqkline/get');
-  url.search = new URLSearchParams({ param: `${code},day,,,120,qfq` }).toString();
+  url.search = new URLSearchParams({ param: `${code},${type},,,${limit},qfq` }).toString();
   const response = await fetch(url, { signal: AbortSignal.timeout(4_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://gu.qq.com/' } });
   if (!response.ok) return [];
-  const payload = await response.json() as { data?: Record<string, { day?: unknown[] }> };
-  return (payload.data?.[code]?.day ?? []).map(parseIndexKlinePoint).filter((item): item is NonNullable<ReturnType<typeof parseIndexKlinePoint>> => Boolean(item));
+  const payload = await response.json() as { data?: Record<string, Record<string, unknown[]>> };
+  return (payload.data?.[code]?.[type] ?? []).map(parseIndexKlinePoint).filter((item): item is NonNullable<ReturnType<typeof parseIndexKlinePoint>> => Boolean(item));
 }
 
 function toMarketIndexSnapshot(code: string, raw?: AnyRecord): MarketIndexSnapshot | undefined {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dispose, init } from 'klinecharts';
 import type { Chart, Crosshair, KLineData, Period } from 'klinecharts';
 import { getStocksenseApi } from '../../shared/stocksense-api';
@@ -9,12 +9,12 @@ import cx from '../../shared/cx';
 import styles from './index.module.scss';
 
 export const klineTimeframes = [
-  { id: '15m', label: '15分钟', limit: 48, period: { type: 'minute', span: 15 } },
-  { id: '1h', label: '1小时', limit: 72, period: { type: 'hour', span: 1 } },
-  { id: '4h', label: '4小时', limit: 90, period: { type: 'hour', span: 4 } },
-  { id: '1d', label: '天', limit: 120, period: { type: 'day', span: 1 } },
-  { id: '1w', label: '周', limit: 104, period: { type: 'week', span: 1 } },
-  { id: '1mo', label: '月', limit: 60, period: { type: 'month', span: 1 } },
+  { id: '15m', label: '15分钟', limit: 240, period: { type: 'minute', span: 15 } },
+  { id: '1h', label: '1小时', limit: 240, period: { type: 'hour', span: 1 } },
+  { id: '4h', label: '4小时', limit: 240, period: { type: 'hour', span: 4 } },
+  { id: '1d', label: '天', limit: 360, period: { type: 'day', span: 1 } },
+  { id: '1w', label: '周', limit: 240, period: { type: 'week', span: 1 } },
+  { id: '1mo', label: '月', limit: 120, period: { type: 'month', span: 1 } },
 ] as const;
 
 type TimeframeId = typeof klineTimeframes[number]['id'];
@@ -22,6 +22,8 @@ type TimeframeId = typeof klineTimeframes[number]['id'];
 type KlineStock = Pick<StockDetail, 'code' | 'name' | 'pe' | 'price'>;
 
 const EMPTY_KLINE_DATA: KlinePoint[] = [];
+const KLINE_LOAD_STEP = 240;
+const KLINE_MAX_LIMIT = 1200;
 
 interface StockKlineChartProps {
   stock?: KlineStock;
@@ -41,12 +43,15 @@ interface StockKlineChartProps {
 export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, height = 210, showSwitcher = false, showChips = false, chipsOpen = false, showIndicators = false, showLegend = true, timeframe, onTimeframeChange, staticData = false }: StockKlineChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
+  const loadingMoreRef = useRef(false);
+  const appendingOlderRef = useRef(false);
+  const loadedLimitRef = useRef(0);
   const chartDataRef = useRef<KlinePoint[]>([]);
   const marketColorMode = useAppStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
   const marketColors = useMemo(() => getMarketColors(marketColorMode), [marketColorMode]);
   const [localTf, setLocalTf] = useState<TimeframeId>('1d');
   const requestedTf = timeframe ?? localTf;
-  const usesProvidedData = data.length > 0 && (staticData || requestedTf === '1d');
+  const usesProvidedData = data.length > 0 && staticData;
   const tf = requestedTf;
   const [loadedData, setLoadedData] = useState<KlinePoint[]>(usesProvidedData ? data : []);
   const [hoverIndex, setHoverIndex] = useState<number | undefined>();
@@ -70,11 +75,14 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
     if (!stock?.code || usesProvidedData) return;
     let alive = true;
     setLoadedData([]);
+    appendingOlderRef.current = false;
+    loadedLimitRef.current = 0;
     setHoverIndex(undefined);
     setHoverPoint(undefined);
-    getStocksenseApi().getKline(stock.code, frame.limit, tf).then((next) => {
+    getStocksenseApi().getKline(toKlineRequestSymbol(stock), frame.limit, tf).then((next) => {
       if (alive) {
         setLoadedData(next);
+        loadedLimitRef.current = frame.limit;
         setHoverIndex(undefined);
         setHoverPoint(undefined);
       }
@@ -83,6 +91,25 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
     });
     return () => { alive = false; };
   }, [usesProvidedData, stock?.code, frame.limit, tf]);
+
+  const loadOlderData = useCallback(async () => {
+    if (!stock?.code || usesProvidedData || loadingMoreRef.current || loadedLimitRef.current >= KLINE_MAX_LIMIT) return [];
+    const firstTimestamp = chartDataRef.current[0]?.timestamp ?? (chartDataRef.current[0] ? parseKlineTimestamp(chartDataRef.current[0].time, 0, chartDataRef.current.length, frame.period) : undefined);
+    loadingMoreRef.current = true;
+    const nextLimit = Math.min(KLINE_MAX_LIMIT, Math.max(loadedLimitRef.current + KLINE_LOAD_STEP, frame.limit + KLINE_LOAD_STEP));
+    try {
+      const next = await getStocksenseApi().getKline(toKlineRequestSymbol(stock), nextLimit, tf);
+      const older = firstTimestamp === undefined ? next : next.filter((point, index) => (point.timestamp ?? parseKlineTimestamp(point.time, index, next.length, frame.period)) < firstTimestamp);
+      if (older.length) {
+        appendingOlderRef.current = true;
+        loadedLimitRef.current = nextLimit;
+        setLoadedData(next);
+      }
+      return older;
+    } finally {
+      loadingMoreRef.current = false;
+    }
+  }, [frame.limit, frame.period, stock, tf, usesProvidedData]);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -111,6 +138,7 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
     if (!chart) return;
     chartRef.current = chart;
     const updateHoverIndex = (nextIndex: number | undefined) => {
+      if (nextIndex !== undefined && nextIndex < 12) void loadOlderData();
       setHoverIndex(nextIndex);
       setHoverPoint(nextIndex === undefined ? undefined : chartDataRef.current[nextIndex]);
     };
@@ -148,9 +176,22 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
+    if (appendingOlderRef.current) {
+      appendingOlderRef.current = false;
+      return;
+    }
     chart.setSymbol({ ticker: stock?.code || 'kline', name: stock?.name || 'K线', pricePrecision: 2, volumePrecision: 0 });
     chart.setPeriod(frame.period as Period);
-    chart.setDataLoader({ getBars: ({ callback }) => callback(klineData, { forward: false, backward: false }) });
+    chart.setDataLoader({
+      getBars: async ({ type, callback }) => {
+        if (type === 'forward') {
+          const older = await loadOlderData();
+          callback(older.map((point, index) => toKLineData(point, index, older.length, frame.period)), { forward: older.length > 0, backward: false });
+          return;
+        }
+        callback(klineData, { forward: !staticData && loadedLimitRef.current < KLINE_MAX_LIMIT, backward: false });
+      },
+    });
     chart.resetData();
     chart.removeIndicator();
     chart.createIndicator('MA', { isStack: true, pane: { id: 'candle_pane' } });
@@ -193,6 +234,12 @@ export function KlineModal({ stock, data, onClose, chipsOpen = true }: { stock: 
       </div>
     </div>
   );
+}
+
+function toKlineRequestSymbol(stock: KlineStock) {
+  if (stock.name === '上证指数' && stock.code === '000001') return 'sh000001';
+  if (stock.name === '深证成指' && stock.code === '399001') return 'sz399001';
+  return stock.code;
 }
 
 function ChipOverlay({ chips, data }: { chips: ChipDistribution; data: KlinePoint[] }) {
