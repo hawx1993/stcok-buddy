@@ -17,9 +17,9 @@
   - DeepSeek（含 deepseek-chat / deepseek-reasoner / 自定义 DeepSeek v4 模型名）
   - OpenAI
   - 通义千问 Qwen
-  - 文心一言 ERNIE
+  - MiniMax
   - 智谱 GLM
-  - 月之暗面 Moonshot
+  - Kimi
   - OpenAI Compatible
   - 自定义 API
 - 深浅色主题切换

@@ -17,9 +17,9 @@ const providers: ProviderPreset[] = [
   { id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com', model: 'deepseek-chat', hint: '支持 deepseek-chat / deepseek-reasoner；DeepSeek v4 发布后可直接填写官方模型名。' },
   { id: 'openai', name: 'OpenAI', endpoint: 'https://api.openai.com/v1', model: 'gpt-4o', hint: '兼容 OpenAI Chat Completions。' },
   { id: 'qwen', name: '通义千问', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', hint: 'DashScope OpenAI 兼容模式。' },
-  { id: 'baidu', name: '文心一言', endpoint: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat', model: 'ernie-4.0', hint: '如使用非 OpenAI 兼容接口，后续可扩展专用适配器。' },
+  { id: 'minimax', name: 'MiniMax', endpoint: 'https://api.minimax.chat/v1', model: 'MiniMax-M1', hint: 'MiniMax OpenAI 兼容接口。' },
   { id: 'zhipu', name: '智谱 GLM', endpoint: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-plus', hint: '智谱 v4 API。' },
-  { id: 'moonshot', name: '月之暗面', endpoint: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', hint: 'Moonshot OpenAI 兼容接口。' },
+  { id: 'moonshot', name: 'Kimi', endpoint: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', hint: 'Kimi / Moonshot OpenAI 兼容接口。' },
   { id: 'openai-compatible', name: 'OpenAI Compatible', endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini', hint: '适用于任意兼容 Chat Completions 的网关或本地模型。' },
   { id: 'custom', name: '自定义 API', endpoint: '', model: '', hint: '填写自定义 Base URL 与模型名称。' },
 ];
