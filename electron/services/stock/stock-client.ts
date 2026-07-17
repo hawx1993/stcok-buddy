@@ -20,6 +20,12 @@ type BoardKind = 'industry' | 'concept';
 type IndexKlinePeriod = MarketIndexPeriod | '1w' | '1mo';
 type BoardApi = typeof sdk.board.industry;
 const boardKindCache = new Map<string, BoardKind>();
+const searchBoardNameCache = new Map<string, string>();
+const BOARD_DETAIL_TIMEOUT = 8_000;
+const BOARD_SDK_REQUEST_TIMEOUT = 2_500;
+const BOARD_CONSTITUENT_SCAN_LIMIT = 2_400;
+const BOARD_SCAN_CONCURRENCY = 32;
+const BOARD_SCAN_BUDGET_MS = 5_500;
 
 type AnyRecord = Record<string, unknown>;
 
@@ -268,33 +274,46 @@ export async function searchStocks(query: string): Promise<MarketSearchResult[]>
   if (!text) return [];
   const q = text.toLowerCase();
 
-  const sdkRows = await sdk.search(text).catch(() => []) as Array<{ code?: string; name?: string; category?: string; type?: string }>;
+  const [sdkRows, boardRows] = await Promise.all([
+    withTimeoutReject(sdk.search(text), 900, 'search timeout').catch(() => []) as Promise<Array<{ code?: string; name?: string; category?: string; type?: string }>>,
+    searchMarketBoards(q, text),
+  ]);
   const fromSdk = sdkRows
     .filter((item) => item.code && (item.category === 'stock' || /^GP-|A股|stock/i.test(String(item.type ?? item.category ?? ''))))
     .map((item) => ({ code: normalizeSearchCode(item.code), name: item.name || normalizeSearchCode(item.code), kind: 'stock' as const }))
     .filter((item) => item.code.includes(q) || item.name.toLowerCase().includes(q));
   const stockRows = fromSdk.length ? dedupeSearchRows(fromSdk).slice(0, 50) : await searchFallbackStocks(text, q);
-  const boardRows = await searchMarketBoards(q);
-  return [...stockRows, ...boardRows].slice(0, 50);
+  return [...boardRows, ...stockRows].slice(0, 50);
 }
 
 async function searchFallbackStocks(text: string, q: string): Promise<MarketSearchResult[]> {
-  const suggested = await searchEastmoneyStocks(text);
-  if (suggested.length) return suggested.map((row) => ({ ...row, kind: 'stock' as const }));
-
   const marketRows = await getAllMarketQuoteRows().catch(() => []);
-  return marketRows
+  const local = marketRows
     .filter((row) => row.code.includes(q) || row.name.toLowerCase().includes(q))
     .slice(0, 50)
     .map((row) => ({ ...row, kind: 'stock' as const }));
+  if (local.length) return local;
+
+  const suggested = await searchEastmoneyStocks(text);
+  return suggested.map((row) => ({ ...row, kind: 'stock' as const }));
 }
 
-async function searchMarketBoards(q: string): Promise<MarketSearchResult[]> {
-  const rows = await getCachedMarketBoardRows().catch(() => []);
-  return rows
+async function searchMarketBoards(q: string, raw = q): Promise<MarketSearchResult[]> {
+  const rows = await getRemoteMarketBoardRows().catch(() => []);
+  const matches = rows
     .filter((row) => row.code.toLowerCase().includes(q) || row.name.toLowerCase().includes(q))
     .slice(0, 20)
-    .map((row) => ({ ...row, kind: 'board' as const, minutes: row.minutes ?? [] }));
+    .map((row) => {
+      searchBoardNameCache.set(row.code, row.name);
+      return { ...row, kind: 'board' as const, minutes: row.minutes ?? [] };
+    });
+  if (matches.length) return matches;
+
+  const suggested = await searchEastmoneyBoards(raw);
+  return suggested.map((row) => {
+    searchBoardNameCache.set(row.code, row.name);
+    return { ...row, kind: 'board' as const, minutes: row.minutes ?? [] };
+  });
 }
 
 function dedupeSearchRows(rows: MarketQuoteRow[]) {
@@ -306,6 +325,21 @@ function normalizeSearchCode(value?: string) {
   return String(value ?? '').replace(/^(sh|sz|bj)/i, '').replace(/^\D+/, '');
 }
 
+async function searchEastmoneyBoards(query: string): Promise<MarketBoardRow[]> {
+  const url = new URL('https://searchapi.eastmoney.com/api/suggest/get');
+  url.search = new URLSearchParams({ input: query, type: '14' }).toString();
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(4_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://www.eastmoney.com/' } });
+    if (!response.ok) return [];
+    const payload = await response.json() as { QuotationCodeTable?: { Data?: Array<{ Code?: string; Name?: string; Classify?: string }> } };
+    return (payload.QuotationCodeTable?.Data ?? [])
+      .filter((item) => /^BK\d+$/i.test(String(item.Code)) && item.Name)
+      .slice(0, 20)
+      .map((item) => ({ code: String(item.Code).toUpperCase(), name: String(item.Name), minutes: [] }));
+  } catch {
+    return [];
+  }
+}
 async function searchEastmoneyStocks(query: string): Promise<MarketQuoteRow[]> {
   const url = new URL('https://searchapi.eastmoney.com/api/suggest/get');
   url.search = new URLSearchParams({ input: query, type: '14' }).toString();
@@ -406,18 +440,38 @@ async function getLocalStockDetail(symbolInput: string): Promise<StockDetail | u
   };
 }
 
-export async function getBoardDetail(symbol: string): Promise<BoardDetail> {
-  if (symbol.startsWith('LOCAL-')) return getLocalBoardDetail(symbol);
-  try {
-    const detail = await getRemoteBoardDetail(symbol);
+export async function getBoardDetail(symbol: string, forceRefresh = false, boardName?: string): Promise<BoardDetail> {
+  const cacheKey = normalizeBoardCode(symbol);
+  const refreshRemote = async () => {
+    const detail = await getRemoteBoardDetail(symbol, false, boardName);
     if (detail.kline?.length || detail.constituents?.length) void writeBoardDetail({ detail, updatedAt: new Date().toISOString() });
     return detail;
+  };
+
+  if (forceRefresh) {
+    const detail = await refreshRemote();
+    if (!detail.kline?.length && !detail.constituents?.length) throw new Error('板块接口暂无数据');
+    return detail;
+  }
+
+  const cached = await readBoardDetail(cacheKey).catch(() => undefined) ?? await readBoardDetail(symbol).catch(() => undefined);
+  const cachedName = cached?.detail.name;
+  const localDetail = await getLocalBoardDetail(cacheKey, cachedName ?? boardName).catch(() => undefined);
+  if (cached?.detail.constituents?.length) {
+    void refreshRemote().catch((error) => console.warn('[market] board detail background refresh failed', symbol, error instanceof Error ? error.message : error));
+    return cached.detail;
+  }
+
+  if (localDetail?.constituents?.length) {
+    void refreshRemote().catch((error) => console.warn('[market] board detail background refresh failed', symbol, error instanceof Error ? error.message : error));
+    return localDetail;
+  }
+
+  try {
+    return await refreshRemote();
   } catch (error) {
-    console.warn('[market] board detail unavailable, using local fallback', symbol, error instanceof Error ? error.message : error);
-    const cached = await readBoardDetail(symbol).catch(() => undefined);
-    if (cached?.detail) return cached.detail;
-    const localDetail = await getLocalBoardDetail(symbol).catch(() => undefined);
-    return localDetail ?? { code: symbol, name: symbol, kline: [], constituents: [] };
+    console.warn('[market] board detail unavailable', symbol, error instanceof Error ? error.message : error);
+    return cached?.detail ?? localDetail ?? { code: cacheKey, name: boardName ?? symbol, kline: [], constituents: [] };
   }
 }
 
@@ -448,43 +502,65 @@ async function enrichBoardConstituents(rows: NonNullable<BoardDetail['constituen
   });
 }
 
-async function getRemoteBoardDetail(symbol: string): Promise<BoardDetail> {
-  const boards = await getCachedMarketBoardRows().catch(() => []);
-  const board = boards.find((item) => item.code === symbol || item.name === symbol) ?? { code: symbol, name: symbol, changePercent: undefined };
-  const targets = getBoardDetailTargets(symbol, board.name, boards);
+async function getRemoteBoardDetail(symbol: string, skipLocalFallback = false, boardName?: string): Promise<BoardDetail> {
+  const canonicalSymbol = normalizeBoardCode(symbol);
+
+  const boards = await withTimeoutReject(getCachedMarketBoardRows(), BOARD_SDK_REQUEST_TIMEOUT, '板块列表加载超时').catch(() => []);
+  const searchName = searchBoardNameCache.get(symbol) ?? searchBoardNameCache.get(canonicalSymbol);
+  const board = boards.find((item) => item.code === canonicalSymbol || item.code === symbol || item.name === symbol || item.name === searchName || item.name === boardName) ?? { code: canonicalSymbol, name: searchName ?? boardName ?? symbol, changePercent: undefined };
+  const targets = getBoardDetailTargets(canonicalSymbol, board.name, boards, symbol, boardName);
   const [kline, sdkRows] = await Promise.all([
-    fetchSdkBoardSeries(board.code, '1d', board.name, targets).catch(() => []),
-    getSdkBoardConstituents(board.code, board.name, targets).catch(() => []),
+    withTimeoutReject(fetchSdkBoardSeries(board.code, '1d', board.name, targets), BOARD_SDK_REQUEST_TIMEOUT, '板块K线加载超时').catch(() => []),
+    withTimeoutReject(getSdkBoardConstituents(board.code, board.name, targets), BOARD_SDK_REQUEST_TIMEOUT, '板块成分股加载超时').catch(() => []),
   ]);
   const fallbackRows = sdkRows.length ? [] : await firstBoardConstituentsFromTargets(targets).catch(() => []);
+  const fallbackKline = kline.length ? [] : await firstBoardKlineFromTargets(targets).catch(() => []);
   const baseConstituents = (sdkRows.length ? sdkRows : fallbackRows).slice(0, 200);
-  const constituents = await enrichBoardConstituents(baseConstituents);
-  const localDetail = constituents.length && kline.length ? undefined : await getLocalBoardDetail(board.code).catch(() => undefined);
+  const localDetail = skipLocalFallback ? undefined : await getLocalBoardDetail(board.code).catch(() => undefined);
+  const constituents = baseConstituents.length ? await enrichBoardConstituents(baseConstituents) : [];
+  const mergedConstituents = constituents.length ? constituents : localDetail?.constituents ?? [];
+  const mergedKline = kline.length ? kline : fallbackKline.length ? fallbackKline : localDetail?.kline ?? [];
   return {
     code: board.code,
     name: board.name,
     changePercent: board.changePercent === undefined ? localDetail?.changePercent ?? '--' : formatPercent(board.changePercent),
-    kline: kline.length ? kline : localDetail?.kline ?? [],
-    constituents: constituents.length ? constituents : localDetail?.constituents ?? [],
+    kline: mergedKline,
+    constituents: mergedConstituents,
   };
 }
 
-function getBoardDetailTargets(symbol: string, boardName?: string, boards = marketBoardsCache.rows): string[] {
-  const selected = boards.find((item) => item.code === symbol || item.name === symbol || item.name === boardName);
+function getBoardDetailTargets(symbol: string, boardName?: string, boards = marketBoardsCache.rows, ...aliases: Array<string | undefined>): string[] {
+  const canonicalSymbol = normalizeBoardCode(symbol);
+  const selected = boards.find((item) => item.code === canonicalSymbol || item.code === symbol || item.name === symbol || item.name === boardName || aliases.includes(item.code) || aliases.includes(item.name));
   const normalized = normalizeBoardName(boardName ?? selected?.name ?? symbol);
   const siblings = normalized ? boards.filter((item) => normalizeBoardName(item.name) === normalized) : [];
   return [...new Set([
     selected?.code,
     selected?.name,
+    canonicalSymbol,
     symbol,
     boardName,
+    ...aliases,
     ...siblings.flatMap((item) => [item.code, item.name]),
   ].filter(Boolean))] as string[];
+}
+
+function normalizeBoardCode(value: string) {
+  const code = value.trim().toUpperCase();
+  return /^\d{4}$/.test(code) ? `BK${code}` : code;
 }
 
 async function firstBoardConstituentsFromTargets(targets: string[]): Promise<NonNullable<BoardDetail['constituents']>> {
   for (const target of targets) {
     const rows = await getEastmoneyBoardConstituents(target).catch(() => []);
+    if (rows.length) return rows;
+  }
+  return [];
+}
+
+async function firstBoardKlineFromTargets(targets: string[]): Promise<KlinePoint[]> {
+  for (const target of targets) {
+    const rows = await getAStockBoardKline(target, '1d').catch(() => []);
     if (rows.length) return rows;
   }
   return [];
@@ -575,7 +651,7 @@ async function getSdkBoardConstituents(symbol: string, boardName: string, target
   for (const board of await getBoardApis(symbol, boardName)) {
     for (const target of targets) {
       try {
-        const rows = await board.constituents(target);
+        const rows = await withTimeoutReject(board.constituents(target), BOARD_SDK_REQUEST_TIMEOUT, '板块成分股加载超时');
         if (rows.length) return rows.map(toBoardConstituent);
       } catch {
         // Try name/code and the other board namespace, then the real-data HTTP fallback.
@@ -589,8 +665,8 @@ async function getBoardApis(symbol: string, boardName?: string): Promise<BoardAp
   const cachedKind = boardKindCache.get(symbol);
   if (cachedKind) return orderBoardApis(cachedKind);
   const [industries, concepts] = await Promise.allSettled([
-    sdk.board.industry.list(),
-    sdk.board.concept.list(),
+    withTimeoutReject(sdk.board.industry.list(), BOARD_SDK_REQUEST_TIMEOUT, '行业板块列表加载超时'),
+    withTimeoutReject(sdk.board.concept.list(), BOARD_SDK_REQUEST_TIMEOUT, '概念板块列表加载超时'),
   ]);
   const industryRows = industries.status === 'fulfilled' ? industries.value : [];
   const conceptRows = concepts.status === 'fulfilled' ? concepts.value : [];
@@ -627,20 +703,12 @@ function toBoardConstituent(item: { code?: string; symbol?: string; name?: strin
   };
 }
 
-async function getLocalBoardDetail(symbol: string): Promise<BoardDetail> {
-  const boards = await getLocalIndustryBoardRows();
+async function getLocalBoardDetail(symbol: string, fallbackName?: string): Promise<BoardDetail> {
   const remoteBoard = marketBoardsCache.rows.find((item) => item.code === symbol);
-  const board = boards.find((item) => item.code === symbol || item.name === remoteBoard?.name) ?? remoteBoard ?? { code: symbol, name: symbol, changePercent: undefined, minutes: [] };
-  const securities = await listSecurities().catch(() => []);
-  const industryByCode = new Map(securities.map((item) => [item.symbol, item.industry]).filter((item): item is [string, string] => Boolean(item[1])));
-  const localName = normalizeBoardName(board.name);
-  const rows = (await listLatestMarketRows().catch(() => []))
-    .filter((row) => {
-      const industry = industryByCode.get(row.code);
-      return industry && boardNamesMatch(industry, localName);
-    })
-    .sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
-  const kline = await aggregateLocalBoardKline(rows.map((row) => row.code));
+  const searchName = searchBoardNameCache.get(symbol);
+  const board = remoteBoard ?? { code: symbol, name: fallbackName ?? searchName ?? symbol, changePercent: undefined, minutes: [] };
+  const rows = await getLocalBoardConstituents(board.name);
+  const kline = await aggregateLocalBoardKline(rows.map((row) => row.code)).then((items) => items.length ? items : aggregateBaiduBoardKline(rows.map((row) => row.code))).catch(() => []);
   return {
     code: board.code,
     name: board.name,
@@ -655,6 +723,109 @@ async function getLocalBoardDetail(symbol: string): Promise<BoardDetail> {
       turnover: item.turnoverRate === undefined ? '--' : `${formatNumber(item.turnoverRate)}%`,
     })),
   };
+}
+
+async function getLocalBoardConstituents(boardName: string): Promise<MarketQuoteRow[]> {
+  const rows = await listLatestMarketRows().catch(() => []);
+  const securities = await listSecurities().catch(() => []);
+  const localName = normalizeBoardName(boardName);
+  const industryByCode = new Map(securities.map((item) => [item.symbol, item.industry]).filter((item): item is [string, string] => Boolean(item[1])));
+  const byIndustry = rows.filter((row) => {
+    const industry = industryByCode.get(row.code);
+    return industry && boardNamesMatch(industry, localName);
+  });
+  if (byIndustry.length) return byIndustry.sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
+
+  const byMembership = await scanBoardMembership(boardName).catch(() => []);
+  if (byMembership.length) return byMembership;
+  return rows.filter((row) => boardNamesMatch(row.name, localName)).sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
+}
+
+async function scanBoardMembership(boardName: string): Promise<MarketQuoteRow[]> {
+  const localName = normalizeBoardName(boardName);
+  if (!localName) return [];
+  const symbols = prioritizeBoardScanSymbols(await sdk.codes.cn({ simple: true }));
+  const matched: string[] = [];
+  const deadline = Date.now() + BOARD_SCAN_BUDGET_MS;
+  for (let index = 0; index < Math.min(symbols.length, BOARD_CONSTITUENT_SCAN_LIMIT) && Date.now() < deadline; index += BOARD_SCAN_CONCURRENCY) {
+    const batch = symbols.slice(index, index + BOARD_SCAN_CONCURRENCY);
+    const results = await Promise.all(batch.map(async (code) => ({ code, boards: await getStockBoardMembership(code).catch(() => []) })));
+    for (const result of results) {
+      if (result.boards.some((item) => item.code === normalizeBoardCode(boardName) || boardNamesMatch(item.name, localName))) matched.push(result.code);
+    }
+    if (matched.length >= 200) break;
+  }
+  const quotes = matched.length ? await sdk.quotes.cn(matched).catch(() => []) : [];
+  return quotes.map((quote) => toMarketQuoteRow({
+    code: quote.code,
+    name: quote.name,
+    price: quote.price,
+    changePercent: quote.changePercent,
+    volume: quote.volume,
+    amount: normalizeAmount(quote.amount),
+    open: quote.open,
+    high: quote.high,
+    low: quote.low,
+    prevClose: quote.prevClose,
+    turnoverRate: quote.turnoverRate,
+    marketCap: quote.totalMarketCap,
+  })).filter((row) => row.code && row.name).sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
+}
+
+function prioritizeBoardScanSymbols(symbols: string[]) {
+  const main = symbols.filter((code) => /^(60|00|30|68)/.test(code));
+  const rest = symbols.filter((code) => !/^(60|00|30|68)/.test(code));
+  return [...main, ...rest];
+}
+
+async function getStockBoardMembership(code: string): Promise<Array<{ code: string; name: string }>> {
+  const secid = `${code.startsWith('6') ? 1 : 0}.${code}`;
+  const url = new URL('https://push2delay.eastmoney.com/api/qt/slist/get');
+  url.search = new URLSearchParams({ fltt: '2', invt: '2', secid, spt: '3', pi: '0', pz: '200', po: '1', fields: 'f12,f14,f3,f128' }).toString();
+  const response = await fetch(url, { signal: AbortSignal.timeout(4_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://quote.eastmoney.com/' } });
+  if (!response.ok) return [];
+  const payload = await response.json() as { data?: { diff?: AnyRecord[] | Record<string, AnyRecord> } };
+  const diff = payload.data?.diff ?? [];
+  const items = Array.isArray(diff) ? diff : Object.values(diff);
+  return items.map((item) => ({ code: String(item.f12 ?? ''), name: String(item.f14 ?? '') })).filter((item) => item.code && item.name);
+}
+
+async function aggregateBaiduBoardKline(codes: string[]): Promise<KlinePoint[]> {
+  const series = await Promise.all(codes.slice(0, 12).map((code) => getBaiduStockKline(code).catch(() => [])));
+  return averageKlineSeries(series);
+}
+
+async function getBaiduStockKline(code: string): Promise<KlinePoint[]> {
+  const url = new URL('https://finance.pae.baidu.com/selfselect/getstockquotation');
+  url.search = new URLSearchParams({
+    all: '1', isIndex: 'false', isBk: 'false', isBlock: 'false', isFutures: 'false', isStock: 'true',
+    newFormat: '1', group: 'quotation_kline_ab', finClientType: 'pc', code, ktype: '1',
+  }).toString();
+  const response = await fetch(url, { signal: AbortSignal.timeout(5_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Accept: 'application/vnd.finance-web.v1+json', Origin: 'https://gushitong.baidu.com', Referer: 'https://gushitong.baidu.com/' } });
+  if (!response.ok) return [];
+  const payload = await response.json() as { Result?: { newMarketData?: { keys?: string[]; marketData?: string } } };
+  const keys = payload.Result?.newMarketData?.keys ?? [];
+  const rows = payload.Result?.newMarketData?.marketData?.split(';').filter(Boolean) ?? [];
+  return rows.map((line) => parseBaiduKline(line, keys)).filter((item): item is KlinePoint => Boolean(item)).slice(-120);
+}
+
+function parseBaiduKline(line: string, keys: string[]): KlinePoint | undefined {
+  const values = line.split(',');
+  const at = (name: string) => values[keys.indexOf(name)];
+  const point = {
+    time: at('time') ?? '',
+    timestamp: Number(at('timestamp')) || parseMarketTime(at('time') ?? ''),
+    open: Number(at('open')),
+    close: Number(at('close')),
+    high: Number(at('high')),
+    low: Number(at('low')),
+    volume: Number(at('volume')) || 0,
+    amount: Number(at('amount')) || undefined,
+    change: Number(at('ratioamount')) || undefined,
+    changePercent: Number(at('ratioprice')) || undefined,
+    turnoverRate: Number(at('turnover')) || undefined,
+  };
+  return [point.open, point.close, point.high, point.low].every(Number.isFinite) ? point : undefined;
 }
 
 async function aggregateLocalBoardKline(codes: string[]): Promise<KlinePoint[]> {
@@ -995,8 +1166,8 @@ async function warmBoardDetailCache(rows: MarketBoardRow[]) {
   }
 }
 
-async function getCachedMarketBoardRows(): Promise<MarketBoardRow[]> {
-  if (shouldUseRemoteMarketData()) {
+async function getCachedMarketBoardRows(allowRemote = true): Promise<MarketBoardRow[]> {
+  if (allowRemote && shouldUseRemoteMarketData()) {
     const live = await refreshMarketBoardRows().catch(() => []);
     if (live.length) return live;
   }
@@ -1006,19 +1177,12 @@ async function getCachedMarketBoardRows(): Promise<MarketBoardRow[]> {
     marketBoardsCache = { rows: disk.rows, updatedAt: Date.parse(disk.updatedAt) || Date.now(), loadedFromDb: true };
     return marketBoardsCache.rows;
   }
-  const local = await getLocalIndustryBoardRows();
-  if (local.length) {
-    marketBoardsCache = { rows: local, updatedAt: Date.now() };
-    void persistMarketBoardRows(local);
-    return local;
-  }
   return [];
 }
 
 async function refreshMarketBoardRows(): Promise<MarketBoardRow[]> {
   if (marketBoardsCache.promise) return marketBoardsCache.promise;
   marketBoardsCache.promise = getRemoteMarketBoardRows()
-    .then((rows) => rows.length ? rows : getLocalIndustryBoardRows())
     .then((rows) => {
       if (rows.length) {
         const merged = mergeByCode(marketBoardsCache.rows, rows);
@@ -1058,8 +1222,7 @@ async function fetchEastmoneyBoardRows(): Promise<MarketBoardRow[]> {
     ...(industries.status === 'fulfilled' ? industries.value.map((row) => ({ ...row, kind: 'industry' })) : []),
     ...(concepts.status === 'fulfilled' ? concepts.value.map((row) => ({ ...row, kind: 'concept' })) : []),
   ].map(toMarketBoardRow).filter((row) => row.code && row.name);
-  if (rows.length) return rows;
-  return getLocalIndustryBoardRows();
+  return rows;
 }
 
 async function getSdkMarketBoardRows(kinds: BoardKind[] = ['industry', 'concept']): Promise<MarketBoardRow[]> {
@@ -1103,39 +1266,6 @@ async function enrichBoardSpotRows(rows: MarketBoardRow[]): Promise<MarketBoardR
     updates.forEach((row, index) => { result[start + index] = row; });
   }
   return result;
-}
-
-async function getLocalIndustryBoardRows(): Promise<MarketBoardRow[]> {
-  const rows = await listLatestMarketRows().catch(() => []);
-  const securities = await listSecurities().catch(() => []);
-  const industryByCode = new Map(securities.map((item) => [item.symbol, item.industry]).filter((item): item is [string, string] => Boolean(item[1])));
-  const groups = new Map<string, { amount: number; volume: number; marketCap: number; changeSum: number; changeCount: number }>();
-  for (const row of rows) {
-    const industry = industryByCode.get(row.code);
-    if (!industry) continue;
-    const group = groups.get(industry) ?? { amount: 0, volume: 0, marketCap: 0, changeSum: 0, changeCount: 0 };
-    group.amount += Number(row.amount) || 0;
-    group.volume += Number(row.volume) || 0;
-    group.changeSum += Number(row.changePercent) || 0;
-    group.changeCount += Number.isFinite(Number(row.changePercent)) ? 1 : 0;
-    groups.set(industry, group);
-  }
-  return [...groups.entries()].map(([name, group]) => ({
-    code: `LOCAL-${safeBoardCode(name)}`,
-    name,
-    price: undefined,
-    changePercent: group.changeCount ? group.changeSum / group.changeCount : undefined,
-    volume: group.volume || undefined,
-    amount: group.amount || undefined,
-    marketCap: group.marketCap || undefined,
-    minutes: [],
-  })).sort((a, b) => Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0));
-}
-
-function safeBoardCode(name: string) {
-  let hash = 0;
-  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return hash.toString(36).toUpperCase();
 }
 
 function normalizeBoardName(name: string) {
@@ -1238,7 +1368,8 @@ function hasSparseQuoteRows(rows: MarketQuoteRow[]) {
 }
 
 function toMarketBoardRow(row: AnyRecord): MarketBoardRow {
-  const code = pickString(row, ['f12', 'code', 'boardCode', 'symbol'])?.replace(/^(sh|sz|bj)/i, '').replace(/^\D+/, '') ?? '';
+  const rawCode = pickString(row, ['f12', 'code', 'boardCode', 'symbol']) ?? '';
+  const code = /^BK\d+$/i.test(rawCode) ? rawCode.toUpperCase() : rawCode.replace(/^(sh|sz|bj)/i, '').replace(/^\D+/, '');
   const name = pickString(row, ['f14', 'name', 'boardName', '名称']) ?? code;
   const kind = row.kind === 'concept' || row.kind === 'industry' ? row.kind : undefined;
   if (kind && code) boardKindCache.set(code, kind);
@@ -1291,8 +1422,8 @@ async function fetchSdkBoardSeries(code: string, period: MarketIndexPeriod, name
   const limit = period === '4h' ? 80 : period === '1d' ? 120 : 60;
   const load = async (board: BoardApi, target: string) => {
     const rows = period === '1d'
-      ? await board.kline(target, { period: 'daily', adjust: 'qfq' })
-      : await board.minuteKline(target, { period: period === '15m' ? '15' : '60' });
+      ? await withTimeoutReject(board.kline(target, { period: 'daily', adjust: 'qfq' }), BOARD_SDK_REQUEST_TIMEOUT, '板块K线加载超时')
+      : await withTimeoutReject(board.minuteKline(target, { period: period === '15m' ? '15' : '60' }), BOARD_SDK_REQUEST_TIMEOUT, '板块分钟K线加载超时');
     const points = rows.map(toKlinePoint).filter((point): point is KlinePoint => Boolean(point)).slice(-limit);
     return period === '4h' ? aggregateKline(points, 4) : points;
   };

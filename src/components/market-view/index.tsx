@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { KlineModal, StockKlineChart } from '../kline-chart';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import type { MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketSearchResult, MarketTab, StockDetail } from '../../shared/types';
+import type { BoardDetail, MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketSearchResult, MarketTab, StockDetail } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
@@ -43,6 +43,7 @@ export function MarketView() {
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
+  const selectedBoard = useAppStore((state) => state.selectedBoard);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
   const openBoardPanel = useAppStore((state) => state.openBoardPanel);
 
@@ -137,16 +138,18 @@ export function MarketView() {
   }, [openRightPanel, setSelectedStock]);
 
   const openBoard = useCallback(async (row: MarketBoardRow) => {
-    const preview = { code: row.code, name: row.name, changePercent: formatPercent(row.changePercent), kline: row.minutes ?? [], constituents: [] };
+    const preview: BoardDetail = { code: row.code, name: row.name, changePercent: formatPercent(row.changePercent), kline: row.minutes ?? [], constituents: row.constituents ?? [] };
     openBoardPanel();
-    setSelectedBoard(preview);
+    if (selectedBoard?.code !== row.code) setSelectedBoard(preview);
     try {
-      const detail = await getStocksenseApi().getBoardDetail(row.code);
+      const detail = await getStocksenseApi().getBoardDetail(row.code, false, row.name);
+      if (useAppStore.getState().selectedBoard?.code !== row.code) return;
       setSelectedBoard({ ...detail, name: detail.name === detail.code ? row.name : detail.name, changePercent: detail.changePercent ?? preview.changePercent });
     } catch {
+      if (useAppStore.getState().selectedBoard?.code !== row.code) return;
       setSelectedBoard(preview);
     }
-  }, [openBoardPanel, setSelectedBoard]);
+  }, [openBoardPanel, selectedBoard?.code, setSelectedBoard]);
 
   const openSearchResult = (row: MarketSearchResult) => {
     setSearchText('');

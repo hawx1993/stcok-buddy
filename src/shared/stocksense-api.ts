@@ -232,7 +232,7 @@ const webFallbackApi: StocksenseApi = {
       .slice(0, 50)
       .map((stock) => ({ code: stock.code, name: stock.name, price: stock.price, changePercent: Number.parseFloat(String(stock.changePercent ?? '0')) }));
   },
-  async getBoardDetail(symbol: string): Promise<BoardDetail> {
+  async getBoardDetail(symbol: string, _forceRefresh?: boolean, _boardName?: string): Promise<BoardDetail> {
     return {
       code: symbol,
       name: symbol,

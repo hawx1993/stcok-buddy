@@ -373,6 +373,7 @@ export interface MarketBoardRow {
   marketCap?: number | string;
   turnoverRate?: number | string;
   minutes: KlinePoint[];
+  constituents?: BoardConstituent[];
 }
 
 export type MarketSearchResult = (MarketQuoteRow & { kind?: 'stock' }) | (MarketBoardRow & { kind: 'board' });
@@ -462,7 +463,7 @@ export interface StocksenseApi {
   onChatToken?(handler: (event: ChatStreamEvent) => void): () => void;
   getStockDetail(symbol: string): Promise<StockDetail>;
   searchStocks(query: string): Promise<MarketSearchResult[]>;
-  getBoardDetail(symbol: string): Promise<BoardDetail>;
+  getBoardDetail(symbol: string, forceRefresh?: boolean, boardName?: string): Promise<BoardDetail>;
   getKline(symbol: string, limit?: number, period?: string): Promise<KlinePoint[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;

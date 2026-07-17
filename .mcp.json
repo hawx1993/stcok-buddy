@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+      "stock-sdk": {
+        "command": "npx",
+        "args": ["-y", "stock-sdk", "mcp"]
+      }
+    }
+  }
