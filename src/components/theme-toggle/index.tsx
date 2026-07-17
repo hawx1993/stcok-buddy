@@ -17,7 +17,12 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
   };
 
   return (
-    <button className={`${styles['dropdown-item']} ${styles['theme-row']} ${compact ? styles.compact : ''}`} onClick={toggle} type="button" aria-label={theme === 'dark' ? '切换浅色模式' : '切换深色模式'}>
+    <button
+      className={`${styles['dropdown-item']} ${styles['theme-row']} ${compact ? styles.compact : ''}`}
+      onClick={toggle}
+      type='button'
+      aria-label={theme === 'dark' ? '切换浅色模式' : '切换深色模式'}
+    >
       {compact ? null : <span className={styles['item-icon']}>{theme === 'dark' ? '🌙' : '☀️'}</span>}
       {compact ? null : <span>{theme === 'dark' ? '深色模式' : '浅色模式'}</span>}
       <span className={`${styles['theme-switch']} ${theme === 'light' ? styles.light : ''}`}>

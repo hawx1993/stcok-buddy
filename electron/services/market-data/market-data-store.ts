@@ -80,7 +80,7 @@ export function upsertSecurities(items: SecurityRecord[]) {
       const statement = await connection.prepare(`
         INSERT OR REPLACE INTO securities
         (symbol, name, exchange, security_type, status, list_date, delist_date, industry, is_st, source, updated_at)
-        VALUES ($symbol, $name, $exchange, $securityType, $status, $listDate, $delistDate, $industry, $isSt, $source, $updatedAt)
+        VALUES ($symbol, $name, $exchange, $securityType, $status, CASE WHEN $listDate IS NULL THEN NULL ELSE CAST($listDate AS DATE) END, CASE WHEN $delistDate IS NULL THEN NULL ELSE CAST($delistDate AS DATE) END, $industry, $isSt, $source, $updatedAt)
       `);
       for (const item of items) {
         statement.bind({
@@ -106,7 +106,7 @@ export function upsertTradingCalendar(items: TradeCalendarRecord[]) {
       const statement = await connection.prepare(`
         INSERT OR REPLACE INTO trade_calendar
         (market, trade_date, is_open, previous_trade_date, next_trade_date, source, updated_at)
-        VALUES ($market, $tradeDate, $isOpen, $previousTradeDate, $nextTradeDate, $source, $updatedAt)
+        VALUES ($market, CASE WHEN $tradeDate IS NULL THEN NULL ELSE CAST($tradeDate AS DATE) END, $isOpen, CASE WHEN $previousTradeDate IS NULL THEN NULL ELSE CAST($previousTradeDate AS DATE) END, CASE WHEN $nextTradeDate IS NULL THEN NULL ELSE CAST($nextTradeDate AS DATE) END, $source, $updatedAt)
       `);
       for (const item of items) {
         statement.bind({
@@ -132,7 +132,7 @@ export function upsertDailyBars(items: DailyBarRecord[]) {
       const statement = await connection.prepare(`
         INSERT OR REPLACE INTO daily_bars
         (symbol, trade_date, open, high, low, close, volume, amount, change, change_percent, turnover_rate, adjust_type, source, fetched_at)
-        VALUES ($symbol, $tradeDate, $open, $high, $low, $close, $volume, $amount, $change, $changePercent, $turnoverRate, $adjustType, $source, $fetchedAt)
+        VALUES ($symbol, CAST($tradeDate AS DATE), $open, $high, $low, $close, $volume, $amount, $change, $changePercent, $turnoverRate, $adjustType, $source, $fetchedAt)
       `);
       for (const item of items) {
         statement.bind(toDbValues(item));
@@ -248,11 +248,16 @@ export function countDailyBarsForDate(tradeDate: string) {
 }
 
 export function createSyncJob(job: { id: string; jobType: SyncJobType; targetTradeDate: string; totalSymbols: number; checkpointSymbol?: string }) {
+  const values: Record<string, DuckDBValue> = {
+    ...job,
+    checkpointSymbol: job.checkpointSymbol ?? null,
+    startedAt: new Date().toISOString(),
+  };
   return write((connection) => connection.run(`
     INSERT INTO sync_jobs
     (id, job_type, status, target_trade_date, started_at, total_symbols, checkpoint_symbol)
     VALUES ($id, $jobType, 'running', $targetTradeDate, $startedAt, $totalSymbols, $checkpointSymbol)
-  `, { ...job, startedAt: new Date().toISOString() } as Record<string, DuckDBValue>).then(() => undefined));
+  `, values).then(() => undefined));
 }
 
 export function updateSyncJob(id: string, patch: Partial<{ status: SyncJobStatus; processedSymbols: number; succeededSymbols: number; failedSymbols: number; checkpointSymbol: string; errorMessage: string; finishedAt: string; metadataJson: string }>) {

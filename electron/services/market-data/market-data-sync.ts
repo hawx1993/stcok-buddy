@@ -63,7 +63,7 @@ async function runSync(force: boolean): Promise<MarketDataSyncStatus> {
   let securities = await listSecurities();
   if (!securities.length || force) {
     updateMemory({ ...memoryStatus, state: 'initializing', targetTradeDate, message: '正在同步 A 股证券列表' });
-    const remote = await listRemoteSecurities((processed, total) => updateMemory({ ...memoryStatus, processedSymbols: processed, totalSymbols: total }));
+    const remote = await listRemoteSecurities((processed, total) => updateMemory({ ...memoryStatus, processedSymbols: processed, totalSymbols: total, message: `正在同步 A 股证券列表（${processed}/${total}）` }));
     await upsertSecurities(remote);
     securities = remote;
   }

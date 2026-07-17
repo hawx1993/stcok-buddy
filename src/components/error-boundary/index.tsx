@@ -28,7 +28,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         <div className={styles['error-boundary']}>
           <div className={styles['error-title']}>{this.props.name} 加载失败</div>
           <div className={styles['error-desc']}>{this.state.error.message}</div>
-          <button type="button" onClick={() => this.setState({ error: undefined })}>重试</button>
+          <button type='button' onClick={() => this.setState({ error: undefined })}>
+            重试
+          </button>
         </div>
       );
     }

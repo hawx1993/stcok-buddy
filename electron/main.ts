@@ -6,7 +6,7 @@ import path from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { registerIpcHandlers } from './ipc.js';
 import { closeMarketDataStore, initializeMarketDataStore } from './services/market-data/market-data-store.js';
-import { startMarketDataScheduler, stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
+import { stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
 import { startSurgeHistoryScheduler, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
@@ -92,7 +92,7 @@ app.whenReady().then(() => {
   configureAboutPanel();
   initializeQuoteStore();
   registerIpcHandlers();
-  void initializeMarketDataStore().then(startMarketDataScheduler).catch((error) => console.warn('[market-data] initialization failed', error));
+  void initializeMarketDataStore().catch((error) => console.warn('[market-data] initialization failed', error));
   startSurgeHistoryScheduler();
   createWindow();
   captureEvent('app_started');

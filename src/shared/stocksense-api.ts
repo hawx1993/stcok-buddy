@@ -36,18 +36,124 @@ const defaultConversations: ConversationSummary[] = [
 ];
 
 const fallbackNews: MarketNewsItem[] = [
-  { id: 'fallback-1', time: '10:45', title: '白酒板块持续走强，茅台五粮液领涨，中秋动销数据超预期', tags: ['白酒', '消费'], tagType: 'positive' },
-  { id: 'fallback-2', time: '10:32', title: '央行宣布降准0.25个百分点，释放长期资金约5000亿元', tags: ['宏观', '政策'], tagType: 'impact' },
-  { id: 'fallback-3', time: '10:18', title: '半导体板块拉升，北方华创涨超8%，大基金三期布局加速', tags: ['半导体', '科技'], tagType: 'positive' },
-  { id: 'fallback-4', time: '09:56', title: '宁德时代跌超5%，欧盟电动车关税落地短期承压', tags: ['新能源', '利空'], tagType: 'impact' },
-  { id: 'fallback-5', time: '09:42', title: '北向资金半日净买入20.9亿，重点加仓白酒和银行板块', tags: ['资金', '北向'], tagType: 'positive' },
+  {
+    id: 'fallback-1',
+    time: '10:45',
+    title: '白酒板块持续走强，茅台五粮液领涨，中秋动销数据超预期',
+    tags: ['白酒', '消费'],
+    tagType: 'positive',
+  },
+  {
+    id: 'fallback-2',
+    time: '10:32',
+    title: '央行宣布降准0.25个百分点，释放长期资金约5000亿元',
+    tags: ['宏观', '政策'],
+    tagType: 'impact',
+  },
+  {
+    id: 'fallback-3',
+    time: '10:18',
+    title: '半导体板块拉升，北方华创涨超8%，大基金三期布局加速',
+    tags: ['半导体', '科技'],
+    tagType: 'positive',
+  },
+  {
+    id: 'fallback-4',
+    time: '09:56',
+    title: '宁德时代跌超5%，欧盟电动车关税落地短期承压',
+    tags: ['新能源', '利空'],
+    tagType: 'impact',
+  },
+  {
+    id: 'fallback-5',
+    time: '09:42',
+    title: '北向资金半日净买入20.9亿，重点加仓白酒和银行板块',
+    tags: ['资金', '北向'],
+    tagType: 'positive',
+  },
 ];
 
 const stockMap: Record<string, StockDetail> = {
-  '600519': { code: '600519', name: '贵州茅台', exchange: '沪市', price: 1548, change: '+13.20', changePercent: '+0.86%', open: 1532, high: 1555, low: 1528, prevClose: 1534.8, pe: 27.8, pb: 8.6, marketCap: '1.94万亿', volume: '6.2万手', turnover: '95.2亿', turnoverRate: '0.49%', rating: { fundamental: '优质', valuation: '中性', tech: '中性偏多', risk: '低' }, summary: '高端白酒龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
-  '000858': { code: '000858', name: '五粮液', exchange: '深市', price: 140.2, change: '+2.93', changePercent: '+2.13%', open: 137.8, high: 141.5, low: 136.9, prevClose: 137.27, pe: 21.4, pb: 5.2, marketCap: '5440亿', volume: '20.3万手', turnover: '28.6亿', turnoverRate: '0.52%', rating: { fundamental: '优质', valuation: '偏低', tech: '中性偏多', risk: '低' }, summary: '浓香白酒龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
-  '300750': { code: '300750', name: '宁德时代', exchange: '深市', price: 222, change: '-13.37', changePercent: '-5.68%', open: 235.1, high: 236.8, low: 219.8, prevClose: 235.37, pe: 18.5, pb: 4.2, marketCap: '9760亿', volume: '30.5万手', turnover: '68.5亿', turnoverRate: '0.76%', rating: { fundamental: '优质', valuation: '合理', tech: '偏空', risk: '中等' }, summary: '动力电池龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
-  '600036': { code: '600036', name: '招商银行', exchange: '沪市', price: 32.45, change: '+0.23', changePercent: '+0.72%', open: 32.18, high: 32.55, low: 32.06, prevClose: 32.22, pe: 5.6, pb: 0.72, marketCap: '8180亿', volume: '56.1万手', turnover: '18.2亿', turnoverRate: '0.27%', rating: { fundamental: '良好', valuation: '偏低', tech: '中性', risk: '低' }, summary: '零售银行标杆。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。' },
+  '600519': {
+    code: '600519',
+    name: '贵州茅台',
+    exchange: '沪市',
+    price: 1548,
+    change: '+13.20',
+    changePercent: '+0.86%',
+    open: 1532,
+    high: 1555,
+    low: 1528,
+    prevClose: 1534.8,
+    pe: 27.8,
+    pb: 8.6,
+    marketCap: '1.94万亿',
+    volume: '6.2万手',
+    turnover: '95.2亿',
+    turnoverRate: '0.49%',
+    rating: { fundamental: '优质', valuation: '中性', tech: '中性偏多', risk: '低' },
+    summary: '高端白酒龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。',
+  },
+  '000858': {
+    code: '000858',
+    name: '五粮液',
+    exchange: '深市',
+    price: 140.2,
+    change: '+2.93',
+    changePercent: '+2.13%',
+    open: 137.8,
+    high: 141.5,
+    low: 136.9,
+    prevClose: 137.27,
+    pe: 21.4,
+    pb: 5.2,
+    marketCap: '5440亿',
+    volume: '20.3万手',
+    turnover: '28.6亿',
+    turnoverRate: '0.52%',
+    rating: { fundamental: '优质', valuation: '偏低', tech: '中性偏多', risk: '低' },
+    summary: '浓香白酒龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。',
+  },
+  '300750': {
+    code: '300750',
+    name: '宁德时代',
+    exchange: '深市',
+    price: 222,
+    change: '-13.37',
+    changePercent: '-5.68%',
+    open: 235.1,
+    high: 236.8,
+    low: 219.8,
+    prevClose: 235.37,
+    pe: 18.5,
+    pb: 4.2,
+    marketCap: '9760亿',
+    volume: '30.5万手',
+    turnover: '68.5亿',
+    turnoverRate: '0.76%',
+    rating: { fundamental: '优质', valuation: '合理', tech: '偏空', risk: '中等' },
+    summary: '动力电池龙头。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。',
+  },
+  '600036': {
+    code: '600036',
+    name: '招商银行',
+    exchange: '沪市',
+    price: 32.45,
+    change: '+0.23',
+    changePercent: '+0.72%',
+    open: 32.18,
+    high: 32.55,
+    low: 32.06,
+    prevClose: 32.22,
+    pe: 5.6,
+    pb: 0.72,
+    marketCap: '8180亿',
+    volume: '56.1万手',
+    turnover: '18.2亿',
+    turnoverRate: '0.27%',
+    rating: { fundamental: '良好', valuation: '偏低', tech: '中性', risk: '低' },
+    summary: '零售银行标杆。浏览器/PWA 预览模式使用本地示例数据；Electron 模式会通过 stock-sdk 获取实时数据。',
+  },
 };
 
 export function getStocksenseApi(): StocksenseApi {
@@ -55,10 +161,20 @@ export function getStocksenseApi(): StocksenseApi {
   return {
     ...webFallbackApi,
     ...window.stocksense,
-    listFavoriteStocks: () => window.stocksense!.listFavoriteStocks().catch(fallbackFavoriteError(() => webFallbackApi.listFavoriteStocks())),
-    upsertFavoriteStock: (stock) => window.stocksense!.upsertFavoriteStock(stock).catch(fallbackFavoriteError(() => webFallbackApi.upsertFavoriteStock(stock))),
-    removeFavoriteStock: (code) => window.stocksense!.removeFavoriteStock(code).catch(fallbackFavoriteError(() => webFallbackApi.removeFavoriteStock(code))),
-    toggleFavoriteStockPin: (code) => window.stocksense!.toggleFavoriteStockPin(code).catch(fallbackFavoriteError(() => webFallbackApi.toggleFavoriteStockPin(code))),
+    listFavoriteStocks: () =>
+      window.stocksense!.listFavoriteStocks().catch(fallbackFavoriteError(() => webFallbackApi.listFavoriteStocks())),
+    upsertFavoriteStock: (stock) =>
+      window
+        .stocksense!.upsertFavoriteStock(stock)
+        .catch(fallbackFavoriteError(() => webFallbackApi.upsertFavoriteStock(stock))),
+    removeFavoriteStock: (code) =>
+      window
+        .stocksense!.removeFavoriteStock(code)
+        .catch(fallbackFavoriteError(() => webFallbackApi.removeFavoriteStock(code))),
+    toggleFavoriteStockPin: (code) =>
+      window
+        .stocksense!.toggleFavoriteStockPin(code)
+        .catch(fallbackFavoriteError(() => webFallbackApi.toggleFavoriteStockPin(code))),
   };
 }
 
@@ -85,10 +201,12 @@ async function readStoreItems(): Promise<StoreItem[]> {
     '/store/commands/industry-rotation/index.json',
     '/store/commands/web-page-summary/index.json',
   ];
-  const items = await Promise.all(paths.map(async (path) => {
-    const response = await fetch(path).catch(() => undefined);
-    return response?.ok ? await response.json() as StoreItem : undefined;
-  }));
+  const items = await Promise.all(
+    paths.map(async (path) => {
+      const response = await fetch(path).catch(() => undefined);
+      return response?.ok ? ((await response.json()) as StoreItem) : undefined;
+    }),
+  );
   return items.filter((item): item is StoreItem => Boolean(item));
 }
 
@@ -103,7 +221,9 @@ function readConversations(): ConversationSummary[] {
 }
 
 function sortFavorites(items: FavoriteStock[]) {
-  return [...items].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.createdAt.localeCompare(a.createdAt));
+  return [...items].sort(
+    (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.createdAt.localeCompare(a.createdAt),
+  );
 }
 
 function readFavorites(): FavoriteStock[] {
@@ -123,7 +243,10 @@ function readMessages(conversationId: string): ChatMessage[] {
 }
 
 function saveLocalMessage(conversationId: string, message: ChatMessage) {
-  localStorage.setItem(`stocksense-messages:${conversationId}`, JSON.stringify([...readMessages(conversationId), message]));
+  localStorage.setItem(
+    `stocksense-messages:${conversationId}`,
+    JSON.stringify([...readMessages(conversationId), message]),
+  );
 }
 
 function pageItems<T>(items: T[], page = 1, pageSize = 30): PagedMarketNews {
@@ -132,7 +255,13 @@ function pageItems<T>(items: T[], page = 1, pageSize = 30): PagedMarketNews {
 }
 
 const fallbackHot: HotFocusItem[] = [
-  { id: 'preview-hot-1', title: '浏览器预览数据', description: 'Electron 桌面端会通过 stock-sdk 拉取实时热点。', tag: 'Preview', type: 'neutral' },
+  {
+    id: 'preview-hot-1',
+    title: '浏览器预览数据',
+    description: 'Electron 桌面端会通过 stock-sdk 拉取实时热点。',
+    tag: 'Preview',
+    type: 'neutral',
+  },
 ];
 
 const webFallbackApi: StocksenseApi = {
@@ -152,21 +281,32 @@ const webFallbackApi: StocksenseApi = {
   async upsertFavoriteStock(stock: Pick<FavoriteStock, 'code' | 'name'>) {
     const favorites = readFavorites();
     const existing = favorites.find((item) => item.code === stock.code);
-    return writeFavorites(existing
-      ? favorites.map((item) => (item.code === stock.code ? { ...item, name: stock.name || item.name } : item))
-      : [{ ...stock, pinned: false, createdAt: new Date().toISOString() }, ...favorites]);
+    return writeFavorites(
+      existing
+        ? favorites.map((item) => (item.code === stock.code ? { ...item, name: stock.name || item.name } : item))
+        : [{ ...stock, pinned: false, createdAt: new Date().toISOString() }, ...favorites],
+    );
   },
   async removeFavoriteStock(code: string) {
     return writeFavorites(readFavorites().filter((item) => item.code !== code));
   },
   async toggleFavoriteStockPin(code: string) {
-    return writeFavorites(readFavorites().map((item) => (item.code === code ? { ...item, pinned: !item.pinned } : item)));
+    return writeFavorites(
+      readFavorites().map((item) => (item.code === code ? { ...item, pinned: !item.pinned } : item)),
+    );
   },
   async listConversations() {
     return readConversations();
   },
   async createConversation() {
-    const conversation: ConversationSummary = { id: `web-conv-${Date.now()}`, title: '新建会话', preview: '浏览器预览', date: '刚刚', tab: 'stock', count: 0 };
+    const conversation: ConversationSummary = {
+      id: `web-conv-${Date.now()}`,
+      title: '新建会话',
+      preview: '浏览器预览',
+      date: '刚刚',
+      tab: 'stock',
+      count: 0,
+    };
     localStorage.setItem('stocksense-conversations', JSON.stringify([conversation, ...readConversations()]));
     return conversation;
   },
@@ -177,7 +317,9 @@ const webFallbackApi: StocksenseApi = {
     return next;
   },
   async renameConversation(id: string, title: string) {
-    const next = readConversations().map((item) => (item.id === id ? { ...item, title: title.trim() || item.title } : item));
+    const next = readConversations().map((item) =>
+      item.id === id ? { ...item, title: title.trim() || item.title } : item,
+    );
     localStorage.setItem('stocksense-conversations', JSON.stringify(next));
     return next;
   },
@@ -188,9 +330,12 @@ const webFallbackApi: StocksenseApi = {
     saveLocalMessage(conversationId, message);
   },
   async sendChat(request: ChatRequest): Promise<ChatResponse> {
-    const command = request.message.trim().match(/^\/(综合投研报告|新闻公告|技术面分析|基本面分析|资金面分析|情绪面分析|筹码分布|筹码分析)\s*(.*)$/);
+    const command = request.message
+      .trim()
+      .match(/^\/(综合投研报告|新闻公告|技术面分析|基本面分析|资金面分析|情绪面分析|筹码分布|筹码分析)\s*(.*)$/);
     const reportTarget = command?.[2].trim();
-    if (command && reportTarget === '') return webMessage(request, `请输入股票代码或股票名称，例如：/${command[1]} 中公教育`);
+    if (command && reportTarget === '')
+      return webMessage(request, `请输入股票代码或股票名称，例如：/${command[1]} 中公教育`);
     const stock = findStock(reportTarget ?? request.message);
     const content = stock
       ? `浏览器/PWA 预览模式已识别 ${stock.name}（${stock.code}），将按「${command?.[1] ?? '综合投研'}」生成预览报告。若要使用 stock-sdk 实时数据与本地安全 API Key，请运行 Electron 桌面端。\n\n以上内容基于公开数据自动生成，仅供研究参考，不构成投资建议。`
@@ -201,8 +346,18 @@ const webFallbackApi: StocksenseApi = {
       content,
       createdAt: new Date().toISOString(),
       steps: [
-        { id: 'web-mode', agent: 'PWA', description: '浏览器环境未检测到 Electron preload，启用 Web fallback API', status: 'completed' },
-        { id: 'local-preview', agent: 'PreviewAgent', description: stock ? `匹配本地示例股票 ${stock.name}` : '返回本地预览说明', status: 'completed' },
+        {
+          id: 'web-mode',
+          agent: 'PWA',
+          description: '浏览器环境未检测到 Electron preload，启用 Web fallback API',
+          status: 'completed',
+        },
+        {
+          id: 'local-preview',
+          agent: 'PreviewAgent',
+          description: stock ? `匹配本地示例股票 ${stock.name}` : '返回本地预览说明',
+          status: 'completed',
+        },
       ],
       result: stock
         ? {
@@ -210,7 +365,11 @@ const webFallbackApi: StocksenseApi = {
             subtitle: `${stock.exchange ?? 'A股'} · ${stock.changePercent ?? '--'}`,
             metrics: [
               { label: '现价', value: String(stock.price ?? '--') },
-              { label: '涨跌幅', value: stock.changePercent ?? '--', tone: stock.changePercent?.startsWith('-') ? 'down' : 'up' },
+              {
+                label: '涨跌幅',
+                value: stock.changePercent ?? '--',
+                tone: stock.changePercent?.startsWith('-') ? 'down' : 'up',
+              },
               { label: 'PE', value: String(stock.pe ?? '--') },
               { label: '成交额', value: stock.turnover ?? '--' },
             ],
@@ -220,7 +379,12 @@ const webFallbackApi: StocksenseApi = {
           }
         : undefined,
     };
-    saveLocalMessage(request.conversationId, { id: `web-user-${Date.now()}`, role: 'user', content: request.message, createdAt: new Date().toISOString() });
+    saveLocalMessage(request.conversationId, {
+      id: `web-user-${Date.now()}`,
+      role: 'user',
+      content: request.message,
+      createdAt: new Date().toISOString(),
+    });
     saveLocalMessage(request.conversationId, message);
     return { message, events: [{ type: 'final_answer', message: content, stock }] };
   },
@@ -233,7 +397,12 @@ const webFallbackApi: StocksenseApi = {
     return Object.values(stockMap)
       .filter((stock) => stock.code.includes(q) || stock.name.toLowerCase().includes(q))
       .slice(0, 50)
-      .map((stock) => ({ code: stock.code, name: stock.name, price: stock.price, changePercent: Number.parseFloat(String(stock.changePercent ?? '0')) }));
+      .map((stock) => ({
+        code: stock.code,
+        name: stock.name,
+        price: stock.price,
+        changePercent: Number.parseFloat(String(stock.changePercent ?? '0')),
+      }));
   },
   async getBoardDetail(symbol: string, _forceRefresh?: boolean, _boardName?: string): Promise<BoardDetail> {
     return {
@@ -254,7 +423,9 @@ const webFallbackApi: StocksenseApi = {
   },
   async listMarketNews(query = '', page = 1, pageSize = 30) {
     const q = query.trim();
-    const items = q ? fallbackNews.filter((item) => item.title.includes(q) || item.tags.some((tag) => tag.includes(q))) : fallbackNews;
+    const items = q
+      ? fallbackNews.filter((item) => item.title.includes(q) || item.tags.some((tag) => tag.includes(q)))
+      : fallbackNews;
     return pageItems(items, page, pageSize);
   },
   async listHotFocus(_tab: HotFocusTab) {
@@ -264,10 +435,23 @@ const webFallbackApi: StocksenseApi = {
     return [];
   },
   async listSurgeHistory(date: string, offset = 0, limit = 20) {
-    return fallbackHot.map((item, index) => ({ ...item, id: `${item.id}-${date}`, time: `${String(14 - Math.floor(index / 4)).padStart(2, '0')}:${String(50 - index).padStart(2, '0')}` })).slice(offset, offset + limit);
+    return fallbackHot
+      .map((item, index) => ({
+        ...item,
+        id: `${item.id}-${date}`,
+        time: `${String(14 - Math.floor(index / 4)).padStart(2, '0')}:${String(50 - index).padStart(2, '0')}`,
+      }))
+      .slice(offset, offset + limit);
   },
   async getMarketDataSyncStatus() {
-    return { state: 'idle' as const, processedSymbols: 0, totalSymbols: 0, succeededSymbols: 0, failedSymbols: 0, message: '本地市场数据库仅在 Electron 桌面端可用' };
+    return {
+      state: 'idle' as const,
+      processedSymbols: 0,
+      totalSymbols: 0,
+      succeededSymbols: 0,
+      failedSymbols: 0,
+      message: '本地市场数据库仅在 Electron 桌面端可用',
+    };
   },
   async startMarketDataSync() {
     return this.getMarketDataSyncStatus();
@@ -312,16 +496,52 @@ const webFallbackApi: StocksenseApi = {
 };
 
 function webMessage(request: ChatRequest, content: string): ChatResponse {
-  const message: ChatMessage = { id: `web-assistant-${Date.now()}`, role: 'assistant', content, createdAt: new Date().toISOString() };
-  saveLocalMessage(request.conversationId, { id: `web-user-${Date.now()}`, role: 'user', content: request.message, createdAt: new Date().toISOString() });
+  const message: ChatMessage = {
+    id: `web-assistant-${Date.now()}`,
+    role: 'assistant',
+    content,
+    createdAt: new Date().toISOString(),
+  };
+  saveLocalMessage(request.conversationId, {
+    id: `web-user-${Date.now()}`,
+    role: 'user',
+    content: request.message,
+    createdAt: new Date().toISOString(),
+  });
   saveLocalMessage(request.conversationId, message);
   return { message, events: [{ type: 'final_answer', message: content }] };
 }
 
 function makePreviewIndices() {
   return [
-    { code: '000001', name: '上证指数', price: 3996.16, change: -40.43, changePercent: -1.00, open: 4031.54, prevClose: 4036.59, high: 4074.83, low: 3995.81, volume: 627450065, amount: 1563108691543, minutes: [] },
-    { code: '399001', name: '深证成指', price: 15046.67, change: -352.06, changePercent: -2.29, open: 15480.41, prevClose: 15398.73, high: 15581.94, low: 15046.67, volume: 828811174, amount: 1825441561910, minutes: [] },
+    {
+      code: '000001',
+      name: '上证指数',
+      price: 3996.16,
+      change: -40.43,
+      changePercent: -1.0,
+      open: 4031.54,
+      prevClose: 4036.59,
+      high: 4074.83,
+      low: 3995.81,
+      volume: 627450065,
+      amount: 1563108691543,
+      minutes: [],
+    },
+    {
+      code: '399001',
+      name: '深证成指',
+      price: 15046.67,
+      change: -352.06,
+      changePercent: -2.29,
+      open: 15480.41,
+      prevClose: 15398.73,
+      high: 15581.94,
+      low: 15046.67,
+      volume: 828811174,
+      amount: 1825441561910,
+      minutes: [],
+    },
   ];
 }
 
@@ -334,7 +554,15 @@ function makePreviewKline(symbol: string, limit = 120, period = '1d') {
     const open = price;
     const close = Math.max(1, open + wave);
     price = close;
-    return { timestamp: Date.now() + (index - limit) * 86_400_000, time: String(index + 1), open, close, high: Math.max(open, close) * 1.006, low: Math.min(open, close) * 0.994, volume: 10000 + index * 100 * step };
+    return {
+      timestamp: Date.now() + (index - limit) * 86_400_000,
+      time: String(index + 1),
+      open,
+      close,
+      high: Math.max(open, close) * 1.006,
+      low: Math.min(open, close) * 0.994,
+      volume: 10000 + index * 100 * step,
+    };
   });
 }
 
