@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, MarketDataSyncStatus, MarketIndexPeriod, MarketPageSnapshot, MarketTab, StocksenseApi } from '../src/shared/types.js';
+import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, MarketDataSyncStatus, MarketIndexPeriod, MarketPageSnapshot, MarketTab, StocksenseApi } from '../src/shared/types.js';
 
 const api: StocksenseApi = {
+  captureAnalytics: (event: string, properties?: AnalyticsProperties) => ipcRenderer.invoke('analytics:capture', event, properties),
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config: AppConfig) => ipcRenderer.invoke('config:set', config),
   listFavoriteStocks: () => ipcRenderer.invoke('favorite:list'),

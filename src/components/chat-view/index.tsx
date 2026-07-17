@@ -6,6 +6,7 @@ import { getStocksenseApi } from '../../shared/stocksense-api';
 import { KlineModal, StockKlineChart } from '../kline-chart';
 import type { AgentResultCard, AgentRunEvent, BoardDetail, ChatMessage, StockDetail, StoreCategory, StoreItem, ToolCallRecord } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
+import { track, trackButtonClick } from '../../shared/analytics';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
 
@@ -66,12 +67,14 @@ export function ChatView() {
   }, []);
 
   const installStoreCommand = async (id: string) => {
+    trackButtonClick('install_store_item', { item_id: id });
     const installed = await getStocksenseApi().installStoreItem(id);
     setInstalledStoreItems(installed);
     antdMessage.success('安装成功');
   };
 
   const uninstallStoreCommand = async (id: string) => {
+    trackButtonClick('uninstall_store_item', { item_id: id });
     const installed = await getStocksenseApi().uninstallStoreItem(id);
     setInstalledStoreItems(installed);
     antdMessage.success('已卸载');
@@ -96,6 +99,7 @@ export function ChatView() {
   }, []);
 
   const openStockDetail = async (stock: Pick<StockDetail, 'code' | 'name'>) => {
+    trackButtonClick('open_stock_detail', { code: stock.code, name: stock.name });
     const kline = findMessageKline(messages, stock.code);
     openRightPanel();
     setSelectedStock({ ...stock, kline } as StockDetail);
@@ -108,6 +112,7 @@ export function ChatView() {
   };
 
   const openBoardDetail = async (board: Pick<BoardDetail, 'code' | 'name'>) => {
+    trackButtonClick('open_board_detail', { code: board.code, name: board.name });
     openBoardPanel();
     setSelectedBoard(board as BoardDetail);
     try {
@@ -121,10 +126,14 @@ export function ChatView() {
   const activeCommand = slashItems.find((item) => input.startsWith(`${item.command} `));
   const commandArg = activeCommand ? input.slice(activeCommand.command.length + 1) : '';
   const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
-    if (item) setInput(`${item.command} `);
+    if (item) {
+      trackButtonClick('select_slash_command', { command: item.command });
+      setInput(`${item.command} `);
+    }
   };
 
   const stopThinking = () => {
+    trackButtonClick('stop_thinking');
     activeRequestRef.current = undefined;
     replaceLastAssistant({ id: `assistant-stopped-${Date.now()}`, role: 'assistant', content: '已暂停思考。', createdAt: new Date().toISOString() });
     setSending(false);
@@ -134,6 +143,9 @@ export function ChatView() {
     const text = (override ?? input).trim();
     if (!text || isSending) return;
     setInput('');
+    const command = text.startsWith('/') ? text.split(/\s+/, 1)[0] : undefined;
+    trackButtonClick('send_chat', { command, message_length: text.length, has_stock_code: /\d{6}/.test(text) });
+    track('stock_query_entered', { query_kind: /^\d{6}$/.test(text) ? 'code' : command ? 'command' : 'text', command, has_stock_code: /\d{6}/.test(text) });
     const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: text, createdAt: new Date().toISOString() };
     addMessage(userMessage);
     if (isGreeting(text)) {
@@ -255,7 +267,7 @@ export function ChatView() {
 function AppStoreBar({ onOpen }: { onOpen(): void }) {
   return (
     <div className={styles['store-bar']}>
-      <button onClick={onOpen} type="button">＋</button>
+      <button onClick={() => { trackButtonClick('open_store'); onOpen(); }} type="button">＋</button>
       <span>插件</span>
     </div>
   );

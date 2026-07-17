@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import type { AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab, MarketIndexPeriod, MarketTab } from '../src/shared/types.js';
+import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab, MarketIndexPeriod, MarketTab } from '../src/shared/types.js';
 import {
   getConfig,
   listFavoriteStocks,
@@ -25,14 +25,29 @@ import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-ser
 import { listSurgeDates, saveSurgeSnapshot } from './services/stock/surge-history-store.js';
 import { listMarketNews } from './services/stock/news-client.js';
 import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
+import { captureError, captureEvent } from './services/llm/posthog-client.js';
 
 export function registerIpcHandlers() {
+  ipcMain.handle('analytics:capture', (_event, event: string, properties?: AnalyticsProperties) => captureEvent(event, properties));
   ipcMain.handle('config:get', () => getConfig());
   ipcMain.handle('config:set', (_event, config: AppConfig) => setConfig(config));
   ipcMain.handle('favorite:list', () => listFavoriteStocks());
-  ipcMain.handle('favorite:upsert', (_event, stock: Pick<FavoriteStock, 'code' | 'name'>) => upsertFavoriteStock(stock));
-  ipcMain.handle('favorite:remove', (_event, code: string) => removeFavoriteStock(code));
-  ipcMain.handle('favorite:togglePin', (_event, code: string) => toggleFavoriteStockPin(code));
+  ipcMain.handle('favorite:upsert', (_event, stock: Pick<FavoriteStock, 'code' | 'name'>) => {
+    const result = upsertFavoriteStock(stock);
+    captureEvent('stock_favorited', { code: stock.code, name: stock.name });
+    return result;
+  });
+  ipcMain.handle('favorite:remove', (_event, code: string) => {
+    const removed = listFavoriteStocks().find((item) => item.code === code);
+    const result = removeFavoriteStock(code);
+    captureEvent('stock_unfavorited', { code, name: removed?.name });
+    return result;
+  });
+  ipcMain.handle('favorite:togglePin', (_event, code: string) => {
+    const result = toggleFavoriteStockPin(code);
+    captureEvent('stock_favorite_pin_toggled', { code });
+    return result;
+  });
   ipcMain.handle('conversation:list', () => listConversations());
   ipcMain.handle('conversation:create', () => createConversation());
   ipcMain.handle('conversation:delete', (_event, id: string) => deleteConversation(id));
@@ -40,7 +55,18 @@ export function registerIpcHandlers() {
   ipcMain.handle('message:list', (_event, conversationId: string) => listMessages(conversationId));
   ipcMain.handle('message:save', (_event, conversationId: string, message: ChatMessage) => saveMessage(conversationId, message));
   ipcMain.handle('stock:getDetail', (_event, symbol: string) => getStockDetail(symbol));
-  ipcMain.handle('stock:search', (_event, query: string) => searchStocks(query));
+  ipcMain.handle('stock:search', async (_event, query: string) => {
+    const startedAt = Date.now();
+    const result = await searchStocks(query);
+    captureEvent('stock_searched', {
+      query_type: /^\d{6}$/.test(query.trim()) ? 'code' : query.trim() ? 'text' : 'empty',
+      query_length: query.trim().length,
+      code: /^\d{6}$/.test(query.trim()) ? query.trim() : undefined,
+      result_count: result.length,
+      duration_ms: Date.now() - startedAt,
+    });
+    return result;
+  });
   ipcMain.handle('board:getDetail', (_event, symbol: string) => getBoardDetail(symbol));
   ipcMain.handle('stock:getKline', (_event, symbol: string, limit?: number, period?: string) => getKline(symbol, limit, period));
   ipcMain.handle('market:getPageSnapshot', (_event, tab: MarketTab, period?: MarketIndexPeriod) => getMarketPageSnapshot(tab, period));
@@ -69,13 +95,27 @@ export function registerIpcHandlers() {
   ipcMain.handle('store:install', (_event, id: string) => installStoreItem(id));
   ipcMain.handle('store:uninstall', (_event, id: string) => uninstallStoreItem(id));
   ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
-    saveUserMessage(request.conversationId, request.message);
-    const response = await runOrchestrator(request, (token) => {
-      if (request.requestId) event.sender.send('chat:token', { requestId: request.requestId, token });
-    }, (runEvent) => {
-      if (request.requestId) event.sender.send('chat:token', { requestId: request.requestId, runEvent });
-    });
-    saveAssistantMessage(request.conversationId, response.message);
-    return response;
+    const startedAt = Date.now();
+    const command = request.message.trim().startsWith('/') ? request.message.trim().split(/\s+/, 1)[0] : undefined;
+    captureEvent('chat_sent', { command, message_length: request.message.length, has_stock_code: /\d{6}/.test(request.message) });
+    try {
+      saveUserMessage(request.conversationId, request.message);
+      const response = await runOrchestrator(request, (token) => {
+        if (request.requestId) event.sender.send('chat:token', { requestId: request.requestId, token });
+      }, (runEvent) => {
+        if (request.requestId) event.sender.send('chat:token', { requestId: request.requestId, runEvent });
+      });
+      saveAssistantMessage(request.conversationId, response.message);
+      captureEvent('chat_completed', {
+        command,
+        duration_ms: Date.now() - startedAt,
+        tool_call_count: response.message.toolCalls?.length ?? 0,
+        event_count: response.events.length,
+      });
+      return response;
+    } catch (error) {
+      captureError('chat_failed', error, { command, duration_ms: Date.now() - startedAt });
+      throw error;
+    }
   });
 }
