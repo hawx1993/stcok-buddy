@@ -23,7 +23,7 @@ const defaultConfig: AppConfig = {
     provider: 'deepseek',
     apiKey: '',
     baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     customModel: '',
   },
   tradeStyle: 'value',
@@ -142,6 +142,9 @@ const webFallbackApi: StocksenseApi = {
   async setConfig(config: AppConfig) {
     localStorage.setItem('stocksense-config', JSON.stringify(config));
     return config;
+  },
+  async testModelConfig() {
+    throw new Error('浏览器预览模式不会连接本地大模型配置，请运行 Electron 桌面端后再测试。');
   },
   async listFavoriteStocks() {
     return readFavorites();

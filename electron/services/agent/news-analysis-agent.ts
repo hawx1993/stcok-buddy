@@ -1,5 +1,6 @@
 import type { AnnouncementItem, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
 import { generateReport } from '../llm/index.js';
+import { isLlmRequestError } from '../llm/openai-compatible-client.js';
 
 export type NewsAnalysisInput = {
   stock?: StockDetail;
@@ -68,7 +69,8 @@ Emoji 规则：采用专业金融风格；禁止娱乐化、炒作型 Emoji（�
       },
     ], onToken);
     return ensureNewsEmoji(report, stockName, news, announcements);
-  } catch {
+  } catch (error) {
+    if (isLlmRequestError(error)) throw error;
     return fallbackNewsAnalysis(stockName, news, announcements);
   }
 }

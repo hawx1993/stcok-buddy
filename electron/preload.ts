@@ -5,6 +5,7 @@ const api: StocksenseApi = {
   captureAnalytics: (event: string, properties?: AnalyticsProperties) => ipcRenderer.invoke('analytics:capture', event, properties),
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config: AppConfig) => ipcRenderer.invoke('config:set', config),
+  testModelConfig: (config) => ipcRenderer.invoke('config:testModel', config),
   listFavoriteStocks: () => ipcRenderer.invoke('favorite:list'),
   upsertFavoriteStock: (stock: Pick<FavoriteStock, 'code' | 'name'>) => ipcRenderer.invoke('favorite:upsert', stock),
   removeFavoriteStock: (code: string) => ipcRenderer.invoke('favorite:remove', code),

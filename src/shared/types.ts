@@ -453,6 +453,7 @@ export interface StocksenseApi {
   captureAnalytics?(event: string, properties?: AnalyticsProperties): Promise<void>;
   getConfig(): Promise<AppConfig>;
   setConfig(config: AppConfig): Promise<AppConfig>;
+  testModelConfig(config: AppConfig): Promise<void>;
   listConversations(): Promise<ConversationSummary[]>;
   createConversation(): Promise<ConversationSummary>;
   deleteConversation(id: string): Promise<ConversationSummary[]>;

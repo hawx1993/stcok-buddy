@@ -26,11 +26,13 @@ import { listSurgeDates, saveSurgeSnapshot } from './services/stock/surge-histor
 import { listMarketNews } from './services/stock/news-client.js';
 import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
+import { testModelConnection } from './services/llm/index.js';
 
 export function registerIpcHandlers() {
   ipcMain.handle('analytics:capture', (_event, event: string, properties?: AnalyticsProperties) => captureEvent(event, properties));
   ipcMain.handle('config:get', () => getConfig());
   ipcMain.handle('config:set', (_event, config: AppConfig) => setConfig(config));
+  ipcMain.handle('config:testModel', (_event, config: AppConfig) => testModelConnection(config.model));
   ipcMain.handle('favorite:list', () => listFavoriteStocks());
   ipcMain.handle('favorite:upsert', (_event, stock: Pick<FavoriteStock, 'code' | 'name'>) => {
     const result = upsertFavoriteStock(stock);

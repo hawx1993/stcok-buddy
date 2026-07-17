@@ -153,7 +153,7 @@ export function ChatView() {
       const assistantMessage: ChatMessage = {
         id: `assistant-greeting-${Date.now()}`,
         role: 'assistant',
-        content: '你好！我是 stock-sense，你的桌面端 AI 股票投研助手。有什么我可以帮你做的吗？无论是财报分析，基本面分析还是技术分析，你都可以随时告诉我',
+        content: '你好！我是 StockBuddy。本条是本地欢迎语，不会调用大模型厂商。若要测试模型配置，请在系统设置中保存并完成模型连接校验；也可以直接输入股票代码或投研命令开始分析。',
         createdAt: new Date().toISOString(),
       };
       addMessage(assistantMessage);
@@ -172,11 +172,24 @@ export function ChatView() {
       createdAt: new Date().toISOString(),
       thinking: { startedAt: new Date().toISOString(), steps: createThinkingSteps(text) },
     });
-    let offToken: (() => void) | undefined;
     const requestId = `chat-${Date.now()}`;
+    const api = getStocksenseApi();
     try {
-      const api = getStocksenseApi();
       activeRequestRef.current = requestId;
+      await api.testModelConfig(await api.getConfig());
+    } catch (error) {
+      replaceLastAssistant({
+        id: `assistant-error-${Date.now()}`,
+        role: 'assistant',
+        content: error instanceof Error ? error.message : '模型配置校验失败，请检查 API 配置。',
+        createdAt: new Date().toISOString(),
+      });
+      activeRequestRef.current = undefined;
+      setSending(false);
+      return;
+    }
+    let offToken: (() => void) | undefined;
+    try {
       offToken = api.onChatToken?.((event) => {
         if (event.requestId !== requestId || activeRequestRef.current !== requestId) return;
         if (event.runEvent) applyRunEventToLastAssistant(event.runEvent);

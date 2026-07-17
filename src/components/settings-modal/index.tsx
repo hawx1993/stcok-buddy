@@ -11,16 +11,19 @@ type ProviderPreset = {
   endpoint: string;
   model: string;
   hint: string;
+  docUrl?: string;
+  apiKeyUrl?: string;
+  modelShortcuts?: string[];
 };
 
 const providers: ProviderPreset[] = [
-  { id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com', model: 'deepseek-chat', hint: '支持 deepseek-chat / deepseek-reasoner；DeepSeek v4 发布后可直接填写官方模型名。' },
-  { id: 'openai', name: 'OpenAI', endpoint: 'https://api.openai.com/v1', model: 'gpt-4o', hint: '兼容 OpenAI Chat Completions。' },
-  { id: 'qwen', name: '通义千问', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', hint: 'DashScope OpenAI 兼容模式。' },
-  { id: 'minimax', name: 'MiniMax', endpoint: 'https://api.minimax.chat/v1', model: 'MiniMax-M1', hint: 'MiniMax OpenAI 兼容接口。' },
-  { id: 'zhipu', name: '智谱 GLM', endpoint: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-plus', hint: '智谱 v4 API。' },
-  { id: 'moonshot', name: 'Kimi', endpoint: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', hint: 'Kimi / Moonshot OpenAI 兼容接口。' },
-  { id: 'openai-compatible', name: 'OpenAI Compatible', endpoint: 'https://api.openai.com/v1', model: 'gpt-4o-mini', hint: '适用于任意兼容 Chat Completions 的网关或本地模型。' },
+  { id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com', model: 'deepseek-v4-flash', hint: '支持 deepseek-v4-flash / deepseek-v4-pro；默认使用 deepseek-v4-flash。', docUrl: 'https://api-docs.deepseek.com/zh-cn/', apiKeyUrl: 'https://platform.deepseek.com/api_keys', modelShortcuts: ['deepseek-v4-pro','deepseek-v4-flash'] },
+  { id: 'openai', name: 'OpenAI', endpoint: 'https://api.openai.com/v1', model: 'gpt-5.6', hint: '兼容 OpenAI Chat Completions。', docUrl: 'https://developers.openai.com/api/reference/overview', apiKeyUrl: 'https://platform.openai.com/api-keys', modelShortcuts: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna','gpt-5.5','gpt-5.4'] },
+  { id: 'qwen', name: '通义千问', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3.7-plus', hint: 'DashScope OpenAI 兼容模式。', docUrl: 'https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope', apiKeyUrl: 'https://bailian.console.aliyun.com/?tab=model#/api-key', modelShortcuts: ['qwen3.7-max', 'qwen3.6-flash', 'qwen3.5-omni-plus'] },
+  { id: 'minimax', name: 'MiniMax', endpoint: 'https://api.minimax.chat/v1', model: 'MiniMax-M3', hint: 'MiniMax OpenAI 兼容接口。', docUrl: 'https://platform.minimaxi.com/docs/guides/models-intro', apiKeyUrl: 'https://platform.minimaxi.com/console/access?tab=api-keys', modelShortcuts: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.7-highspeed','MiniMax-M2.5'] },
+  { id: 'zhipu', name: '智谱 GLM', endpoint: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.2', hint: '智谱 v4 API。', docUrl: 'https://docs.bigmodel.cn/cn/guide/start/model-overview', apiKeyUrl: 'https://bigmodel.cn/apikey/platform', modelShortcuts: ['GLM-5.2','GLM-5.1','GLM-5','GLM-5-turbo','GLM-4.7'] },
+  { id: 'moonshot', name: 'Kimi', endpoint: 'https://api.moonshot.cn/v1', model: 'kimi-k3', hint: 'Kimi / Moonshot OpenAI 兼容接口。', docUrl: 'https://platform.moonshot.cn/docs/intro', apiKeyUrl: 'https://platform.kimi.com/console/api-keys', modelShortcuts: [ 'kimi-k3','kimi-k2.6', 'kimi-k2.5', 'moonshot-v1-128k', 'moonshot-v1-32k', 'moonshot-v1-8k'] },
+  { id: 'openai-compatible', name: 'OpenAI Compatible', endpoint: 'https://api.openai.com/v1', model: 'gpt-5.6', hint: '适用于任意兼容 Chat Completions 的网关或本地模型。', docUrl: 'https://platform.openai.com/docs/api-reference/chat/create', apiKeyUrl: 'https://platform.openai.com/api-keys', modelShortcuts: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'qwen3.7-plus', 'deepseek-v4-flash', 'kimi-k3'] },
   { id: 'custom', name: '自定义 API', endpoint: '', model: '', hint: '填写自定义 Base URL 与模型名称。' },
 ];
 
@@ -54,8 +57,17 @@ export function SettingsModal() {
   const [marketStatus, setMarketStatus] = useState<MarketDataSyncStatus>();
   const [marketStats, setMarketStats] = useState<MarketDataStats>();
   const [marketActionPending, setMarketActionPending] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => setDraft(config), [config]);
+  useEffect(() => {
+    if (!isOpen) return;
+    setDraft((value) => {
+      if (!value || value.model.provider !== 'deepseek') return value;
+      if (value.model.model !== 'deepseek-chat' && value.model.customModel !== 'deepseek-chat') return value;
+      return { ...value, model: { ...value.model, model: 'deepseek-v4-flash', customModel: 'deepseek-v4-flash' } };
+    });
+  }, [isOpen]);
   useEffect(() => {
     if (!isOpen) return;
     const api = getStocksenseApi();
@@ -95,13 +107,25 @@ export function SettingsModal() {
   const selectMarketColorMode = (marketColorMode: MarketColorMode) => setDraft({ ...draft, marketColorMode });
 
   const save = async () => {
-    const saved = await getStocksenseApi().setConfig(draft);
-    setConfig(saved);
-    setToast('设置已保存');
-    window.setTimeout(() => {
-      setToast('');
-      setSettingsOpen(false);
-    }, 650);
+    setSaving(true);
+    try {
+      const api = getStocksenseApi();
+      await api.testModelConfig(draft);
+      const saved = await api.setConfig(draft);
+      setConfig(saved);
+      setToast('模型连接成功，设置已保存');
+      window.setTimeout(() => {
+        setToast('');
+        setSettingsOpen(false);
+      }, 900);
+    } catch (error) {
+      const saved = await getStocksenseApi().setConfig(draft);
+      setConfig(saved);
+      const detail = error instanceof Error ? error.message : '模型配置校验失败，请检查 API 配置。';
+      setToast(`设置已保存，但${detail}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const runMarketAction = async (action: 'sync' | 'retry') => {
@@ -136,7 +160,10 @@ export function SettingsModal() {
             <div className={styles['settings-row']}>
               <label className={styles.label} htmlFor="api-endpoint">API 地址</label>
               <input id="api-endpoint" value={draft.model.baseUrl} onChange={(event) => setDraft({ ...draft, model: { ...draft.model, baseUrl: event.target.value } })} placeholder="https://api.deepseek.com" />
-              <div className={styles.hint}>填入对应厂商的 API 端点地址</div>
+              <div className={styles.hint}>
+                填入对应厂商的 API 端点地址
+                {currentProvider.docUrl ? <a href={currentProvider.docUrl} target="_blank" rel="noreferrer">查看接口文档</a> : null}
+              </div>
             </div>
             <div className={styles['settings-row']}>
               <label className={styles.label} htmlFor="api-key">API Key</label>
@@ -144,11 +171,21 @@ export function SettingsModal() {
                 <input id="api-key" type={showKey ? 'text' : 'password'} value={draft.model.apiKey} onChange={(event) => setDraft({ ...draft, model: { ...draft.model, apiKey: event.target.value } })} placeholder="sk-xxxxxxxxxxxx" />
                 <button className={styles['toggle-vis']} onClick={() => setShowKey((value) => !value)} type="button">{showKey ? '🙈' : '👁'}</button>
               </div>
-              <div className={styles.hint}>API Key 仅存储在本地设备中，不会上传到 StockBuddy 服务端</div>
+              <div className={styles.hint}>
+                API Key 仅存储在本地设备中，不会上传到 StockBuddy 服务端
+                {currentProvider.apiKeyUrl ? <a href={currentProvider.apiKeyUrl} target="_blank" rel="noreferrer">获取 API Key</a> : null}
+              </div>
             </div>
             <div className={styles['settings-row']}>
               <label className={styles.label} htmlFor="model-name">模型名称（可选）</label>
               <input id="model-name" value={draft.model.customModel ?? draft.model.model} onChange={(event) => setDraft({ ...draft, model: { ...draft.model, customModel: event.target.value, model: event.target.value || currentProvider.model } })} placeholder={currentProvider.model || '自定义模型名称'} />
+              {currentProvider.modelShortcuts?.length ? (
+                <div className={styles['model-shortcuts']}>
+                  {currentProvider.modelShortcuts.map((model) => (
+                    <button key={model} type="button" onClick={() => setDraft({ ...draft, model: { ...draft.model, customModel: model, model } })}>{model}</button>
+                  ))}
+                </div>
+              ) : null}
               <div className={styles.hint}>{currentProvider.hint}</div>
             </div>
           </div>
@@ -228,7 +265,7 @@ export function SettingsModal() {
 
         <div className={styles['modal-footer']}>
           <button className={styles['btn-cancel']} onClick={() => setSettingsOpen(false)} type="button">取消</button>
-          <button className={styles['btn-save']} onClick={save} type="button">保存</button>
+          <button className={styles['btn-save']} onClick={save} disabled={saving} type="button">{saving ? '校验中…' : '保存'}</button>
         </div>
       </div>
       {toast ? <div className={`${styles.toast} ${styles.show} ${styles.success}`}>{toast}</div> : null}
