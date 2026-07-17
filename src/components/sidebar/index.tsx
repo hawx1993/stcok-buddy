@@ -11,7 +11,6 @@ import cx from '../../shared/cx';
 
 export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const searchRef = useRef<HTMLInputElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [conversationMenuId, setConversationMenuId] = useState<string>();
   const [editingConversationId, setEditingConversationId] = useState<string>();
   const [editingTitle, setEditingTitle] = useState('');
@@ -127,15 +126,8 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
       </div>
 
       <div className={styles['sidebar-footer']}>
-        <button className={styles['user-trigger']} onClick={() => setMenuOpen((open) => !open)} type="button">
-          <span className={styles['user-badge']}><span className={styles.avatar}>张</span><span className={styles['user-name']}>张三</span></span>
-        </button>
-        <div className={cx(styles['user-dropdown'], menuOpen && styles.open)}>
-          <ThemeToggle />
-          <button className={styles['dropdown-item']} onClick={() => { trackButtonClick('open_settings'); setSettingsOpen(true); }} type="button"><Settings size={15} /><span>系统设置</span></button>
-          <div className={styles['dropdown-divider']} />
-          <button className={cx(styles['dropdown-item'], styles.danger)} type="button"><span>🚪</span><span>退出登录</span></button>
-        </div>
+        <button className={styles['footer-action']} onClick={() => { trackButtonClick('open_settings'); setSettingsOpen(true); }} type="button" aria-label="系统设置"><Settings size={15} /><span>设置</span></button>
+        <ThemeToggle compact />
       </div>
     </aside>
   );

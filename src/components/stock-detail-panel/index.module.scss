@@ -48,6 +48,8 @@
 .empty-panel .hl { color: var(--accent); }
 .stock-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 10px 12px 4px; }
 .stock-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.back-to-surge { margin-right: 6px; padding: 2px 6px; border-radius: 999px; background: var(--list-item-active); color: var(--accent); font-size: 11px; font-weight: 600; cursor: pointer; vertical-align: 1px; }
+.back-to-surge:hover { background: var(--accent); color: #fff; }
 .stock-name .code { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 4px; }
 .stock-price { margin-top: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 90px; white-space: nowrap; text-align: right; }
 .stock-side { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; }
@@ -109,6 +111,8 @@
 .board-stock-side strong { display: block; font-size: 12px; }
 .board-stock-side em { color: inherit; }
 .surge-item { width: 100%; display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: stretch; gap: 8px; padding: 0; margin-top: 8px; background: transparent; border: 0; color: var(--fg); text-align: left; cursor: pointer; }
+.surge-item.highlight .surge-card { animation: surge-highlight 1.15s ease; }
+@keyframes surge-highlight { 0%, 100% { box-shadow: none; } 18%, 55% { box-shadow: 0 0 0 2px rgba(59,130,246,.36), 0 0 22px rgba(59,130,246,.28); background: var(--list-item-active); } }
 .surge-time { position: relative; padding-top: 16px; color: var(--muted); font-size: 11px; white-space: nowrap; text-align: right; }
 .surge-time::before { content: ''; position: absolute; right: -8px; top: 21px; width: 5px; height: 5px; border-radius: 999px; background: var(--accent); z-index: 1; }
 .surge-time::after { content: ''; position: absolute; right: -6px; top: 26px; bottom: -20px; width: 1px; background: var(--border); }
