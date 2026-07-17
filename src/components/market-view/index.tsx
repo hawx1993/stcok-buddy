@@ -150,7 +150,7 @@ export function MarketView() {
 
   const openStock = useCallback(
     async (row: MarketQuoteRow) => {
-      const stock: StockDetail = {
+      const rowSnapshot: StockDetail = {
         code: row.code,
         name: row.name,
         price: row.price,
@@ -165,12 +165,12 @@ export function MarketView() {
         marketCap: formatMarketCap(row.marketCap),
       };
       openRightPanel();
-      setSelectedStock(stock);
+      setSelectedStock(rowSnapshot);
       try {
         const detail = await getStocksenseApi().getStockDetail(row.code);
-        setSelectedStock({ ...stock, ...detail, name: detail.name === detail.code ? stock.name : detail.name });
+        setSelectedStock({ ...rowSnapshot, ...detail, name: detail.name === detail.code ? rowSnapshot.name : detail.name });
       } catch {
-        setSelectedStock(stock);
+        setSelectedStock(rowSnapshot);
       }
     },
     [openRightPanel, setSelectedStock],
@@ -178,7 +178,7 @@ export function MarketView() {
 
   const openBoard = useCallback(
     async (row: MarketBoardRow) => {
-      const preview: BoardDetail = {
+      const rowSnapshot: BoardDetail = {
         code: row.code,
         name: row.name,
         changePercent: formatPercent(row.changePercent),
@@ -186,18 +186,18 @@ export function MarketView() {
         constituents: row.constituents ?? [],
       };
       openBoardPanel();
-      if (selectedBoard?.code !== row.code) setSelectedBoard(preview);
+      if (selectedBoard?.code !== row.code) setSelectedBoard(rowSnapshot);
       try {
         const detail = await getStocksenseApi().getBoardDetail(row.code, false, row.name);
         if (useAppStore.getState().selectedBoard?.code !== row.code) return;
         setSelectedBoard({
           ...detail,
           name: detail.name === detail.code ? row.name : detail.name,
-          changePercent: detail.changePercent ?? preview.changePercent,
+          changePercent: detail.changePercent ?? rowSnapshot.changePercent,
         });
       } catch {
         if (useAppStore.getState().selectedBoard?.code !== row.code) return;
-        setSelectedBoard(preview);
+        setSelectedBoard(rowSnapshot);
       }
     },
     [openBoardPanel, selectedBoard?.code, setSelectedBoard],
@@ -253,7 +253,7 @@ export function MarketView() {
                     </button>
                   ))
                 ) : debouncedSearch ? (
-                  <div className={styles.suggestionEmpty}>无匹配股票</div>
+                  <div className={styles.suggestionEmpty}>无匹配结果</div>
                 ) : null}
               </div>
             ) : null}

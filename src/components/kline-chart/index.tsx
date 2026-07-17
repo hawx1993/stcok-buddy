@@ -7,6 +7,9 @@ import type { ChipDistribution, KlinePoint, StockDetail } from '../../shared/typ
 import { getMarketColors } from '../../shared/market-color';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
+import { ChipOverlay } from './components/chip-overlay';
+import { KlineHoverInfo } from './components/kline-hover-info';
+import { KlineModalFrame } from './components/kline-modal-frame';
 
 export const klineTimeframes = [
   { id: '15m', label: '15分钟', limit: 240, period: { type: 'minute', span: 15 } },
@@ -17,7 +20,7 @@ export const klineTimeframes = [
   { id: '1mo', label: '月', limit: 120, period: { type: 'month', span: 1 } },
 ] as const;
 
-type TimeframeId = (typeof klineTimeframes)[number]['id'];
+export type TimeframeId = (typeof klineTimeframes)[number]['id'];
 
 type KlineStock = Pick<StockDetail, 'code' | 'name' | 'pe' | 'price'>;
 
@@ -71,11 +74,7 @@ export function StockKlineChart({
   const [hoverPoint, setHoverPoint] = useState<KlinePoint | undefined>();
   const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('right');
   const frame = klineTimeframes.find((item) => item.id === tf) ?? klineTimeframes[3];
-  const fallbackBase = Number(stock?.price) || 100;
-  const chartData = useMemo(() => {
-    if (loadedData.length) return loadedData;
-    return stock?.code ? [] : makeKData(fallbackBase, frame.limit, tf);
-  }, [fallbackBase, frame.limit, loadedData, stock?.code, tf]);
+  const chartData = loadedData;
   chartDataRef.current = chartData;
   const klineData = useMemo(
     () =>
@@ -298,31 +297,20 @@ export function KlineModal({
   onClose(): void;
   chipsOpen?: boolean;
 }) {
-  const [tf, setTf] = useState<TimeframeId>('1d');
   return (
-    <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.modal} onClick={(event) => event.stopPropagation()}>
-        <div className={styles.header}>
-          <div>
-            {stock.name}（{stock.code || '--'}）K线图
-          </div>
-          <button onClick={onClose} type='button'>
-            ✕
-          </button>
-        </div>
-        <StockKlineChart
-          stock={stock}
-          data={data}
-          height='100%'
-          showSwitcher
-          showChips
-          chipsOpen={chipsOpen}
-          showIndicators
-          timeframe={tf}
-          onTimeframeChange={setTf}
-        />
-      </div>
-    </div>
+    <KlineModalFrame stock={stock} data={data} onClose={onClose} chipsOpen={chipsOpen} renderChart={(tf, setTf) => (
+      <StockKlineChart
+        stock={stock}
+        data={data}
+        height='100%'
+        showSwitcher
+        showChips
+        chipsOpen={chipsOpen}
+        showIndicators
+        timeframe={tf}
+        onTimeframeChange={setTf}
+      />
+    )} />
   );
 }
 
@@ -330,29 +318,6 @@ function toKlineRequestSymbol(stock: KlineStock) {
   if (stock.name === '上证指数' && stock.code === '000001') return 'sh000001';
   if (stock.name === '深证成指' && stock.code === '399001') return 'sz399001';
   return stock.code;
-}
-
-function ChipOverlay({ chips, data }: { chips: ChipDistribution; data: KlinePoint[] }) {
-  if (!chips.points.length || !data.length) return null;
-  const high = Math.max(...data.map((item) => item.high)) * 1.02;
-  const low = Math.min(...data.map((item) => item.low)) * 0.98;
-  const range = high - low || 1;
-  const maxWeight = Math.max(...chips.points.map((point) => point.weight), 1);
-  return (
-    <div className={styles.chips}>
-      {chips.points.map((point) => {
-        const top = ((high - point.price) / range) * 100;
-        if (top < 0 || top > 100) return null;
-        return (
-          <span
-            key={`${point.price}-${point.weight}`}
-            className={(point.profit ?? 0) >= 0.5 ? styles.profit : styles.loss}
-            style={{ top: `${top}%`, width: `${Math.max(2, (point.weight / maxWeight) * 100)}%` }}
-          />
-        );
-      })}
-    </div>
-  );
 }
 
 function resolveMouseIndex(chart: Chart, host: HTMLDivElement | null, event: MouseEvent) {
@@ -379,84 +344,6 @@ function resolveCrosshairIndex(crosshair: Crosshair | undefined, data: KlinePoin
 
 function clampIndex(index: number, length: number) {
   return Math.max(0, Math.min(length - 1, index));
-}
-
-function KlineHoverInfo({
-  point,
-  previous,
-  pe,
-  side,
-  period,
-}: {
-  point: KlinePoint;
-  previous?: KlinePoint;
-  pe?: string | number;
-  side: 'left' | 'right';
-  period: Period;
-}) {
-  const change = point.change ?? point.close - (previous?.close ?? point.open);
-  const changePercent = point.changePercent ?? (previous?.close ? (change / previous.close) * 100 : 0);
-  return (
-    <div className={cx(styles['hover-tooltip'], styles[side])}>
-      <div className={styles.date}>{formatKlineTime(point, period)}</div>
-      <KlineInfoRow label='开盘' value={formatPrice(point.open)} />
-      <KlineInfoRow label='最高' value={formatPrice(point.high)} tone={point.high >= point.open ? 'up' : 'down'} />
-      <KlineInfoRow label='最低' value={formatPrice(point.low)} tone={point.low >= point.open ? 'up' : 'down'} />
-      <KlineInfoRow label='收盘' value={formatPrice(point.close)} tone={point.close >= point.open ? 'up' : 'down'} />
-      <KlineInfoRow label='涨跌额' value={formatSigned(change)} tone={change >= 0 ? 'up' : 'down'} />
-      <KlineInfoRow
-        label='涨跌幅'
-        value={`${formatSigned(changePercent)}%`}
-        tone={changePercent >= 0 ? 'up' : 'down'}
-      />
-      <KlineInfoRow label='成交量' value={formatVolume(point.volume)} />
-      {(point.pe ?? pe) ? <KlineInfoRow label='市盈率' value={String(point.pe ?? pe)} /> : null}
-    </div>
-  );
-}
-
-function KlineInfoRow({ label, value, tone }: { label: string; value: string; tone?: 'up' | 'down' }) {
-  return (
-    <div className={styles['info-row']}>
-      <span>{label}</span>
-      <b className={tone ? styles[tone] : undefined}>{value}</b>
-    </div>
-  );
-}
-
-function formatKlineTime(point: KlinePoint, period: Period) {
-  const timestamp = point.timestamp ?? parseKlineTimestamp(point.time, 0, 1, period);
-  if (!Number.isFinite(timestamp)) return point.time || '--';
-  const date = new Date(timestamp);
-  const dateText = `${date.getFullYear()}/${pad2(date.getMonth() + 1)}/${pad2(date.getDate())}`;
-  const weekText = `周${'日一二三四五六'[date.getDay()]}`;
-  if (period.type === 'day') return `${dateText} ${weekText}`;
-  return `${dateText} ${pad2(date.getHours())}:${pad2(date.getMinutes())} ${weekText}`;
-}
-
-function pad2(value: number) {
-  return String(value).padStart(2, '0');
-}
-
-function formatPrice(value: number) {
-  return Number.isFinite(value) ? value.toFixed(2) : '--';
-}
-
-function formatSigned(value: number) {
-  if (!Number.isFinite(value)) return '--';
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
-}
-
-function formatVolume(value: number) {
-  if (!Number.isFinite(value)) return '--';
-  return value >= 10000 ? `${(value / 10000).toFixed(2)}万手` : `${value.toFixed(0)}手`;
-}
-
-function formatMoney(value?: number) {
-  if (value === undefined || !Number.isFinite(value)) return '--';
-  if (Math.abs(value) >= 100000000) return `${(value / 100000000).toFixed(2)}亿`;
-  if (Math.abs(value) >= 10000) return `${(value / 10000).toFixed(2)}万`;
-  return value.toFixed(0);
 }
 
 function toKLineData(point: KlinePoint, index: number, total: number, period: Period): KLineData {
@@ -496,22 +383,6 @@ function parseKlineTimestamp(value: string, index: number, total: number, period
             ? 30 * 86_400_000
             : 86_400_000;
   return new Date('2024-01-01').getTime() + (index - total) * span;
-}
-
-function makeKData(basePrice: number, limit: number, period = '1d'): KlinePoint[] {
-  const step = ({ '15m': 1, '1h': 2, '4h': 3, '1d': 4, '1w': 9, '1mo': 18 } as Record<string, number>)[period] ?? 4;
-  let price = basePrice;
-  return Array.from({ length: limit }, (_, index) => {
-    const wave = Math.sin((index * step) / 4) * basePrice * 0.008 * Math.sqrt(step);
-    const drift = (index - limit / 2) * basePrice * 0.0002 * step;
-    const open = price;
-    const close = Math.max(1, open + wave + drift);
-    const high = Math.max(open, close) * 1.006;
-    const low = Math.min(open, close) * 0.994;
-    const volume = 10000 + Math.abs(wave) * 2000 + (index % 7) * 1600 * step;
-    price = close;
-    return { time: String(index + 1), open, close, high, low, volume };
-  });
 }
 
 function getKlineStyles({ upColor, downColor }: ReturnType<typeof getMarketColors>) {

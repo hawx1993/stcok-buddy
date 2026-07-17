@@ -267,7 +267,7 @@ export function StockDetailPanel() {
 
   const openSurgeStock = async (item: HotFocusItem) => {
     if (!item.code) return;
-    const fallback: StockDetail = {
+    const rowSnapshot: StockDetail = {
       code: item.code,
       name: item.name ?? item.title,
       price: item.price,
@@ -277,11 +277,11 @@ export function StockDetailPanel() {
     };
     setSurgeReturnCode(item.code);
     setRightPanelTab('stock');
-    setSelectedStock(fallback);
+    setSelectedStock(rowSnapshot);
     try {
       setSelectedStock(await getStocksenseApi().getStockDetail(item.code));
     } catch {
-      setSelectedStock(fallback);
+      setSelectedStock(rowSnapshot);
     }
   };
 
@@ -781,12 +781,41 @@ function FavoriteStockItem({
 
 function BoardDetailView() {
   const [refreshing, setRefreshing] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const board = useAppStore((state) => state.selectedBoard);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
+  const loadingCodeRef = useRef<string | undefined>();
+
+  // ponytail: detect when full detail arrives OR fetch completed with empty data
+  useEffect(() => {
+    if (board?.kline?.length || board?.constituents?.length) {
+      setInitialLoading(false);
+      return;
+    }
+    // ponytail: if board identity changed but data is still empty, the fetch completed unsuccessfully — stop loading
+    if (board?.code && board.code !== loadingCodeRef.current && loadingCodeRef.current !== undefined) {
+      setInitialLoading(false);
+    }
+  }, [board]);
+
+  // ponytail: reset loading when board code changes
+  useEffect(() => {
+    setInitialLoading(true);
+    loadingCodeRef.current = board?.code;
+  }, [board?.code]);
+
+  // ponytail: safety timeout — force stop loading after 20s
+  useEffect(() => {
+    if (!initialLoading) return;
+    const id = window.setTimeout(() => setInitialLoading(false), 20_000);
+    return () => window.clearTimeout(id);
+  }, [initialLoading, board?.code]);
+
   if (!board) return null;
   const stocks = board.constituents ?? [];
+  const isLoading = initialLoading && !refreshing;
   const refreshBoard = async () => {
     if (refreshing) return;
     setRefreshing(true);
@@ -805,17 +834,17 @@ function BoardDetailView() {
     }
   };
   const openBoardStock = async (stock: BoardConstituent) => {
-    const fallback: StockDetail = {
+    const rowSnapshot: StockDetail = {
       ...stock,
       turnover: stock.turnover ?? stock.amount,
       summary: `${board.name}板块成分股。`,
     };
     setRightPanelTab('stock');
-    setSelectedStock(fallback);
+    setSelectedStock(rowSnapshot);
     try {
-      setSelectedStock({ ...fallback, ...(await getStocksenseApi().getStockDetail(stock.code)) });
+      setSelectedStock({ ...rowSnapshot, ...(await getStocksenseApi().getStockDetail(stock.code)) });
     } catch {
-      setSelectedStock(fallback);
+      setSelectedStock(rowSnapshot);
     }
   };
   return (
@@ -850,6 +879,8 @@ function BoardDetailView() {
             showLegend={false}
             staticData
           />
+        ) : isLoading ? (
+          <div className={styles['empty-list']}>加载中…</div>
         ) : (
           <div className={styles['empty-list']}>暂无图表数据</div>
         )}
@@ -859,7 +890,7 @@ function BoardDetailView() {
           成分股 <span>{stocks.length} 只</span>
         </div>
         <div className={styles['board-stock-list']}>
-          {refreshing ? (
+          {isLoading || refreshing ? (
             <BoardStockSkeleton />
           ) : stocks.length ? (
             stocks.map((stock) => (
