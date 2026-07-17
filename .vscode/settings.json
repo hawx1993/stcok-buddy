@@ -1,0 +1,50 @@
+{
+  // 设置默认的代码格式化工具为 Prettier
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  // 在保存文件时自动格式化代码
+  "editor.formatOnSave": true,
+  // 在保存时执行的代码操作
+  "editor.codeActionsOnSave": {
+    // 修复所有可以自动修复的问题（需要显式触发）
+    "source.fixAll": "explicit",
+    // 保存时永远不会自动整理导入语句（删除未使用的 import、排序等）
+    "source.organizeImports": "never"
+  },
+  "editor.quickSuggestions": {
+    "other": true,
+    "comments": false,
+    "strings": true // 将这里的 strings 改为 true，允许在引号内提示
+  },
+  // 确保在 snippet 建议时不被普通文本覆盖
+  "editor.suggest.snippetsPreventQuickSuggestions": false,
+  // 指定使用项目本地的 TypeScript 版本，而不是 VSCode 内置的版本
+  "typescript.tsdk": "node_modules/typescript/lib",
+  // 当检测到工作区有 TypeScript 版本时，提示是否使用工作区的 TypeScript
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  // 禁用 TS 的“保存时重度检查”，不会影响已有类型的检查、提示、跳转、补全
+  "typescript.disableAutomaticTypeAcquisition": true,
+  // 提升 tsserver 内存
+  "typescript.tsserver.maxTsServerMemory": 4096,
+  // 设置包管理器为 pnpm
+  "npm.packageManager": "pnpm",
+  // 排除 out 目录的文件监视
+  "files.watcherExclude": {
+    "**/out/**": true
+  },
+  "search.exclude": {
+    "**/node_modules/*": true,
+    "**/.git": true,
+    "**/.vscode": true,
+    "**/.public": true,
+    "**/.out": true,
+    "**/.claude": true,
+    "release": true,
+    "dist": true,
+    "dist-electron": true,
+    "**/tsconfig.tsbuildinfo": true,
+    "**/pnpm-lock.yaml": true
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
+}

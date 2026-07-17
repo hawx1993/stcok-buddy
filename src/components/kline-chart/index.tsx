@@ -7,6 +7,9 @@ import type { ChipDistribution, KlinePoint, StockDetail } from '../../shared/typ
 import { getMarketColors } from '../../shared/market-color';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
+import { ChipOverlay } from './components/chip-overlay';
+import { KlineHoverInfo } from './components/kline-hover-info';
+import { KlineModalFrame } from './components/kline-modal-frame';
 
 export const klineTimeframes = [
   { id: '15m', label: '15分钟', limit: 240, period: { type: 'minute', span: 15 } },
@@ -17,7 +20,7 @@ export const klineTimeframes = [
   { id: '1mo', label: '月', limit: 120, period: { type: 'month', span: 1 } },
 ] as const;
 
-type TimeframeId = typeof klineTimeframes[number]['id'];
+export type TimeframeId = (typeof klineTimeframes)[number]['id'];
 
 type KlineStock = Pick<StockDetail, 'code' | 'name' | 'pe' | 'price'>;
 
@@ -40,7 +43,20 @@ interface StockKlineChartProps {
   staticData?: boolean;
 }
 
-export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, height = 210, showSwitcher = false, showChips = false, chipsOpen = false, showIndicators = false, showLegend = true, timeframe, onTimeframeChange, staticData = false }: StockKlineChartProps) {
+export function StockKlineChart({
+  stock,
+  data = EMPTY_KLINE_DATA,
+  className,
+  height = 210,
+  showSwitcher = false,
+  showChips = false,
+  chipsOpen = false,
+  showIndicators = false,
+  showLegend = true,
+  timeframe,
+  onTimeframeChange,
+  staticData = false,
+}: StockKlineChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
   const loadingMoreRef = useRef(false);
@@ -58,13 +74,15 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
   const [hoverPoint, setHoverPoint] = useState<KlinePoint | undefined>();
   const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('right');
   const frame = klineTimeframes.find((item) => item.id === tf) ?? klineTimeframes[3];
-  const fallbackBase = Number(stock?.price) || 100;
-  const chartData = useMemo(() => {
-    if (loadedData.length) return loadedData;
-    return stock?.code ? [] : makeKData(fallbackBase, frame.limit, tf);
-  }, [fallbackBase, frame.limit, loadedData, stock?.code, tf]);
+  const chartData = loadedData;
   chartDataRef.current = chartData;
-  const klineData = useMemo(() => chartData.map((point, index) => toKLineData(point, index, chartData.length, frame.period)).sort((a, b) => a.timestamp - b.timestamp), [chartData, frame.period]);
+  const klineData = useMemo(
+    () =>
+      chartData
+        .map((point, index) => toKLineData(point, index, chartData.length, frame.period))
+        .sort((a, b) => a.timestamp - b.timestamp),
+    [chartData, frame.period],
+  );
   const chips = tf === '1d' && showChips && chipsOpen ? estimateChips(chartData, hoverIndex) : undefined;
 
   useEffect(() => {
@@ -79,27 +97,46 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
     loadedLimitRef.current = 0;
     setHoverIndex(undefined);
     setHoverPoint(undefined);
-    getStocksenseApi().getKline(toKlineRequestSymbol(stock), frame.limit, tf).then((next) => {
-      if (alive) {
-        setLoadedData(next);
-        loadedLimitRef.current = frame.limit;
-        setHoverIndex(undefined);
-        setHoverPoint(undefined);
-      }
-    }).catch(() => {
-      if (alive) setLoadedData([]);
-    });
-    return () => { alive = false; };
+    getStocksenseApi()
+      .getKline(toKlineRequestSymbol(stock), frame.limit, tf)
+      .then((next) => {
+        if (alive) {
+          setLoadedData(next);
+          loadedLimitRef.current = frame.limit;
+          setHoverIndex(undefined);
+          setHoverPoint(undefined);
+        }
+      })
+      .catch(() => {
+        if (alive) setLoadedData([]);
+      });
+    return () => {
+      alive = false;
+    };
   }, [usesProvidedData, stock?.code, frame.limit, tf]);
 
   const loadOlderData = useCallback(async () => {
-    if (!stock?.code || usesProvidedData || loadingMoreRef.current || loadedLimitRef.current >= KLINE_MAX_LIMIT) return [];
-    const firstTimestamp = chartDataRef.current[0]?.timestamp ?? (chartDataRef.current[0] ? parseKlineTimestamp(chartDataRef.current[0].time, 0, chartDataRef.current.length, frame.period) : undefined);
+    if (!stock?.code || usesProvidedData || loadingMoreRef.current || loadedLimitRef.current >= KLINE_MAX_LIMIT)
+      return [];
+    const firstTimestamp =
+      chartDataRef.current[0]?.timestamp ??
+      (chartDataRef.current[0]
+        ? parseKlineTimestamp(chartDataRef.current[0].time, 0, chartDataRef.current.length, frame.period)
+        : undefined);
     loadingMoreRef.current = true;
-    const nextLimit = Math.min(KLINE_MAX_LIMIT, Math.max(loadedLimitRef.current + KLINE_LOAD_STEP, frame.limit + KLINE_LOAD_STEP));
+    const nextLimit = Math.min(
+      KLINE_MAX_LIMIT,
+      Math.max(loadedLimitRef.current + KLINE_LOAD_STEP, frame.limit + KLINE_LOAD_STEP),
+    );
     try {
       const next = await getStocksenseApi().getKline(toKlineRequestSymbol(stock), nextLimit, tf);
-      const older = firstTimestamp === undefined ? next : next.filter((point, index) => (point.timestamp ?? parseKlineTimestamp(point.time, index, next.length, frame.period)) < firstTimestamp);
+      const older =
+        firstTimestamp === undefined
+          ? next
+          : next.filter(
+              (point, index) =>
+                (point.timestamp ?? parseKlineTimestamp(point.time, index, next.length, frame.period)) < firstTimestamp,
+            );
       if (older.length) {
         appendingOlderRef.current = true;
         loadedLimitRef.current = nextLimit;
@@ -118,7 +155,10 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
       styles: {
         ...klineStyles,
         candle: { ...klineStyles.candle, tooltip: { showRule: showLegend ? 'always' : 'none', showType: 'standard' } },
-        indicator: { ...klineStyles.indicator, tooltip: { showRule: showLegend ? 'always' : 'none', showType: 'standard' } },
+        indicator: {
+          ...klineStyles.indicator,
+          tooltip: { showRule: showLegend ? 'always' : 'none', showType: 'standard' },
+        },
         grid: {
           show: false,
           horizontal: { show: false },
@@ -180,13 +220,21 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
       appendingOlderRef.current = false;
       return;
     }
-    chart.setSymbol({ ticker: stock?.code || 'kline', name: stock?.name || 'K线', pricePrecision: 2, volumePrecision: 0 });
+    chart.setSymbol({
+      ticker: stock?.code || 'kline',
+      name: stock?.name || 'K线',
+      pricePrecision: 2,
+      volumePrecision: 0,
+    });
     chart.setPeriod(frame.period as Period);
     chart.setDataLoader({
       getBars: async ({ type, callback }) => {
         if (type === 'forward') {
           const older = await loadOlderData();
-          callback(older.map((point, index) => toKLineData(point, index, older.length, frame.period)), { forward: older.length > 0, backward: false });
+          callback(
+            older.map((point, index) => toKLineData(point, index, older.length, frame.period)),
+            { forward: older.length > 0, backward: false },
+          );
           return;
         }
         callback(klineData, { forward: !staticData && loadedLimitRef.current < KLINE_MAX_LIMIT, backward: false });
@@ -210,29 +258,59 @@ export function StockKlineChart({ stock, data = EMPTY_KLINE_DATA, className, hei
   return (
     <div className={cx(styles.wrap, className)} style={{ height }}>
       <div className={styles.chart} ref={hostRef} />
-      {hoverPoint ? <KlineHoverInfo point={hoverPoint} previous={hoverIndex ? chartData[hoverIndex - 1] : undefined} pe={stock?.pe} side={tooltipSide} period={frame.period} /> : null}
+      {hoverPoint ? (
+        <KlineHoverInfo
+          point={hoverPoint}
+          previous={hoverIndex ? chartData[hoverIndex - 1] : undefined}
+          pe={stock?.pe}
+          side={tooltipSide}
+          period={frame.period}
+        />
+      ) : null}
       {chips ? <ChipOverlay chips={chips} data={chartData} /> : null}
       {showSwitcher ? (
         <div className={styles.timeframes}>
-          {klineTimeframes.map((item) => <button key={item.id} className={cx(styles.tf, tf === item.id && styles.active)} onClick={() => setTimeframe(item.id)} type="button">{item.label}</button>)}
+          {klineTimeframes.map((item) => (
+            <button
+              key={item.id}
+              className={cx(styles.tf, tf === item.id && styles.active)}
+              onClick={() => setTimeframe(item.id)}
+              type='button'
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       ) : null}
     </div>
   );
 }
 
-export function KlineModal({ stock, data, onClose, chipsOpen = true }: { stock: KlineStock; data?: KlinePoint[]; onClose(): void; chipsOpen?: boolean }) {
-  const [tf, setTf] = useState<TimeframeId>('1d');
+export function KlineModal({
+  stock,
+  data,
+  onClose,
+  chipsOpen = true,
+}: {
+  stock: KlineStock;
+  data?: KlinePoint[];
+  onClose(): void;
+  chipsOpen?: boolean;
+}) {
   return (
-    <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.modal} onClick={(event) => event.stopPropagation()}>
-        <div className={styles.header}>
-          <div>{stock.name}（{stock.code || '--'}）K线图</div>
-          <button onClick={onClose} type="button">✕</button>
-        </div>
-        <StockKlineChart stock={stock} data={data} height="100%" showSwitcher showChips chipsOpen={chipsOpen} showIndicators timeframe={tf} onTimeframeChange={setTf} />
-      </div>
-    </div>
+    <KlineModalFrame stock={stock} data={data} onClose={onClose} chipsOpen={chipsOpen} renderChart={(tf, setTf) => (
+      <StockKlineChart
+        stock={stock}
+        data={data}
+        height='100%'
+        showSwitcher
+        showChips
+        chipsOpen={chipsOpen}
+        showIndicators
+        timeframe={tf}
+        onTimeframeChange={setTf}
+      />
+    )} />
   );
 }
 
@@ -240,23 +318,6 @@ function toKlineRequestSymbol(stock: KlineStock) {
   if (stock.name === '上证指数' && stock.code === '000001') return 'sh000001';
   if (stock.name === '深证成指' && stock.code === '399001') return 'sz399001';
   return stock.code;
-}
-
-function ChipOverlay({ chips, data }: { chips: ChipDistribution; data: KlinePoint[] }) {
-  if (!chips.points.length || !data.length) return null;
-  const high = Math.max(...data.map((item) => item.high)) * 1.02;
-  const low = Math.min(...data.map((item) => item.low)) * 0.98;
-  const range = high - low || 1;
-  const maxWeight = Math.max(...chips.points.map((point) => point.weight), 1);
-  return (
-    <div className={styles.chips}>
-      {chips.points.map((point) => {
-        const top = ((high - point.price) / range) * 100;
-        if (top < 0 || top > 100) return null;
-        return <span key={`${point.price}-${point.weight}`} className={(point.profit ?? 0) >= 0.5 ? styles.profit : styles.loss} style={{ top: `${top}%`, width: `${Math.max(2, (point.weight / maxWeight) * 100)}%` }} />;
-      })}
-    </div>
-  );
 }
 
 function resolveMouseIndex(chart: Chart, host: HTMLDivElement | null, event: MouseEvent) {
@@ -285,63 +346,6 @@ function clampIndex(index: number, length: number) {
   return Math.max(0, Math.min(length - 1, index));
 }
 
-function KlineHoverInfo({ point, previous, pe, side, period }: { point: KlinePoint; previous?: KlinePoint; pe?: string | number; side: 'left' | 'right'; period: Period }) {
-  const change = point.change ?? point.close - (previous?.close ?? point.open);
-  const changePercent = point.changePercent ?? (previous?.close ? (change / previous.close) * 100 : 0);
-  return (
-    <div className={cx(styles['hover-tooltip'], styles[side])}>
-      <div className={styles.date}>{formatKlineTime(point, period)}</div>
-      <KlineInfoRow label="开盘" value={formatPrice(point.open)} />
-      <KlineInfoRow label="最高" value={formatPrice(point.high)} tone={point.high >= point.open ? 'up' : 'down'} />
-      <KlineInfoRow label="最低" value={formatPrice(point.low)} tone={point.low >= point.open ? 'up' : 'down'} />
-      <KlineInfoRow label="收盘" value={formatPrice(point.close)} tone={point.close >= point.open ? 'up' : 'down'} />
-      <KlineInfoRow label="涨跌额" value={formatSigned(change)} tone={change >= 0 ? 'up' : 'down'} />
-      <KlineInfoRow label="涨跌幅" value={`${formatSigned(changePercent)}%`} tone={changePercent >= 0 ? 'up' : 'down'} />
-      <KlineInfoRow label="成交量" value={formatVolume(point.volume)} />
-      {point.pe ?? pe ? <KlineInfoRow label="市盈率" value={String(point.pe ?? pe)} /> : null}
-    </div>
-  );
-}
-
-function KlineInfoRow({ label, value, tone }: { label: string; value: string; tone?: 'up' | 'down' }) {
-  return <div className={styles['info-row']}><span>{label}</span><b className={tone ? styles[tone] : undefined}>{value}</b></div>;
-}
-
-function formatKlineTime(point: KlinePoint, period: Period) {
-  const timestamp = point.timestamp ?? parseKlineTimestamp(point.time, 0, 1, period);
-  if (!Number.isFinite(timestamp)) return point.time || '--';
-  const date = new Date(timestamp);
-  const dateText = `${date.getFullYear()}/${pad2(date.getMonth() + 1)}/${pad2(date.getDate())}`;
-  const weekText = `周${'日一二三四五六'[date.getDay()]}`;
-  if (period.type === 'day') return `${dateText} ${weekText}`;
-  return `${dateText} ${pad2(date.getHours())}:${pad2(date.getMinutes())} ${weekText}`;
-}
-
-function pad2(value: number) {
-  return String(value).padStart(2, '0');
-}
-
-function formatPrice(value: number) {
-  return Number.isFinite(value) ? value.toFixed(2) : '--';
-}
-
-function formatSigned(value: number) {
-  if (!Number.isFinite(value)) return '--';
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
-}
-
-function formatVolume(value: number) {
-  if (!Number.isFinite(value)) return '--';
-  return value >= 10000 ? `${(value / 10000).toFixed(2)}万手` : `${value.toFixed(0)}手`;
-}
-
-function formatMoney(value?: number) {
-  if (value === undefined || !Number.isFinite(value)) return '--';
-  if (Math.abs(value) >= 100000000) return `${(value / 100000000).toFixed(2)}亿`;
-  if (Math.abs(value) >= 10000) return `${(value / 10000).toFixed(2)}万`;
-  return value.toFixed(0);
-}
-
 function toKLineData(point: KlinePoint, index: number, total: number, period: Period): KLineData {
   return {
     timestamp: point.timestamp ?? parseKlineTimestamp(point.time, index, total, period),
@@ -357,30 +361,28 @@ function toKLineData(point: KlinePoint, index: number, total: number, period: Pe
 
 function parseKlineTimestamp(value: string, index: number, total: number, period: Period) {
   const text = String(value || '').trim();
-  const date = text.includes('-') ? new Date(text).getTime() : Number(text.length === 8 ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6)}` : text);
+  const date = text.includes('-')
+    ? new Date(text).getTime()
+    : Number(text.length === 8 ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6)}` : text);
   if (Number.isFinite(date) && date > 10_000_000_000) return date;
   const compactMinute = text.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
-  if (compactMinute) return new Date(`${compactMinute[1]}-${compactMinute[2]}-${compactMinute[3]}T${compactMinute[4]}:${compactMinute[5]}:00+08:00`).getTime();
+  if (compactMinute)
+    return new Date(
+      `${compactMinute[1]}-${compactMinute[2]}-${compactMinute[3]}T${compactMinute[4]}:${compactMinute[5]}:00+08:00`,
+    ).getTime();
   const compactDay = text.match(/^(\d{4})(\d{2})(\d{2})$/);
   if (compactDay) return new Date(`${compactDay[1]}-${compactDay[2]}-${compactDay[3]}T00:00:00+08:00`).getTime();
-  const span = period.type === 'minute' ? period.span * 60_000 : period.type === 'hour' ? period.span * 3_600_000 : period.type === 'week' ? 7 * 86_400_000 : period.type === 'month' ? 30 * 86_400_000 : 86_400_000;
+  const span =
+    period.type === 'minute'
+      ? period.span * 60_000
+      : period.type === 'hour'
+        ? period.span * 3_600_000
+        : period.type === 'week'
+          ? 7 * 86_400_000
+          : period.type === 'month'
+            ? 30 * 86_400_000
+            : 86_400_000;
   return new Date('2024-01-01').getTime() + (index - total) * span;
-}
-
-function makeKData(basePrice: number, limit: number, period = '1d'): KlinePoint[] {
-  const step = ({ '15m': 1, '1h': 2, '4h': 3, '1d': 4, '1w': 9, '1mo': 18 } as Record<string, number>)[period] ?? 4;
-  let price = basePrice;
-  return Array.from({ length: limit }, (_, index) => {
-    const wave = Math.sin((index * step) / 4) * basePrice * 0.008 * Math.sqrt(step);
-    const drift = (index - limit / 2) * basePrice * 0.0002 * step;
-    const open = price;
-    const close = Math.max(1, open + wave + drift);
-    const high = Math.max(open, close) * 1.006;
-    const low = Math.min(open, close) * 0.994;
-    const volume = 10000 + Math.abs(wave) * 2000 + (index % 7) * 1600 * step;
-    price = close;
-    return { time: String(index + 1), open, close, high, low, volume };
-  });
 }
 
 function getKlineStyles({ upColor, downColor }: ReturnType<typeof getMarketColors>) {
@@ -414,14 +416,16 @@ function estimateChips(data: KlinePoint[], hoverIndex?: number): ChipDistributio
   recent.forEach((item, index) => {
     const price = (item.open + item.close + item.high + item.low) / 4;
     const bucket = Math.max(0, Math.min(levels - 1, Math.floor((price - low) / step)));
-    weights[bucket] += Math.max(item.volume, 1) * (0.4 + (index + 1) / recent.length * 0.6);
+    weights[bucket] += Math.max(item.volume, 1) * (0.4 + ((index + 1) / recent.length) * 0.6);
   });
   const close = recent[recent.length - 1]?.close ?? 0;
   return {
     date: recent[recent.length - 1]?.time ?? '--',
-    points: weights.map((weight, index) => {
-      const price = low + step * (index + 0.5);
-      return { price, weight, profit: close >= price ? 0.7 : 0.3 };
-    }).filter((point) => point.weight > 0),
+    points: weights
+      .map((weight, index) => {
+        const price = low + step * (index + 0.5);
+        return { price, weight, profit: close >= price ? 0.7 : 0.3 };
+      })
+      .filter((point) => point.weight > 0),
   };
 }

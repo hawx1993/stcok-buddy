@@ -14,6 +14,8 @@ const sync = await import('./market-data-sync.js');
 await store.initializeMarketDataStore();
 await store.initializeMarketDataStore();
 
+await store.createSyncJob({ id: 'selfcheck-sync-job', jobType: 'daily_incremental', targetTradeDate: '2026-07-09', totalSymbols: 1 });
+
 const now = new Date().toISOString();
 const bar = {
   symbol: '600519', tradeDate: '2026-07-09', open: 1500, high: 1520, low: 1490, close: 1510,

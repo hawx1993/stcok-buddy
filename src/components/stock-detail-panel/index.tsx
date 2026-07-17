@@ -12,8 +12,20 @@ import cx from '../../shared/cx';
 
 const NEWS_PAGE_SIZE = 30;
 const SURGE_PAGE_SIZE = 20;
-const surgeFilters = ['全部', '60日新高', '60日新低', '快速涨幅', '快速跌幅', '封跌停板', '封涨停板', '跌停开板', '涨停开板', '特大单买入', '特大单卖出'] as const;
-type SurgeFilter = typeof surgeFilters[number];
+const surgeFilters = [
+  '全部',
+  '60日新高',
+  '60日新低',
+  '快速涨幅',
+  '快速跌幅',
+  '封跌停板',
+  '封涨停板',
+  '跌停开板',
+  '涨停开板',
+  '特大单买入',
+  '特大单卖出',
+] as const;
+type SurgeFilter = (typeof surgeFilters)[number];
 
 export function StockDetailPanel() {
   const detailRef = useRef<HTMLDivElement>(null);
@@ -62,7 +74,7 @@ export function StockDetailPanel() {
     const refreshDates = () => {
       const next = makeSurgeDateOptions();
       setSurgeDateOptions(next);
-      setSelectedSurgeDate((date) => date === todaySurgeDate ? next[0] : next.includes(date) ? date : next[0]);
+      setSelectedSurgeDate((date) => (date === todaySurgeDate ? next[0] : next.includes(date) ? date : next[0]));
       setSurgeRefreshMode('manual');
       setSurgeRefresh((value) => value + 1);
     };
@@ -88,24 +100,35 @@ export function StockDetailPanel() {
   useEffect(() => {
     if (!selectedStock?.code || selectedStock.kline?.length) return;
     let alive = true;
-    getStocksenseApi().getKline(selectedStock.code, 120, '1d').then((kline) => {
-      if (alive && kline.length) useAppStore.getState().setSelectedStock({ ...selectedStock, kline });
-    }).catch(() => undefined);
-    return () => { alive = false; };
+    getStocksenseApi()
+      .getKline(selectedStock.code, 120, '1d')
+      .then((kline) => {
+        if (alive && kline.length) useAppStore.getState().setSelectedStock({ ...selectedStock, kline });
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
   }, [selectedStock]);
 
   useEffect(() => {
     if (rightPanelTab !== 'news') return;
     let alive = true;
     setNewsLoading(true);
-    getStocksenseApi().listMarketNews(newsQuery, newsPage, NEWS_PAGE_SIZE).then((result) => {
-      if (!alive) return;
-      setNews(result.items);
-      setNewsTotal(result.total);
-    }).catch(console.error).finally(() => {
-      if (alive) setNewsLoading(false);
-    });
-    return () => { alive = false; };
+    getStocksenseApi()
+      .listMarketNews(newsQuery, newsPage, NEWS_PAGE_SIZE)
+      .then((result) => {
+        if (!alive) return;
+        setNews(result.items);
+        setNewsTotal(result.total);
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (alive) setNewsLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, [rightPanelTab, newsQuery, newsPage, newsRefresh]);
 
   useEffect(() => {
@@ -115,18 +138,26 @@ export function StockDetailPanel() {
     if (surgeRefreshMode !== 'poll') setSurgeItems([]);
     setSurgeHasMore(true);
     setSurgeLoading(true);
-    const load = selectedSurgeDate === todaySurgeDate
-      ? getStocksenseApi().listHotFocus('surge').then((items) => items.slice(0, SURGE_PAGE_SIZE))
-      : getStocksenseApi().listSurgeHistory(selectedSurgeDate, 0, SURGE_PAGE_SIZE);
-    load.then((items) => {
-      if (!alive || loadId !== surgeLoadRef.current) return;
-      if (surgeRefreshMode === 'poll') setLastSurgePollAt(Date.now());
-      setSurgeItems(items);
-      setSurgeHasMore(items.length === SURGE_PAGE_SIZE);
-    }).catch(console.error).finally(() => {
-      if (alive && loadId === surgeLoadRef.current) setSurgeLoading(false);
-    });
-    return () => { alive = false; };
+    const load =
+      selectedSurgeDate === todaySurgeDate
+        ? getStocksenseApi()
+            .listHotFocus('surge')
+            .then((items) => items.slice(0, SURGE_PAGE_SIZE))
+        : getStocksenseApi().listSurgeHistory(selectedSurgeDate, 0, SURGE_PAGE_SIZE);
+    load
+      .then((items) => {
+        if (!alive || loadId !== surgeLoadRef.current) return;
+        if (surgeRefreshMode === 'poll') setLastSurgePollAt(Date.now());
+        setSurgeItems(items);
+        setSurgeHasMore(items.length === SURGE_PAGE_SIZE);
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (alive && loadId === surgeLoadRef.current) setSurgeLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, [rightPanelTab, selectedSurgeDate, surgeRefresh, surgeRefreshMode, todaySurgeDate]);
 
   useEffect(() => {
@@ -141,7 +172,10 @@ export function StockDetailPanel() {
 
   useEffect(() => {
     if (rightPanelTab !== 'surge' || selectedSurgeDate !== todaySurgeDate || !isSurgeMonitoring) return;
-    const poll = () => { setSurgeRefreshMode('poll'); setSurgeRefresh((value) => value + 1); };
+    const poll = () => {
+      setSurgeRefreshMode('poll');
+      setSurgeRefresh((value) => value + 1);
+    };
     poll();
     const id = window.setInterval(poll, 15_000);
     return () => window.clearInterval(id);
@@ -152,7 +186,13 @@ export function StockDetailPanel() {
     return () => window.clearInterval(id);
   }, []);
 
-  const filteredSurgeItems = useMemo(() => surgeFilter.includes('全部') ? surgeItems : surgeItems.filter((item) => surgeFilter.includes(surgeReason(item) as SurgeFilter)), [surgeFilter, surgeItems]);
+  const filteredSurgeItems = useMemo(
+    () =>
+      surgeFilter.includes('全部')
+        ? surgeItems
+        : surgeItems.filter((item) => surgeFilter.includes(surgeReason(item) as SurgeFilter)),
+    [surgeFilter, surgeItems],
+  );
   const selectedIsFavorite = Boolean(selectedStock && favoriteStocks.some((item) => item.code === selectedStock.code));
   const showSurgeBack = Boolean(selectedStock && selectedStock.code === surgeReturnCode);
   const isSurgePollFresh = isSurgeMonitoring && surgeMonitorTick - lastSurgePollAt <= 60_000;
@@ -165,13 +205,26 @@ export function StockDetailPanel() {
     if (rightPanelTab !== 'favorites' || !favoriteStocks.length) return;
     let alive = true;
     const refresh = async () => {
-      const quotes = await Promise.all(favoriteStocks.map((item) => getStocksenseApi().getStockDetail(item.code).catch(() => undefined)));
+      const quotes = await Promise.all(
+        favoriteStocks.map((item) =>
+          getStocksenseApi()
+            .getStockDetail(item.code)
+            .catch(() => undefined),
+        ),
+      );
       if (!alive) return;
-      setFavoriteQuotes(Object.fromEntries(quotes.filter((quote): quote is StockDetail => Boolean(quote)).map((quote) => [quote.code, quote])));
+      setFavoriteQuotes(
+        Object.fromEntries(
+          quotes.filter((quote): quote is StockDetail => Boolean(quote)).map((quote) => [quote.code, quote]),
+        ),
+      );
     };
     void refresh();
     const id = window.setInterval(refresh, 30_000);
-    return () => { alive = false; window.clearInterval(id); };
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
   }, [favoriteStocks, rightPanelTab]);
 
   const toggleSurgeMonitor = () => {
@@ -202,22 +255,33 @@ export function StockDetailPanel() {
       return;
     }
     setSurgePaging(true);
-    getStocksenseApi().listSurgeHistory(selectedSurgeDate, surgeItems.length, SURGE_PAGE_SIZE).then((items) => {
-      setSurgeItems((current) => [...current, ...items]);
-      setSurgeHasMore(items.length === SURGE_PAGE_SIZE);
-    }).catch(console.error).finally(() => setSurgePaging(false));
+    getStocksenseApi()
+      .listSurgeHistory(selectedSurgeDate, surgeItems.length, SURGE_PAGE_SIZE)
+      .then((items) => {
+        setSurgeItems((current) => [...current, ...items]);
+        setSurgeHasMore(items.length === SURGE_PAGE_SIZE);
+      })
+      .catch(console.error)
+      .finally(() => setSurgePaging(false));
   };
 
   const openSurgeStock = async (item: HotFocusItem) => {
     if (!item.code) return;
-    const fallback: StockDetail = { code: item.code, name: item.name ?? item.title, price: item.price, changePercent: item.changePercent, turnover: item.turnover ?? item.amount, summary: item.description };
+    const rowSnapshot: StockDetail = {
+      code: item.code,
+      name: item.name ?? item.title,
+      price: item.price,
+      changePercent: item.changePercent,
+      turnover: item.turnover ?? item.amount,
+      summary: item.description,
+    };
     setSurgeReturnCode(item.code);
     setRightPanelTab('stock');
-    setSelectedStock(fallback);
+    setSelectedStock(rowSnapshot);
     try {
       setSelectedStock(await getStocksenseApi().getStockDetail(item.code));
     } catch {
-      setSelectedStock(fallback);
+      setSelectedStock(rowSnapshot);
     }
   };
 
@@ -229,7 +293,7 @@ export function StockDetailPanel() {
       const el = surgeListRef.current?.querySelector<HTMLElement>(`[data-surge-code="${code}"]`);
       el?.scrollIntoView({ block: 'center' });
       setSurgeHighlightCode(code);
-      window.setTimeout(() => setSurgeHighlightCode((current) => current === code ? undefined : current), 1200);
+      window.setTimeout(() => setSurgeHighlightCode((current) => (current === code ? undefined : current)), 1200);
     });
   };
 
@@ -251,7 +315,7 @@ export function StockDetailPanel() {
       ? [{ ...stock, pinned: false, createdAt: new Date().toISOString() }, ...favoriteStocks]
       : favoriteStocks.filter((item) => item.code !== stock.code);
     setFavoriteStocks(next);
-    setFavoriteQuotes((quotes) => nextFavorite ? { ...quotes, [stock.code]: selectedStock } : quotes);
+    setFavoriteQuotes((quotes) => (nextFavorite ? { ...quotes, [stock.code]: selectedStock } : quotes));
     try {
       const saved = nextFavorite
         ? await getStocksenseApi().upsertFavoriteStock(stock)
@@ -299,11 +363,31 @@ export function StockDetailPanel() {
             <span className={styles.title}>⭐ 收藏个股</span>
           </div>
           <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
-            {favoriteStocks.length ? favoriteStocks.map((item) => {
-              const quote = favoriteQuotes[item.code] ?? item;
-              const change = String(quote.changePercent ?? '--');
-              return <FavoriteStockItem key={item.code} stock={{ ...quote, code: item.code, name: quote.name ?? item.name }} pinned={Boolean(item.pinned)} isUp={!change.startsWith('-')} onOpen={() => void openFavoriteStock({ ...quote, code: item.code, name: quote.name ?? item.name })} onRemove={() => void removeFavorite(item.code)} onTogglePin={() => void toggleFavoritePin(item.code)} />;
-            }) : <Empty text={<>暂无收藏个股。打开个股详情后点击<span className={styles.hl}>星标</span>收藏。</>} />}
+            {favoriteStocks.length ? (
+              favoriteStocks.map((item) => {
+                const quote = favoriteQuotes[item.code] ?? item;
+                const change = String(quote.changePercent ?? '--');
+                return (
+                  <FavoriteStockItem
+                    key={item.code}
+                    stock={{ ...quote, code: item.code, name: quote.name ?? item.name }}
+                    pinned={Boolean(item.pinned)}
+                    isUp={!change.startsWith('-')}
+                    onOpen={() => void openFavoriteStock({ ...quote, code: item.code, name: quote.name ?? item.name })}
+                    onRemove={() => void removeFavorite(item.code)}
+                    onTogglePin={() => void toggleFavoritePin(item.code)}
+                  />
+                );
+              })
+            ) : (
+              <Empty
+                text={
+                  <>
+                    暂无收藏个股。打开个股详情后点击<span className={styles.hl}>星标</span>收藏。
+                  </>
+                }
+              />
+            )}
           </div>
         </>
       ) : rightPanelTab === 'news' ? (
@@ -311,19 +395,57 @@ export function StockDetailPanel() {
           <div className={styles['right-panel-header']}>
             <span className={styles.title}>📰 市场热点</span>
             <div className={styles['news-search-row']}>
-              <div className={styles['rp-search-row']}><input value={newsQuery} onChange={(event) => { setNewsQuery(event.target.value); setNewsPage(1); }} placeholder="搜索新闻…" /></div>
-              <button className={styles['news-refresh']} onClick={() => setNewsRefresh((value) => value + 1)} disabled={newsLoading} type="button">{newsLoading ? '刷新中…' : '刷新'}</button>
+              <div className={styles['rp-search-row']}>
+                <input
+                  value={newsQuery}
+                  onChange={(event) => {
+                    setNewsQuery(event.target.value);
+                    setNewsPage(1);
+                  }}
+                  placeholder='搜索新闻…'
+                />
+              </div>
+              <button
+                className={styles['news-refresh']}
+                onClick={() => setNewsRefresh((value) => value + 1)}
+                disabled={newsLoading}
+                type='button'
+              >
+                {newsLoading ? '刷新中…' : '刷新'}
+              </button>
             </div>
           </div>
           <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
-            <div className={styles['news-section-title']}>📌 热门新闻 <span>{newsTotal} 条</span></div>
+            <div className={styles['news-section-title']}>
+              📌 热门新闻 <span>{newsTotal} 条</span>
+            </div>
             <div className={styles['right-news-list']}>
-              {newsLoading ? <NewsSkeleton rows={10} /> : news.length ? news.map((item) => <NewsItem key={item.id} item={item} />) : <div className={styles['empty-list']}>无匹配新闻</div>}
+              {newsLoading ? (
+                <NewsSkeleton rows={10} />
+              ) : news.length ? (
+                news.map((item) => <NewsItem key={item.id} item={item} />)
+              ) : (
+                <div className={styles['empty-list']}>无匹配新闻</div>
+              )}
             </div>
             <div className={styles['news-pager']}>
-              <button onClick={() => setNewsPage((value) => Math.max(1, value - 1))} disabled={newsPage <= 1 || newsLoading} type="button">上一页</button>
-              <span>{newsPage} / {totalPages}</span>
-              <button onClick={() => setNewsPage((value) => Math.min(totalPages, value + 1))} disabled={newsPage >= totalPages || newsLoading} type="button">下一页</button>
+              <button
+                onClick={() => setNewsPage((value) => Math.max(1, value - 1))}
+                disabled={newsPage <= 1 || newsLoading}
+                type='button'
+              >
+                上一页
+              </button>
+              <span>
+                {newsPage} / {totalPages}
+              </span>
+              <button
+                onClick={() => setNewsPage((value) => Math.min(totalPages, value + 1))}
+                disabled={newsPage >= totalPages || newsLoading}
+                type='button'
+              >
+                下一页
+              </button>
             </div>
           </div>
         </>
@@ -332,91 +454,257 @@ export function StockDetailPanel() {
           <div className={styles['right-panel-header']}>
             <span className={styles.title}>板块详情</span>
           </div>
-          {selectedBoard ? <BoardDetailView /> : <Empty text={<>点击行情板块或聊天中的<span className={styles.hl}>板块代码</span>，查看板块详情。</>} />}
+          {selectedBoard ? (
+            <BoardDetailView />
+          ) : (
+            <Empty
+              text={
+                <>
+                  点击行情板块或聊天中的<span className={styles.hl}>板块代码</span>，查看板块详情。
+                </>
+              }
+            />
+          )}
         </>
       ) : rightPanelTab === 'surge' ? (
         <>
           <div className={styles['right-panel-header']}>
             <div className={styles['surge-title-row']}>
               <span className={styles.title}>⚡ 个股异动</span>
-              <button className={styles['surge-filter-label']} onClick={() => setSurgeFiltersOpen((open) => !open)} type="button">筛选 <span className={styles['surge-filter-icon']}><Filter size={14} />{surgeFilter.includes('全部') ? null : <span className={styles['surge-filter-badge']}>{surgeFilter.length}</span>}</span></button>
+              <button
+                className={styles['surge-filter-label']}
+                onClick={() => setSurgeFiltersOpen((open) => !open)}
+                type='button'
+              >
+                筛选{' '}
+                <span className={styles['surge-filter-icon']}>
+                  <Filter size={14} />
+                  {surgeFilter.includes('全部') ? null : (
+                    <span className={styles['surge-filter-badge']}>{surgeFilter.length}</span>
+                  )}
+                </span>
+              </button>
             </div>
-            {surgeFiltersOpen ? <div className={styles['surge-filters']}>
-              {surgeFilters.map((filter) => <button key={filter} className={cx(styles['surge-filter'], surgeFilter.includes(filter) && styles.active)} onClick={() => toggleSurgeFilter(filter)} type="button">{filter}</button>)}
-            </div> : null}
+            {surgeFiltersOpen ? (
+              <div className={styles['surge-filters']}>
+                {surgeFilters.map((filter) => (
+                  <button
+                    key={filter}
+                    className={cx(styles['surge-filter'], surgeFilter.includes(filter) && styles.active)}
+                    onClick={() => toggleSurgeFilter(filter)}
+                    type='button'
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className={styles['surge-date-row']}>
-              <select className={styles['surge-date-select']} value={selectedSurgeDate} onChange={(event) => { setSurgeRefreshMode('manual'); setSurgeFilter(['全部']); setSelectedSurgeDate(event.target.value); }} aria-label="筛选异动日期">
-                {surgeDateOptions.map((date, index) => <option key={date} value={date}>{index === 0 ? `今天 ${date.slice(5)}` : date}</option>)}
+              <select
+                className={styles['surge-date-select']}
+                value={selectedSurgeDate}
+                onChange={(event) => {
+                  setSurgeRefreshMode('manual');
+                  setSurgeFilter(['全部']);
+                  setSelectedSurgeDate(event.target.value);
+                }}
+                aria-label='筛选异动日期'
+              >
+                {surgeDateOptions.map((date, index) => (
+                  <option key={date} value={date}>
+                    {index === 0 ? `今天 ${date.slice(5)}` : date}
+                  </option>
+                ))}
               </select>
-              {selectedSurgeDate === todaySurgeDate ? <>
-                <button className={styles['surge-date-button']} onClick={() => { setSurgeRefreshMode('manual'); setSurgeRefresh((value) => value + 1); }} type="button">刷新</button>
-                <button className={cx(styles['surge-monitor-button'], isSurgePollFresh && styles.active)} onClick={toggleSurgeMonitor} title={isSurgeMonitoring ? '关闭监控' : '开启监控'} aria-label={isSurgeMonitoring ? '关闭监控' : '开启监控'} type="button"><span /></button>
-              </> : null}
+              {selectedSurgeDate === todaySurgeDate ? (
+                <>
+                  <button
+                    className={styles['surge-date-button']}
+                    onClick={() => {
+                      setSurgeRefreshMode('manual');
+                      setSurgeRefresh((value) => value + 1);
+                    }}
+                    type='button'
+                  >
+                    刷新
+                  </button>
+                  <button
+                    className={cx(styles['surge-monitor-button'], isSurgePollFresh && styles.active)}
+                    onClick={toggleSurgeMonitor}
+                    title={isSurgeMonitoring ? '关闭监控' : '开启监控'}
+                    aria-label={isSurgeMonitoring ? '关闭监控' : '开启监控'}
+                    type='button'
+                  >
+                    <span />
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
-          <div className={styles['right-panel-body']} ref={surgeListRef} onScroll={(event) => {
-            const el = event.currentTarget;
-            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreSurge();
-          }}>
-            {surgeLoading && !surgeItems.length ? <SurgeSkeleton /> : filteredSurgeItems.length ? <>
-              {filteredSurgeItems.map((item) => <SurgeItem key={item.id} item={item} highlight={surgeHighlightCode === item.code} onClick={() => void openSurgeStock(item)} />)}
-              <div className={styles['surge-load-state']}>{surgeHasMore ? (surgePaging ? <span className={styles.spinner} /> : '向下滚动加载更多') : '没有更多数据了'}</div>
-            </> : <Empty text="暂无异动个股" />}
+          <div
+            className={styles['right-panel-body']}
+            ref={surgeListRef}
+            onScroll={(event) => {
+              const el = event.currentTarget;
+              if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreSurge();
+            }}
+          >
+            {surgeLoading && !surgeItems.length ? (
+              <SurgeSkeleton />
+            ) : filteredSurgeItems.length ? (
+              <>
+                {filteredSurgeItems.map((item) => (
+                  <SurgeItem
+                    key={item.id}
+                    item={item}
+                    highlight={surgeHighlightCode === item.code}
+                    onClick={() => void openSurgeStock(item)}
+                  />
+                ))}
+                <div className={styles['surge-load-state']}>
+                  {surgeHasMore ? (
+                    surgePaging ? (
+                      <span className={styles.spinner} />
+                    ) : (
+                      '向下滚动加载更多'
+                    )
+                  ) : (
+                    '没有更多数据了'
+                  )}
+                </div>
+              </>
+            ) : (
+              <Empty text='暂无异动个股' />
+            )}
           </div>
         </>
       ) : (
         <>
           <div className={cx(styles['right-panel-header'], styles['stock-panel-header'])}>
-            <span className={styles.title}>{showSurgeBack ? <button className={styles['back-to-surge']} onClick={returnToSurgeItem} type="button">← 异动</button> : null}个股详情</span>
-            {selectedStock ? <div className={styles['stock-price']}><div className={styles.price}>{selectedStock.price ?? '--'}</div><div className={cx(styles.chg, String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up')}>{selectedStock.changePercent ?? '--'}</div></div> : null}
+            <span className={styles.title}>
+              {showSurgeBack ? (
+                <button className={styles['back-to-surge']} onClick={returnToSurgeItem} type='button'>
+                  ← 异动
+                </button>
+              ) : null}
+              个股详情
+            </span>
+            {selectedStock ? (
+              <div className={styles['stock-price']}>
+                <div className={styles.price}>{selectedStock.price ?? '--'}</div>
+                <div className={cx(styles.chg, String(selectedStock.changePercent).startsWith('-') ? 'down' : 'up')}>
+                  {selectedStock.changePercent ?? '--'}
+                </div>
+              </div>
+            ) : null}
           </div>
           {selectedStock ? (
             <div className={styles['stock-detail']} ref={detailRef}>
-          <div className={styles['stock-header']} data-stockheader>
-            <div className={styles['stock-name']}>{selectedStock.name}<span className={styles.code}>{selectedStock.code} · {selectedStock.exchange ?? 'A股'}</span></div>
-            <div className={styles['stock-side']}>
-              <div className={styles['stock-actions']}>
-                <button className={styles['robot-btn']} onClick={() => void sendStockReport(selectedStock.code)} title="诊股" aria-label="诊股" type="button"><Bot size={15} /></button>
-                <button className={cx(styles['robot-btn'], styles['favorite-btn'], selectedIsFavorite && styles.active)} onClick={() => void toggleSelectedFavorite()} title={selectedIsFavorite ? '取消收藏' : '收藏'} aria-label={selectedIsFavorite ? '取消收藏' : '收藏'} type="button"><Star size={15} fill={selectedIsFavorite ? 'currentColor' : 'none'} /></button>
+              <div className={styles['stock-header']} data-stockheader>
+                <div className={styles['stock-name']}>
+                  {selectedStock.name}
+                  <span className={styles.code}>
+                    {selectedStock.code} · {selectedStock.exchange ?? 'A股'}
+                  </span>
+                </div>
+                <div className={styles['stock-side']}>
+                  <div className={styles['stock-actions']}>
+                    <button
+                      className={styles['robot-btn']}
+                      onClick={() => void sendStockReport(selectedStock.code)}
+                      title='诊股'
+                      aria-label='诊股'
+                      type='button'
+                    >
+                      <Bot size={15} />
+                    </button>
+                    <button
+                      className={cx(styles['robot-btn'], styles['favorite-btn'], selectedIsFavorite && styles.active)}
+                      onClick={() => void toggleSelectedFavorite()}
+                      title={selectedIsFavorite ? '取消收藏' : '收藏'}
+                      aria-label={selectedIsFavorite ? '取消收藏' : '收藏'}
+                      type='button'
+                    >
+                      <Star size={15} fill={selectedIsFavorite ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className={styles['kline-box']} data-klinebox>
+                <button
+                  className={styles['kline-expand']}
+                  onClick={() => setKlineModalOpen(true)}
+                  title='放大K线图'
+                  type='button'
+                >
+                  ⛶
+                </button>
+                <StockKlineChart
+                  stock={selectedStock}
+                  data={selectedStock.kline}
+                  showSwitcher
+                  showChips
+                  chipsOpen={chipsOpen}
+                  showLegend={false}
+                />
+                <div className={styles['chip-label']}>
+                  <span>
+                    <span className={cx(styles.bar, styles.up)} />
+                    获利 <span className={cx(styles.bar, styles.down)} />
+                    亏损 <span className={styles['chip-note']}>估算</span>
+                  </span>
+                  <button
+                    className={styles['chip-toggle']}
+                    onClick={() => setChipsOpen((value) => !value)}
+                    type='button'
+                  >
+                    筹码峰{chipsOpen ? '收起' : '展开'}
+                  </button>
+                </div>
+              </div>
+              <div className={styles['stock-grid']} data-stockgrid>
+                <Metric label='今开' value={selectedStock.open ?? '--'} />
+                <Metric label='最高' value={selectedStock.high ?? '--'} />
+                <Metric label='最低' value={selectedStock.low ?? '--'} />
+                <Metric label='昨收' value={selectedStock.prevClose ?? '--'} />
+                <Metric label='成交量' value={selectedStock.volume ?? '--'} />
+                <Metric label='成交额' value={selectedStock.turnover ?? '--'} />
+                <Metric label='换手率' value={selectedStock.turnoverRate ?? '--'} />
+                <Metric label='市值' value={selectedStock.marketCap ?? '--'} />
+              </div>
+              <div className={styles.divider} />
+              <div className={styles['section-title']}>综合评级</div>
+              <div className={styles['rating-grid']} data-rating>
+                <Rating label='基本面' score={selectedStock.rating?.fundamental ?? '待评估'} tone='up' />
+                <Rating label='估值' score={selectedStock.rating?.valuation ?? '待评估'} tone='warn' />
+                <Rating label='技术面' score={selectedStock.rating?.tech ?? '待分析'} tone='warn' />
+                <Rating label='风险' score={selectedStock.rating?.risk ?? '中性'} tone='up' />
+              </div>
+              <div className={styles.divider} />
+              <div className={styles['section-title']}>快评</div>
+              <div className={styles['summary-box']} data-summary>
+                {selectedStock.summary ?? '暂无摘要。'}
               </div>
             </div>
-          </div>
-          <div className={styles['kline-box']} data-klinebox>
-            <button className={styles['kline-expand']} onClick={() => setKlineModalOpen(true)} title="放大K线图" type="button">⛶</button>
-            <StockKlineChart stock={selectedStock} data={selectedStock.kline} showSwitcher showChips chipsOpen={chipsOpen} showLegend={false} />
-            <div className={styles['chip-label']}>
-              <span><span className={cx(styles.bar, styles.up)} />获利 <span className={cx(styles.bar, styles.down)} />亏损 <span className={styles['chip-note']}>估算</span></span>
-              <button className={styles['chip-toggle']} onClick={() => setChipsOpen((value) => !value)} type="button">筹码峰{chipsOpen ? '收起' : '展开'}</button>
-            </div>
-          </div>
-          <div className={styles['stock-grid']} data-stockgrid>
-            <Metric label="今开" value={selectedStock.open ?? '--'} />
-            <Metric label="最高" value={selectedStock.high ?? '--'} />
-            <Metric label="最低" value={selectedStock.low ?? '--'} />
-            <Metric label="昨收" value={selectedStock.prevClose ?? '--'} />
-            <Metric label="成交量" value={selectedStock.volume ?? '--'} />
-            <Metric label="成交额" value={selectedStock.turnover ?? '--'} />
-            <Metric label="换手率" value={selectedStock.turnoverRate ?? '--'} />
-            <Metric label="市值" value={selectedStock.marketCap ?? '--'} />
-          </div>
-          <div className={styles.divider} />
-          <div className={styles['section-title']}>综合评级</div>
-          <div className={styles['rating-grid']} data-rating>
-            <Rating label="基本面" score={selectedStock.rating?.fundamental ?? '待评估'} tone="up" />
-            <Rating label="估值" score={selectedStock.rating?.valuation ?? '待评估'} tone="warn" />
-            <Rating label="技术面" score={selectedStock.rating?.tech ?? '待分析'} tone="warn" />
-            <Rating label="风险" score={selectedStock.rating?.risk ?? '中性'} tone="up" />
-          </div>
-          <div className={styles.divider} />
-          <div className={styles['section-title']}>快评</div>
-          <div className={styles['summary-box']} data-summary>{selectedStock.summary ?? '暂无摘要。'}</div>
-        </div>
-      ) : (
-            <Empty text={<>点击聊天中的<span className={styles.hl}>股票</span>或左侧热点列表，查看个股详情。</>} />
+          ) : (
+            <Empty
+              text={
+                <>
+                  点击聊天中的<span className={styles.hl}>股票</span>或左侧热点列表，查看个股详情。
+                </>
+              }
+            />
           )}
         </>
       )}
-      {isKlineModalOpen && selectedStock ? <KlineModal stock={selectedStock} data={selectedStock.kline} onClose={() => setKlineModalOpen(false)} chipsOpen={chipsOpen} /> : null}
+      {isKlineModalOpen && selectedStock ? (
+        <KlineModal
+          stock={selectedStock}
+          data={selectedStock.kline}
+          onClose={() => setKlineModalOpen(false)}
+          chipsOpen={chipsOpen}
+        />
+      ) : null}
     </aside>
   );
 }
@@ -438,23 +726,53 @@ function formatDateOffset(offset: number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-function FavoriteStockItem({ stock, pinned, isUp, onOpen, onRemove, onTogglePin }: { stock: StockDetail; pinned: boolean; isUp: boolean; onOpen(): void; onRemove(): void; onTogglePin(): void }) {
+function FavoriteStockItem({
+  stock,
+  pinned,
+  isUp,
+  onOpen,
+  onRemove,
+  onTogglePin,
+}: {
+  stock: StockDetail;
+  pinned: boolean;
+  isUp: boolean;
+  onOpen(): void;
+  onRemove(): void;
+  onTogglePin(): void;
+}) {
   const stop = (event: MouseEvent, action: () => void) => {
     event.stopPropagation();
     action();
   };
   return (
-    <div className={styles['favorite-item']} onClick={onOpen} onKeyDown={(event) => { if (event.key === 'Enter') onOpen(); }} role="button" tabIndex={0}>
+    <div
+      className={styles['favorite-item']}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') onOpen();
+      }}
+      role='button'
+      tabIndex={0}
+    >
       <span className={styles['favorite-main']}>
-        <b>{stock.name}<em>{stock.code}</em>{pinned ? <small>置顶</small> : null}</b>
-        <span>{stock.turnover ? `成交额 ${stock.turnover}` : stock.summary ?? '实时行情'}</span>
+        <b>
+          {stock.name}
+          <em>{stock.code}</em>
+          {pinned ? <small>置顶</small> : null}
+        </b>
+        <span>{stock.turnover ? `成交额 ${stock.turnover}` : (stock.summary ?? '实时行情')}</span>
       </span>
       <span className={styles['favorite-side']}>
         <strong>{stock.price ?? '--'}</strong>
         <span className={isUp ? 'up' : 'down'}>{stock.changePercent ?? '--'}</span>
         <span className={styles['favorite-actions']}>
-          <button onClick={(event) => stop(event, onTogglePin)} title={pinned ? '取消置顶' : '置顶'} type="button">{pinned ? <PinOff size={13} /> : <Pin size={13} />}</button>
-          <button onClick={(event) => stop(event, onRemove)} title="取消收藏" type="button"><Trash2 size={13} /></button>
+          <button onClick={(event) => stop(event, onTogglePin)} title={pinned ? '取消置顶' : '置顶'} type='button'>
+            {pinned ? <PinOff size={13} /> : <Pin size={13} />}
+          </button>
+          <button onClick={(event) => stop(event, onRemove)} title='取消收藏' type='button'>
+            <Trash2 size={13} />
+          </button>
         </span>
       </span>
     </div>
@@ -463,18 +781,51 @@ function FavoriteStockItem({ stock, pinned, isUp, onOpen, onRemove, onTogglePin 
 
 function BoardDetailView() {
   const [refreshing, setRefreshing] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const board = useAppStore((state) => state.selectedBoard);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
+  const loadingCodeRef = useRef<string | undefined>();
+
+  // ponytail: detect when full detail arrives OR fetch completed with empty data
+  useEffect(() => {
+    if (board?.kline?.length || board?.constituents?.length) {
+      setInitialLoading(false);
+      return;
+    }
+    // ponytail: if board identity changed but data is still empty, the fetch completed unsuccessfully — stop loading
+    if (board?.code && board.code !== loadingCodeRef.current && loadingCodeRef.current !== undefined) {
+      setInitialLoading(false);
+    }
+  }, [board]);
+
+  // ponytail: reset loading when board code changes
+  useEffect(() => {
+    setInitialLoading(true);
+    loadingCodeRef.current = board?.code;
+  }, [board?.code]);
+
+  // ponytail: safety timeout — force stop loading after 20s
+  useEffect(() => {
+    if (!initialLoading) return;
+    const id = window.setTimeout(() => setInitialLoading(false), 20_000);
+    return () => window.clearTimeout(id);
+  }, [initialLoading, board?.code]);
+
   if (!board) return null;
   const stocks = board.constituents ?? [];
+  const isLoading = initialLoading && !refreshing;
   const refreshBoard = async () => {
     if (refreshing) return;
     setRefreshing(true);
     try {
       const detail = await getStocksenseApi().getBoardDetail(board.code, true, board.name);
-      setSelectedBoard({ ...detail, name: detail.name === detail.code ? board.name : detail.name, changePercent: detail.changePercent ?? board.changePercent });
+      setSelectedBoard({
+        ...detail,
+        name: detail.name === detail.code ? board.name : detail.name,
+        changePercent: detail.changePercent ?? board.changePercent,
+      });
       setRefreshing(false);
       window.requestAnimationFrame(() => antdMessage.success('更新成功'));
     } catch {
@@ -483,31 +834,71 @@ function BoardDetailView() {
     }
   };
   const openBoardStock = async (stock: BoardConstituent) => {
-    const fallback: StockDetail = { ...stock, turnover: stock.turnover ?? stock.amount, summary: `${board.name}板块成分股。` };
+    const rowSnapshot: StockDetail = {
+      ...stock,
+      turnover: stock.turnover ?? stock.amount,
+      summary: `${board.name}板块成分股。`,
+    };
     setRightPanelTab('stock');
-    setSelectedStock(fallback);
+    setSelectedStock(rowSnapshot);
     try {
-      setSelectedStock({ ...fallback, ...(await getStocksenseApi().getStockDetail(stock.code)) });
+      setSelectedStock({ ...rowSnapshot, ...(await getStocksenseApi().getStockDetail(stock.code)) });
     } catch {
-      setSelectedStock(fallback);
+      setSelectedStock(rowSnapshot);
     }
   };
   return (
     <div className={styles['board-detail']}>
       <div className={styles['stock-header']}>
-        <div className={styles['stock-name']}>{board.name}<span className={styles.code}>{board.code} · 板块</span></div>
+        <div className={styles['stock-name']}>
+          {board.name}
+          <span className={styles.code}>{board.code} · 板块</span>
+        </div>
         <div className={styles['board-header-side']}>
-          <button className={cx(styles['board-refresh'], refreshing && styles.spinning)} onClick={() => void refreshBoard()} disabled={refreshing} title="刷新板块详情" aria-label="刷新板块详情" type="button"><RefreshCw size={14} /></button>
-          <div className={cx(styles['board-change'], String(board.changePercent).startsWith('-') ? 'down' : 'up')}>{board.changePercent ?? '--'}</div>
+          <button
+            className={cx(styles['board-refresh'], refreshing && styles.spinning)}
+            onClick={() => void refreshBoard()}
+            disabled={refreshing}
+            title='刷新板块详情'
+            aria-label='刷新板块详情'
+            type='button'
+          >
+            <RefreshCw size={14} />
+          </button>
+          <div className={cx(styles['board-change'], String(board.changePercent).startsWith('-') ? 'down' : 'up')}>
+            {board.changePercent ?? '--'}
+          </div>
         </div>
       </div>
       <div className={styles['board-kline-box']}>
-        {board.kline?.length ? <StockKlineChart stock={{ code: board.code, name: board.name }} data={board.kline} height="100%" showLegend={false} staticData /> : <div className={styles['empty-list']}>暂无图表数据</div>}
+        {board.kline?.length ? (
+          <StockKlineChart
+            stock={{ code: board.code, name: board.name }}
+            data={board.kline}
+            height='100%'
+            showLegend={false}
+            staticData
+          />
+        ) : isLoading ? (
+          <div className={styles['empty-list']}>加载中…</div>
+        ) : (
+          <div className={styles['empty-list']}>暂无图表数据</div>
+        )}
       </div>
       <div className={styles['board-stock-section']}>
-        <div className={styles['section-title']}>成分股 <span>{stocks.length} 只</span></div>
+        <div className={styles['section-title']}>
+          成分股 <span>{stocks.length} 只</span>
+        </div>
         <div className={styles['board-stock-list']}>
-          {refreshing ? <BoardStockSkeleton /> : stocks.length ? stocks.map((stock) => <BoardStockItem key={stock.code} stock={stock} onClick={() => void openBoardStock(stock)} />) : <div className={styles['empty-list']}>暂无成分股数据</div>}
+          {isLoading || refreshing ? (
+            <BoardStockSkeleton />
+          ) : stocks.length ? (
+            stocks.map((stock) => (
+              <BoardStockItem key={stock.code} stock={stock} onClick={() => void openBoardStock(stock)} />
+            ))
+          ) : (
+            <div className={styles['empty-list']}>暂无成分股数据</div>
+          )}
         </div>
       </div>
     </div>
@@ -516,8 +907,11 @@ function BoardDetailView() {
 
 function BoardStockItem({ stock, onClick }: { stock: BoardConstituent; onClick(): void }) {
   return (
-    <button className={styles['board-stock-item']} onClick={onClick} type="button">
-      <span><b>{stock.name}</b><em>{stock.code}</em></span>
+    <button className={styles['board-stock-item']} onClick={onClick} type='button'>
+      <span>
+        <b>{stock.name}</b>
+        <em>{stock.code}</em>
+      </span>
       <span className={styles['board-stock-side']}>
         <strong>{stock.price ?? '--'}</strong>
         <em className={String(stock.changePercent).startsWith('-') ? 'down' : 'up'}>{stock.changePercent ?? '--'}</em>
@@ -527,7 +921,16 @@ function BoardStockItem({ stock, onClick }: { stock: BoardConstituent; onClick()
 }
 
 function BoardStockSkeleton() {
-  return <>{Array.from({ length: 8 }, (_, index) => <div className={styles['board-stock-skeleton']} key={index}><span /><em /></div>)}</>;
+  return (
+    <>
+      {Array.from({ length: 8 }, (_, index) => (
+        <div className={styles['board-stock-skeleton']} key={index}>
+          <span />
+          <em />
+        </div>
+      ))}
+    </>
+  );
 }
 
 function SurgeSkeleton() {
@@ -555,12 +958,23 @@ function SurgeSkeleton() {
 function SurgeItem({ item, highlight, onClick }: { item: HotFocusItem; highlight: boolean; onClick(): void }) {
   const isDown = String(item.changePercent).startsWith('-');
   return (
-    <button className={cx(styles['surge-item'], highlight && styles.highlight)} data-surge-code={item.code} onClick={onClick} type="button">
+    <button
+      className={cx(styles['surge-item'], highlight && styles.highlight)}
+      data-surge-code={item.code}
+      onClick={onClick}
+      type='button'
+    >
       <span className={styles['surge-time']}>{item.time ?? '--'}</span>
       <span className={styles['surge-card']}>
         <span className={styles['surge-main']}>
-          <b>{item.name ?? item.title}<em>{item.code}</em></b>
-          <small>当前 <span>{item.price ?? '--'}</span><span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span></small>
+          <b>
+            {item.name ?? item.title}
+            <em>{item.code}</em>
+          </b>
+          <small>
+            当前 <span>{item.price ?? '--'}</span>
+            <span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span>
+          </small>
         </span>
         <span className={styles['surge-action']}>
           <span>{surgeReason(item)}</span>
@@ -583,7 +997,15 @@ function hasSurgeAmount(amount?: string) {
 function NewsSkeleton({ rows = 10 }: { rows?: number }) {
   return (
     <div className={styles['news-skeleton']}>
-      {Array.from({ length: rows }, (_, index) => <Skeleton key={index} active paragraph={{ rows: 1 }} title={{ width: '72%' }} className={styles['news-skeleton-row']} />)}
+      {Array.from({ length: rows }, (_, index) => (
+        <Skeleton
+          key={index}
+          active
+          paragraph={{ rows: 1 }}
+          title={{ width: '72%' }}
+          className={styles['news-skeleton-row']}
+        />
+      ))}
     </div>
   );
 }
@@ -591,19 +1013,46 @@ function NewsSkeleton({ rows = 10 }: { rows?: number }) {
 function NewsItem({ item }: { item: MarketNewsItem }) {
   const content = (
     <>
-      <div className={styles['news-time']}>{item.time}{item.source ? ` · ${item.source}` : ''}</div>
+      <div className={styles['news-time']}>
+        {item.time}
+        {item.source ? ` · ${item.source}` : ''}
+      </div>
       <div className={styles['news-title']}>{item.title}</div>
-      <div className={styles['news-tags']}>{item.tags.map((tag) => <span className={cx(styles.nt, item.tagType ? styles[item.tagType] : undefined)} key={tag}>{tag}</span>)}</div>
+      <div className={styles['news-tags']}>
+        {item.tags.map((tag) => (
+          <span className={cx(styles.nt, item.tagType ? styles[item.tagType] : undefined)} key={tag}>
+            {tag}
+          </span>
+        ))}
+      </div>
     </>
   );
   if (!item.url) return <div className={styles['news-item']}>{content}</div>;
-  return <button className={styles['news-item']} onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')} type="button">{content}</button>;
+  return (
+    <button
+      className={styles['news-item']}
+      onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
+      type='button'
+    >
+      {content}
+    </button>
+  );
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
-  return <div className={styles.si}><div className={styles.lbl}>{label}</div><div className={styles.v}>{value}</div></div>;
+  return (
+    <div className={styles.si}>
+      <div className={styles.lbl}>{label}</div>
+      <div className={styles.v}>{value}</div>
+    </div>
+  );
 }
 
 function Rating({ label, score, tone }: { label: string; score: string; tone: 'up' | 'warn' }) {
-  return <div className={styles.r}><div className={cx(styles.s, tone === 'warn' ? styles.warn : 'up')}>{score}</div><div className={styles.l}>{label}</div></div>;
+  return (
+    <div className={styles.r}>
+      <div className={cx(styles.s, tone === 'warn' ? styles.warn : 'up')}>{score}</div>
+      <div className={styles.l}>{label}</div>
+    </div>
+  );
 }

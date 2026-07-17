@@ -1,7 +1,15 @@
 export type ThemeMode = 'dark' | 'light';
 export type MarketColorMode = 'red-up-green-down' | 'green-up-red-down';
 
-export type ProviderKind = 'deepseek' | 'openai' | 'qwen' | 'minimax' | 'zhipu' | 'moonshot' | 'openai-compatible' | 'custom';
+export type ProviderKind =
+  | 'deepseek'
+  | 'openai'
+  | 'qwen'
+  | 'minimax'
+  | 'zhipu'
+  | 'moonshot'
+  | 'openai-compatible'
+  | 'custom';
 
 export type TradeStyle = 'value' | 'trend' | 'balanced';
 export type RiskProfile = 'conservative' | 'moderate' | 'aggressive';

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { message as antdMessage } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppConfig, HoldingPeriod, MarketColorMode, MarketDataStats, MarketDataSyncStatus, ProviderKind, RiskProfile, TradeStyle } from '../../shared/types';
 import { getMarketColors, marketColorModes } from '../../shared/market-color';
 import { getStocksenseApi } from '../../shared/stocksense-api';
@@ -58,6 +59,7 @@ export function SettingsModal() {
   const [marketStats, setMarketStats] = useState<MarketDataStats>();
   const [marketActionPending, setMarketActionPending] = useState(false);
   const [saving, setSaving] = useState(false);
+  const syncStartedFromSettings = useRef(false);
 
   useEffect(() => setDraft(config), [config]);
   useEffect(() => {
@@ -72,11 +74,17 @@ export function SettingsModal() {
     if (!isOpen) return;
     const api = getStocksenseApi();
     void Promise.all([api.getMarketDataSyncStatus(), api.getMarketDataStats()]).then(([status, stats]) => {
-      setMarketStatus(status);
+      setMarketStatus(normalizeMarketStatus(status));
       setMarketStats(stats);
     });
     return api.onMarketDataProgress?.((status) => {
-      setMarketStatus(status);
+      const nextStatus = normalizeMarketStatus(status);
+      setMarketStatus(nextStatus);
+      if (syncStartedFromSettings.current && isMarketSyncTerminal(nextStatus.state)) {
+        syncStartedFromSettings.current = false;
+        setMarketActionPending(false);
+        showMarketSyncResult(nextStatus);
+      }
       void api.getMarketDataStats().then(setMarketStats);
     });
   }, [isOpen]);
@@ -129,16 +137,33 @@ export function SettingsModal() {
   };
 
   const runMarketAction = async (action: 'sync' | 'retry') => {
+    const runningState = action === 'sync' ? 'checking' : 'syncing';
     setMarketActionPending(true);
+    syncStartedFromSettings.current = true;
+    setMarketStatus({
+      state: runningState,
+      processedSymbols: marketStatus?.processedSymbols ?? 0,
+      totalSymbols: 0,
+      succeededSymbols: marketStatus?.succeededSymbols ?? 0,
+      failedSymbols: marketStatus?.failedSymbols ?? marketStats?.failedSymbols ?? 0,
+      latestLocalTradeDate: marketStatus?.latestLocalTradeDate ?? marketStats?.latestTradeDate,
+      message: action === 'sync' ? '正在启动同步…' : '正在启动重试…',
+    });
     try {
       const api = getStocksenseApi();
-      const status = action === 'sync' ? await api.startMarketDataSync() : await api.retryMarketDataFailures();
+      const status = normalizeMarketStatus(action === 'sync' ? await api.startMarketDataSync() : await api.retryMarketDataFailures());
       setMarketStatus(status);
       setMarketStats(await api.getMarketDataStats());
+      showMarketSyncResult(status);
+    } catch (error) {
+      syncStartedFromSettings.current = false;
+      antdMessage.error(error instanceof Error ? error.message : '同步启动失败，请稍后重试');
     } finally {
       setMarketActionPending(false);
     }
   };
+
+  const marketSyncRunning = marketActionPending || marketStatus?.state === 'checking' || marketStatus?.state === 'syncing' || marketStatus?.state === 'initializing';
 
   return (
     <div className={`${styles['modal-overlay']} ${styles.open}`} onClick={() => setSettingsOpen(false)}>
@@ -207,8 +232,8 @@ export function SettingsModal() {
             ) : null}
             <div className={styles.hint}>{marketStatus?.message ?? '首次使用会在后台回填最近 10 年 A 股日线，App 可正常使用。'}</div>
             <div className={styles['market-db-actions']}>
-              <button type="button" disabled={marketActionPending || marketStatus?.state === 'syncing' || marketStatus?.state === 'initializing'} onClick={() => void runMarketAction('sync')}>立即同步</button>
-              <button type="button" disabled={marketActionPending || !(marketStats?.failedSymbols || marketStatus?.failedSymbols)} onClick={() => void runMarketAction('retry')}>重试失败项</button>
+              <button type="button" disabled={marketSyncRunning} onClick={() => void runMarketAction('sync')}>立即同步</button>
+              <button type="button" disabled={marketSyncRunning || !(marketStats?.failedSymbols || marketStatus?.failedSymbols)} onClick={() => void runMarketAction('retry')}>重试失败项</button>
             </div>
           </div>
 
@@ -271,6 +296,21 @@ export function SettingsModal() {
       {toast ? <div className={`${styles.toast} ${styles.show} ${styles.success}`}>{toast}</div> : null}
     </div>
   );
+}
+
+function normalizeMarketStatus(status: MarketDataSyncStatus): MarketDataSyncStatus {
+  if (status.state === 'initializing' && status.totalSymbols > 0 && status.processedSymbols >= status.totalSymbols) return { ...status, state: 'completed', message: '同步完成' };
+  return status;
+}
+
+function isMarketSyncTerminal(state: MarketDataSyncStatus['state']) {
+  return state === 'completed' || state === 'partial' || state === 'failed' || state === 'idle';
+}
+
+function showMarketSyncResult(status: MarketDataSyncStatus) {
+  if (status.state === 'completed') antdMessage.success('同步完成');
+  else if (status.state === 'failed') antdMessage.error(status.message ?? '同步失败');
+  else if (status.state === 'partial') antdMessage.warning(status.message ?? '同步部分完成');
 }
 
 function StatusItem({ label, value }: { label: string; value: string }) {

@@ -1,4 +1,21 @@
+
 # Stock Agents 项目规则
+
+## 开始任何任务前必须先阅读以下规则文件
+
+必须优先读取并遵守：
+
+- ts和react 请遵循：@rules/typescript-react.md
+- AI返回的内容添加emoji 请遵循：@rules/emoji.md
+- 数据访问和读取请遵循：@rules/data.md
+- 修复bug 请遵循：@rules/bug-fix.md
+
+这些规则的优先级高于当前任务中的实现习惯。
+
+如果规则与当前实现冲突：
+- 优先遵循规则文件
+- 不得绕过规则
+- 不得为了快速完成任务而忽略规则
 
 ## 行情数据源规则
 
