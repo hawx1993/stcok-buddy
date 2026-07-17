@@ -1,6 +1,6 @@
 {
   "name": "stockbuddy-desktop",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "StockBuddy - 对话式 A 股投研助手 Electron 桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
@@ -53,6 +53,10 @@
       {
         "from": "build/commit-hash.txt",
         "to": "commit-hash.txt"
+      },
+      {
+        "from": "build/telemetry.json",
+        "to": "telemetry.json"
       },
       {
         "from": "public/store",
@@ -113,12 +117,15 @@
     "ai": "^7.0.15",
     "antd": "^6.5.0",
     "better-sqlite3": "^12.11.1",
+    "dotenv": "^17.4.2",
     "electron-store": "^10.0.1",
     "gsap": "^3.12.5",
     "klinecharts": "10.0.0-beta3",
     "langchain": "^1.5.2",
     "lucide-react": "^0.469.0",
     "marked": "^13.0.3",
+    "posthog-js": "^1.404.0",
+    "posthog-node": "^5.45.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "stock-sdk": "^2.4.0",

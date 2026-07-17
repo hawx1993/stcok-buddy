@@ -5,6 +5,7 @@ import { useAppStore } from '../../store/app-store';
 import { ThemeToggle } from '../theme-toggle';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type { ConversationSummary } from '../../shared/types';
+import { trackButtonClick, trackPageView } from '../../shared/analytics';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
 
@@ -29,6 +30,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const setMainView = useAppStore((state) => state.setMainView);
 
   const createConversation = async () => {
+    trackButtonClick('create_conversation');
     if (activeConversationId === conversations[0]?.id && conversations[0]?.count === 0) {
       antdMessage.info('当前已处于最新会话');
       return;
@@ -42,6 +44,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   };
 
   const deleteConversation = async (id: string) => {
+    trackButtonClick('delete_conversation');
     const next = await getStocksenseApi().deleteConversation(id);
     setConversationMenuId(undefined);
     setConversations(next);
@@ -52,6 +55,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   };
 
   const startRename = (item: ConversationSummary) => {
+    trackButtonClick('rename_conversation');
     setConversationMenuId(undefined);
     setEditingConversationId(item.id);
     setEditingTitle(item.title);
@@ -86,7 +90,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
         <button className={styles['btn-new-conversation']} onMouseMove={moveGlow} onClick={createConversation} type="button">
           <span>＋</span>新建会话
         </button>
-        <button className={cx(styles['market-entry'], mainView === 'market' && styles.active)} onMouseMove={moveGlow} onClick={() => { setConversationMenuId(undefined); setMainView('market'); }} type="button">
+        <button className={cx(styles['market-entry'], mainView === 'market' && styles.active)} onMouseMove={moveGlow} onClick={() => { trackButtonClick('open_market'); trackPageView('market'); setConversationMenuId(undefined); setMainView('market'); }} type="button">
           <BarChart3 size={17} />行情
         </button>
         {searchOpen ? <input ref={searchRef} className={styles['sidebar-search']} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索…" /> : null}
@@ -102,7 +106,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
               </div>
             ) : (
               <>
-                <button className={styles['source-item']} onClick={() => { setConversationMenuId(undefined); setActiveConversation(item.id); }} type="button">
+                <button className={styles['source-item']} onClick={() => { trackButtonClick('select_conversation'); setConversationMenuId(undefined); setActiveConversation(item.id); }} type="button">
                   <MessageCircle size={17} className={styles['source-icon']} />
                   <span className={styles.label}>{item.title}</span>
                   <span className={styles.count}>{item.count}</span>
@@ -128,7 +132,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
         </button>
         <div className={cx(styles['user-dropdown'], menuOpen && styles.open)}>
           <ThemeToggle />
-          <button className={styles['dropdown-item']} onClick={() => setSettingsOpen(true)} type="button"><Settings size={15} /><span>系统设置</span></button>
+          <button className={styles['dropdown-item']} onClick={() => { trackButtonClick('open_settings'); setSettingsOpen(true); }} type="button"><Settings size={15} /><span>系统设置</span></button>
           <div className={styles['dropdown-divider']} />
           <button className={cx(styles['dropdown-item'], styles.danger)} type="button"><span>🚪</span><span>退出登录</span></button>
         </div>

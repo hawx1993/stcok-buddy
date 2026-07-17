@@ -1,10 +1,12 @@
 import Store from 'electron-store';
+import { randomUUID } from 'node:crypto';
 import type { AppConfig, FavoriteStock } from '../../src/shared/types.js';
 
 export interface StoreSchema {
   config: AppConfig;
   favoriteStocks: FavoriteStock[];
   installedStoreItems: string[];
+  deviceId: string;
 }
 
 export const defaultConfig: AppConfig = {
@@ -21,6 +23,12 @@ export const defaultConfig: AppConfig = {
   riskProfile: 'moderate',
   holdingPeriod: 'medium',
 };
+function systemName() {
+  if (process.platform === 'darwin') return 'macos';
+  if (process.platform === 'win32') return 'windows';
+  return process.platform;
+}
+
 
 export const store = new Store<StoreSchema>({
   name: 'stocksense-store',
@@ -28,6 +36,7 @@ export const store = new Store<StoreSchema>({
     config: defaultConfig,
     favoriteStocks: [],
     installedStoreItems: [],
+    deviceId: `${systemName()}-${randomUUID()}`,
   },
 });
 
@@ -89,4 +98,8 @@ export function removeFavoriteStock(code: string): FavoriteStock[] {
 export function toggleFavoriteStockPin(code: string): FavoriteStock[] {
   store.set('favoriteStocks', store.get('favoriteStocks', []).map((item) => (item.code === code ? { ...item, pinned: !item.pinned } : item)));
   return listFavoriteStocks();
+}
+
+export function getDeviceId(): string {
+  return store.get('deviceId');
 }

@@ -1,3 +1,4 @@
+import { captureEvent } from '../llm/posthog-client.js';
 import type { KlinePoint, StockDetail } from '../../../src/shared/types.js';
 import { inferExchange, normalizeASymbol } from '../stock/symbols.js';
 import { partitionValidDailyBars } from './quality.js';
@@ -18,7 +19,10 @@ export async function queryHistoricalBars(symbolInput: string, options: Historic
   validateOptions(options, adjustType);
 
   let local = await listDailyBars(symbol, { startDate: options.startDate, endDate: options.endDate, limit, adjustType });
-  if (isComplete(local, options, limit)) return resultFromBars(local, 'duckdb:daily_bars', 'local', true, [], adjustType);
+  if (isComplete(local, options, limit)) {
+    captureEvent('market_cache_read', { kind: 'historical_bars', hit: true, partial: false, symbol, rows: local.length });
+    return resultFromBars(local, 'duckdb:daily_bars', 'local', true, [], adjustType);
+  }
 
   const warnings: string[] = [];
   let fetched = false;
@@ -40,6 +44,7 @@ export async function queryHistoricalBars(symbolInput: string, options: Historic
 
   local = await listDailyBars(symbol, { startDate: options.startDate, endDate: options.endDate, limit, adjustType });
   const complete = isComplete(local, options, limit);
+  captureEvent('market_cache_read', { kind: 'historical_bars', hit: complete, partial: !complete && local.length > 0, symbol, rows: local.length, fetched_remote: fetched });
   if (!complete && !warnings.length) warnings.push('远程数据源未返回缺失区间数据');
   return resultFromBars(local, fetched ? 'duckdb:daily_bars+remote' : 'duckdb:daily_bars', fetched ? 'mixed' : 'local', complete, warnings, adjustType);
 }
@@ -50,6 +55,7 @@ export async function queryLatestQuote(symbolInput: string, remoteLoader = getRe
   try {
     const quote = await remoteLoader(symbol);
     const isLive = status === 'open' || status === 'pre_market' || status === 'lunch_break';
+    captureEvent('market_cache_read', { kind: 'latest_quote', hit: false, storage: 'remote', symbol });
     return {
       data: toStockDetail(quote, symbol),
       meta: {
@@ -63,6 +69,7 @@ export async function queryLatestQuote(symbolInput: string, remoteLoader = getRe
     };
   } catch (error) {
     const latest = await getLatestDailyBar(symbol);
+    captureEvent('market_cache_read', { kind: 'latest_quote_fallback', hit: Boolean(latest), storage: latest ? 'local' : 'none', symbol });
     if (!latest) throw error;
     return {
       data: {

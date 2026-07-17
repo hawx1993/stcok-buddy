@@ -2,6 +2,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { experimental_transcribe as transcribe } from 'ai';
 import type { ModelProviderConfig } from '../../../src/shared/types.js';
+import { PostHogCallbackHandler } from './posthog-langchain-handler.js';
 
 void transcribe;
 
@@ -25,6 +26,7 @@ export async function chatWithOpenAICompatible(
     temperature: 0.2,
     streaming: Boolean(onToken),
     configuration: { baseURL: normalizeBaseUrl(config.baseUrl) },
+    callbacks: [new PostHogCallbackHandler()],
   });
 
   const langchainMessages = messages.map((message) => {

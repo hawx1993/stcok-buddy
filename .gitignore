@@ -11,3 +11,5 @@ dist-electron/
 .cache/
 release
 build/commit-hash.txt
+build/telemetry.json
+.env.local

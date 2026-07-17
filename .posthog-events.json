@@ -1,0 +1,72 @@
+[
+  {
+    "event_name": "chat_message_sent",
+    "event_description": "User sends a message (plain text or slash command) in the AI chat interface.",
+    "file": "src/components/chat-view/index.tsx"
+  },
+  {
+    "event_name": "slash_command_used",
+    "event_description": "User invokes a built-in or installed slash command (e.g. /综合投研报告, /技术面分析).",
+    "file": "src/components/chat-view/index.tsx"
+  },
+  {
+    "event_name": "stock_detail_viewed",
+    "event_description": "User opens the detail panel for a specific stock by clicking a link in chat or the surge list.",
+    "file": "src/components/chat-view/index.tsx"
+  },
+  {
+    "event_name": "board_detail_viewed",
+    "event_description": "User opens the detail panel for a sector/board by clicking a board link in chat.",
+    "file": "src/components/chat-view/index.tsx"
+  },
+  {
+    "event_name": "stock_favorited",
+    "event_description": "User adds a stock to their favorites list from the stock detail panel.",
+    "file": "src/components/stock-detail-panel/index.tsx"
+  },
+  {
+    "event_name": "stock_unfavorited",
+    "event_description": "User removes a stock from their favorites list.",
+    "file": "src/components/stock-detail-panel/index.tsx"
+  },
+  {
+    "event_name": "stock_report_requested",
+    "event_description": "User clicks the AI diagnosis button to request a comprehensive stock report from the detail panel.",
+    "file": "src/components/stock-detail-panel/index.tsx"
+  },
+  {
+    "event_name": "surge_stock_viewed",
+    "event_description": "User clicks on a stock from the abnormal movement (个股异动) list to view its details.",
+    "file": "src/components/stock-detail-panel/index.tsx"
+  },
+  {
+    "event_name": "conversation_created",
+    "event_description": "User creates a new chat conversation from the sidebar.",
+    "file": "src/components/sidebar/index.tsx"
+  },
+  {
+    "event_name": "conversation_deleted",
+    "event_description": "User deletes a chat conversation from the sidebar.",
+    "file": "src/components/sidebar/index.tsx"
+  },
+  {
+    "event_name": "settings_saved",
+    "event_description": "User saves their settings including AI provider, trading style, and risk preferences.",
+    "file": "src/components/settings-modal/index.tsx"
+  },
+  {
+    "event_name": "plugin_installed",
+    "event_description": "User installs a plugin or skill from the in-app store (应用商店).",
+    "file": "src/components/chat-view/index.tsx"
+  },
+  {
+    "event_name": "plugin_uninstalled",
+    "event_description": "User uninstalls a plugin or skill from the in-app store.",
+    "file": "src/components/chat-view/index.tsx"
+  },
+  {
+    "event_name": "market_data_sync_triggered",
+    "event_description": "User manually triggers a market data synchronization from the settings panel.",
+    "file": "src/components/settings-modal/index.tsx"
+  }
+]

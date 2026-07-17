@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { config as loadDotenv } from 'dotenv';
 import { registerIpcHandlers } from './ipc.js';
 import { closeMarketDataStore, initializeMarketDataStore } from './services/market-data/market-data-store.js';
 import { startMarketDataScheduler, stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
@@ -10,14 +11,19 @@ import { closeConversationStore } from './services/conversation-store.js';
 import { startSurgeHistoryScheduler, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
+import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
+
+loadDotenv({ path: path.join(__dirname, '../../.env.local'), override: false });
 const appIcon = isDev ? path.join(__dirname, '../public/icons/icon.svg') : path.join(process.resourcesPath, 'icons/icon.svg');
 
 let mainWindow: BrowserWindow | null = null;
 let cleanupStarted = false;
 let cleanupDone = false;
+let forceExitTimer: NodeJS.Timeout | undefined;
+let sessionStartedAt = Date.now();
 
 function getPackageVersion() {
   try {
@@ -70,6 +76,10 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    captureEvent('renderer_crashed', { reason: details.reason, exit_code: details.exitCode });
+  });
+
   if (isDev) {
     mainWindow.loadURL('http://127.0.0.1:5173');
   } else {
@@ -78,12 +88,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  sessionStartedAt = Date.now();
   configureAboutPanel();
   initializeQuoteStore();
   registerIpcHandlers();
   void initializeMarketDataStore().then(startMarketDataScheduler).catch((error) => console.warn('[market-data] initialization failed', error));
   startSurgeHistoryScheduler();
   createWindow();
+  captureEvent('app_started');
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -100,13 +112,30 @@ app.on('before-quit', (event) => {
   if (cleanupDone || cleanupStarted) return;
   event.preventDefault();
   cleanupStarted = true;
+  captureEvent('app_closing', { session_duration_seconds: Math.round((Date.now() - sessionStartedAt) / 1000) });
+  forceExitTimer = setTimeout(() => {
+    cleanupDone = true;
+    app.exit(0);
+  }, 5000);
   void Promise.allSettled([
     waitForMarketDataScheduler().then(closeMarketDataStore),
     Promise.resolve(closeQuoteStore()),
     closeSurgeHistoryStore(),
     Promise.resolve(closeConversationStore()),
+    shutdownPostHog(),
   ]).finally(() => {
+    if (forceExitTimer) clearTimeout(forceExitTimer);
     cleanupDone = true;
-    app.quit();
+    app.exit(0);
   });
+});
+
+process.on('uncaughtException', (error) => {
+  captureError('app_crashed', error);
+  console.error('[app] uncaught exception', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  captureError('app_unhandled_rejection', reason);
+  console.error('[app] unhandled rejection', reason);
 });

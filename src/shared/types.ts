@@ -446,7 +446,10 @@ export interface StoreItem {
 
 export type StoreCategory = StoreItem['category'];
 
+export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>;
+
 export interface StocksenseApi {
+  captureAnalytics?(event: string, properties?: AnalyticsProperties): Promise<void>;
   getConfig(): Promise<AppConfig>;
   setConfig(config: AppConfig): Promise<AppConfig>;
   listConversations(): Promise<ConversationSummary[]>;
