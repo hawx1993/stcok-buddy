@@ -24,6 +24,8 @@ const dbReady = DuckDBInstance.fromCache(dbPath);
 let ready: Promise<void> | undefined;
 let queue = Promise.resolve();
 let isClosing = false;
+let activeConnections = 0;
+let closeResolve: (() => void) | undefined;
 
 function ensureReady() {
   ready ??= exec(`
@@ -133,6 +135,7 @@ export async function closeSurgeHistoryStore() {
   isClosing = true;
   try {
     await queue;
+    if (activeConnections > 0) await new Promise<void>((resolve) => { closeResolve = resolve; });
   } catch (error) {
     console.warn('[surge-history] close failed', error);
   }
@@ -174,11 +177,15 @@ function all<T>(sql: string) {
 }
 
 async function withConnection<T>(work: (connection: DuckDBConnection) => Promise<T>) {
+  if (isClosing) throw new Error('surge history store is closing');
   const connection = await (await dbReady).connect();
+  activeConnections += 1;
   try {
     return await work(connection);
   } finally {
     connection.closeSync();
+    activeConnections -= 1;
+    if (isClosing && activeConnections === 0) closeResolve?.();
   }
 }
 

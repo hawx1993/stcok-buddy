@@ -23,7 +23,6 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const setActiveConversation = useAppStore((state) => state.setActiveConversation);
   const setConversations = useAppStore((state) => state.setConversations);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const clearMessages = useAppStore((state) => state.clearMessages);
   const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
   const setMainView = useAppStore((state) => state.setMainView);
@@ -38,7 +37,6 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
     setConversations([item, ...conversations]);
     setActiveConversation(item.id);
     setSelectedStock(undefined);
-    setSelectedBoard(undefined);
     clearMessages();
   };
 

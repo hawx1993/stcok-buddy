@@ -51,6 +51,7 @@ export function ChatView() {
   const rememberStockKline = useAppStore((state) => state.rememberStockKline);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
+  const selectedBoard = useAppStore((state) => state.selectedBoard);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
   const openBoardPanel = useAppStore((state) => state.openBoardPanel);
   const slashItems = useMemo(() => [
@@ -114,11 +115,11 @@ export function ChatView() {
   const openBoardDetail = async (board: Pick<BoardDetail, 'code' | 'name'>) => {
     trackButtonClick('open_board_detail', { code: board.code, name: board.name });
     openBoardPanel();
-    setSelectedBoard(board as BoardDetail);
+    if (selectedBoard?.code !== board.code) setSelectedBoard(board as BoardDetail);
     try {
-      setSelectedBoard(await getStocksenseApi().getBoardDetail(board.code));
+      setSelectedBoard(await getStocksenseApi().getBoardDetail(board.code, false, board.name));
     } catch {
-      setSelectedBoard(board as BoardDetail);
+      if (selectedBoard?.code !== board.code) setSelectedBoard(board as BoardDetail);
     }
   };
 

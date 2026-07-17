@@ -21,7 +21,7 @@ const api = {
   },
   getStockDetail: (symbol) => ipcRenderer.invoke('stock:getDetail', symbol),
   searchStocks: (query) => ipcRenderer.invoke('stock:search', query),
-  getBoardDetail: (symbol) => ipcRenderer.invoke('board:getDetail', symbol),
+  getBoardDetail: (symbol, forceRefresh, boardName) => ipcRenderer.invoke('board:getDetail', symbol, forceRefresh, boardName),
   getKline: (symbol, limit, period) => ipcRenderer.invoke('stock:getKline', symbol, limit, period),
   listMarketNews: (query, page, pageSize) => ipcRenderer.invoke('news:list', query, page, pageSize),
   listHotFocus: (tab) => ipcRenderer.invoke('hot:list', tab),

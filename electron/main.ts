@@ -115,8 +115,8 @@ app.on('before-quit', (event) => {
   captureEvent('app_closing', { session_duration_seconds: Math.round((Date.now() - sessionStartedAt) / 1000) });
   forceExitTimer = setTimeout(() => {
     cleanupDone = true;
-    app.exit(0);
-  }, 5000);
+    app.quit();
+  }, 8000);
   void Promise.allSettled([
     waitForMarketDataScheduler().then(closeMarketDataStore),
     Promise.resolve(closeQuoteStore()),
@@ -126,7 +126,7 @@ app.on('before-quit', (event) => {
   ]).finally(() => {
     if (forceExitTimer) clearTimeout(forceExitTimer);
     cleanupDone = true;
-    app.exit(0);
+    app.quit();
   });
 });
 

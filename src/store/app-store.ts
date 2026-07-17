@@ -180,7 +180,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { messages };
     }),
   clearMessages: () => set({ messages: [] }),
-  setSelectedStock: (stock) => set((state) => ({ selectedStock: stock ? { ...stock, kline: stock.kline ?? state.stockKlines[stock.code] } : undefined, selectedBoard: undefined })),
+  setSelectedStock: (stock) => set((state) => ({ selectedStock: stock ? { ...stock, kline: stock.kline ?? state.stockKlines[stock.code] } : undefined })),
   setSelectedBoard: (board) => set({ selectedBoard: board, selectedStock: undefined }),
   setSettingsOpen: (open) => set({ isSettingsOpen: open }),
   setSending: (isSending) => set({ isSending }),

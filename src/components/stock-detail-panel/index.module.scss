@@ -98,7 +98,12 @@
 .favorite-actions button:hover { background: var(--accent); color: #fff; }
 .board-detail { min-height: 100%; display: flex; flex-direction: column; }
 .board-change { font-size: 14px; font-weight: 600; white-space: nowrap; }
-.board-kline-box { height: 180px; margin: 4px 10px 12px; border-radius: 8px; overflow: hidden; background: var(--input-bg); }
+.board-header-side { display: flex; align-items: center; gap: 8px; }
+.board-refresh { width: 24px; height: 24px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; color: var(--accent); background: var(--list-item-active); cursor: pointer; }
+.board-refresh:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.board-refresh:disabled { opacity: .75; cursor: not-allowed; }
+.board-refresh.spinning svg { animation: spin-once .65s ease-in-out; }
+.board-kline-box { height: 260px; margin: 4px 10px 12px; border-radius: 8px; background: var(--input-bg); }
 .board-kline-box .empty-list { height: 100%; display: grid; place-items: center; }
 .board-stock-section { border-top: 1px solid var(--border); padding: 10px 0 0; min-height: 0; display: flex; flex-direction: column; }
 .board-stock-section .section-title { display: flex; justify-content: space-between; }
@@ -110,6 +115,10 @@
 .board-stock-side { text-align: right; white-space: nowrap; }
 .board-stock-side strong { display: block; font-size: 12px; }
 .board-stock-side em { color: inherit; }
+.board-stock-skeleton { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 54px; padding: 7px 8px; margin-bottom: 5px; border-radius: 5px; background: var(--input-bg); }
+.board-stock-skeleton span, .board-stock-skeleton em { display: block; height: 16px; border-radius: 4px; background: linear-gradient(90deg, var(--surface-hover) 25%, var(--surface-active) 37%, var(--surface-hover) 63%); background-size: 400% 100%; animation: skeleton-shimmer 1.4s ease infinite; }
+.board-stock-skeleton span { width: 92px; }
+.board-stock-skeleton em { width: 54px; }
 .surge-item { width: 100%; display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: stretch; gap: 8px; padding: 0; margin-top: 8px; background: transparent; border: 0; color: var(--fg); text-align: left; cursor: pointer; }
 .surge-item.highlight .surge-card { animation: surge-highlight 1.15s ease; }
 @keyframes surge-highlight { 0%, 100% { box-shadow: none; } 18%, 55% { box-shadow: 0 0 0 2px rgba(59,130,246,.36), 0 0 22px rgba(59,130,246,.28); background: var(--list-item-active); } }
@@ -146,3 +155,4 @@
 @keyframes skeleton-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
 .spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 999px; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin-once { to { transform: rotate(360deg); } }

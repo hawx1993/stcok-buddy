@@ -1,5 +1,5 @@
 import { message as antdMessage, Skeleton } from 'antd';
-import { Bot, Filter, Pin, PinOff, Star, Trash2 } from 'lucide-react';
+import { Bot, Filter, Pin, PinOff, RefreshCw, Star, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import gsap from 'gsap';
 import { useAppStore } from '../../store/app-store';
@@ -462,11 +462,26 @@ function FavoriteStockItem({ stock, pinned, isUp, onOpen, onRemove, onTogglePin 
 }
 
 function BoardDetailView() {
+  const [refreshing, setRefreshing] = useState(false);
   const board = useAppStore((state) => state.selectedBoard);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   if (!board) return null;
   const stocks = board.constituents ?? [];
+  const refreshBoard = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const detail = await getStocksenseApi().getBoardDetail(board.code, true, board.name);
+      setSelectedBoard({ ...detail, name: detail.name === detail.code ? board.name : detail.name, changePercent: detail.changePercent ?? board.changePercent });
+      setRefreshing(false);
+      window.requestAnimationFrame(() => antdMessage.success('更新成功'));
+    } catch {
+      setRefreshing(false);
+      window.requestAnimationFrame(() => antdMessage.error('刷新失败，请稍后再试'));
+    }
+  };
   const openBoardStock = async (stock: BoardConstituent) => {
     const fallback: StockDetail = { ...stock, turnover: stock.turnover ?? stock.amount, summary: `${board.name}板块成分股。` };
     setRightPanelTab('stock');
@@ -481,7 +496,10 @@ function BoardDetailView() {
     <div className={styles['board-detail']}>
       <div className={styles['stock-header']}>
         <div className={styles['stock-name']}>{board.name}<span className={styles.code}>{board.code} · 板块</span></div>
-        <div className={cx(styles['board-change'], String(board.changePercent).startsWith('-') ? 'down' : 'up')}>{board.changePercent ?? '--'}</div>
+        <div className={styles['board-header-side']}>
+          <button className={cx(styles['board-refresh'], refreshing && styles.spinning)} onClick={() => void refreshBoard()} disabled={refreshing} title="刷新板块详情" aria-label="刷新板块详情" type="button"><RefreshCw size={14} /></button>
+          <div className={cx(styles['board-change'], String(board.changePercent).startsWith('-') ? 'down' : 'up')}>{board.changePercent ?? '--'}</div>
+        </div>
       </div>
       <div className={styles['board-kline-box']}>
         {board.kline?.length ? <StockKlineChart stock={{ code: board.code, name: board.name }} data={board.kline} height="100%" showLegend={false} staticData /> : <div className={styles['empty-list']}>暂无图表数据</div>}
@@ -489,7 +507,7 @@ function BoardDetailView() {
       <div className={styles['board-stock-section']}>
         <div className={styles['section-title']}>成分股 <span>{stocks.length} 只</span></div>
         <div className={styles['board-stock-list']}>
-          {stocks.length ? stocks.map((stock) => <BoardStockItem key={stock.code} stock={stock} onClick={() => void openBoardStock(stock)} />) : <div className={styles['empty-list']}>暂无成分股数据</div>}
+          {refreshing ? <BoardStockSkeleton /> : stocks.length ? stocks.map((stock) => <BoardStockItem key={stock.code} stock={stock} onClick={() => void openBoardStock(stock)} />) : <div className={styles['empty-list']}>暂无成分股数据</div>}
         </div>
       </div>
     </div>
@@ -506,6 +524,10 @@ function BoardStockItem({ stock, onClick }: { stock: BoardConstituent; onClick()
       </span>
     </button>
   );
+}
+
+function BoardStockSkeleton() {
+  return <>{Array.from({ length: 8 }, (_, index) => <div className={styles['board-stock-skeleton']} key={index}><span /><em /></div>)}</>;
 }
 
 function SurgeSkeleton() {

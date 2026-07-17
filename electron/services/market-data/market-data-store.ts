@@ -10,6 +10,8 @@ const dbReady = DuckDBInstance.fromCache(dbPath);
 let ready: Promise<void> | undefined;
 let writeQueue = Promise.resolve();
 let isClosing = false;
+let activeConnections = 0;
+let closeResolve: (() => void) | undefined;
 
 const schemaSql = `
   CREATE TABLE IF NOT EXISTS securities (
@@ -324,6 +326,7 @@ export function getMarketDataStats(): Promise<MarketDataStats> {
 export async function closeMarketDataStore() {
   isClosing = true;
   await writeQueue.catch((error) => console.warn('[market-data] close wait failed', error));
+  if (activeConnections > 0) await new Promise<void>((resolve) => { closeResolve = resolve; });
 }
 
 function ensureReady() {
@@ -348,8 +351,14 @@ function write<T>(work: (connection: DuckDBConnection) => Promise<T>) {
 }
 
 async function withConnection<T>(work: (connection: DuckDBConnection) => Promise<T>) {
+  if (isClosing) throw new Error('market data store is closing');
   const connection = await (await dbReady).connect();
-  try { return await work(connection); } finally { connection.closeSync(); }
+  activeConnections += 1;
+  try { return await work(connection); } finally {
+    connection.closeSync();
+    activeConnections -= 1;
+    if (isClosing && activeConnections === 0) closeResolve?.();
+  }
 }
 
 async function all<T>(connection: DuckDBConnection, sql: string, values?: Record<string, DuckDBValue>) {
