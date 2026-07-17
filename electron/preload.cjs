@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const api = {
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config) => ipcRenderer.invoke('config:set', config),
+  testModelConfig: (config) => ipcRenderer.invoke('config:testModel', config),
   listFavoriteStocks: () => ipcRenderer.invoke('favorite:list'),
   upsertFavoriteStock: (stock) => ipcRenderer.invoke('favorite:upsert', stock),
   removeFavoriteStock: (code) => ipcRenderer.invoke('favorite:remove', code),

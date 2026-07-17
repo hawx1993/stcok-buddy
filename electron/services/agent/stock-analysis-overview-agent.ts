@@ -1,8 +1,8 @@
 import { generateReport } from '../llm/index.js';
+import { isLlmRequestError } from '../llm/openai-compatible-client.js';
 import type { StockAnalysisInput, StockAnalysisResult } from './stock-analysis-agents.js';
 
 export async function runStockAnalysisOverview(input: StockAnalysisInput, results: StockAnalysisResult[], onToken?: (token: string) => void): Promise<string> {
-  if (onToken) return streamText(fallbackOverview(input, results), onToken);
   try {
     const report = await generateReport([
       {
@@ -25,7 +25,8 @@ export async function runStockAnalysisOverview(input: StockAnalysisInput, result
       },
     ], onToken);
     return ensureScoredOverview(report, input, results);
-  } catch {
+  } catch (error) {
+    if (isLlmRequestError(error)) throw error;
     return fallbackOverview(input, results);
   }
 }

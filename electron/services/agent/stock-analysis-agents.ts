@@ -1,5 +1,6 @@
 import type { AgentResultCard, EvidenceItem, HotFocusItem, KlinePoint, MarketNewsItem, StockDetail, StructuredAgentFinding, StructuredAgentOutput } from '../../../src/shared/types.js';
 import { generateReport } from '../llm/index.js';
+import { isLlmRequestError } from '../llm/openai-compatible-client.js';
 import { fallbackEvidence } from './evidence.js';
 
 export type StockAnalysisAgentName = 'technical' | 'fundamental' | 'capital' | 'sentiment' | 'chip';
@@ -131,7 +132,8 @@ export async function runStockAnalysisSubAgent(name: StockAnalysisAgentName, inp
     if (agent.name === 'chip') output.markdown = normalizeChipMarkdown(output.markdown, input);
     await streamMarkdown(output.markdown, onToken);
     return { name: agent.name, label: agent.label, output, content: output.markdown };
-  } catch {
+  } catch (error) {
+    if (isLlmRequestError(error)) throw error;
     const output = fallbackStructuredAgentOutput(agent, input, evidence);
     if (agent.name === 'chip') output.markdown = normalizeChipMarkdown(output.markdown, input);
     await streamMarkdown(output.markdown, onToken);

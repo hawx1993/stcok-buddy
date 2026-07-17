@@ -16,7 +16,7 @@ export const defaultConfig: AppConfig = {
     provider: 'deepseek',
     apiKey: '',
     baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     customModel: '',
   },
   tradeStyle: 'value',

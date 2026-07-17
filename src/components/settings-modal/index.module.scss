@@ -10,10 +10,15 @@
 .settings-section-title { font-size: 12px; font-weight: 600; color: var(--fg-secondary); margin-bottom: 10px; padding-bottom: 4px; border-bottom: 1px solid var(--border); letter-spacing: .03em; }
 .settings-row { margin-bottom: 10px; }
 .settings-row .label { display: block; font-size: 12px; color: var(--fg-secondary); margin-bottom: 3px; font-weight: 500; }
-.settings-row .hint { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.3; }
+.settings-row .hint { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.3; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.settings-row .hint a { color: var(--accent); text-decoration: none; }
+.settings-row .hint a:hover { text-decoration: underline; }
 .settings-row select, .settings-row input { width: 100%; background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; color: var(--fg); font-size: 13px; outline: none; }
 .settings-row select:focus, .settings-row input:focus { border-color: var(--accent); }
 .api-key-row { display: flex; gap: 6px; }
+.model-shortcuts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.model-shortcuts button { border: 1px solid var(--border); background: var(--surface-hover); color: var(--fg-secondary); border-radius: 999px; padding: 3px 8px; font-size: 11px; cursor: pointer; }
+.model-shortcuts button:hover { border-color: var(--accent); color: var(--fg); }
 .api-key-row input { flex: 1; }
 .api-key-row .toggle-vis { background: var(--surface-hover); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; color: var(--muted); cursor: pointer; font-size: 13px; display: flex; align-items: center; flex-shrink: 0; }
 .radio-group { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -29,6 +34,7 @@
 .modal-footer button { padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; }
 .btn-cancel { background: var(--surface-hover); color: var(--fg-secondary); }
 .btn-save { background: var(--accent); color: #fff; }
+.btn-save:disabled { opacity: .55; cursor: wait; }
 .market-db-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 8px; }
 .market-db-item { background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .market-db-item span { color: var(--muted); font-size: 11px; }
@@ -39,6 +45,6 @@
 .market-db-actions button { flex: 1; border: 1px solid var(--border); background: var(--surface-hover); color: var(--fg-secondary); border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
 .market-db-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--fg); }
 .market-db-actions button:disabled { opacity: .45; cursor: not-allowed; }
-.toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 18px; font-size: 13px; color: var(--fg); box-shadow: 0 4px 16px rgba(0,0,0,.4); z-index: 10000; display: none; white-space: nowrap; }
+.toast { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); width: min(960px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 18px; font-size: 13px; line-height: 1.5; color: var(--fg); box-shadow: 0 4px 16px rgba(0,0,0,.4); z-index: 10000; display: none; white-space: normal; overflow-wrap: anywhere; }
 .toast.show { display: block; }
 .toast.success { border-color: var(--success); }
