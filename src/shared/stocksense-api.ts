@@ -12,6 +12,7 @@ import type {
   MarketTab,
   PagedMarketNews,
   StoreItem,
+  IAppUpdateState,
 } from './types.js';
 
 const defaultConfig: AppConfig = {
@@ -130,6 +131,12 @@ function pageItems(items: MarketNewsItem[], page = 1, pageSize = 30): PagedMarke
   const start = (Math.max(1, page) - 1) * pageSize;
   return { items: items.slice(start, start + pageSize), total: items.length, page, pageSize };
 }
+
+const browserUpdateState: IAppUpdateState = {
+  status: 'idle',
+  currentVersion: 'browser',
+  message: '自动升级仅在 Electron 桌面端可用',
+};
 
 const webFallbackApi: StocksenseApi = {
   async getConfig() {
@@ -265,6 +272,21 @@ const webFallbackApi: StocksenseApi = {
   },
   async uninstallStoreItem(id: string) {
     return writeInstalledStoreItems(readInstalledStoreItems().filter((item) => item !== id));
+  },
+  async getAppUpdateState() {
+    return browserUpdateState;
+  },
+  async checkAppUpdate() {
+    return browserUpdateState;
+  },
+  async downloadAppUpdate() {
+    throw new Error('自动升级仅在 Electron 桌面端可用');
+  },
+  async installAppUpdate() {
+    throw new Error('自动升级仅在 Electron 桌面端可用');
+  },
+  async openAppReleaseNotes() {
+    window.open('https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd', '_blank', 'noopener,noreferrer');
   },
 };
 

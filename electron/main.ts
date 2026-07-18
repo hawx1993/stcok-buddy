@@ -12,6 +12,7 @@ import { startSurgeHistoryScheduler, stopSurgeHistoryScheduler } from './service
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
 import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
+import { checkAppUpdate, setInstallUpdateHandler } from './services/update-service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -22,6 +23,7 @@ const appIcon = isDev ? path.join(__dirname, '../public/icons/icon.svg') : path.
 let mainWindow: BrowserWindow | null = null;
 let cleanupStarted = false;
 let cleanupDone = false;
+let installingUpdate = false;
 let forceExitTimer: NodeJS.Timeout | undefined;
 let sessionStartedAt = Date.now();
 
@@ -51,6 +53,14 @@ function configureAboutPanel() {
     version: '',
     copyright: aboutText,
   });
+}
+
+function prepareForUpdateInstall() {
+  installingUpdate = true;
+  cleanupDone = true;
+  if (forceExitTimer) clearTimeout(forceExitTimer);
+  stopMarketDataScheduler();
+  stopSurgeHistoryScheduler();
 }
 
 function createWindow() {
@@ -90,11 +100,15 @@ function createWindow() {
 app.whenReady().then(() => {
   sessionStartedAt = Date.now();
   configureAboutPanel();
+  setInstallUpdateHandler(prepareForUpdateInstall);
   initializeQuoteStore();
   registerIpcHandlers();
   void initializeMarketDataStore().catch((error) => console.warn('[market-data] initialization failed', error));
   startSurgeHistoryScheduler();
   createWindow();
+  setTimeout(() => {
+    void checkAppUpdate({ silent: true });
+  }, 5000);
   captureEvent('app_started');
 
   app.on('activate', () => {
@@ -107,6 +121,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
+  if (installingUpdate) return;
   stopMarketDataScheduler();
   stopSurgeHistoryScheduler();
   if (cleanupDone || cleanupStarted) return;

@@ -24,7 +24,7 @@
   - 自定义 API
 - 深浅色主题切换
 - PWA 支持：service worker + 离线支持
-- Electron 打包支持：macOS DMG / Windows 
+- Electron 打包支持：macOS DMG / Windows
 
 ## 产品定位
 
@@ -77,7 +77,6 @@ StockBuddy 希望把传统投研终端里的信息检索、行情观察、指标
 
 ![桌面端体验](public/images/preview-9.png)
 
-
 ## 安装
 
 推荐使用 pnpm：
@@ -85,11 +84,39 @@ StockBuddy 希望把传统投研终端里的信息检索、行情观察、指标
 ```bash
 pnpm install
 pnpm run dev
-pnpm run dist:mac // 打包mac 应用
-pnpm run dist:all // 打包mac和windows 应用
+pnpm run dist:mac # 打包 macOS 应用
+pnpm run dist:win # 打包 Windows 应用
+pnpm run dist:all # 打包 macOS + Windows 应用，并生成 latest.yml/latest-mac.yml
 ```
 
+## 发布到 GitHub Release
 
+发布前需要安装并登录 GitHub CLI：
+
+```bash
+gh auth login
+```
+
+一键打包 macOS / Windows、生成 changelog，并上传安装包与 `latest.yml` / `latest-mac.yml` 到 GitHub Release：
+
+```bash
+pnpm run release:github
+```
+
+默认会使用 `package.json` 里的版本号创建草稿 Release，例如 `v0.3.6`。常用参数：
+
+```bash
+pnpm run release:github -- --tag v0.3.6       # 指定发布 tag
+pnpm run release:github -- --publish          # 直接发布为正式 Release
+pnpm run release:github -- --reuse-release    # 复用已有 Release 并覆盖上传资产
+pnpm run release:notes                        # 仅生成 changelog 预览
+```
+
+> 完整打包 macOS DMG/ZIP 需要在 macOS 上运行。Windows NSIS 安装包由 electron-builder 生成，首次构建可能需要下载依赖缓存。
+
+## ChangeLog 更新日志
+
+[https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd](https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd)
 
 ## 合规提示
 

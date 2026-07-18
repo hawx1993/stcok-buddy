@@ -27,6 +27,14 @@ import { listMarketNews } from './services/stock/news-client.js';
 import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
 import { testModelConnection } from './services/llm/index.js';
+import {
+  checkAppUpdate,
+  downloadAppUpdate,
+  getAppUpdateState,
+  installAppUpdate,
+  onAppUpdateStateChanged,
+  openAppReleaseNotes,
+} from './services/update-service.js';
 
 export function registerIpcHandlers() {
   ipcMain.handle('analytics:capture', (_event, event: string, properties?: AnalyticsProperties) => captureEvent(event, properties));
@@ -96,6 +104,15 @@ export function registerIpcHandlers() {
   ipcMain.handle('store:installed', () => listInstalledStoreItems());
   ipcMain.handle('store:install', (_event, id: string) => installStoreItem(id));
   ipcMain.handle('store:uninstall', (_event, id: string) => uninstallStoreItem(id));
+  ipcMain.handle('appUpdate:getState', () => getAppUpdateState());
+  ipcMain.handle('appUpdate:check', () => checkAppUpdate());
+  ipcMain.handle('appUpdate:download', () => downloadAppUpdate());
+  ipcMain.handle('appUpdate:install', () => installAppUpdate());
+  ipcMain.handle('appUpdate:openReleaseNotes', () => openAppReleaseNotes());
+  const removeAppUpdateListener = onAppUpdateStateChanged((state) => {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send('appUpdate:stateChanged', state);
+  });
+  app.once('before-quit', removeAppUpdateListener);
   ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
     const startedAt = Date.now();
     const command = request.message.trim().startsWith('/') ? request.message.trim().split(/\s+/, 1)[0] : undefined;

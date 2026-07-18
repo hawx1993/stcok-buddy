@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, MarketDataSyncStatus, MarketIndexPeriod, MarketPageSnapshot, MarketTab, StocksenseApi } from '../src/shared/types.js';
+import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, IAppUpdateState, MarketDataSyncStatus, MarketIndexPeriod, MarketPageSnapshot, MarketTab, StocksenseApi } from '../src/shared/types.js';
 
 const api: StocksenseApi = {
   captureAnalytics: (event: string, properties?: AnalyticsProperties) => ipcRenderer.invoke('analytics:capture', event, properties),
@@ -49,6 +49,16 @@ const api: StocksenseApi = {
   listInstalledStoreItems: () => ipcRenderer.invoke('store:installed'),
   installStoreItem: (id: string) => ipcRenderer.invoke('store:install', id),
   uninstallStoreItem: (id: string) => ipcRenderer.invoke('store:uninstall', id),
+  getAppUpdateState: () => ipcRenderer.invoke('appUpdate:getState'),
+  checkAppUpdate: () => ipcRenderer.invoke('appUpdate:check'),
+  downloadAppUpdate: () => ipcRenderer.invoke('appUpdate:download'),
+  installAppUpdate: () => ipcRenderer.invoke('appUpdate:install'),
+  openAppReleaseNotes: () => ipcRenderer.invoke('appUpdate:openReleaseNotes'),
+  onAppUpdateStateChanged: (handler: (state: IAppUpdateState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: IAppUpdateState) => handler(state);
+    ipcRenderer.on('appUpdate:stateChanged', listener);
+    return () => ipcRenderer.removeListener('appUpdate:stateChanged', listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('stocksense', api);

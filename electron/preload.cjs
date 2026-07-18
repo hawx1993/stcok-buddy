@@ -47,6 +47,16 @@ const api = {
   listInstalledStoreItems: () => ipcRenderer.invoke('store:installed'),
   installStoreItem: (id) => ipcRenderer.invoke('store:install', id),
   uninstallStoreItem: (id) => ipcRenderer.invoke('store:uninstall', id),
+  getAppUpdateState: () => ipcRenderer.invoke('appUpdate:getState'),
+  checkAppUpdate: () => ipcRenderer.invoke('appUpdate:check'),
+  downloadAppUpdate: () => ipcRenderer.invoke('appUpdate:download'),
+  installAppUpdate: () => ipcRenderer.invoke('appUpdate:install'),
+  openAppReleaseNotes: () => ipcRenderer.invoke('appUpdate:openReleaseNotes'),
+  onAppUpdateStateChanged: (handler) => {
+    const listener = (_event, state) => handler(state);
+    ipcRenderer.on('appUpdate:stateChanged', listener);
+    return () => ipcRenderer.removeListener('appUpdate:stateChanged', listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('stocksense', api);
