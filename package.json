@@ -1,7 +1,7 @@
 {
   "name": "stockbuddy-desktop",
   "version": "0.3.6",
-  "description": "StockBuddy - 对话式 A 股投研助手 Electron 桌面应用",
+  "description": "StockBuddy - 对话式 A 股投研助手 Electron 跨端桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
   "scripts": {
@@ -19,6 +19,7 @@
     "dist:all": "pnpm run build && electron-builder --config electron-builder.config.cjs --mac dmg zip --x64 --arm64 --win nsis --x64",
     "release:notes": "node scripts/generate-release-notes.cjs",
     "release:github": "node scripts/release-github.cjs",
+    "release:github:all": "node scripts/release-github.cjs --target all",
     "release": "pnpm run release:github",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",

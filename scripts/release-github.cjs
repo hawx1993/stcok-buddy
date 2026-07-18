@@ -8,6 +8,8 @@ const ROOT = join(__dirname, '..');
 const RELEASE_DIR = join(ROOT, 'release');
 const REPO = 'hawx1993/stcok-buddy';
 const VERSION_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const TARGETS = new Set(['current', 'all', 'mac-arm64', 'mac-x64', 'win-x64']);
+const HOST_MAC_ARCH = process.arch === 'x64' ? 'x64' : 'arm64';
 
 function log(message) {
   console.log(message);
@@ -48,12 +50,16 @@ function parseArgs(argv) {
     publish: false,
     reuseRelease: false,
     skipBuild: false,
+    targets: 'current',
     tag: '',
     notesFile: '',
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === '--') {
+      continue;
+    }
     if (arg === '--allow-dirty') {
       options.allowDirty = true;
       continue;
@@ -74,6 +80,11 @@ function parseArgs(argv) {
     }
     if (arg === '--skip-build') {
       options.skipBuild = true;
+      continue;
+    }
+    if (arg === '--target') {
+      options.targets = argv[index + 1] || '';
+      index += 1;
       continue;
     }
     if (arg === '--tag') {
@@ -106,9 +117,24 @@ Options:
   --reuse-release   Upload assets to an existing release instead of creating it.
   --notes-file file Use a custom Markdown release notes file.
   --skip-build      Skip electron-builder and upload existing release/ assets.
+  --target target   Build/upload target: current (default), all, mac-arm64, mac-x64, win-x64.
+                   Use all only from the matching arch host or with prebuilt native modules.
   --allow-dirty     Allow releasing with uncommitted changes.
   -h, --help        Show this help.
 `);
+}
+
+function validateReleaseTargets(targets) {
+  const values = targets
+    .split(',')
+    .map((target) => target.trim())
+    .filter(Boolean);
+  if (!values.length) fail('--target requires at least one value.');
+  for (const value of values) {
+    if (!TARGETS.has(value)) fail(`Unknown target: ${value}`);
+  }
+  if (values.includes('all') && values.length > 1) fail('--target all cannot be combined with other targets.');
+  return values;
 }
 
 function readPackageJson() {
@@ -186,25 +212,30 @@ function cleanReleaseDir() {
   }
 }
 
-function buildArtifacts(version) {
+function builderArgsForTarget(target) {
+  if (target === 'mac-arm64') return ['--mac', 'dmg', 'zip', '--arm64'];
+  if (target === 'mac-x64') return ['--mac', 'dmg', 'zip', '--x64'];
+  if (target === 'win-x64') return ['--win', 'nsis', '--x64'];
+  if (target === 'all') return ['--mac', 'dmg', 'zip', '--x64', '--arm64', '--win', 'nsis', '--x64'];
+  return ['--mac', 'dmg', 'zip', `--${HOST_MAC_ARCH}`];
+}
+
+function buildArtifacts(version, targets) {
   log('Building renderer and Electron main process...');
   run('pnpm', ['run', 'build']);
-  log('Building macOS and Windows release artifacts...');
-  run('npx', [
-    'electron-builder',
-    '--config',
-    'electron-builder.config.cjs',
-    '--mac',
-    'dmg',
-    'zip',
-    '--x64',
-    '--arm64',
-    '--win',
-    'nsis',
-    '--x64',
-    '--publish',
-    'never',
-  ], { env: { STOCKBUDDY_APP_VERSION: version } });
+
+  for (const target of targets) {
+    const builderTarget = target === 'current' ? `mac-${HOST_MAC_ARCH}` : target;
+    log(`Building release artifacts for ${builderTarget}...`);
+    run('npx', [
+      'electron-builder',
+      '--config',
+      'electron-builder.config.cjs',
+      ...builderArgsForTarget(target),
+      '--publish',
+      'never',
+    ], { env: { STOCKBUDDY_APP_VERSION: version } });
+  }
 }
 
 function listFiles(dir) {
@@ -222,7 +253,7 @@ function listFiles(dir) {
   return entries;
 }
 
-function findAssets() {
+function findAssets(targets) {
   const files = listFiles(RELEASE_DIR);
   const assets = files.filter((file) => {
     const name = basename(file);
@@ -233,14 +264,23 @@ function findAssets() {
   });
 
   const names = assets.map((asset) => basename(asset));
+  const targetValues = targets.includes('current') ? [`mac-${HOST_MAC_ARCH}`] : targets;
   const required = [
-    { label: 'macOS arm64 dmg', test: /^StockBuddy-.+-mac-arm64\.dmg$/ },
-    { label: 'macOS x64 dmg', test: /^StockBuddy-.+-mac-x64\.dmg$/ },
-    { label: 'macOS arm64 zip', test: /^StockBuddy-.+-mac-arm64\.zip$/ },
-    { label: 'macOS x64 zip', test: /^StockBuddy-.+-mac-x64\.zip$/ },
-    { label: 'Windows x64 installer', test: /^StockBuddy-.+-win-x64-setup\.exe$/ },
-    { label: 'latest-mac.yml', test: /^latest-mac\.yml$/ },
-    { label: 'latest.yml', test: /^latest\.yml$/ },
+    ...(targetValues.includes('all') || targetValues.includes('mac-arm64') ? [
+      { label: 'macOS arm64 dmg', test: /^StockBuddy-.+-mac-arm64\.dmg$/ },
+      { label: 'macOS arm64 zip', test: /^StockBuddy-.+-mac-arm64\.zip$/ },
+    ] : []),
+    ...(targetValues.includes('all') || targetValues.includes('mac-x64') ? [
+      { label: 'macOS x64 dmg', test: /^StockBuddy-.+-mac-x64\.dmg$/ },
+      { label: 'macOS x64 zip', test: /^StockBuddy-.+-mac-x64\.zip$/ },
+    ] : []),
+    ...(targetValues.includes('all') || targetValues.includes('win-x64') ? [
+      { label: 'Windows x64 installer', test: /^StockBuddy-.+-win-x64-setup\.exe$/ },
+      { label: 'latest.yml', test: /^latest\.yml$/ },
+    ] : []),
+    ...(targetValues.includes('all') || targetValues.some((target) => target.startsWith('mac-')) ? [
+      { label: 'latest-mac.yml', test: /^latest-mac\.yml$/ },
+    ] : []),
   ];
 
   for (const item of required) {
@@ -250,7 +290,20 @@ function findAssets() {
   return assets.sort((left, right) => basename(left).localeCompare(basename(right)));
 }
 
-function createNotes(options, tag, version) {
+function platformSummary(targets) {
+  const values = targets.includes('current') ? [`mac-${HOST_MAC_ARCH}`] : targets;
+  if (values.includes('all')) return 'macOS arm64/x64, Windows x64';
+  return values
+    .map((target) => {
+      if (target === 'mac-arm64') return 'macOS arm64';
+      if (target === 'mac-x64') return 'macOS x64';
+      if (target === 'win-x64') return 'Windows x64';
+      return target;
+    })
+    .join(', ');
+}
+
+function createNotes(options, tag, version, targets) {
   if (options.notesFile) {
     if (!existsSync(join(ROOT, options.notesFile))) fail(`Notes file not found: ${options.notesFile}`);
     return join(ROOT, options.notesFile);
@@ -274,7 +327,7 @@ function createNotes(options, tag, version) {
     `- Tag: \`${tag}\``,
     `- Branch: \`${branch}\``,
     `- Commit: \`${commit}\``,
-    '- Platforms: macOS arm64/x64, Windows x64',
+    `- Platforms: ${platformSummary(targets)}`,
     `- Release type: ${options.draft ? 'draft' : 'published'}`,
     '',
   ].join('\n');
@@ -318,12 +371,13 @@ function uploadAssets(tag, assets) {
   run('gh', ['release', 'upload', tag, '--repo', REPO, ...assets, '--clobber']);
 }
 
-function verifyRelease(tag) {
+function verifyRelease(tag, targets) {
   const raw = run('gh', ['release', 'view', tag, '--repo', REPO, '--json', 'assets,isDraft,url'], { capture: true });
   const release = JSON.parse(raw);
   const names = release.assets.map((asset) => asset.name);
-  if (!names.includes('latest.yml')) fail('GitHub release is missing latest.yml');
-  if (!names.includes('latest-mac.yml')) fail('GitHub release is missing latest-mac.yml');
+  const targetValues = targets.includes('current') ? [`mac-${HOST_MAC_ARCH}`] : targets;
+  if ((targetValues.includes('all') || targetValues.includes('win-x64')) && !names.includes('latest.yml')) fail('GitHub release is missing latest.yml');
+  if ((targetValues.includes('all') || targetValues.some((target) => target.startsWith('mac-'))) && !names.includes('latest-mac.yml')) fail('GitHub release is missing latest-mac.yml');
   log(`Release verified: ${release.url}`);
   log(`Draft: ${release.isDraft}`);
 }
@@ -335,19 +389,21 @@ function main() {
   validateVersion(version, 'Release version');
   const tag = normalizeTag(options.tag || `v${version}`);
 
+  const targets = validateReleaseTargets(options.targets);
+
   checkPrerequisites(options);
   if (tagExists(tag) && !options.reuseRelease) fail(`Tag ${tag} already exists on origin. Pass --reuse-release only if the GitHub release already exists.`);
 
   if (!options.skipBuild) {
     cleanReleaseDir();
-    buildArtifacts(version);
+    buildArtifacts(version, targets);
   }
 
-  const assets = findAssets();
-  const notesPath = createNotes(options, tag, version);
+  const assets = findAssets(targets);
+  const notesPath = createNotes(options, tag, version, targets);
   createOrReuseRelease(options, tag, version, notesPath);
   uploadAssets(tag, assets);
-  verifyRelease(tag);
+  verifyRelease(tag, targets);
 }
 
 main();
