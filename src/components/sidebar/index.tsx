@@ -3,6 +3,7 @@ import { BarChart3, MessageCircle, MoreHorizontal, Pencil, Settings, Trash2 } fr
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../../store/app-store';
 import { ThemeToggle } from '../theme-toggle';
+import { UpdateBanner } from './components/update-banner';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type { ConversationSummary } from '../../shared/types';
 import { trackButtonClick, trackPageView } from '../../shared/analytics';
@@ -195,6 +196,8 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
           <div className={styles['empty-list']}>无匹配对话</div>
         )}
       </div>
+
+      <UpdateBanner />
 
       <div className={styles['sidebar-footer']}>
         <button

@@ -1,7 +1,7 @@
 {
   "name": "stockbuddy-desktop",
-  "version": "0.3.5",
-  "description": "StockBuddy - 对话式 A 股投研助手 Electron 桌面应用",
+  "version": "0.3.8",
+  "description": "StockBuddy - 对话式 A 股投研助手 Electron 跨端桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
   "scripts": {
@@ -10,12 +10,17 @@
     "dev:renderer": "vite --host 127.0.0.1",
     "dev:electron": "wait-on tcp:5173 && tsc -p tsconfig.node.json --watch --preserveWatchOutput & wait-on dist-electron/electron/main.js && electron .",
     "build:icon": "mkdir -p build/icon.iconset /tmp/stocksense-icon && qlmanage -t -s 1024 -o /tmp/stocksense-icon public/icons/icon.svg >/dev/null 2>&1 && ICON=/tmp/stocksense-icon/icon.svg.png && sips -z 16 16 $ICON --out build/icon.iconset/icon_16x16.png >/dev/null && sips -z 32 32 $ICON --out build/icon.iconset/icon_16x16@2x.png >/dev/null && sips -z 32 32 $ICON --out build/icon.iconset/icon_32x32.png >/dev/null && sips -z 64 64 $ICON --out build/icon.iconset/icon_32x32@2x.png >/dev/null && sips -z 128 128 $ICON --out build/icon.iconset/icon_128x128.png >/dev/null && sips -z 256 256 $ICON --out build/icon.iconset/icon_128x128@2x.png >/dev/null && sips -z 256 256 $ICON --out build/icon.iconset/icon_256x256.png >/dev/null && sips -z 512 512 $ICON --out build/icon.iconset/icon_256x256@2x.png >/dev/null && sips -z 512 512 $ICON --out build/icon.iconset/icon_512x512.png >/dev/null && cp $ICON build/icon.iconset/icon_512x512@2x.png && iconutil -c icns build/icon.iconset -o build/icon.icns",
-    "build": "node scripts/write-build-info.cjs && npm run typecheck && vite build && tsc -p tsconfig.node.json && cp electron/preload.cjs dist-electron/electron/preload.cjs",
-    "build:pwa": "npm run build",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
-    "dist:mac": "npm run build && electron-builder --mac dmg --arm64",
-    "dist:all": "npm run build && electron-builder --mac dmg --arm64 && electron-builder --win nsis --x64",
+    "build": "node scripts/write-build-info.cjs && pnpm run typecheck && vite build && tsc -p tsconfig.node.json && cp electron/preload.cjs dist-electron/electron/preload.cjs",
+    "build:pwa": "pnpm run build",
+    "pack": "pnpm run build && electron-builder --config electron-builder.config.cjs --dir",
+    "dist": "pnpm run build && electron-builder --config electron-builder.config.cjs",
+    "dist:mac": "pnpm run build && electron-builder --config electron-builder.config.cjs --mac dmg zip --x64 --arm64",
+    "dist:win": "pnpm run build && electron-builder --config electron-builder.config.cjs --win nsis --x64",
+    "dist:all": "pnpm run build && electron-builder --config electron-builder.config.cjs --mac dmg zip --x64 --arm64 --win nsis --x64",
+    "release:notes": "node scripts/generate-release-notes.cjs",
+    "release:github": "node scripts/release-github.cjs",
+    "release:github:all": "node scripts/release-github.cjs --target all",
+    "release": "pnpm run release:github",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "tsc --noEmit -p tsconfig.json",
@@ -32,83 +37,13 @@
     "stock buddy",
     "stock buddy desktop"
   ],
-  "author": "",
-  "license": "MIT",
-  "build": {
-    "appId": "com.stocksense.desktop",
-    "productName": "StockBuddy",
-    "directories": {
-      "output": "release",
-      "buildResources": "build"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "public/icons/icon.svg",
-        "to": "icons/icon.svg"
-      },
-      {
-        "from": "build/commit-hash.txt",
-        "to": "commit-hash.txt"
-      },
-      {
-        "from": "build/telemetry.json",
-        "to": "telemetry.json"
-      },
-      {
-        "from": "public/store",
-        "to": "public/store"
-      }
-    ],
-    "asar": true,
-    "mac": {
-      "category": "public.app-category.finance",
-      "icon": "build/icon.icns",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ]
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "artifactName": "StockBuddy-${version}-${arch}-setup.${ext}"
-    },
-    "dmg": {
-      "artifactName": "StockBuddy-${version}-${arch}.dmg",
-      "contents": [
-        {
-          "x": 130,
-          "y": 220
-        },
-        {
-          "x": 410,
-          "y": 220,
-          "type": "link",
-          "path": "/Applications"
-        }
-      ]
-    }
+  "homepage": "https://github.com/hawx1993/stcok-buddy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hawx1993/stcok-buddy.git"
   },
+  "author": "trigkit4",
+  "license": "MIT",
   "dependencies": {
     "@duckdb/node-api": "1.5.4-r.1",
     "@electron-toolkit/preload": "^3.0.2",
@@ -120,6 +55,7 @@
     "better-sqlite3": "^12.11.1",
     "dotenv": "^17.4.2",
     "electron-store": "^10.0.1",
+    "electron-updater": "^6.8.9",
     "gsap": "^3.12.5",
     "klinecharts": "10.0.0-beta3",
     "langchain": "^1.5.2",

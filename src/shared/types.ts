@@ -457,6 +457,26 @@ export type StoreCategory = StoreItem['category'];
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>;
 
+export interface IAppUpdateProgress {
+  percent: number;
+  transferred: number;
+  total: number;
+  bytesPerSecond: number;
+}
+
+export type TAppUpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+
+export interface IAppUpdateState {
+  status: TAppUpdateStatus;
+  currentVersion: string;
+  latestVersion?: string;
+  releaseName?: string;
+  releaseNotes?: string;
+  progress?: IAppUpdateProgress;
+  error?: string;
+  message?: string;
+}
+
 export interface StocksenseApi {
   captureAnalytics?(event: string, properties?: AnalyticsProperties): Promise<void>;
   getConfig(): Promise<AppConfig>;
@@ -489,6 +509,12 @@ export interface StocksenseApi {
   listInstalledStoreItems(): Promise<string[]>;
   installStoreItem(id: string): Promise<string[]>;
   uninstallStoreItem(id: string): Promise<string[]>;
+  getAppUpdateState(): Promise<IAppUpdateState>;
+  checkAppUpdate(): Promise<IAppUpdateState>;
+  downloadAppUpdate(): Promise<IAppUpdateState>;
+  installAppUpdate(): Promise<IAppUpdateState>;
+  openAppReleaseNotes(): Promise<void>;
+  onAppUpdateStateChanged?(handler: (state: IAppUpdateState) => void): () => void;
   listFavoriteStocks(): Promise<FavoriteStock[]>;
   upsertFavoriteStock(stock: Pick<FavoriteStock, 'code' | 'name'>): Promise<FavoriteStock[]>;
   removeFavoriteStock(code: string): Promise<FavoriteStock[]>;

@@ -1,0 +1,1 @@
+designated => identifier "com.stocksense.desktop"
