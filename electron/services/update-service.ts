@@ -162,6 +162,9 @@ function updateDownloadedState(event: UpdateDownloadedEvent) {
 function formatUpdateError(error: Error) {
   const firstLine = error.message.split('\n').find((line) => line.trim());
   const message = firstLine?.trim() || '更新检查失败，请稍后重试';
+  if (message.includes('Code signature') && message.includes('did not pass validation')) {
+    return `更新包签名校验失败，请等待重新发布的安装包；当前版本不会被替换。原始错误：${message.length > 120 ? `${message.slice(0, 120)}…` : message}`;
+  }
   if (message.includes('Cannot find latest-mac.yml')) {
     return '最新 GitHub Release 缺少 latest-mac.yml。请用 pnpm run dist:mac 重新打包，并上传生成的 latest-mac.yml 与 zip/dmg 资产。';
   }

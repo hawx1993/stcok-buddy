@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const { execFileSync, spawnSync } = require('node:child_process');
-const { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } = require('node:fs');
+const { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } = require('node:fs');
 const { basename, join } = require('node:path');
 const { tmpdir } = require('node:os');
 
@@ -160,7 +160,31 @@ function checkCommand(command, hint) {
   if (result.status !== 0) fail(`${command} not found. ${hint}`);
 }
 
-function checkPrerequisites(options) {
+function checkExecutable(command, hint) {
+  const result = spawnSync('/bin/sh', ['-lc', `command -v ${command}`], { cwd: ROOT, stdio: 'ignore' });
+  if (result.status !== 0) fail(`${command} not found. ${hint}`);
+}
+
+function resolveTargetValues(targets) {
+  return targets.includes('current') ? [`mac-${HOST_MAC_ARCH}`] : targets;
+}
+
+function hasMacTarget(targets) {
+  return resolveTargetValues(targets).some((target) => target === 'all' || target.startsWith('mac-'));
+}
+
+function checkMacReleasePrerequisites(targets) {
+  if (!hasMacTarget(targets)) return;
+  checkExecutable('codesign', 'Install Xcode Command Line Tools first.');
+  checkExecutable('unzip', 'Install unzip first.');
+  const identityList = run('security', ['find-identity', '-v', '-p', 'codesigning'], { capture: true });
+  if (!identityList.includes('Developer ID Application')) {
+    log('[release] No Developer ID Application certificate found — will use ad-hoc signing.');
+    log('[release] The afterPack hook in electron-builder.config.cjs will fix linker-signed framework signatures so codesign verification passes.');
+  }
+}
+
+function checkPrerequisites(options, targets) {
   checkCommand('git', 'Install git first.');
   checkCommand('gh', 'Install GitHub CLI: brew install gh');
   checkCommand('pnpm', 'Install pnpm first.');
@@ -169,6 +193,8 @@ function checkPrerequisites(options) {
   if (process.platform !== 'darwin') {
     fail('Building macOS DMG/ZIP requires macOS. Please run the one-command release on macOS.');
   }
+
+  checkMacReleasePrerequisites(targets);
 
   if (!options.allowDirty) {
     const status = git(['status', '--porcelain']);
@@ -264,7 +290,7 @@ function findAssets(targets) {
   });
 
   const names = assets.map((asset) => basename(asset));
-  const targetValues = targets.includes('current') ? [`mac-${HOST_MAC_ARCH}`] : targets;
+  const targetValues = resolveTargetValues(targets);
   const required = [
     ...(targetValues.includes('all') || targetValues.includes('mac-arm64') ? [
       { label: 'macOS arm64 dmg', test: /^StockBuddy-.+-mac-arm64\.dmg$/ },
@@ -290,8 +316,88 @@ function findAssets(targets) {
   return assets.sort((left, right) => basename(left).localeCompare(basename(right)));
 }
 
+function parseLatestMacAssetNames(latestMacPath) {
+  return readFileSync(latestMacPath, 'utf8')
+    .split('\n')
+    .map((line) => line.trim().match(/^(?:-\s*)?(?:url|path):\s*['"]?([^'"]+)['"]?$/)?.[1])
+    .filter(Boolean)
+    .map((value) => basename(value.trim()))
+    .filter((name) => name.endsWith('.zip') || name.endsWith('.dmg'));
+}
+
+function findAppBundle(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory() && entry.name.endsWith('.app')) return path;
+    if (entry.isDirectory()) {
+      const nested = findAppBundle(path);
+      if (nested) return nested;
+    }
+  }
+  return '';
+}
+
+function verifyMacZipSignature(zipPath) {
+  const tempDir = mkdtempSync(join(tmpdir(), 'stockbuddy-mac-zip-'));
+  try {
+    log(`Verifying macOS update zip signature: ${basename(zipPath)}`);
+    run('unzip', ['-q', zipPath, '-d', tempDir]);
+    const appBundle = findAppBundle(tempDir);
+    if (!appBundle) fail(`${basename(zipPath)} does not contain a .app bundle.`);
+    run('codesign', ['--verify', '--deep', '--strict', '--verbose=4', appBundle]);
+    const displayResult = spawnSync('codesign', ['--display', '--verbose=4', appBundle], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (displayResult.status !== 0) fail(`Unable to inspect code signature for ${basename(zipPath)}.`);
+    const signature = [displayResult.stdout, displayResult.stderr].filter(Boolean).join('\n');
+    const authorityLines = signature
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('Authority=') || line.startsWith('TeamIdentifier='));
+    if (!authorityLines.some((line) => line.includes('Developer ID Application'))) {
+      log(`[release] ${basename(zipPath)} is ad-hoc signed (no Developer ID).`);
+      log(`[release] For distribution, add a Developer ID Application certificate.`);
+    } else {
+      for (const line of authorityLines) log(`  ${line}`);
+    }
+    const assessment = spawnSync('spctl', ['--assess', '--type', 'execute', '--verbose=4', appBundle], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (assessment.status !== 0) {
+      const output = [assessment.stdout, assessment.stderr].filter(Boolean).join('\n').trim();
+      log(`[release] Gatekeeper assessment warning for ${basename(zipPath)}: ${output || 'spctl failed'}`);
+    }
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function verifyLatestMacMetadata(assets) {
+  const latestMacPath = assets.find((asset) => basename(asset) === 'latest-mac.yml');
+  if (!latestMacPath) return;
+  const names = new Set(assets.map((asset) => basename(asset)));
+  const referencedNames = parseLatestMacAssetNames(latestMacPath);
+  if (!referencedNames.length) fail('latest-mac.yml does not reference any macOS update asset.');
+  if (!referencedNames.some((name) => name.endsWith('.zip'))) fail('latest-mac.yml must reference a macOS zip for electron-updater.');
+  for (const name of referencedNames) {
+    if (!names.has(name)) fail(`latest-mac.yml references missing asset: ${name}`);
+  }
+}
+
+function verifyMacUpdateArtifacts(assets, targets) {
+  if (!hasMacTarget(targets)) return;
+  verifyLatestMacMetadata(assets);
+  const macZips = assets.filter((asset) => /^StockBuddy-.+-mac-(arm64|x64)\.zip$/.test(basename(asset)));
+  if (!macZips.length) fail('No macOS zip assets found for electron-updater.');
+  for (const zipPath of macZips) verifyMacZipSignature(zipPath);
+}
+
 function platformSummary(targets) {
-  const values = targets.includes('current') ? [`mac-${HOST_MAC_ARCH}`] : targets;
+  const values = resolveTargetValues(targets);
   if (values.includes('all')) return 'macOS arm64/x64, Windows x64';
   return values
     .map((target) => {
@@ -375,7 +481,7 @@ function verifyRelease(tag, targets) {
   const raw = run('gh', ['release', 'view', tag, '--repo', REPO, '--json', 'assets,isDraft,url'], { capture: true });
   const release = JSON.parse(raw);
   const names = release.assets.map((asset) => asset.name);
-  const targetValues = targets.includes('current') ? [`mac-${HOST_MAC_ARCH}`] : targets;
+  const targetValues = resolveTargetValues(targets);
   if ((targetValues.includes('all') || targetValues.includes('win-x64')) && !names.includes('latest.yml')) fail('GitHub release is missing latest.yml');
   if ((targetValues.includes('all') || targetValues.some((target) => target.startsWith('mac-'))) && !names.includes('latest-mac.yml')) fail('GitHub release is missing latest-mac.yml');
   log(`Release verified: ${release.url}`);
@@ -391,7 +497,7 @@ function main() {
 
   const targets = validateReleaseTargets(options.targets);
 
-  checkPrerequisites(options);
+  checkPrerequisites(options, targets);
   if (tagExists(tag) && !options.reuseRelease) fail(`Tag ${tag} already exists on origin. Pass --reuse-release only if the GitHub release already exists.`);
 
   if (!options.skipBuild) {
@@ -400,6 +506,7 @@ function main() {
   }
 
   const assets = findAssets(targets);
+  verifyMacUpdateArtifacts(assets, targets);
   const notesPath = createNotes(options, tag, version, targets);
   createOrReuseRelease(options, tag, version, notesPath);
   uploadAssets(tag, assets);
