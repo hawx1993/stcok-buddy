@@ -282,6 +282,122 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+.update-status-card {
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0 10px;
+}
+.update-status-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 700;
+}
+.update-status-message {
+  margin-top: 6px;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.update-status-idle,
+.update-status-info {
+  border-color: var(--border);
+}
+.update-status-success {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.08);
+}
+.update-status-warning {
+  border-color: rgba(245, 158, 11, 0.65);
+  background: rgba(245, 158, 11, 0.08);
+}
+.update-status-error {
+  border-color: rgba(239, 68, 68, 0.65);
+  background: rgba(239, 68, 68, 0.08);
+}
+.update-download-progress {
+  height: 5px;
+  overflow: hidden;
+  background: var(--surface-hover);
+  border-radius: 999px;
+  margin-top: 10px;
+}
+.update-download-progress div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.update-directory-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.update-directory-row div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.update-directory-row span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.update-directory-row strong {
+  color: var(--fg-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.update-directory-row button,
+.update-actions-row button {
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--fg-secondary);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.update-actions-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.update-actions-row button {
+  flex: 1;
+}
+.update-directory-row button:hover:not(:disabled),
+.update-actions-row button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.update-actions-row .update-page-button {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--fg);
+}
+.update-directory-row button:disabled,
+.update-actions-row button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .toast {
   position: fixed;
   top: 24px;

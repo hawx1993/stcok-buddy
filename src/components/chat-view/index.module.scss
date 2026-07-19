@@ -195,6 +195,9 @@
   min-width: 0;
   user-select: text;
 }
+.msg.agent .msg-body {
+  flex: 1;
+}
 .msg.user .msg-body {
   text-align: right;
 }

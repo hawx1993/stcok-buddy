@@ -27,12 +27,13 @@ export const stockSdkHistoricalProvider: HistoricalBarProvider = {
   },
 };
 
-export async function listRemoteSecurities(onProgress?: (completed: number, total: number) => void): Promise<SecurityRecord[]> {
+export async function listRemoteSecurities(onProgress?: (completed: number, total: number) => void, shouldStop?: () => boolean): Promise<SecurityRecord[]> {
   const codes = await sdk.codes.cn({ simple: true });
   const now = new Date().toISOString();
   const names = new Map<string, string>();
   const batchSize = 100;
   for (let index = 0; index < codes.length; index += batchSize) {
+    if (shouldStop?.()) break;
     const batch = codes.slice(index, index + batchSize);
     try {
       const quotes = await sdk.batch.byCodes(batch, { batchSize: 100, concurrency: 2 });

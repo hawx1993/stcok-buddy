@@ -254,6 +254,16 @@ const webFallbackApi: StocksenseApi = {
   async retryMarketDataFailures() {
     return this.getMarketDataSyncStatus();
   },
+  async cancelMarketDataSync() {
+    return {
+      state: 'idle' as const,
+      processedSymbols: 0,
+      totalSymbols: 0,
+      succeededSymbols: 0,
+      failedSymbols: 0,
+      message: '本地市场数据库仅在 Electron 桌面端可用',
+    };
+  },
   async getMarketDataStats() {
     return { securityCount: 0, dailyBarCount: 0, databaseBytes: 0, failedSymbols: 0 };
   },
@@ -286,7 +296,10 @@ const webFallbackApi: StocksenseApi = {
     throw new Error('自动升级仅在 Electron 桌面端可用');
   },
   async openAppReleaseNotes() {
-    window.open('https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd', '_blank', 'noopener,noreferrer');
+    window.open('https://github.com/hawx1993/stcok-buddy/releases', '_blank', 'noopener,noreferrer');
+  },
+  async selectAppUpdateDownloadDirectory() {
+    throw new Error('更新下载目录仅在 Electron 桌面端可配置');
   },
 };
 

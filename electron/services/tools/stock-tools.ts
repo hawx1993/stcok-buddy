@@ -3,7 +3,7 @@ import { getMarketDataSyncStatus } from '../market-data/market-data-sync.js';
 import { queryHistoricalBars } from '../market-data/market-data-query.js';
 import { runTechnicalAnalysis } from '../agent/analysis-agent.js';
 import { listMarketNews, listStockNewsAnnouncements } from '../stock/news-client.js';
-import { getChipDistribution, getKline, getQuote, listDailyDragonTiger, listHotFocus, resolveASymbol } from '../stock/stock-client.js';
+import { getChipDistribution, getKline, getQuote, getStockFundFlowSnapshot as fetchStockFundFlowSnapshot, listDailyDragonTiger, listHotFocus, resolveASymbol } from '../stock/stock-client.js';
 import type { AgentTool } from './types.js';
 
 function asRecord(input: unknown): Record<string, unknown> {
@@ -93,6 +93,13 @@ export const getStockNewsAnnouncements: AgentTool<{ symbol: string; limit?: numb
     const record = asRecord(input);
     return listStockNewsAnnouncements(text(record, 'symbol'), num(record, 'limit', 10));
   },
+};
+
+export const getStockFundFlowSnapshot: AgentTool<{ symbol: string }, Awaited<ReturnType<typeof fetchStockFundFlowSnapshot>>> = {
+  name: 'getStockFundFlowSnapshot',
+  description: 'Fetch individual A-share fund flow snapshot from stock-sdk.',
+  inputSchema: { type: 'object', properties: { symbol: { type: 'string' } }, required: ['symbol'] },
+  run: (input) => fetchStockFundFlowSnapshot(text(asRecord(input), 'symbol')),
 };
 
 export const getStockChipDistribution: AgentTool<{ symbol: string }, Awaited<ReturnType<typeof getChipDistribution>>> = {

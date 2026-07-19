@@ -1,5 +1,5 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
-import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab, MarketIndexPeriod, MarketTab } from '../src/shared/types.js';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab, IAppUpdateSettings, MarketIndexPeriod, MarketTab } from '../src/shared/types.js';
 import {
   getConfig,
   listFavoriteStocks,
@@ -18,7 +18,7 @@ import {
   saveMessage,
   saveUserMessage,
 } from './services/conversation-store.js';
-import { getMarketDataStats, getMarketDataSyncStatus, onMarketDataProgress, retryMarketDataFailures, startMarketDataSync } from './services/market-data/market-data-sync.js';
+import { getMarketDataStats, getMarketDataSyncStatus, onMarketDataProgress, requestMarketDataSyncStop, retryMarketDataFailures, startMarketDataSync } from './services/market-data/market-data-sync.js';
 import { runOrchestrator } from './services/agent/orchestrator.js';
 import { getBoardDetail, getKline, getMarketPageSnapshot, getStockDetail, listHotFocus, onMarketPageSnapshotUpdated, searchStocks } from './services/stock/stock-client.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
@@ -94,6 +94,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('marketData:getStatus', () => getMarketDataSyncStatus());
   ipcMain.handle('marketData:startSync', () => startMarketDataSync(true));
   ipcMain.handle('marketData:retryFailures', () => retryMarketDataFailures());
+  ipcMain.handle('marketData:cancelSync', () => requestMarketDataSyncStop());
   ipcMain.handle('marketData:getStats', () => getMarketDataStats());
   const removeMarketDataListener = onMarketDataProgress((status) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('marketData:progress', status);
@@ -105,10 +106,14 @@ export function registerIpcHandlers() {
   ipcMain.handle('store:install', (_event, id: string) => installStoreItem(id));
   ipcMain.handle('store:uninstall', (_event, id: string) => uninstallStoreItem(id));
   ipcMain.handle('appUpdate:getState', () => getAppUpdateState());
-  ipcMain.handle('appUpdate:check', () => checkAppUpdate());
-  ipcMain.handle('appUpdate:download', () => downloadAppUpdate());
+  ipcMain.handle('appUpdate:check', (_event, settings?: IAppUpdateSettings) => checkAppUpdate({ settings }));
+  ipcMain.handle('appUpdate:download', (_event, settings?: IAppUpdateSettings) => downloadAppUpdate(settings));
   ipcMain.handle('appUpdate:install', () => installAppUpdate());
   ipcMain.handle('appUpdate:openReleaseNotes', () => openAppReleaseNotes());
+  ipcMain.handle('appUpdate:selectDownloadDirectory', async () => {
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
+    return result.canceled ? undefined : result.filePaths[0];
+  });
   const removeAppUpdateListener = onAppUpdateStateChanged((state) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('appUpdate:stateChanged', state);
   });
