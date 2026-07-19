@@ -74,8 +74,19 @@ Options:
 `);
 }
 
+function latestTag() {
+  const tags = run('git', ['tag', '--list', 'v*', '--sort=-version:refname'])
+    .split('\n')
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return tags[0] || '';
+}
+
 function gitLogRange(options) {
-  if (!options.from) return options.to;
+  if (!options.from) {
+    const tag = latestTag();
+    return tag ? `${tag}..${options.to}` : options.to;
+  }
   return `${options.from}..${options.to}`;
 }
 
@@ -112,7 +123,7 @@ function renderSection(title, commits, repo) {
 
 function generateNotes(options) {
   const range = gitLogRange(options);
-  const raw = run('git', ['log', '--pretty=format:%H%x09%s', range]);
+  const raw = run('git', ['log', '--pretty=format:%H%x09%s', '--no-merges', '--reverse', range]);
   const commits = raw
     .split('\n')
     .map((line) => line.trim())
