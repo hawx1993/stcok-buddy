@@ -382,7 +382,7 @@ function toDbValues(item: DailyBarRecord): Record<string, DuckDBValue> {
 
 function toDailyBarRecord(row: Record<string, unknown>): DailyBarRecord {
   return {
-    symbol: String(row.symbol), tradeDate: String(row.trade_date), open: Number(row.open), high: Number(row.high),
+    symbol: String(row.symbol), tradeDate: toDateString(row.trade_date), open: Number(row.open), high: Number(row.high),
     low: Number(row.low), close: Number(row.close), volume: Number(row.volume),
     amount: optionalNumber(row.amount), change: optionalNumber(row.change), changePercent: optionalNumber(row.change_percent),
     turnoverRate: optionalNumber(row.turnover_rate), adjustType: row.adjust_type as AdjustType,
@@ -412,5 +412,11 @@ function toSyncJob(row: Record<string, unknown>): SyncJobRecord {
   };
 }
 
+function toDateString(value: unknown) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const text = String(value ?? '');
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match?.[1] ?? text;
+}
 function optionalNumber(value: unknown) { return value === null || value === undefined ? undefined : Number(value); }
 function optionalString(value: unknown) { return value === null || value === undefined || value === '' ? undefined : String(value); }

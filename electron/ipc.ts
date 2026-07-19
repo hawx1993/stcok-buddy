@@ -78,7 +78,7 @@ export function registerIpcHandlers() {
     return result;
   });
   ipcMain.handle('board:getDetail', (_event, symbol: string, forceRefresh?: boolean, boardName?: string) => getBoardDetail(symbol, forceRefresh, boardName));
-  ipcMain.handle('stock:getKline', (_event, symbol: string, limit?: number, period?: string) => getKline(symbol, limit, period));
+  ipcMain.handle('stock:getKline', (_event, symbol: string, limit?: number, period?: string, beforeTimestamp?: number) => getKline(symbol, limit, period, beforeTimestamp));
   ipcMain.handle('market:getPageSnapshot', (_event, tab: MarketTab, period?: MarketIndexPeriod) => getMarketPageSnapshot(tab, period));
   const removeMarketPageListener = onMarketPageSnapshotUpdated((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('market:pageSnapshotUpdated', snapshot);

@@ -30,6 +30,7 @@ const BOARD_SCAN_CONCURRENCY = 32;
 const BOARD_SCAN_BUDGET_MS = 5_500;
 
 type AnyRecord = Record<string, unknown>;
+type StockRating = NonNullable<StockDetail['rating']>;
 
 function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
   const record = (raw ?? {}) as AnyRecord;
@@ -66,14 +67,74 @@ function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
     volume: volume === undefined ? '--' : `${(volume / 10000).toFixed(1)}万手`,
     turnover: turnover === undefined ? '--' : `${(turnover / 100000000).toFixed(2)}亿`,
     turnoverRate: turnoverRate === undefined ? '--' : `${formatNumber(turnoverRate)}%`,
-    rating: {
-      fundamental: '待评估',
-      valuation: pe && pe < 25 ? '相对合理' : '需核查',
-      tech: '待分析',
-      risk: '中性',
-    },
+    rating: deriveStockRating({ pe, pb, changePercent, turnoverRate }),
     summary: `${name}（${code}）实时行情来自 stock-sdk。当前价格 ${price === undefined ? '--' : price}，涨跌幅 ${changePercent === undefined ? '--' : formatPercent(changePercent)}。`,
   };
+}
+
+function deriveStockRating(input: {
+  quote?: StockDetail;
+  technical?: AgentResultCard;
+  previous?: StockRating;
+  pe?: number;
+  pb?: number;
+  changePercent?: number;
+  turnoverRate?: number;
+}): StockRating {
+  const pe = input.pe ?? numericValue(input.quote?.pe);
+  const pb = input.pb ?? numericValue(input.quote?.pb);
+  const changePercent = input.changePercent ?? numericValue(input.quote?.changePercent);
+  const turnoverRate = input.turnoverRate ?? numericValue(input.quote?.turnoverRate);
+  return {
+    fundamental: pe !== undefined || pb !== undefined ? rateFundamental(pe, pb) : keepResolvedRating(input.previous?.fundamental) ?? '数据有限',
+    valuation: pe !== undefined || pb !== undefined ? rateValuation(pe, pb) : keepResolvedRating(input.previous?.valuation) ?? '数据有限',
+    tech: rateTechnical(input.technical, changePercent),
+    risk: rateRisk(pe, changePercent, turnoverRate),
+  };
+}
+
+function keepResolvedRating(value: string | undefined) {
+  return value && !['待评估', '需核查', '待分析'].includes(value) ? value : undefined;
+}
+
+function rateFundamental(pe?: number, pb?: number) {
+  if (pe !== undefined && pe < 0) return '盈利承压';
+  if (pe !== undefined && pe <= 25 && (pb === undefined || pb <= 4)) return '盈利稳健';
+  if (pe !== undefined && pe <= 60) return '盈利正常';
+  if (pb !== undefined && pb > 8) return '资产溢价高';
+  return '数据有限';
+}
+
+function rateValuation(pe?: number, pb?: number) {
+  if (pe !== undefined && pe < 0) return '亏损估值';
+  if (pe !== undefined && pe <= 20 && (pb === undefined || pb <= 3)) return '相对合理';
+  if (pe !== undefined && pe <= 45 && (pb === undefined || pb <= 6)) return '估值适中';
+  if ((pe !== undefined && pe > 60) || (pb !== undefined && pb > 8)) return '估值偏高';
+  return '数据有限';
+}
+
+function rateTechnical(technical?: AgentResultCard, changePercent?: number) {
+  const text = `${technical?.subtitle ?? ''} ${technical?.narrative ?? ''}`;
+  if (/金叉|站上|上方/.test(text)) return '偏多';
+  if (/死叉|低于|下方/.test(text)) return '偏弱';
+  if (changePercent !== undefined && changePercent >= 5) return '强势';
+  if (changePercent !== undefined && changePercent <= -5) return '承压';
+  return '中性';
+}
+
+function rateRisk(pe?: number, changePercent?: number, turnoverRate?: number) {
+  if ((changePercent !== undefined && Math.abs(changePercent) >= 9) || (turnoverRate !== undefined && turnoverRate >= 20)) return '高波动';
+  if (turnoverRate !== undefined && turnoverRate >= 10) return '波动偏高';
+  if (pe !== undefined && pe < 0) return '盈利风险';
+  return '中性';
+}
+
+function numericValue(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return undefined;
+  const match = value.replaceAll(',', '').match(/[-+]?\d+(?:\.\d+)?/);
+  const parsed = match ? Number(match[0]) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 export async function resolveASymbol(input: string): Promise<string> {
@@ -87,10 +148,10 @@ export async function getQuote(symbolInput: string): Promise<StockDetail> {
   return (await queryLatestQuote(symbolInput)).data;
 }
 
-export async function getKline(symbolInput: string, limit = 120, period = '1d'): Promise<KlinePoint[]> {
+export async function getKline(symbolInput: string, limit = 120, period = '1d', beforeTimestamp?: number): Promise<KlinePoint[]> {
   const indexCode = normalizeIndexSymbol(symbolInput);
   if (indexCode) {
-    const snapshot = isIndexKlinePeriod(period) ? await fetchMarketIndex(indexCode, period, limit) : undefined;
+    const snapshot = isIndexKlinePeriod(period) ? await fetchMarketIndex(indexCode, period, limit, beforeTimestamp) : undefined;
     return (snapshot?.minutes ?? []).slice(-limit);
   }
 
@@ -418,27 +479,12 @@ export async function getStockDetail(symbolInput: string): Promise<StockDetail> 
   const local = await getLocalStockDetail(symbolInput).catch(() => undefined);
   if (local) {
     void refreshQuoteCache();
-    return local;
+    if (!hasLimitedRating(local.rating)) return local;
+    const enriched = await getRemoteStockDetail(symbolInput).catch(() => undefined);
+    return enriched ? { ...enriched, kline: local.kline?.length ? local.kline : enriched.kline } : local;
   }
 
-  try {
-    const quote = await getQuote(symbolInput);
-    try {
-      const technical = await analyzeTechnical(symbolInput);
-      return {
-        ...quote,
-        rating: {
-          fundamental: quote.rating?.fundamental ?? '待评估',
-          valuation: quote.rating?.valuation ?? '需核查',
-          risk: quote.rating?.risk ?? '中性',
-          tech: technical.subtitle?.includes('金叉') || technical.subtitle?.includes('站上') ? '偏多' : '中性',
-        },
-        summary: `${quote.summary ?? ''} ${technical.narrative ?? ''}`.trim(),
-      };
-    } catch {
-      return quote;
-    }
-  } catch (error) {
+  const remote = await getRemoteStockDetail(symbolInput).catch((error: unknown) => {
     const code = normalizeASymbol(symbolInput);
     return {
       code,
@@ -447,8 +493,31 @@ export async function getStockDetail(symbolInput: string): Promise<StockDetail> 
       price: '--',
       changePercent: '--',
       summary: `暂时无法从 stock-sdk 获取 ${code} 的实时详情：${error instanceof Error ? error.message : '未知错误'}`,
+    } satisfies StockDetail;
+  });
+  return remote;
+}
+
+async function getRemoteStockDetail(symbolInput: string): Promise<StockDetail> {
+  const quote = await getQuote(symbolInput);
+  try {
+    const technical = await analyzeTechnical(symbolInput);
+    return {
+      ...quote,
+      rating: deriveStockRating({
+        quote,
+        technical,
+        previous: quote.rating,
+      }),
+      summary: `${quote.summary ?? ''} ${technical.narrative ?? ''}`.trim(),
     };
+  } catch {
+    return quote;
   }
+}
+
+function hasLimitedRating(rating: StockDetail['rating']) {
+  return rating?.fundamental === '数据有限' || rating?.valuation === '数据有限';
 }
 
 async function getLocalStockDetail(symbolInput: string): Promise<StockDetail | undefined> {
@@ -472,7 +541,10 @@ async function getLocalStockDetail(symbolInput: string): Promise<StockDetail | u
     volume: latest?.volume === undefined ? '--' : `${(latest.volume / 10000).toFixed(1)}万手`,
     turnover: latest?.amount === undefined ? '--' : formatMoney(latest.amount),
     turnoverRate: latest?.turnoverRate === undefined ? '--' : `${formatNumber(latest.turnoverRate)}%`,
-    rating: { fundamental: '待评估', valuation: '需核查', tech: '待分析', risk: '中性' },
+    rating: deriveStockRating({
+      changePercent: latest?.changePercent,
+      turnoverRate: latest?.turnoverRate,
+    }),
     summary: latest ? `${code} 本地历史行情，最近交易日 ${latest.tradeDate}。` : undefined,
   } satisfies StockDetail;
 
@@ -1643,9 +1715,9 @@ function mergeKlineRows(current: KlinePoint[], incoming: KlinePoint[]) {
   return [...byTime.values()].sort((a, b) => (a.timestamp ?? parseMarketTime(a.time) ?? 0) - (b.timestamp ?? parseMarketTime(b.time) ?? 0));
 }
 
-async function fetchMarketIndex(code: string, period: IndexKlinePeriod, limit?: number): Promise<MarketIndexSnapshot | undefined> {
+async function fetchMarketIndex(code: string, period: IndexKlinePeriod, limit?: number, beforeTimestamp?: number): Promise<MarketIndexSnapshot | undefined> {
   try {
-    const [quote, series] = await Promise.all([fetchIndexQuote(code), fetchIndexSeries(code, period, limit)]);
+    const [quote, series] = await Promise.all([fetchIndexQuote(code), fetchIndexSeries(code, period, limit, beforeTimestamp)]);
     return quote ? { ...quote, minutes: patchLatestIndexBar(series, quote) } : undefined;
   } catch {
     return undefined;
@@ -1660,21 +1732,38 @@ async function fetchIndexQuote(code: string): Promise<Omit<MarketIndexSnapshot, 
   return toMarketIndexSnapshot(code, payload.data?.[code]);
 }
 
-async function fetchIndexSeries(code: string, period: IndexKlinePeriod, limit?: number) {
+async function fetchIndexSeries(code: string, period: IndexKlinePeriod, limit?: number, beforeTimestamp?: number) {
   if (period === '1d' || period === '1w' || period === '1mo') return fetchIndexHistorySeries(code, period, limit ?? (period === '1d' ? 120 : period === '1w' ? 240 : 120));
   const k = period === '15m' ? '15' : '60';
   const count = limit ?? (period === '4h' ? 80 : 60);
-  const rows = await fetchIndexMinuteSeries(code, k, period === '4h' ? count * 4 : count);
+  const rows = await fetchIndexMinuteSeries(code, k, period === '4h' ? count * 4 : count, beforeTimestamp);
   return period === '4h' ? aggregateIndexSeries(rows, 4).slice(-count) : rows;
 }
 
-async function fetchIndexMinuteSeries(code: string, k: '15' | '60', limit: number) {
+async function fetchIndexMinuteSeries(code: string, k: '15' | '60', limit: number, beforeTimestamp?: number) {
+  const before = beforeTimestamp ? formatTencentMinuteTimestamp(beforeTimestamp) : '';
   const url = new URL('https://ifzq.gtimg.cn/appstock/app/kline/mkline');
-  url.search = new URLSearchParams({ param: `${code},m${k},,${limit}` }).toString();
+  url.search = new URLSearchParams({ param: `${code},m${k},${before},${limit}` }).toString();
   const response = await fetch(url, { signal: AbortSignal.timeout(4_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://gu.qq.com/' } });
   if (!response.ok) return [];
   const payload = await response.json() as { data?: Record<string, Record<string, unknown[]>> };
   return ((payload.data?.[code]?.[`m${k}`] ?? []) as unknown[]).map(parseIndexKlinePoint).filter((item): item is NonNullable<ReturnType<typeof parseIndexKlinePoint>> => Boolean(item));
+}
+
+function formatTencentMinuteTimestamp(timestamp: number) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const pick = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${pick('year')}${pick('month')}${pick('day')}${pick('hour')}${pick('minute')}`;
 }
 
 function aggregateIndexSeries(data: KlinePoint[], size: number) {

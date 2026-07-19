@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { dispose, init } from 'klinecharts';
-import type { Chart, Crosshair, KLineData, Period } from 'klinecharts';
+import type { Chart, Crosshair, KLineData, Period, VisibleRange } from 'klinecharts';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { useAppStore } from '../../store/app-store';
 import type { ChipDistribution, KlinePoint, StockDetail } from '../../shared/types';
@@ -68,8 +69,14 @@ export function StockKlineChart({
   const [localTf, setLocalTf] = useState<TimeframeId>('1d');
   const requestedTf = timeframe ?? localTf;
   const tf = requestedTf;
-  const usesProvidedData = data.length > 0 && (staticData || tf === '1d');
-  const [loadedData, setLoadedData] = useState<KlinePoint[]>(usesProvidedData ? data : []);
+  const usesProvidedData = data.length > 0 && staticData;
+  const [loadedData, setLoadedData] = useState<KlinePoint[]>(() => {
+    if (usesProvidedData || (data.length > 0 && !staticData)) {
+      loadedLimitRef.current = data.length;
+      return data;
+    }
+    return [];
+  });
   const [hoverIndex, setHoverIndex] = useState<number | undefined>();
   const [hoverPoint, setHoverPoint] = useState<KlinePoint | undefined>();
   const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('right');
@@ -92,6 +99,16 @@ export function StockKlineChart({
   useEffect(() => {
     if (!stock?.code || usesProvidedData) return;
     let alive = true;
+    // For daily timeframe use provided data as seed, allow loadOlderData to fetch more on drag-left.
+    // For other timeframes always fetch via API since the data prop is daily-only.
+    if (data.length > 0 && !staticData && tf === '1d') {
+      setLoadedData(data);
+      loadedLimitRef.current = data.length;
+      appendingOlderRef.current = false;
+      setHoverIndex(undefined);
+      setHoverPoint(undefined);
+      return;
+    }
     setLoadedData([]);
     appendingOlderRef.current = false;
     loadedLimitRef.current = 0;
@@ -108,17 +125,21 @@ export function StockKlineChart({
         }
       })
       .catch(() => {
-        if (alive) setLoadedData([]);
+        if (alive) {
+          setLoadedData([]);
+          loadedLimitRef.current = 0;
+        }
       });
     return () => {
       alive = false;
     };
-  }, [usesProvidedData, stock?.code, frame.limit, tf]);
+  }, [usesProvidedData, stock?.code, frame.limit, tf, data.length, staticData]);
 
-  const loadOlderData = useCallback(async () => {
-    if (!stock?.code || usesProvidedData || loadingMoreRef.current || loadedLimitRef.current >= KLINE_MAX_LIMIT)
+  const loadOlderData = useCallback(async (options: { appendViaLoader?: boolean; anchorTimestamp?: number } = {}) => {
+    if (!stock?.code || staticData || loadingMoreRef.current || loadedLimitRef.current >= KLINE_MAX_LIMIT || !chartDataRef.current.length)
       return [];
     const firstTimestamp =
+      options.anchorTimestamp ??
       chartDataRef.current[0]?.timestamp ??
       (chartDataRef.current[0]
         ? parseKlineTimestamp(chartDataRef.current[0].time, 0, chartDataRef.current.length, frame.period)
@@ -129,7 +150,7 @@ export function StockKlineChart({
       Math.max(loadedLimitRef.current + KLINE_LOAD_STEP, frame.limit + KLINE_LOAD_STEP),
     );
     try {
-      const next = await getStocksenseApi().getKline(toKlineRequestSymbol(stock), nextLimit, tf);
+      const next = await getStocksenseApi().getKline(toKlineRequestSymbol(stock), nextLimit, tf, firstTimestamp);
       const older =
         firstTimestamp === undefined
           ? next
@@ -138,7 +159,7 @@ export function StockKlineChart({
                 (point.timestamp ?? parseKlineTimestamp(point.time, index, next.length, frame.period)) < firstTimestamp,
             );
       if (older.length) {
-        appendingOlderRef.current = true;
+        appendingOlderRef.current = options.appendViaLoader === true;
         loadedLimitRef.current = nextLimit;
         setLoadedData(next);
       }
@@ -146,7 +167,16 @@ export function StockKlineChart({
     } finally {
       loadingMoreRef.current = false;
     }
-  }, [frame.limit, frame.period, stock, tf, usesProvidedData]);
+  }, [frame.limit, frame.period, stock, tf, staticData]);
+  const loadOlderDataRef = useRef(loadOlderData);
+
+  const requestOlderData = useCallback((appendViaLoader: boolean, anchorTimestamp?: number) => {
+    void loadOlderDataRef.current({ appendViaLoader, anchorTimestamp });
+  }, []);
+
+  useEffect(() => {
+    loadOlderDataRef.current = loadOlderData;
+  }, [loadOlderData]);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -178,12 +208,16 @@ export function StockKlineChart({
     if (!chart) return;
     chartRef.current = chart;
     const updateHoverIndex = (nextIndex: number | undefined) => {
-      if (nextIndex !== undefined && nextIndex < 12) void loadOlderData();
+      if (nextIndex !== undefined && nextIndex < 12) requestOlderData(false, getFirstKlineTimestamp(frame.period, chartDataRef.current));
       setHoverIndex(nextIndex);
       setHoverPoint(nextIndex === undefined ? undefined : chartDataRef.current[nextIndex]);
     };
     const onCrosshairChange = (value?: unknown) => {
       updateHoverIndex(resolveCrosshairIndex(value as Crosshair | undefined, chartDataRef.current));
+    };
+    const onVisibleRangeChange = (value?: unknown) => {
+      const range = value as VisibleRange | undefined;
+      if (range && range.realFrom <= 2) requestOlderData(false, getFirstKlineTimestamp(frame.period, chartDataRef.current));
     };
     const onMouseMove = (event: MouseEvent) => {
       const rect = hostRef.current?.getBoundingClientRect();
@@ -194,17 +228,19 @@ export function StockKlineChart({
     hostRef.current.addEventListener('mousemove', onMouseMove);
     hostRef.current.addEventListener('mouseleave', onMouseLeave);
     chart.subscribeAction('onCrosshairChange', onCrosshairChange);
+    chart.subscribeAction('onVisibleRangeChange', onVisibleRangeChange);
     const resizeObserver = new ResizeObserver(() => chart.resize());
     resizeObserver.observe(hostRef.current);
     return () => {
       resizeObserver.disconnect();
       chart.unsubscribeAction('onCrosshairChange', onCrosshairChange);
+      chart.unsubscribeAction('onVisibleRangeChange', onVisibleRangeChange);
       hostRef.current?.removeEventListener('mousemove', onMouseMove);
       hostRef.current?.removeEventListener('mouseleave', onMouseLeave);
       dispose(chart);
       chartRef.current = null;
     };
-  }, [showLegend]);
+  }, [requestOlderData, showLegend, frame.period]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -228,16 +264,16 @@ export function StockKlineChart({
     });
     chart.setPeriod(frame.period as Period);
     chart.setDataLoader({
-      getBars: async ({ type, callback }) => {
+      getBars: async ({ type, timestamp, callback }) => {
         if (type === 'forward') {
-          const older = await loadOlderData();
+          const older = await loadOlderData({ appendViaLoader: true, anchorTimestamp: timestamp ?? undefined });
           callback(
             older.map((point, index) => toKLineData(point, index, older.length, frame.period)),
             { forward: older.length > 0, backward: false },
           );
           return;
         }
-        callback(klineData, { forward: !staticData && loadedLimitRef.current < KLINE_MAX_LIMIT, backward: false });
+        callback(klineData, { forward: klineData.length > 0 && !staticData && loadedLimitRef.current < KLINE_MAX_LIMIT, backward: false });
       },
     });
     chart.resetData();
@@ -248,7 +284,7 @@ export function StockKlineChart({
       chart.createIndicator('MACD', { pane: { height: 96 } });
     }
     chart.resize();
-  }, [frame.period, klineData, showIndicators, stock?.code, stock?.name]);
+  }, [frame.period, klineData, loadOlderData, showIndicators, staticData, stock?.code, stock?.name]);
 
   const setTimeframe = (next: TimeframeId) => {
     setLocalTf(next);
@@ -297,7 +333,7 @@ export function KlineModal({
   onClose(): void;
   chipsOpen?: boolean;
 }) {
-  return (
+  const modal = (
     <KlineModalFrame stock={stock} data={data} onClose={onClose} chipsOpen={chipsOpen} renderChart={(tf, setTf) => (
       <StockKlineChart
         stock={stock}
@@ -312,6 +348,12 @@ export function KlineModal({
       />
     )} />
   );
+  return createPortal(modal, document.body);
+}
+
+function getFirstKlineTimestamp(period: Period, data: KlinePoint[]) {
+  const first = data[0];
+  return first ? first.timestamp ?? parseKlineTimestamp(first.time, 0, data.length, period) : undefined;
 }
 
 function toKlineRequestSymbol(stock: KlineStock) {
