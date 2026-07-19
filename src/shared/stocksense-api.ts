@@ -223,7 +223,7 @@ const webFallbackApi: StocksenseApi = {
   async getBoardDetail(symbol: string, _forceRefresh?: boolean, _boardName?: string): Promise<BoardDetail> {
     return { code: symbol, name: symbol, kline: [], constituents: [] };
   },
-  async getKline(_symbol: string, _limit = 120, _period = '1d') {
+  async getKline(_symbol: string, _limit = 120, _period = '1d', _beforeTimestamp?: number) {
     return [];
   },
   async listMarketNews(_query = '', page = 1, pageSize = 30) {

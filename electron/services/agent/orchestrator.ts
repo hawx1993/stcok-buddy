@@ -143,7 +143,7 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
   const review = reviewComplianceStructured({ text: draft, evidence: context.evidence, findings: context.findings });
   context.compliance = review;
   const content = review.revisedText;
-  const result = context.board ?? (context.technical && context.quote ? { ...context.technical, stocks: [context.quote] } : context.technical) ?? quoteToCard(context.quote);
+  const result = context.board ?? enrichTechnicalCard(context.technical, context.quote) ?? quoteToCard(context.quote);
 
   emitEvent({
     type: 'summary_completed',
@@ -528,6 +528,11 @@ function extractBoardKeyword(query: string) {
   if (query.includes('北向')) return '北向资金';
   if (query.includes('资金')) return '资金流';
   return '热点';
+}
+
+function enrichTechnicalCard(card?: AgentResultCard, quote?: StockDetail): AgentResultCard | undefined {
+  if (!card) return undefined;
+  return quote ? { ...card, stocks: [quote] } : card;
 }
 
 function quoteToCard(quote?: StockDetail): AgentResultCard | undefined {

@@ -23,6 +23,7 @@ const bar = {
 };
 await store.upsertDailyBars([bar, bar]);
 assert.equal((await store.listDailyBars('600519', { adjustType: 'qfq' })).length, 1);
+assert.equal((await store.listDailyBars('600519', { adjustType: 'qfq' }))[0].tradeDate, '2026-07-09');
 
 await store.upsertDailyBars([{ ...bar, adjustType: 'none', close: 1505 }]);
 assert.equal((await store.listDailyBars('600519', { adjustType: 'none' }))[0].close, 1505);
