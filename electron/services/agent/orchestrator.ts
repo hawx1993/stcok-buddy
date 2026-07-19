@@ -1,4 +1,4 @@
-import type { AgentResultCard, AgentRunEvent, AnnouncementItem, ChatRequest, ChatResponse, ComplianceReview, EvidenceItem, HotFocusItem, KlinePoint, MarketNewsItem, StockDetail, StructuredAgentFinding, ToolCallRecord } from '../../../src/shared/types.js';
+import type { AgentResultCard, AgentRunEvent, AnnouncementItem, ChatRequest, ChatResponse, ComplianceReview, EvidenceItem, HotFocusItem, IStockFundFlowSnapshot, KlinePoint, MarketNewsItem, StockDetail, StructuredAgentFinding, ToolCallRecord } from '../../../src/shared/types.js';
 import { type DailyDragonTigerItem } from '../stock/stock-client.js';
 import { executeDag, type DagNode } from './dag-executor.js';
 import { fetchBoard } from './data-agent.js';
@@ -10,7 +10,7 @@ import { runStockAnalysisSubAgent, stockAnalysisAgentNames, type StockAnalysisAg
 import { runStoreCommand } from '../store-service.js';
 import { callTool } from '../tools/tool-registry.js';
 import type { HistoricalBarsResult } from '../market-data/types.js';
-import { evidenceFromAnnouncements, evidenceFromChip, evidenceFromDragonTiger, evidenceFromHistoricalBars, evidenceFromHotFocus, evidenceFromNews, evidenceFromQuote, evidenceFromTechnical } from './evidence.js';
+import { evidenceFromAnnouncements, evidenceFromChip, evidenceFromDragonTiger, evidenceFromFundFlow, evidenceFromHistoricalBars, evidenceFromHotFocus, evidenceFromNews, evidenceFromQuote, evidenceFromTechnical } from './evidence.js';
 
 type Intent = 'quote' | 'technical' | 'analysis' | 'news-announcements' | 'theme-attribution' | 'daily-lhb' | 'board' | 'portfolio' | 'chat';
 
@@ -41,6 +41,7 @@ interface AgentContext {
   announcements?: AnnouncementItem[];
   hotFocus?: HotFocusItem[];
   chip?: unknown;
+  fundFlow?: IStockFundFlowSnapshot;
   largeOrders?: HotFocusItem[];
   dailyDragonTiger?: DailyDragonTigerItem[];
   linkedPages?: Array<{ url: string; title?: string; content: string }>;
@@ -344,20 +345,22 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
         description: `拉取 ${context.symbol} K线、指标与新闻样本`,
         dependsOn: ['quote'],
         run: async (ctx) => {
-          const [historical, technical, news, largeOrders, chip] = await Promise.all([
+          const [historical, technical, news, largeOrders, chip, fundFlow] = await Promise.all([
             runContextTool<HistoricalBarsResult>(ctx, 'getHistoricalDailyBars', { symbol: ctx.symbol!, limit: 120, adjustType: 'qfq' }, () => ({ data: [], meta: { source: 'fallback', storage: 'local', freshness: 'fallback', isComplete: false, warnings: ['历史日线获取失败'], adjustType: 'qfq' } })),
             runContextTool<AgentResultCard | undefined>(ctx, 'getTechnicalIndicators', { symbol: ctx.symbol! }, () => undefined),
             runContextTool<MarketNewsItem[]>(ctx, 'getMarketNews', { query: ctx.quote?.name ?? ctx.symbol, page: 1, pageSize: 10 }, () => []),
             needsLargeOrders ? runContextTool<HotFocusItem[]>(ctx, 'getHotFocus', { tab: 'surge' }, () => []) : Promise.resolve([]),
             needsChip ? runContextTool<unknown>(ctx, 'getStockChipDistribution', { symbol: ctx.symbol! }, () => undefined) : Promise.resolve(undefined),
+            needsLargeOrders ? runContextTool<IStockFundFlowSnapshot | undefined>(ctx, 'getStockFundFlowSnapshot', { symbol: ctx.symbol! }, () => undefined) : Promise.resolve(undefined),
           ]);
           const kline = historical.data;
           ctx.kline = kline;
           ctx.technical = technical?.chart ? technical : technical ? { ...technical, chart: { type: 'kline', data: kline } } : undefined;
           ctx.news = news;
           ctx.chip = chip;
+          ctx.fundFlow = fundFlow;
           ctx.largeOrders = filterLargeOrders(largeOrders, ctx.symbol!);
-          ctx.evidence.push(...evidenceFromHistoricalBars(ctx.symbol!, historical), ...evidenceFromTechnical(ctx.symbol!, ctx.technical), ...evidenceFromNews(news), ...evidenceFromHotFocus(ctx.largeOrders));
+          ctx.evidence.push(...evidenceFromHistoricalBars(ctx.symbol!, historical), ...evidenceFromTechnical(ctx.symbol!, ctx.technical), ...evidenceFromNews(news), ...evidenceFromHotFocus(ctx.largeOrders), ...evidenceFromFundFlow(ctx.symbol!, fundFlow));
           if (needsChip) ctx.evidence.push(...evidenceFromChip(ctx.symbol!, ctx.chip));
         },
       },
@@ -463,6 +466,7 @@ function stockAnalysisInput(ctx: AgentContext) {
     kline: ctx.kline,
     news: ctx.news,
     chip: ctx.chip,
+    fundFlow: ctx.fundFlow,
     largeOrders: ctx.largeOrders,
     evidence: dedupeEvidence(ctx.evidence),
   };

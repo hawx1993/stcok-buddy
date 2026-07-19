@@ -1,4 +1,4 @@
-import type { AgentResultCard, AnnouncementItem, EvidenceItem, HotFocusItem, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
+import type { AgentResultCard, AnnouncementItem, EvidenceItem, HotFocusItem, IStockFundFlowSnapshot, KlinePoint, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
 import type { HistoricalBarsResult } from '../market-data/types.js';
 import type { DailyDragonTigerItem } from '../stock/stock-client.js';
 
@@ -114,6 +114,38 @@ export function evidenceFromChip(symbol: string, chip?: unknown): EvidenceItem[]
     summary: `平均成本 ${latest.avgCost ?? '--'}，获利盘 ${latest.profitRatio === undefined ? '--' : `${(latest.profitRatio * 100).toFixed(1)}%`}，70%成本区间 ${latest.cost70 ?? '--'}，90%成本区间 ${latest.cost90 ?? '--'}。`,
     raw: chip,
   }];
+}
+
+export function evidenceFromFundFlow(symbol: string, fundFlow?: IStockFundFlowSnapshot): EvidenceItem[] {
+  if (!fundFlow) return [fallbackEvidence(`fund-flow:${symbol}`, '资金流数据不足')];
+  const activeText = fundFlow.activeSampleCount
+    ? `主动买 ${formatRatio(fundFlow.activeBuyRatio)}，主动卖 ${formatRatio(fundFlow.activeSellRatio)}（${fundFlow.activeRatioSource ?? '盘口异动样本'}）`
+    : '主动买卖比例暂无可用样本';
+  return [{
+    id: `fund-flow:${symbol}:${fundFlow.date}`,
+    source: 'fund-flow',
+    title: `${symbol} 个股资金流向`,
+    summary: `主力合计 ${formatMoney(fundFlow.mainNetInflow)}，超大单 ${formatMoney(fundFlow.superLargeNetInflow)}，大单 ${formatMoney(fundFlow.largeNetInflow)}，中单 ${formatMoney(fundFlow.mediumNetInflow)}，小单 ${formatMoney(fundFlow.smallNetInflow)}；${activeText}。`,
+    value: fundFlow.mainNetInflow ?? undefined,
+    timestamp: fundFlow.date,
+    dataSource: fundFlow.source,
+    raw: fundFlow,
+  }];
+}
+
+function formatMoney(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  const sign = num > 0 ? '+' : num < 0 ? '-' : '';
+  const abs = Math.abs(num);
+  if (abs >= 100000000) return `${sign}${(abs / 100000000).toFixed(2)}亿`;
+  if (abs >= 10000) return `${sign}${(abs / 10000).toFixed(2)}万`;
+  return `${sign}${abs.toFixed(0)}`;
+}
+
+function formatRatio(value: unknown) {
+  const num = Number(value);
+  return Number.isFinite(num) ? `${num.toFixed(1)}%` : '--';
 }
 
 export function evidenceFromHotFocus(items?: HotFocusItem[]): EvidenceItem[] {

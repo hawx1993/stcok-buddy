@@ -1,10 +1,12 @@
+import { Download, ExternalLink, FolderOpen, RefreshCw, RotateCw } from 'lucide-react';
 import { message as antdMessage } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AppConfig, HoldingPeriod, MarketColorMode, MarketDataStats, MarketDataSyncStatus, ProviderKind, RiskProfile, TradeStyle } from '../../shared/types';
+import type { AppConfig, HoldingPeriod, IAppUpdateSettings, IAppUpdateState, MarketColorMode, MarketDataStats, MarketDataSyncStatus, ProviderKind, RiskProfile, TAppUpdateChannel, TradeStyle } from '../../shared/types';
 import { getMarketColors, marketColorModes } from '../../shared/market-color';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { useAppStore } from '../../store/app-store';
 import styles from './index.module.scss';
+import { VersionUpdateStatusCard } from './components/version-update-status-card';
 
 type ProviderPreset = {
   id: ProviderKind;
@@ -58,9 +60,14 @@ export function SettingsModal() {
   const [marketStatus, setMarketStatus] = useState<MarketDataSyncStatus>();
   const [marketStats, setMarketStats] = useState<MarketDataStats>();
   const [marketActionPending, setMarketActionPending] = useState(false);
+  const [appUpdateState, setAppUpdateState] = useState<IAppUpdateState>();
+  const [appUpdateActionPending, setAppUpdateActionPending] = useState(false);
   const [saving, setSaving] = useState(false);
-  const syncStartedFromSettings = useRef(false);
+  const isOpenRef = useRef(isOpen);
 
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
   useEffect(() => setDraft(config), [config]);
   useEffect(() => {
     if (!isOpen) return;
@@ -80,13 +87,30 @@ export function SettingsModal() {
     return api.onMarketDataProgress?.((status) => {
       const nextStatus = normalizeMarketStatus(status);
       setMarketStatus(nextStatus);
-      if (syncStartedFromSettings.current && isMarketSyncTerminal(nextStatus.state)) {
-        syncStartedFromSettings.current = false;
+      if (isMarketSyncTerminal(nextStatus.state)) {
         setMarketActionPending(false);
         showMarketSyncResult(nextStatus);
       }
       void api.getMarketDataStats().then(setMarketStats);
     });
+  }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const api = getStocksenseApi();
+    let mounted = true;
+    void api.getAppUpdateState().then((state) => {
+      if (mounted) setAppUpdateState(state);
+    }).catch((error) => {
+      if (mounted) antdMessage.error(error instanceof Error ? error.message : '读取更新状态失败');
+    });
+    const unsubscribe = api.onAppUpdateStateChanged?.((state) => {
+      setAppUpdateState(state);
+      if (state.status === 'available' || state.status === 'downloaded' || state.status === 'not-available' || state.status === 'error') setAppUpdateActionPending(false);
+    });
+    return () => {
+      mounted = false;
+      unsubscribe?.();
+    };
   }, [isOpen]);
 
   const currentProvider = useMemo(
@@ -113,6 +137,9 @@ export function SettingsModal() {
   const selectTradeStyle = (tradeStyle: TradeStyle) => setDraft({ ...draft, tradeStyle });
   const selectRiskProfile = (riskProfile: RiskProfile) => setDraft({ ...draft, riskProfile });
   const selectMarketColorMode = (marketColorMode: MarketColorMode) => setDraft({ ...draft, marketColorMode });
+  const updateAppUpdateSettings = (patch: Partial<IAppUpdateSettings>) => {
+    setDraft({ ...draft, appUpdate: { ...getAppUpdateSettings(draft), ...patch } });
+  };
 
   const save = async () => {
     setSaving(true);
@@ -139,7 +166,6 @@ export function SettingsModal() {
   const runMarketAction = async (action: 'sync' | 'retry') => {
     const runningState = action === 'sync' ? 'checking' : 'syncing';
     setMarketActionPending(true);
-    syncStartedFromSettings.current = true;
     setMarketStatus({
       state: runningState,
       processedSymbols: marketStatus?.processedSymbols ?? 0,
@@ -152,25 +178,97 @@ export function SettingsModal() {
     try {
       const api = getStocksenseApi();
       const status = normalizeMarketStatus(action === 'sync' ? await api.startMarketDataSync() : await api.retryMarketDataFailures());
+      if (!isOpenRef.current) return;
       setMarketStatus(status);
       setMarketStats(await api.getMarketDataStats());
       showMarketSyncResult(status);
     } catch (error) {
-      syncStartedFromSettings.current = false;
-      antdMessage.error(error instanceof Error ? error.message : '同步启动失败，请稍后重试');
+      if (isOpenRef.current) antdMessage.error(error instanceof Error ? error.message : '同步启动失败，请稍后重试');
     } finally {
-      setMarketActionPending(false);
+      if (isOpenRef.current) setMarketActionPending(false);
     }
   };
 
-  const marketSyncRunning = marketActionPending || marketStatus?.state === 'checking' || marketStatus?.state === 'syncing' || marketStatus?.state === 'initializing';
+  const selectDownloadDirectory = async () => {
+    try {
+      const directory = await getStocksenseApi().selectAppUpdateDownloadDirectory();
+      if (directory) updateAppUpdateSettings({ downloadDirectory: directory });
+    } catch (error) {
+      antdMessage.error(error instanceof Error ? error.message : '选择下载目录失败');
+    }
+  };
+
+  const checkUpdate = async () => {
+    setAppUpdateActionPending(true);
+    setAppUpdateState({
+      status: 'checking',
+      currentVersion: appUpdateState?.currentVersion ?? '',
+      latestVersion: appUpdateState?.latestVersion,
+      message: '正在检查更新…',
+    });
+    try {
+      setAppUpdateState(await getStocksenseApi().checkAppUpdate(getAppUpdateSettings(draft)));
+    } catch (error) {
+      antdMessage.error(error instanceof Error ? error.message : '检查更新失败');
+    } finally {
+      setAppUpdateActionPending(false);
+    }
+  };
+
+  const runUpdateAction = async () => {
+    setAppUpdateActionPending(true);
+    try {
+      const api = getStocksenseApi();
+      if (appUpdateState?.status === 'downloaded') {
+        await api.installAppUpdate();
+        return;
+      }
+      setAppUpdateState(await api.downloadAppUpdate(getAppUpdateSettings(draft)));
+    } catch (error) {
+      antdMessage.error(error instanceof Error ? error.message : '更新操作失败');
+    } finally {
+      setAppUpdateActionPending(false);
+    }
+  };
+
+  const openDownloadPage = async () => {
+    try {
+      await getStocksenseApi().openAppReleaseNotes();
+    } catch (error) {
+      antdMessage.error(error instanceof Error ? error.message : '打开下载页失败');
+    }
+  };
+
+  const closeSettingsModal = () => {
+    const shouldCancelSync = marketActionPending || isMarketSyncRunningState(marketStatus?.state);
+    if (shouldCancelSync) {
+      setMarketActionPending(false);
+      setMarketStatus({
+        state: 'idle',
+        processedSymbols: marketStatus?.processedSymbols ?? 0,
+        totalSymbols: marketStatus?.totalSymbols ?? 0,
+        succeededSymbols: marketStatus?.succeededSymbols ?? 0,
+        failedSymbols: marketStatus?.failedSymbols ?? marketStats?.failedSymbols ?? 0,
+        latestLocalTradeDate: marketStatus?.latestLocalTradeDate ?? marketStats?.latestTradeDate,
+        message: '同步已取消，当前批次将安全停止',
+      });
+      void getStocksenseApi().cancelMarketDataSync().catch((error) => {
+        antdMessage.error(error instanceof Error ? error.message : '取消同步失败，请稍后重试');
+      });
+    }
+    setSettingsOpen(false);
+  };
+
+  const marketSyncRunning = marketActionPending || isMarketSyncRunningState(marketStatus?.state);
+  const appUpdateSettings = getAppUpdateSettings(draft);
+  const updateOperationRunning = appUpdateActionPending || appUpdateState?.status === 'checking' || appUpdateState?.status === 'downloading';
 
   return (
-    <div className={`${styles['modal-overlay']} ${styles.open}`} onClick={() => setSettingsOpen(false)}>
+    <div className={`${styles['modal-overlay']} ${styles.open}`} onClick={closeSettingsModal}>
       <div className={`${styles.modal} ${styles['settings-system-modal'] ?? ''}`} onClick={(event) => event.stopPropagation()}>
         <div className={styles['modal-header']}>
           <h2>系统设置</h2>
-          <button className={styles['modal-close']} onClick={() => setSettingsOpen(false)} type="button">✕</button>
+          <button className={styles['modal-close']} onClick={closeSettingsModal} type="button">✕</button>
         </div>
 
         <div className={styles['modal-body']}>
@@ -238,6 +336,51 @@ export function SettingsModal() {
           </div>
 
           <div className={styles['settings-section']}>
+            <div className={styles['settings-section-title']}>版本与更新</div>
+            <div className={styles['settings-row']}>
+              <label className={styles.label} htmlFor="app-update-channel">更新渠道</label>
+              <select
+                id="app-update-channel"
+                value={appUpdateSettings.channel}
+                onChange={(event) => updateAppUpdateSettings({ channel: event.target.value as TAppUpdateChannel })}
+              >
+                <option value="stable">稳定版本</option>
+                <option value="beta">测试版本</option>
+              </select>
+              <div className={styles.hint}>默认使用稳定版本；只有你自己切换后才会检查测试版本。</div>
+            </div>
+            <VersionUpdateStatusCard state={appUpdateState} />
+            <div className={styles['update-directory-row']}>
+              <div>
+                <span>下载目录</span>
+                <strong>{appUpdateSettings.downloadDirectory || '使用系统默认更新缓存'}</strong>
+              </div>
+              <button type="button" onClick={() => void selectDownloadDirectory()}>
+                <FolderOpen size={13} />
+                更改目录
+              </button>
+            </div>
+            <div className={styles['update-actions-row']}>
+              <button type="button" disabled={updateOperationRunning} onClick={() => void checkUpdate()}>
+                <RefreshCw size={14} />
+                检查更新
+              </button>
+              <button
+                type="button"
+                disabled={updateOperationRunning || !canRunUpdateAction(appUpdateState)}
+                onClick={() => void runUpdateAction()}
+              >
+                {appUpdateState?.status === 'downloaded' ? <RotateCw size={14} /> : <Download size={14} />}
+                {appUpdateState?.status === 'downloaded' ? '安装更新' : '下载更新'}
+              </button>
+              <button type="button" className={styles['update-page-button']} onClick={() => void openDownloadPage()}>
+                <ExternalLink size={14} />
+                打开下载页
+              </button>
+            </div>
+          </div>
+
+          <div className={styles['settings-section']}>
             <div className={styles['settings-section-title']}>行情颜色</div>
             <div className={styles['settings-row']}>
               <label className={styles.label}>涨跌颜色</label>
@@ -289,7 +432,7 @@ export function SettingsModal() {
         </div>
 
         <div className={styles['modal-footer']}>
-          <button className={styles['btn-cancel']} onClick={() => setSettingsOpen(false)} type="button">取消</button>
+          <button className={styles['btn-cancel']} onClick={closeSettingsModal} type="button">取消</button>
           <button className={styles['btn-save']} onClick={save} disabled={saving} type="button">{saving ? '校验中…' : '保存'}</button>
         </div>
       </div>
@@ -307,10 +450,22 @@ function isMarketSyncTerminal(state: MarketDataSyncStatus['state']) {
   return state === 'completed' || state === 'partial' || state === 'failed' || state === 'idle';
 }
 
+function isMarketSyncRunningState(state?: MarketDataSyncStatus['state']) {
+  return state === 'checking' || state === 'syncing' || state === 'initializing';
+}
+
 function showMarketSyncResult(status: MarketDataSyncStatus) {
   if (status.state === 'completed') antdMessage.success('同步完成');
   else if (status.state === 'failed') antdMessage.error(status.message ?? '同步失败');
   else if (status.state === 'partial') antdMessage.warning(status.message ?? '同步部分完成');
+}
+
+function getAppUpdateSettings(config: AppConfig): IAppUpdateSettings {
+  return config.appUpdate ?? { channel: 'stable', downloadDirectory: '' };
+}
+
+function canRunUpdateAction(state?: IAppUpdateState) {
+  return state?.status === 'available' || state?.status === 'downloaded';
 }
 
 function StatusItem({ label, value }: { label: string; value: string }) {

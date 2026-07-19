@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, IAppUpdateState, MarketDataSyncStatus, MarketIndexPeriod, MarketPageSnapshot, MarketTab, StocksenseApi } from '../src/shared/types.js';
+import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, IAppUpdateSettings, IAppUpdateState, MarketDataSyncStatus, MarketIndexPeriod, MarketPageSnapshot, MarketTab, StocksenseApi } from '../src/shared/types.js';
 
 const api: StocksenseApi = {
   captureAnalytics: (event: string, properties?: AnalyticsProperties) => ipcRenderer.invoke('analytics:capture', event, properties),
@@ -33,6 +33,7 @@ const api: StocksenseApi = {
   getMarketDataSyncStatus: () => ipcRenderer.invoke('marketData:getStatus'),
   startMarketDataSync: () => ipcRenderer.invoke('marketData:startSync'),
   retryMarketDataFailures: () => ipcRenderer.invoke('marketData:retryFailures'),
+  cancelMarketDataSync: () => ipcRenderer.invoke('marketData:cancelSync'),
   getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
   getMarketPageSnapshot: (tab: MarketTab, period?: MarketIndexPeriod) => ipcRenderer.invoke('market:getPageSnapshot', tab, period),
   onMarketPageSnapshotUpdated: (handler: (snapshot: MarketPageSnapshot) => void) => {
@@ -50,10 +51,11 @@ const api: StocksenseApi = {
   installStoreItem: (id: string) => ipcRenderer.invoke('store:install', id),
   uninstallStoreItem: (id: string) => ipcRenderer.invoke('store:uninstall', id),
   getAppUpdateState: () => ipcRenderer.invoke('appUpdate:getState'),
-  checkAppUpdate: () => ipcRenderer.invoke('appUpdate:check'),
-  downloadAppUpdate: () => ipcRenderer.invoke('appUpdate:download'),
+  checkAppUpdate: (settings?: IAppUpdateSettings) => ipcRenderer.invoke('appUpdate:check', settings),
+  downloadAppUpdate: (settings?: IAppUpdateSettings) => ipcRenderer.invoke('appUpdate:download', settings),
   installAppUpdate: () => ipcRenderer.invoke('appUpdate:install'),
   openAppReleaseNotes: () => ipcRenderer.invoke('appUpdate:openReleaseNotes'),
+  selectAppUpdateDownloadDirectory: () => ipcRenderer.invoke('appUpdate:selectDownloadDirectory'),
   onAppUpdateStateChanged: (handler: (state: IAppUpdateState) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, state: IAppUpdateState) => handler(state);
     ipcRenderer.on('appUpdate:stateChanged', listener);

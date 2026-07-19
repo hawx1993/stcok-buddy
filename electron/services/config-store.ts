@@ -19,6 +19,10 @@ export const defaultConfig: AppConfig = {
     model: 'deepseek-v4-flash',
     customModel: '',
   },
+  appUpdate: {
+    channel: 'stable',
+    downloadDirectory: '',
+  },
   tradeStyle: 'value',
   riskProfile: 'moderate',
   holdingPeriod: 'medium',
@@ -41,16 +45,28 @@ export const store = new Store<StoreSchema>({
 });
 
 export function getConfig(): AppConfig {
-  return { ...defaultConfig, ...store.get('config', defaultConfig) };
+  const config = store.get('config', defaultConfig);
+  return {
+    ...defaultConfig,
+    ...config,
+    model: { ...defaultConfig.model, ...config.model },
+    appUpdate: { channel: config.appUpdate?.channel ?? defaultConfig.appUpdate?.channel ?? 'stable', downloadDirectory: config.appUpdate?.downloadDirectory ?? defaultConfig.appUpdate?.downloadDirectory ?? '' },
+  };
 }
 
 export function setConfig(config: AppConfig): AppConfig {
   const normalized: AppConfig = {
+    ...defaultConfig,
     ...config,
     model: {
+      ...defaultConfig.model,
       ...config.model,
       model: config.model.customModel?.trim() || config.model.model,
       baseUrl: config.model.baseUrl.replace(/\/$/, ''),
+    },
+    appUpdate: {
+      channel: config.appUpdate?.channel ?? defaultConfig.appUpdate?.channel ?? 'stable',
+      downloadDirectory: config.appUpdate?.downloadDirectory?.trim() || '',
     },
   };
   store.set('config', normalized);

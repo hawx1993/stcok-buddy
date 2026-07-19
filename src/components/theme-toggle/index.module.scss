@@ -30,11 +30,60 @@
 }
 .theme-row.compact {
   width: auto;
-  padding: 4px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
   gap: 0;
 }
 .theme-row.compact:hover {
   background: transparent;
+}
+.theme-icon,
+.theme-icon-wrap {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.theme-icon {
+  padding: 6px;
+  box-sizing: border-box;
+}
+.theme-icon-wrap svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.theme-icon.sun,
+.theme-icon-wrap.sun {
+  color: #94a3b8;
+  background: #1d2b45;
+  border-color: transparent;
+}
+.theme-icon.moon,
+.theme-icon-wrap.moon {
+  color: #7a828e;
+  background: #d8ecff;
+  border-color: transparent;
+}
+.theme-row:hover .theme-icon,
+.theme-row:hover .theme-icon-wrap {
+  border-color: transparent;
+}
+.theme-row:hover .theme-icon.sun,
+.theme-row:hover .theme-icon-wrap.sun {
+  background: #253754;
+  color: #c2ccd8;
+}
+.theme-row:hover .theme-icon.moon,
+.theme-row:hover .theme-icon-wrap.moon {
+  background: #c8e4fb;
+  color: #606b78;
 }
 .theme-switch {
   position: relative;

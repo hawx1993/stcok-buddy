@@ -41,8 +41,14 @@ export function retryMarketDataFailures() {
   return currentSync;
 }
 
-export function requestMarketDataSyncStop() {
+export function requestMarketDataSyncStop(): MarketDataSyncStatus {
   stopRequested = true;
+  if (currentSync) {
+    const cancelled = { ...memoryStatus, state: 'idle' as const, finishedAt: new Date().toISOString(), message: '同步已取消，当前批次将安全停止' };
+    updateMemory(cancelled);
+    return cancelled;
+  }
+  return memoryStatus;
 }
 
 export async function waitForMarketDataSync() {
@@ -63,9 +69,19 @@ async function runSync(force: boolean): Promise<MarketDataSyncStatus> {
   let securities = await listSecurities();
   if (!securities.length || force) {
     updateMemory({ ...memoryStatus, state: 'initializing', targetTradeDate, message: '正在同步 A 股证券列表' });
-    const remote = await listRemoteSecurities((processed, total) => updateMemory({ ...memoryStatus, processedSymbols: processed, totalSymbols: total, message: `正在同步 A 股证券列表（${processed}/${total}）` }));
+    const remote = await listRemoteSecurities((processed, total) => updateMemory({ ...memoryStatus, processedSymbols: processed, totalSymbols: total, message: `正在同步 A 股证券列表（${processed}/${total}）` }), () => stopRequested);
+    if (stopRequested) {
+      const cancelled = { ...memoryStatus, state: 'idle' as const, finishedAt: new Date().toISOString(), message: '同步已安全停止，下次启动将继续' };
+      updateMemory(cancelled);
+      return cancelled;
+    }
     await upsertSecurities(remote);
     securities = remote;
+  }
+  if (stopRequested) {
+    const cancelled = { ...memoryStatus, state: 'idle' as const, finishedAt: new Date().toISOString(), message: '同步已安全停止，下次启动将继续' };
+    updateMemory(cancelled);
+    return cancelled;
   }
   const calendar = await listRemoteTradingCalendar();
   await upsertTradingCalendar(calendar);
@@ -140,6 +156,7 @@ async function runRepair(): Promise<MarketDataSyncStatus> {
   let succeeded = 0;
   let failed = 0;
   for (const item of failures) {
+    if (stopRequested) break;
     try {
       const latest = await listDailyBars(item.symbol, { limit: 1, adjustType: 'qfq' });
       const rows = await stockSdkHistoricalProvider.getDailyBars(item.symbol, { adjustType: 'qfq', startDate: latest[0] ? dayAfter(latest[0].tradeDate) : yearsAgo(target, INITIAL_YEARS), endDate: target });
@@ -150,6 +167,11 @@ async function runRepair(): Promise<MarketDataSyncStatus> {
     } catch { failed += 1; }
     processed += 1;
     updateMemory({ ...memoryStatus, processedSymbols: processed, succeededSymbols: succeeded, failedSymbols: failed });
+  }
+  if (stopRequested) {
+    const cancelled = { ...memoryStatus, state: 'idle' as const, finishedAt: new Date().toISOString(), latestLocalTradeDate: await getLatestTradeDate(), message: '同步已取消，当前批次将安全停止' };
+    updateMemory(cancelled);
+    return cancelled;
   }
   const result = { ...memoryStatus, state: failed ? 'partial' as const : 'completed' as const, finishedAt: new Date().toISOString(), latestLocalTradeDate: await getLatestTradeDate(), message: failed ? '部分失败股票仍未补齐' : '失败股票已重试完成' };
   updateMemory(result);

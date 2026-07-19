@@ -31,6 +31,7 @@ const api = {
   getMarketDataSyncStatus: () => ipcRenderer.invoke('marketData:getStatus'),
   startMarketDataSync: () => ipcRenderer.invoke('marketData:startSync'),
   retryMarketDataFailures: () => ipcRenderer.invoke('marketData:retryFailures'),
+  cancelMarketDataSync: () => ipcRenderer.invoke('marketData:cancelSync'),
   getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
   getMarketPageSnapshot: (tab, period) => ipcRenderer.invoke('market:getPageSnapshot', tab, period),
   onMarketPageSnapshotUpdated: (handler) => {
@@ -48,10 +49,11 @@ const api = {
   installStoreItem: (id) => ipcRenderer.invoke('store:install', id),
   uninstallStoreItem: (id) => ipcRenderer.invoke('store:uninstall', id),
   getAppUpdateState: () => ipcRenderer.invoke('appUpdate:getState'),
-  checkAppUpdate: () => ipcRenderer.invoke('appUpdate:check'),
-  downloadAppUpdate: () => ipcRenderer.invoke('appUpdate:download'),
+  checkAppUpdate: (settings) => ipcRenderer.invoke('appUpdate:check', settings),
+  downloadAppUpdate: (settings) => ipcRenderer.invoke('appUpdate:download', settings),
   installAppUpdate: () => ipcRenderer.invoke('appUpdate:install'),
   openAppReleaseNotes: () => ipcRenderer.invoke('appUpdate:openReleaseNotes'),
+  selectAppUpdateDownloadDirectory: () => ipcRenderer.invoke('appUpdate:selectDownloadDirectory'),
   onAppUpdateStateChanged: (handler) => {
     const listener = (_event, state) => handler(state);
     ipcRenderer.on('appUpdate:stateChanged', listener);

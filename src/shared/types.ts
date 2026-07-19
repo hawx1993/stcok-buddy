@@ -1,5 +1,6 @@
 export type ThemeMode = 'dark' | 'light';
 export type MarketColorMode = 'red-up-green-down' | 'green-up-red-down';
+export type TAppUpdateChannel = 'stable' | 'beta';
 
 export type ProviderKind =
   | 'deepseek'
@@ -15,6 +16,11 @@ export type TradeStyle = 'value' | 'trend' | 'balanced';
 export type RiskProfile = 'conservative' | 'moderate' | 'aggressive';
 export type HoldingPeriod = 'short' | 'medium' | 'long' | 'very-long';
 
+export interface IAppUpdateSettings {
+  channel: TAppUpdateChannel;
+  downloadDirectory?: string;
+}
+
 export interface ModelProviderConfig {
   provider: ProviderKind;
   apiKey: string;
@@ -27,6 +33,7 @@ export interface AppConfig {
   theme: ThemeMode;
   marketColorMode?: MarketColorMode;
   model: ModelProviderConfig;
+  appUpdate?: IAppUpdateSettings;
   tradeStyle?: TradeStyle;
   riskProfile?: RiskProfile;
   holdingPeriod?: HoldingPeriod;
@@ -50,6 +57,26 @@ export interface MarketDataSyncStatus {
   message?: string;
 }
 
+export interface IStockFundFlowSnapshot {
+  date: string;
+  mainNetInflow: number | null;
+  mainNetInflowPercent: number | null;
+  superLargeNetInflow: number | null;
+  superLargeNetInflowPercent: number | null;
+  largeNetInflow: number | null;
+  largeNetInflowPercent: number | null;
+  mediumNetInflow: number | null;
+  mediumNetInflowPercent: number | null;
+  smallNetInflow: number | null;
+  smallNetInflowPercent: number | null;
+  activeBuyRatio?: number;
+  activeSellRatio?: number;
+  activeSampleCount?: number;
+  activeRatioSource?: string;
+  source: 'stock-sdk' | 'a-stock-data';
+  warnings?: string[];
+}
+
 export interface MarketDataStats {
   securityCount: number;
   dailyBarCount: number;
@@ -67,6 +94,7 @@ export type EvidenceSource =
   | 'dragon-tiger'
   | 'hot-focus'
   | 'chip'
+  | 'fund-flow'
   | 'url'
   | 'local-market-data'
   | 'remote-market-data'
@@ -501,6 +529,7 @@ export interface StocksenseApi {
   getMarketDataSyncStatus(): Promise<MarketDataSyncStatus>;
   startMarketDataSync(): Promise<MarketDataSyncStatus>;
   retryMarketDataFailures(): Promise<MarketDataSyncStatus>;
+  cancelMarketDataSync(): Promise<MarketDataSyncStatus>;
   getMarketDataStats(): Promise<MarketDataStats>;
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
@@ -510,10 +539,11 @@ export interface StocksenseApi {
   installStoreItem(id: string): Promise<string[]>;
   uninstallStoreItem(id: string): Promise<string[]>;
   getAppUpdateState(): Promise<IAppUpdateState>;
-  checkAppUpdate(): Promise<IAppUpdateState>;
-  downloadAppUpdate(): Promise<IAppUpdateState>;
+  checkAppUpdate(settings?: IAppUpdateSettings): Promise<IAppUpdateState>;
+  downloadAppUpdate(settings?: IAppUpdateSettings): Promise<IAppUpdateState>;
   installAppUpdate(): Promise<IAppUpdateState>;
   openAppReleaseNotes(): Promise<void>;
+  selectAppUpdateDownloadDirectory(): Promise<string | undefined>;
   onAppUpdateStateChanged?(handler: (state: IAppUpdateState) => void): () => void;
   listFavoriteStocks(): Promise<FavoriteStock[]>;
   upsertFavoriteStock(stock: Pick<FavoriteStock, 'code' | 'name'>): Promise<FavoriteStock[]>;

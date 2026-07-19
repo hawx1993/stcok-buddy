@@ -1,3 +1,4 @@
+import type { IStockFundFlowSnapshot } from '../../../src/shared/types.js';
 import { generateReport } from '../llm/index.js';
 import { isLlmRequestError } from '../llm/openai-compatible-client.js';
 import type { StockAnalysisInput, StockAnalysisResult } from './stock-analysis-agents.js';
@@ -13,7 +14,7 @@ export async function runStockAnalysisOverview(input: StockAnalysisInput, result
 1. 标题：## 📊 ${input.stockLabel}（${input.symbol}）综合投研报告
 2. 综合评分用 Markdown 表格：维度 | 权重 | 评分(0-100) | 加权得分 | 一句话总结。维度和权重固定为：📈 技术面 25%、📊 基本面 10%、💰 资金面 25%、🧩 筹码分析 25%、🌡️ 情绪面 15%、总分 100%。评分和加权得分必须用 HTML span 包裹：80-100 用 <span class="score-high">80</span>，60-79 用 <span class="score-mid">60</span>，低于60用 <span class="score-low">59</span>。
 3. 新增：### 📄 证据摘要，列出最关键 evidence。
-4. 标题使用：### 🎯 关键价位、### 🧭 观察框架、### 🚨 风险警示、### 🧩 各维度一句话总结。
+4. 标题使用：### 🎯 关键价位、### 💰 资金流向、### 🧭 观察框架、### 🚨 风险警示、### 🧩 各维度一句话总结。若输入中有 fundFlow 或资金流 evidence，必须输出”### 💰 资金流向”小节和超大单/大单/主力合计/中单/小单表格。资金流向正数用 <span class=”cn-up”>+X</span> 包裹，负数用 <span class=”cn-down”>-X</span> 包裹。
 5. 禁止输出建议买入、建议卖出、立即加仓、清仓、满仓、必涨、稳赚等直接投资建议。
 6. 禁止使用 🚀🔥💎🌙🤑🎉。
 7. 必须输出最终评级：🟢 偏利好 / 🟡 中性 / 🔴 偏利空。
@@ -21,10 +22,10 @@ export async function runStockAnalysisOverview(input: StockAnalysisInput, result
       },
       {
         role: 'user',
-        content: `股票：${input.stockLabel}（${input.symbol}）\n用户问题：${input.query}\n\n结构化 findings/evidence：\n${JSON.stringify(toOverviewInput(results), null, 2)}`,
+        content: `股票：${input.stockLabel}（${input.symbol}）\n用户问题：${input.query}\n\n资金流数据：\n${JSON.stringify(input.fundFlow ?? null, null, 2)}\n\n结构化 findings/evidence：\n${JSON.stringify(toOverviewInput(results), null, 2)}`,
       },
     ], onToken);
-    return ensureScoredOverview(report, input, results);
+    return ensureFundFlowSection(ensureScoredOverview(report, input, results), input);
   } catch (error) {
     if (isLlmRequestError(error)) throw error;
     return fallbackOverview(input, results);
@@ -38,6 +39,40 @@ function toOverviewInput(results: StockAnalysisResult[]) {
     findings: result.output.findings,
     evidence: result.output.evidence.map((item) => ({ id: item.id, source: item.source, title: item.title, summary: item.summary, value: item.value, timestamp: item.timestamp })),
   }));
+}
+
+function ensureFundFlowSection(report: string, input: StockAnalysisInput) {
+  if (!input.fundFlow) return report;
+  const section = fundFlowSection(input.fundFlow);
+  if (/###\s*💰\s*资金流向/.test(report)) {
+    return report.replace(/###\s*💰\s*资金流向[\s\S]*?(?=\n###\s|\n##\s|$)/, section);
+  }
+  if (/###\s*🧭\s*观察框架/.test(report)) return report.replace(/\n###\s*🧭\s*观察框架/, `\n${section}\n\n### 🧭 观察框架`);
+  if (/###\s*🚨\s*风险警示/.test(report)) return report.replace(/\n###\s*🚨\s*风险警示/, `\n${section}\n\n### 🚨 风险警示`);
+  return `${report.trim()}\n\n${section}`;
+}
+
+function fundFlowSection(flow: IStockFundFlowSnapshot) {
+  const active = flow.activeSampleCount
+    ? `主动买占比：${formatPercentValue(flow.activeBuyRatio)}，主动卖占比：${formatPercentValue(flow.activeSellRatio)}（口径：${flow.activeRatioSource ?? '盘口异动样本'}，样本 ${flow.activeSampleCount} 条）`
+    : `主动买/主动卖比例：--（${flow.warnings?.find((item) => item.includes('主动买卖')) ?? '暂无盘口异动样本'}）`;
+  return [`### 💰 资金流向`, `今日主力资金 ${flow.mainNetInflow === null ? '暂无净流入数据' : `${Number(flow.mainNetInflow) >= 0 ? '净流入' : '净流出'}约 ${formatMoneyInYi(flow.mainNetInflow)} 亿`}（截至 ${flow.date}），分结构看：`, '', '| 类型 | 净流入（亿元） | 净占比 |', '|---|---:|---:|', `| 超大单 | ${formatMoneyInYi(flow.superLargeNetInflow)} | ${formatPercentValue(flow.superLargeNetInflowPercent)} |`, `| 大单 | ${formatMoneyInYi(flow.largeNetInflow)} | ${formatPercentValue(flow.largeNetInflowPercent)} |`, `| 主力合计 | **${formatMoneyInYi(flow.mainNetInflow)}** | **${formatPercentValue(flow.mainNetInflowPercent)}** |`, `| 中单 | ${formatMoneyInYi(flow.mediumNetInflow)} | ${formatPercentValue(flow.mediumNetInflowPercent)} |`, `| 小单 | ${formatMoneyInYi(flow.smallNetInflow)} | ${formatPercentValue(flow.smallNetInflowPercent)} |`, '', active, `口径：资金净流入来自 ${flow.source === 'a-stock-data' ? 'a-stock-data 东财资金流接口' : 'stock-sdk 个股资金流日线'}；主动买/卖比例来自盘口异动样本，不等同于全量逐笔成交主动买卖金额。`].join('\n');
+}
+
+function formatMoneyInYi(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  const display = `${num >= 0 ? '+' : '-'}${(Math.abs(num) / 100000000).toFixed(2)}`;
+  const cls = num > 0 ? 'cn-up' : num < 0 ? 'cn-down' : '';
+  return cls ? `<span class="${cls}">${display}</span>` : display;
+}
+
+function formatPercentValue(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  const display = `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
+  const cls = num > 0 ? 'cn-up' : num < 0 ? 'cn-down' : '';
+  return cls ? `<span class="${cls}">${display}</span>` : display;
 }
 
 async function streamText(text: string, onToken: (token: string) => void) {
@@ -88,6 +123,7 @@ function fallbackOverview(input: StockAnalysisInput, results: StockAnalysisResul
   lines.push(evidence.length ? evidence.slice(0, 8).map((item) => `- ${item.title}：${item.summary ?? item.value ?? '已纳入分析。'}`).join('\n') : '- 数据不足，当前仅保留 fallback evidence。');
   lines.push('', '### 🎯 关键价位');
   lines.push('当前数据不足以精确判断支撑位/压力位，可结合右侧 K 线近期高低点观察。');
+  if (input.fundFlow) lines.push('', fundFlowSection(input.fundFlow));
   lines.push('', '### 🧭 观察框架');
   lines.push('- 偏强确认条件：价格、成交额与关键证据继续共振。');
   lines.push('- 转弱风险条件：放量下跌、新闻/公告出现负面变化或特大单流出占比升高。');

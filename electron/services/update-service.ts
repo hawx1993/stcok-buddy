@@ -1,14 +1,17 @@
 import { app, shell } from 'electron';
+import { copyFileSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import type { AppUpdater, ProgressInfo, UpdateDownloadedEvent, UpdateInfo } from 'electron-updater';
-import type { IAppUpdateProgress, IAppUpdateState } from '../../src/shared/types.js';
+import type { IAppUpdateProgress, IAppUpdateSettings, IAppUpdateState, TAppUpdateChannel } from '../../src/shared/types.js';
+import { getConfig } from './config-store.js';
 
 const require = createRequire(import.meta.url);
 const { autoUpdater } = require('electron-updater') as { autoUpdater: AppUpdater };
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const GITHUB_RELEASES_URL = 'https://github.com/hawx1993/stcok-buddy/releases';
+const GITHUB_RELEASES_API = 'https://api.github.com/repos/hawx1993/stcok-buddy/releases';
 
 function getPackageVersion() {
   try {
@@ -31,6 +34,7 @@ type TGitHubRelease = {
   tag_name: string;
   name: string | null;
   body: string | null;
+  prerelease?: boolean;
   assets: TReleaseAsset[];
 };
 
@@ -57,20 +61,40 @@ function releaseTagToVersion(tag: string) {
   return tag.replace(/^v/, '');
 }
 
-function getLatestYmlAssetName() {
-  return process.platform === 'darwin' ? 'latest-mac.yml' : 'latest.yml';
+function getLatestYmlAssetName(channel: TAppUpdateChannel) {
+  const prefix = channel === 'beta' ? 'beta' : 'latest';
+  return process.platform === 'darwin' ? `${prefix}-mac.yml` : `${prefix}.yml`;
 }
 
-async function checkDevGitHubRelease() {
-  updateState({ status: 'checking', error: undefined, message: '正在检查更新…' });
-  const response = await fetch('https://api.github.com/repos/hawx1993/stcok-buddy/releases/latest', {
-    headers: { accept: 'application/vnd.github+json' },
-  });
+function getUpdateSettings(override?: IAppUpdateSettings) {
+  return override ?? getConfig().appUpdate ?? { channel: 'stable' as const, downloadDirectory: '' };
+}
+
+function applyUpdaterSettings(override?: IAppUpdateSettings) {
+  const { channel } = getUpdateSettings(override);
+  autoUpdater.allowPrerelease = channel === 'beta';
+  autoUpdater.channel = channel === 'beta' ? 'beta' : 'latest';
+}
+
+async function fetchGitHubReleases(channel: TAppUpdateChannel) {
+  const endpoint = channel === 'stable' ? `${GITHUB_RELEASES_API}/latest` : `${GITHUB_RELEASES_API}?per_page=20`;
+  const response = await fetch(endpoint, { headers: { accept: 'application/vnd.github+json' } });
   if (!response.ok) throw new Error(`GitHub Release 检查失败：${response.status}`);
-  const release = (await response.json()) as TGitHubRelease;
+  if (channel === 'stable') return (await response.json()) as TGitHubRelease;
+  const releases = (await response.json()) as TGitHubRelease[];
+  const betaRelease = releases.find((release) => release.prerelease);
+  if (!betaRelease) throw new Error('未找到可用的 GitHub 测试 Release，请确认测试版本已发布。');
+  return betaRelease;
+}
+
+async function checkDevGitHubRelease(settings?: IAppUpdateSettings) {
+  const { channel } = getUpdateSettings(settings);
+  const metadataAssetName = getLatestYmlAssetName(channel);
+  updateState({ status: 'checking', error: undefined, message: '正在检查更新…' });
+  const release = await fetchGitHubReleases(channel);
   const latestVersion = releaseTagToVersion(release.tag_name);
-  const hasPlatformMetadata = release.assets.some((asset) => asset.name === getLatestYmlAssetName());
-  if (!hasPlatformMetadata) throw new Error(`最新 Release 缺少 ${getLatestYmlAssetName()}，请用打包命令生成并上传更新元数据`);
+  const hasPlatformMetadata = release.assets.some((asset) => asset.name === metadataAssetName);
+  if (!hasPlatformMetadata) throw new Error(`最新 Release 缺少 ${metadataAssetName}，请用打包命令生成并上传更新元数据`);
   if (compareVersions(latestVersion, getCurrentVersion()) <= 0) {
     return updateState({
       status: 'not-available',
@@ -93,14 +117,13 @@ async function checkDevGitHubRelease() {
   });
 }
 
-const RELEASE_NOTES_URL = 'https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd';
-
 type TAppUpdateListener = (state: IAppUpdateState) => void;
 
 const listeners = new Set<TAppUpdateListener>();
 let installHandler: (() => void) | undefined;
 let checkingPromise: Promise<IAppUpdateState> | undefined;
 let downloadPromise: Promise<IAppUpdateState> | undefined;
+let downloadSettingsOverride: IAppUpdateSettings | undefined;
 let state: IAppUpdateState = {
   status: 'idle',
   currentVersion: getCurrentVersion(),
@@ -109,6 +132,7 @@ let state: IAppUpdateState = {
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = false;
 autoUpdater.logger = console;
+applyUpdaterSettings();
 
 function toReleaseNotesText(notes: UpdateInfo['releaseNotes']) {
   if (!notes) return undefined;
@@ -147,8 +171,16 @@ function updateAvailableState(info: UpdateInfo) {
   });
 }
 
+function copyDownloadedUpdate(event: UpdateDownloadedEvent, settings?: IAppUpdateSettings) {
+  const downloadDirectory = getUpdateSettings(settings).downloadDirectory?.trim();
+  if (!downloadDirectory) return undefined;
+  const targetPath = path.join(downloadDirectory, path.basename(event.downloadedFile));
+  copyFileSync(event.downloadedFile, targetPath);
+  return targetPath;
+}
+
 function updateDownloadedState(event: UpdateDownloadedEvent) {
-  return updateState({
+  const baseState = updateState({
     status: 'downloaded',
     latestVersion: event.version,
     releaseName: event.releaseName ?? undefined,
@@ -157,6 +189,14 @@ function updateDownloadedState(event: UpdateDownloadedEvent) {
     error: undefined,
     message: '下载完成，点击安装后将退出当前软件',
   });
+  try {
+    const copiedPath = copyDownloadedUpdate(event, downloadSettingsOverride);
+    if (!copiedPath) return baseState;
+    return updateState({ message: `下载完成，安装包已保存到 ${copiedPath}` });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return updateState({ error: `更新已下载，但复制到指定目录失败：${detail}`, message: `更新已下载，但复制到指定目录失败：${detail}` });
+  }
 }
 
 function formatUpdateError(error: Error) {
@@ -164,6 +204,12 @@ function formatUpdateError(error: Error) {
   const message = firstLine?.trim() || '更新检查失败，请稍后重试';
   if (message.includes('Code signature') && message.includes('did not pass validation')) {
     return `更新包签名校验失败，请等待重新发布的安装包；当前版本不会被替换。原始错误：${message.length > 120 ? `${message.slice(0, 120)}…` : message}`;
+  }
+  if (message.includes('Cannot find beta-mac.yml')) {
+    return '最新 GitHub 测试 Release 缺少 beta-mac.yml。请用测试版本打包命令重新生成，并上传 beta-mac.yml 与 zip/dmg 资产。';
+  }
+  if (message.includes('Cannot find beta.yml')) {
+    return '最新 GitHub 测试 Release 缺少 beta.yml。请用 Windows 测试版本打包命令重新生成，并上传 beta.yml 与安装包。';
   }
   if (message.includes('Cannot find latest-mac.yml')) {
     return '最新 GitHub Release 缺少 latest-mac.yml。请用 pnpm run dist:mac 重新打包，并上传生成的 latest-mac.yml 与 zip/dmg 资产。';
@@ -231,10 +277,11 @@ export function setInstallUpdateHandler(handler: () => void) {
   installHandler = handler;
 }
 
-export async function checkAppUpdate(options: { silent?: boolean } = {}) {
+export async function checkAppUpdate(options: { silent?: boolean; settings?: IAppUpdateSettings } = {}) {
+  applyUpdaterSettings(options.settings);
   if (!app.isPackaged) {
     if (checkingPromise) return checkingPromise;
-    checkingPromise = checkDevGitHubRelease()
+    checkingPromise = checkDevGitHubRelease(options.settings)
       .catch((error: Error) => updateErrorState(error))
       .finally(() => {
         checkingPromise = undefined;
@@ -255,7 +302,9 @@ export async function checkAppUpdate(options: { silent?: boolean } = {}) {
   return checkingPromise;
 }
 
-export async function downloadAppUpdate() {
+export async function downloadAppUpdate(settings?: IAppUpdateSettings) {
+  downloadSettingsOverride = settings;
+  applyUpdaterSettings(settings);
   if (!app.isPackaged) {
     return updateState({ status: 'error', error: '自动升级仅在 Electron 打包应用中可用', message: '自动升级仅在 Electron 打包应用中可用' });
   }
@@ -282,5 +331,5 @@ export async function installAppUpdate() {
 }
 
 export async function openAppReleaseNotes() {
-  await shell.openExternal(RELEASE_NOTES_URL);
+  await shell.openExternal(GITHUB_RELEASES_URL);
 }

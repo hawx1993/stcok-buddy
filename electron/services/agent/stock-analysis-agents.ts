@@ -1,4 +1,4 @@
-import type { AgentResultCard, EvidenceItem, HotFocusItem, KlinePoint, MarketNewsItem, StockDetail, StructuredAgentFinding, StructuredAgentOutput } from '../../../src/shared/types.js';
+import type { AgentResultCard, EvidenceItem, HotFocusItem, IStockFundFlowSnapshot, KlinePoint, MarketNewsItem, StockDetail, StructuredAgentFinding, StructuredAgentOutput } from '../../../src/shared/types.js';
 import { generateReport } from '../llm/index.js';
 import { isLlmRequestError } from '../llm/openai-compatible-client.js';
 import { fallbackEvidence } from './evidence.js';
@@ -17,6 +17,7 @@ export type StockAnalysisInput = {
   kline?: KlinePoint[];
   news?: MarketNewsItem[];
   largeOrders?: HotFocusItem[];
+  fundFlow?: IStockFundFlowSnapshot;
   chip?: unknown;
   evidence?: EvidenceItem[];
 };
@@ -55,7 +56,7 @@ const agents: StockAnalysisAgentDef[] = [
     name: 'capital',
     dimension: 'capital',
     label: '💰 资金面分析',
-    prompt: '你是A股资金面分析师。基于成交量、成交额、近期K线、市场热度和 largeOrders，分析资金态度、量价配合、主力可能阶段和资金风险。必须单列“特大单买卖”小节：特大单定义为单笔大于10000手，基于 largeOrders 中的特大单买入/卖出事件统计买入数量、卖出数量、买入占比、卖出占比，并分析方向和持续性；如没有逐笔成交或特大单明细，必须明确说明无法精确计算，不得编造具体笔数。不要编造北向或主力净流入数据。',
+    prompt: '你是A股资金面分析师。优先基于 fundFlow 输出”资金流向”小节，必须包含超大单、大单、主力合计、中单、小单净流入资金和净占比的 Markdown 表格；如有 activeBuyRatio/activeSellRatio，必须输出主动买和主动卖比例，并注明口径为盘口异动样本。表格中正数金额用 <span class=”cn-up”>+X</span> 包裹，负数金额用 <span class=”cn-down”>-X</span> 包裹。再结合成交量、成交额、近期K线、市场热度和 largeOrders 分析资金态度、量价配合、主力可能阶段和资金风险。必须单列”特大单买卖”小节：特大单定义为单笔大于10000手，基于 largeOrders 中的特大单买入/卖出事件统计买入数量、卖出数量、买入占比、卖出占比，并分析方向和持续性；如没有逐笔成交或特大单明细，必须明确说明无法精确计算，不得编造具体笔数。不要编造北向或主力净流入数据。',
     fallback: (input) => `${capitalFallback(input)}\n\n${largeOrderFallback(input)}`,
   },
   {
@@ -95,7 +96,40 @@ function formatMaybeNumber(value: unknown) {
 }
 
 function capitalFallback(input: StockAnalysisInput) {
-  return `💰 资金面：当前成交额 ${input.quote?.turnover ?? '--'}，成交量 ${input.quote?.volume ?? '--'}；资金流细项缺失时，结论以量价和特大单异动样本为主。`;
+  if (!input.fundFlow) return `💰 资金面：当前成交额 ${input.quote?.turnover ?? '--'}，成交量 ${input.quote?.volume ?? '--'}；资金流细项暂不可用，不能判断超大单/大单/中小单净流向。`;
+  return `💰 资金面\n\n${fundFlowMarkdown(input.fundFlow)}\n\n解读：${fundFlowInterpretation(input.fundFlow)}`;
+}
+
+function fundFlowMarkdown(flow: IStockFundFlowSnapshot) {
+  const active = flow.activeSampleCount
+    ? `主动买占比：${formatPercentValue(flow.activeBuyRatio)}，主动卖占比：${formatPercentValue(flow.activeSellRatio)}（口径：${flow.activeRatioSource ?? '盘口异动样本'}，样本 ${flow.activeSampleCount} 条）`
+    : `主动买/主动卖比例：--（${flow.warnings?.find((item) => item.includes('主动买卖')) ?? '暂无盘口异动样本'}）`;
+  return [`### 💰 资金流向`, `今日主力资金 ${flow.mainNetInflow === null ? '暂无净流入数据' : `${Number(flow.mainNetInflow) >= 0 ? '净流入' : '净流出'}约 ${formatMoneyInYi(flow.mainNetInflow)} 亿`}（截至 ${flow.date}），分结构看：`, '', '| 类型 | 净流入（亿元） | 净占比 |', '|---|---:|---:|', `| 超大单 | ${formatMoneyInYi(flow.superLargeNetInflow)} | ${formatPercentValue(flow.superLargeNetInflowPercent)} |`, `| 大单 | ${formatMoneyInYi(flow.largeNetInflow)} | ${formatPercentValue(flow.largeNetInflowPercent)} |`, `| 主力合计 | ${formatMoneyInYi(flow.mainNetInflow)} | ${formatPercentValue(flow.mainNetInflowPercent)} |`, `| 中单 | ${formatMoneyInYi(flow.mediumNetInflow)} | ${formatPercentValue(flow.mediumNetInflowPercent)} |`, `| 小单 | ${formatMoneyInYi(flow.smallNetInflow)} | ${formatPercentValue(flow.smallNetInflowPercent)} |`, '', active].join('\n');
+}
+
+function fundFlowInterpretation(flow: IStockFundFlowSnapshot) {
+  if (flow.mainNetInflow === null) return '主力合计资金缺失，暂不判断资金方向。';
+  const direction = flow.mainNetInflow >= 0 ? '主力资金净流入' : '主力资金净流出';
+  const retail = Number(flow.mediumNetInflow ?? 0) + Number(flow.smallNetInflow ?? 0);
+  if (flow.mainNetInflow < 0 && retail > 0) return `${direction}，中小单承接，短期抛压需要继续观察。`;
+  if (flow.mainNetInflow > 0 && retail < 0) return `${direction}，中小单流出，资金结构偏机构/主力承接。`;
+  return `${direction}，需结合成交额和后续盘口持续性确认。`;
+}
+
+function formatMoneyInYi(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  const display = `${num >= 0 ? '+' : '-'}${(Math.abs(num) / 100000000).toFixed(2)}`;
+  const cls = num > 0 ? 'cn-up' : num < 0 ? 'cn-down' : '';
+  return cls ? `<span class="${cls}">${display}</span>` : display;
+}
+
+function formatPercentValue(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  const display = `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
+  const cls = num > 0 ? 'cn-up' : num < 0 ? 'cn-down' : '';
+  return cls ? `<span class="${cls}">${display}</span>` : display;
 }
 
 function largeOrderFallback(input: StockAnalysisInput) {
@@ -308,6 +342,7 @@ function compactInput(input: StockAnalysisInput) {
     kline: input.kline?.slice(-60),
     news: input.news?.slice(0, 10).map((item) => ({ time: item.time, title: item.title, tags: item.tags, source: item.source })),
     chip: formatChipInput(input.chip),
+    fundFlow: input.fundFlow,
     largeOrders: input.largeOrders?.map((item) => ({ time: item.time, code: item.code, name: item.name, amount: item.amount, description: item.description, tag: item.tag, type: item.type })),
     evidence: input.evidence?.map((item) => ({ id: item.id, source: item.source, title: item.title, summary: item.summary, value: item.value, timestamp: item.timestamp })),
   };
