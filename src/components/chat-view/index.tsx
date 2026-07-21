@@ -4103,6 +4103,8 @@ function eventLabel(event: AgentRunEvent) {
     subagent_completed: 'Agent完成',
     progress_updated: '进度',
     evidence_added: '证据',
+    intermediate_result: '中间结果',
+    data_source_checked: '数据源',
     summary_completed: '汇总',
     step_started: '步骤开始',
     step_completed: '步骤完成',

@@ -6,6 +6,10 @@ module.exports = {
   appId: 'com.stocksense.desktop',
   productName: 'StockBuddy',
   asar: true,
+  npmRebuild: false,
+  electronDownload: {
+    mirror: process.env.ELECTRON_MIRROR || 'https://npmmirror.com/mirrors/electron/',
+  },
   directories: {
     output: 'release',
     buildResources: 'build'
@@ -44,10 +48,9 @@ module.exports = {
   mac: {
     category: 'public.app-category.finance',
     icon: 'build/icon.icns',
-    hardenedRuntime: true,
+    identity: null,
+    hardenedRuntime: false,
     gatekeeperAssess: false,
-    entitlements: 'build/entitlements.mac.plist',
-    entitlementsInherit: 'build/entitlements.mac.plist',
     target: [
       { target: 'dmg', arch: ['x64', 'arm64'] },
       { target: 'zip', arch: ['x64', 'arm64'] }

@@ -58,18 +58,9 @@ interface AgentContext {
 export async function runOrchestrator(request: ChatRequest, onToken?: (token: string) => void, onEvent?: (event: AgentRunEvent) => void): Promise<ChatResponse> {
   const storeResponse = await runStoreCommand(request.message);
   if (storeResponse) {
-    // Stream events so the UI shows analysis progress before the final response
+    // Emit events so AnalysisProgress has something to show
     for (const event of storeResponse.events) {
       onEvent?.(event);
-    }
-    // Simulate typing: stream content in chunks so the UI shows a typing effect
-    if (onToken && storeResponse.message.content) {
-      const content = storeResponse.message.content;
-      const CHUNK_SIZE = 4;
-      for (let i = 0; i < content.length; i += CHUNK_SIZE) {
-        onToken(content.slice(i, i + CHUNK_SIZE));
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
     }
     return {
       ...storeResponse,
@@ -184,9 +175,9 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
 
   // ── 打字效果：仅在"生成投研报告"步骤流式输出 ──
   if (onToken && content && hasReportStep) {
-    for (const chunk of content.match(/[\s\S]{1,8}/g) ?? [content]) {
+    for (const chunk of content.match(/[\s\S]{1,4}/g) ?? [content]) {
       onToken(chunk);
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
 

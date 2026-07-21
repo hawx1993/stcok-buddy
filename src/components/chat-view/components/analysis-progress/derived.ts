@@ -53,22 +53,23 @@ export function deriveSteps(events: AgentRunEvent[]): IStep[] {
   const runningIds = new Set<string>();
 
   for (const event of events) {
-    const nodeId = event.step?.id;
-    if (!nodeId) continue;
+    const step = event.step;
+    if (!step?.id) continue;
+    const nodeId = step.id;
 
     if (event.type === 'subagent_started') {
       runningIds.add(nodeId);
       stepMap.set(nodeId, {
         id: nodeId,
-        label: stepLabel(nodeId, event.step.description),
+        label: stepLabel(nodeId, step.description),
         status: 'running',
       });
     } else if (event.type === 'subagent_completed') {
       runningIds.delete(nodeId);
       stepMap.set(nodeId, {
         id: nodeId,
-        label: stepLabel(nodeId, event.step.description),
-        status: event.step.status === 'error' ? 'error' : 'completed',
+        label: stepLabel(nodeId, step.description),
+        status: step.status === 'error' ? 'error' : 'completed',
       });
     }
   }
