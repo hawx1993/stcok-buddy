@@ -238,6 +238,9 @@ const webFallbackApi: StocksenseApi = {
   async listSurgeHistory(_date: string, _offset = 0, _limit = 20) {
     return [];
   },
+  async listStockSurgeEvents(_code: string) {
+    return [];
+  },
   async getMarketDataSyncStatus() {
     return {
       state: 'idle' as const,

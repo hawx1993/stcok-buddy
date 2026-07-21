@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import { DuckDBInstance, type DuckDBConnection } from '@duckdb/node-api';
 import path from 'node:path';
-import type { HotFocusItem } from '../../../src/shared/types.js';
+import type { HotFocusItem, StockSurgeEvent } from '../../../src/shared/types.js';
 
 interface SurgeRow {
   trade_date: string;
@@ -120,6 +120,36 @@ export function listSurgeHistory(date: string, offset = 0, limit = 20) {
       tag: row.tag,
       type: row.type,
     } satisfies HotFocusItem));
+  });
+}
+
+export function listStockSurgeEvents(code: string, keepDays = 7) {
+  return readDb(async () => {
+    const normalizedCode = code.trim();
+    if (!normalizedCode) return [];
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - Math.max(keepDays - 1, 0));
+    const rows = await all<SurgeRow>(
+      `SELECT trade_date, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type
+       FROM stock_surge_events
+       WHERE code = ${sqlValue(normalizedCode)} AND trade_date >= ${sqlValue(toTradeDate(cutoff))}
+       ORDER BY trade_date DESC, COALESCE(time, '') DESC, id DESC`,
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      tradeDate: row.trade_date,
+      title: row.title,
+      code: row.code,
+      name: row.name,
+      time: row.time,
+      price: row.price,
+      changePercent: row.change_percent,
+      turnover: row.turnover,
+      amount: row.amount,
+      description: row.description,
+      tag: row.tag,
+      type: row.type,
+    } satisfies StockSurgeEvent));
   });
 }
 

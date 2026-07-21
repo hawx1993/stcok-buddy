@@ -1,5 +1,5 @@
 import type { AgentResultCard, AgentRunEvent, AnnouncementItem, ChatRequest, ChatResponse, ComplianceReview, EvidenceItem, HotFocusItem, IStockFundFlowSnapshot, KlinePoint, MarketNewsItem, StockDetail, StructuredAgentFinding, ToolCallRecord } from '../../../src/shared/types.js';
-import { type DailyDragonTigerItem } from '../stock/stock-client.js';
+import { type DailyDragonTigerItem, isUnsupportedStockMarketQuery } from '../stock/stock-client.js';
 import { executeDag, type DagNode } from './dag-executor.js';
 import { fetchBoard } from './data-agent.js';
 import { runReportAgent } from './report-agent.js';
@@ -66,8 +66,9 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
     onEvent?.(event);
   };
   const command = parseSlashCommand(request.message);
-  let intent = command?.intent ?? classifyIntent(request.message);
   const symbolText = command?.args ?? request.message;
+  if (symbolText && await isUnsupportedStockMarketQuery(symbolText)) return unsupportedMarketResponse();
+  let intent = command?.intent ?? classifyIntent(request.message);
   const urls = extractUrls(request.message);
   const resolvedSymbol = needsSymbol(intent) && symbolText ? await callTool('resolveStockSymbol', { query: symbolText }) : undefined;
   let symbol = typeof resolvedSymbol?.output === 'string' ? resolvedSymbol.output : (resolvedSymbol?.output as { symbol?: string } | undefined)?.symbol;
@@ -176,6 +177,17 @@ function parseSlashCommand(query: string) {
   const command = slashCommands.find((item) => text === item.name || text.startsWith(`${item.name} `));
   if (!command) return undefined;
   return { ...command, args: text.slice(command.name.length).trim() };
+}
+
+function unsupportedMarketResponse(): ChatResponse {
+  const content = '当前版本仅接入 A 股市场数据，暂不支持港股、美股及其他海外市场标的。请输入 A 股股票名称或 6 位代码继续查询。';
+  const message: ChatResponse['message'] = {
+    id: `assistant-${Date.now()}`,
+    role: 'assistant',
+    content,
+    createdAt: new Date().toISOString(),
+  };
+  return { events: [{ type: 'final_answer', message: content }], message };
 }
 
 function commandUsageResponse(_request: ChatRequest, usage: string): ChatResponse {

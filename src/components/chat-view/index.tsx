@@ -413,7 +413,7 @@ export function ChatView() {
                     }
                     if (event.key === 'Enter') void send();
                   }}
-                  placeholder='输入 / 打开命令，或直接输入股票名称/代码'
+                  placeholder='输入 / 打开命令，或直接输入A股股票名称/代码'
                 />
               )}
             </div>
@@ -655,7 +655,7 @@ function QuickEntry({ onSubmit, slashItems }: { onSubmit(text: string): void; sl
         </svg>
       </div>
       <div className={styles['qe-title']}>开始新的投研分析</div>
-      <div className={styles['qe-sub']}>输入股票名称或代码，AI 将为你深度解读</div>
+      <div className={styles['qe-sub']}>输入A股股票名称或代码，AI 将为你深度解读</div>
       <div className={styles['qe-search-box']}>
         {slashOpen ? (
           <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} />
