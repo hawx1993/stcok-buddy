@@ -102,6 +102,7 @@ export function StockKlineChart({
     // For daily timeframe use provided data as seed, allow loadOlderData to fetch more on drag-left.
     // For other timeframes always fetch via API since the data prop is daily-only.
     if (data.length > 0 && !staticData && tf === '1d') {
+      console.log('[kline] using parent seed data', { code: stock?.code, bars: data.length });
       setLoadedData(data);
       loadedLimitRef.current = data.length;
       appendingOlderRef.current = false;
@@ -114,9 +115,11 @@ export function StockKlineChart({
     loadedLimitRef.current = 0;
     setHoverIndex(undefined);
     setHoverPoint(undefined);
+    console.log('[kline] no seed data, fetching from API', { code: stock?.code });
     getStocksenseApi()
       .getKline(toKlineRequestSymbol(stock), frame.limit, tf)
       .then((next) => {
+        console.log('[kline] API fetch done', { code: stock?.code, bars: next.length, firstDate: next[0]?.time });
         if (alive) {
           setLoadedData(next);
           loadedLimitRef.current = frame.limit;
@@ -124,7 +127,8 @@ export function StockKlineChart({
           setHoverPoint(undefined);
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('[kline] API fetch error', { code: stock?.code, error: err instanceof Error ? err.message : String(err) });
         if (alive) {
           setLoadedData([]);
           loadedLimitRef.current = 0;
@@ -390,7 +394,7 @@ function clampIndex(index: number, length: number) {
 
 function toKLineData(point: KlinePoint, index: number, total: number, period: Period): KLineData {
   return {
-    timestamp: point.timestamp ?? parseKlineTimestamp(point.time, index, total, period),
+    timestamp: (Number.isFinite(point.timestamp) ? point.timestamp : undefined) ?? parseKlineTimestamp(point.time, index, total, period),
     open: point.open,
     high: point.high,
     low: point.low,

@@ -23,7 +23,14 @@ export const stockSdkHistoricalProvider: HistoricalBarProvider = {
       endDate: compactDate(options.endDate),
     });
     const fetchedAt = new Date().toISOString();
-    return rows.map((row) => toDailyBar(symbol, row, options.adjustType, fetchedAt));
+    const bars = rows.map((row) => toDailyBar(symbol, row, options.adjustType, fetchedAt));
+    // ponytail: log first/last row dates to diagnose date format issues
+    if (bars.length) {
+      console.log('[market-data] getDailyBars ok', { symbol, count: bars.length, firstDate: bars[0].tradeDate, lastDate: bars.at(-1)?.tradeDate });
+    } else {
+      console.log('[market-data] getDailyBars empty', { symbol, options });
+    }
+    return bars;
   },
 };
 
@@ -90,7 +97,7 @@ export async function getRemoteFullQuote(symbol: string): Promise<FullQuote> {
 function toDailyBar(symbol: string, row: HistoryKline, adjustType: AdjustType, fetchedAt: string): DailyBarRecord {
   return {
     symbol,
-    tradeDate: row.date,
+    tradeDate: normalizeDate(row.date),
     open: row.open ?? Number.NaN,
     high: row.high ?? Number.NaN,
     low: row.low ?? Number.NaN,
@@ -108,6 +115,31 @@ function toDailyBar(symbol: string, row: HistoryKline, adjustType: AdjustType, f
 
 function compactDate(value?: string) {
   return value?.replaceAll('-', '');
+}
+
+function normalizeDate(value: string): string {
+  const text = String(value ?? '');
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  // Compact YYYYMMDD → YYYY-MM-DD
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  // ISO with time → extract date part
+  const iso = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  // Timestamp → convert to date
+  const ts = Number(text);
+  if (Number.isFinite(ts) && ts > 0) {
+    const d = new Date(ts < 1e12 ? ts * 1000 : ts);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  // Last resort: try Date.parse
+  const parsed = Date.parse(text);
+  if (Number.isFinite(parsed)) {
+    const d = new Date(parsed);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  return text;
 }
 
 function exchangeOf(symbol: string): SecurityRecord['exchange'] {

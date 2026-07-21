@@ -77,6 +77,13 @@ importers:
       zustand:
         specifier: ^5.0.2
         version: 5.0.14(@types/react@18.3.31)(react@18.3.1)
+    optionalDependencies:
+      '@duckdb/node-bindings-darwin-arm64':
+        specifier: 1.5.4-r.1
+        version: 1.5.4-r.1
+      '@duckdb/node-bindings-darwin-x64':
+        specifier: 1.5.4-r.1
+        version: 1.5.4-r.1
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.2

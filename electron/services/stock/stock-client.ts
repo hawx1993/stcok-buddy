@@ -161,6 +161,14 @@ export async function getQuote(symbolInput: string): Promise<StockDetail> {
   return (await queryLatestQuote(symbolInput)).data;
 }
 
+export async function getBatchQuotes(codes: string[]): Promise<StockDetail[]> {
+  // ponytail: lightweight batch — no DuckDB, no kline, just real-time quotes
+  const results = await Promise.all(
+    codes.map((code) => getQuote(code).catch(() => undefined)),
+  );
+  return results.filter((r): r is StockDetail => Boolean(r));
+}
+
 export async function getKline(symbolInput: string, limit = 120, period = '1d', beforeTimestamp?: number): Promise<KlinePoint[]> {
   const indexCode = normalizeIndexSymbol(symbolInput);
   if (indexCode) {
@@ -169,7 +177,17 @@ export async function getKline(symbolInput: string, limit = 120, period = '1d', 
   }
 
   const symbol = normalizeASymbol(symbolInput);
-  if (period === '1d') return (await queryHistoricalBars(symbol, { limit, period: '1d', adjustType: 'qfq' })).data;
+  if (period === '1d') {
+    // ponytail: DuckDB may hang on IO error — try direct APIs first, use DB as cache only
+    const direct = await fetchDailyKlineDirect(symbol, limit);
+    if (direct.length) return direct;
+    // Last resort: try DB (may hang, but we already have data from direct)
+    try {
+      const fromDb = await queryHistoricalBars(symbol, { limit, period: '1d', adjustType: 'qfq' });
+      if (fromDb.data.length) return fromDb.data;
+    } catch { /* DB broken, already returned direct data or empty */ }
+    return [];
+  }
   try {
     if (period === '15m') return getTencentMinuteKline(symbol, limit, '15');
     if (period === '1h') return getTencentMinuteKline(symbol, limit, '60');
@@ -186,6 +204,15 @@ export async function getKline(symbolInput: string, limit = 120, period = '1d', 
       return [];
     }
   }
+}
+
+async function fetchDailyKlineDirect(symbol: string, limit: number): Promise<KlinePoint[]> {
+  // Try Tencent first (faster), Eastmoney as fallback
+  try {
+    const tencent = await getTencentHistoryKline(symbol, limit, '1d');
+    if (tencent.length) return tencent;
+  } catch { /* continue */ }
+  try { return await getEastmoneyKline(symbol, limit, '101'); } catch { return []; }
 }
 
 function toSdkKlinePeriod(period: string): 'daily' | 'weekly' | 'monthly' {
@@ -497,7 +524,7 @@ export async function getStockDetail(symbolInput: string): Promise<StockDetail> 
     return enriched ? { ...enriched, kline: local.kline?.length ? local.kline : enriched.kline } : local;
   }
 
-  const remote = await getRemoteStockDetail(symbolInput).catch((error: unknown) => {
+  const remote: StockDetail = await getRemoteStockDetail(symbolInput).catch((error: unknown): StockDetail => {
     const code = normalizeASymbol(symbolInput);
     return {
       code,
@@ -506,8 +533,12 @@ export async function getStockDetail(symbolInput: string): Promise<StockDetail> 
       price: '--',
       changePercent: '--',
       summary: `暂时无法从 stock-sdk 获取 ${code} 的实时详情：${error instanceof Error ? error.message : '未知错误'}`,
-    } satisfies StockDetail;
+    };
   });
+  // ponytail: always include kline data even from remote path
+  if (!remote.kline?.length) {
+    try { remote.kline = await getKline(symbolInput, 140); } catch { /* keep existing */ }
+  }
   return remote;
 }
 

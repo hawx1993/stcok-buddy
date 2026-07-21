@@ -20,7 +20,7 @@ import {
 } from './services/conversation-store.js';
 import { getMarketDataStats, getMarketDataSyncStatus, onMarketDataProgress, requestMarketDataSyncStop, retryMarketDataFailures, startMarketDataSync } from './services/market-data/market-data-sync.js';
 import { runOrchestrator } from './services/agent/orchestrator.js';
-import { getBoardDetail, getKline, getMarketPageSnapshot, getStockDetail, listHotFocus, listStockSurgeEvents, onMarketPageSnapshotUpdated, searchStocks } from './services/stock/stock-client.js';
+import { getBatchQuotes, getBoardDetail, getKline, getMarketPageSnapshot, getStockDetail, listHotFocus, listStockSurgeEvents, onMarketPageSnapshotUpdated, searchStocks } from './services/stock/stock-client.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { listSurgeDates, saveSurgeSnapshot } from './services/stock/surge-history-store.js';
 import { listMarketNews } from './services/stock/news-client.js';
@@ -79,6 +79,7 @@ export function registerIpcHandlers() {
   });
   ipcMain.handle('board:getDetail', (_event, symbol: string, forceRefresh?: boolean, boardName?: string) => getBoardDetail(symbol, forceRefresh, boardName));
   ipcMain.handle('stock:getKline', (_event, symbol: string, limit?: number, period?: string, beforeTimestamp?: number) => getKline(symbol, limit, period, beforeTimestamp));
+  ipcMain.handle('stock:getBatchQuotes', (_event, codes: string[]) => getBatchQuotes(codes));
   ipcMain.handle('market:getPageSnapshot', (_event, tab: MarketTab, period?: MarketIndexPeriod) => getMarketPageSnapshot(tab, period));
   const removeMarketPageListener = onMarketPageSnapshotUpdated((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('market:pageSnapshotUpdated', snapshot);
