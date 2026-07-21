@@ -416,7 +416,11 @@ function toDateString(value: unknown) {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   const text = String(value ?? '');
   const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
-  return match?.[1] ?? text;
+  if (match) return match[1];
+  // ponytail: normalize compact dates like "20240722" → "2024-07-22"
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  return text;
 }
 function optionalNumber(value: unknown) { return value === null || value === undefined ? undefined : Number(value); }
 function optionalString(value: unknown) { return value === null || value === undefined || value === '' ? undefined : String(value); }

@@ -236,18 +236,11 @@ export function StockDetailPanel() {
     if (rightPanelTab !== 'favorites' || !favoriteStocks.length) return;
     let alive = true;
     const refresh = async () => {
-      const quotes = await Promise.all(
-        favoriteStocks.map((item) =>
-          getStocksenseApi()
-            .getStockDetail(item.code)
-            .catch(() => undefined),
-        ),
-      );
+      const codes = favoriteStocks.map((item) => item.code);
+      const quotes = await getStocksenseApi().getBatchQuotes(codes).catch(() => [] as StockDetail[]);
       if (!alive) return;
       setFavoriteQuotes(
-        Object.fromEntries(
-          quotes.filter((quote): quote is StockDetail => Boolean(quote)).map((quote) => [quote.code, quote]),
-        ),
+        Object.fromEntries(quotes.map((quote) => [quote.code, quote])),
       );
     };
     void refresh();

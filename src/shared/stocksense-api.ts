@@ -226,6 +226,9 @@ const webFallbackApi: StocksenseApi = {
   async getKline(_symbol: string, _limit = 120, _period = '1d', _beforeTimestamp?: number) {
     return [];
   },
+  async getBatchQuotes(_codes: string[]) {
+    return [];
+  },
   async listMarketNews(_query = '', page = 1, pageSize = 30) {
     return pageItems([], page, pageSize);
   },

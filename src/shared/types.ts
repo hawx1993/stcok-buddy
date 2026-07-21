@@ -543,6 +543,7 @@ export interface StocksenseApi {
   searchStocks(query: string): Promise<MarketSearchResult[]>;
   getBoardDetail(symbol: string, forceRefresh?: boolean, boardName?: string): Promise<BoardDetail>;
   getKline(symbol: string, limit?: number, period?: string, beforeTimestamp?: number): Promise<KlinePoint[]>;
+  getBatchQuotes(codes: string[]): Promise<StockDetail[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
   listSurgeHistoryDates(): Promise<string[]>;

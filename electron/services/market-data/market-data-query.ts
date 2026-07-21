@@ -31,6 +31,7 @@ export async function queryHistoricalBars(symbolInput: string, options: Historic
     try {
       const rows = await provider.getDailyBars(symbol, { adjustType, ...missing });
       const { valid, invalid } = partitionValidDailyBars(rows);
+      console.log('[market-data] partition', { symbol, provider: provider.name, total: rows.length, valid: valid.length, invalid: invalid.length, firstInvalid: invalid[0]?.error });
       if (invalid.length) warnings.push(`${provider.name} 返回 ${invalid.length} 条无效日线，已忽略`);
       if (valid.length) {
         await upsertDailyBars(valid);
@@ -38,6 +39,7 @@ export async function queryHistoricalBars(symbolInput: string, options: Historic
         break;
       }
     } catch (error) {
+      console.error('[market-data] provider error', { symbol, provider: provider.name, error: error instanceof Error ? error.message : String(error) });
       warnings.push(`${provider.name} 补齐失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -138,10 +140,16 @@ function resultFromBars(bars: Awaited<ReturnType<typeof listDailyBars>>, source:
 function toKlinePoint(bar: Awaited<ReturnType<typeof listDailyBars>>[number]): KlinePoint {
   return {
     time: bar.tradeDate,
-    timestamp: Date.parse(`${bar.tradeDate}T00:00:00+08:00`),
+    timestamp: toTimestamp(bar.tradeDate),
     open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume,
     amount: bar.amount, change: bar.change, changePercent: bar.changePercent, turnoverRate: bar.turnoverRate,
   };
+}
+
+function toTimestamp(tradeDate: string): number | undefined {
+  // ponytail: guard NaN from Date.parse on malformed dates (e.g. old DB data before toDateString fix)
+  const ts = Date.parse(`${tradeDate}T00:00:00+08:00`);
+  return Number.isFinite(ts) ? ts : undefined;
 }
 
 function toStockDetail(quote: Awaited<ReturnType<typeof getRemoteFullQuote>>, symbol: string): StockDetail {
@@ -157,7 +165,7 @@ function toStockDetail(quote: Awaited<ReturnType<typeof getRemoteFullQuote>>, sy
     low: quote.low ?? '--',
     prevClose: quote.prevClose ?? '--',
     pe: quote.pe ?? '--', pb: quote.pb ?? '--',
-    marketCap: quote.totalMarketCap === null ? '--' : `${quote.totalMarketCap.toFixed(1)}亿`,
+    marketCap: quote.totalMarketCap === null ? '--' : `${(quote.totalMarketCap / 100000000).toFixed(1)}亿`,
     volume: `${(quote.volume / 10_000).toFixed(1)}万手`,
     turnover: `${(quote.amount / 10_000).toFixed(2)}亿`,
     turnoverRate: quote.turnoverRate === null || quote.turnoverRate === undefined ? '--' : `${quote.turnoverRate.toFixed(2)}%`,

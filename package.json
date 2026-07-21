@@ -1,6 +1,6 @@
 {
   "name": "stockbuddy-desktop",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "StockBuddy - 对话式 A 股投研助手 Electron 跨端桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
@@ -68,6 +68,10 @@
     "stock-sdk": "^2.4.0",
     "zod": "^3.23.8",
     "zustand": "^5.0.2"
+  },
+  "optionalDependencies": {
+    "@duckdb/node-bindings-darwin-arm64": "1.5.4-r.1",
+    "@duckdb/node-bindings-darwin-x64": "1.5.4-r.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.2",
