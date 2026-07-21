@@ -270,9 +270,9 @@ function clamp(value: number, min: number, max: number) {
 
 async function streamMarkdown(markdown: string, onToken?: (token: string) => void) {
   if (!onToken) return;
-  for (const chunk of markdown.match(/[\s\S]{1,8}/g) ?? [markdown]) {
+  for (const chunk of markdown.match(/[\s\S]{1,4}/g) ?? [markdown]) {
     onToken(chunk);
-    await new Promise((resolve) => setTimeout(resolve, 35));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
 

@@ -18,13 +18,14 @@
   // 确保在 snippet 建议时不被普通文本覆盖
   "editor.suggest.snippetsPreventQuickSuggestions": false,
   // 指定使用项目本地的 TypeScript 版本，而不是 VSCode 内置的版本
-  "typescript.tsdk": "node_modules/typescript/lib",
   // 当检测到工作区有 TypeScript 版本时，提示是否使用工作区的 TypeScript
   "typescript.enablePromptUseWorkspaceTsdk": true,
   // 禁用 TS 的“保存时重度检查”，不会影响已有类型的检查、提示、跳转、补全
   "typescript.disableAutomaticTypeAcquisition": true,
   // 提升 tsserver 内存
   "typescript.tsserver.maxTsServerMemory": 4096,
+  "js/ts.experimental.useTsgo": true,
+  "js/ts.tsdk.path": "./node_modules/typescript",
   // 设置包管理器为 pnpm
   "npm.packageManager": "pnpm",
   // 排除 out 目录的文件监视

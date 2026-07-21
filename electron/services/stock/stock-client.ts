@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import StockSDK from 'stock-sdk';
-import type { AgentResultCard, BoardDetail, ChipDistribution, ChipPoint, HotFocusItem, HotFocusTab, IStockFundFlowSnapshot, KlinePoint, MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketSearchResult, MarketTab, StockDetail } from '../../../src/shared/types.js';
+import type { AgentResultCard, BoardDetail, ChipDistribution, ChipPoint, HotFocusItem, HotFocusTab, IStockFundFlowSnapshot, KlinePoint, MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketSearchResult, MarketTab, StockDetail, StockSurgeEvent } from '../../../src/shared/types.js';
 import { getLatestDailyBar, listDailyBars, listLatestMarketRows, listSecurities, readBoardDetail, readBoardSnapshot, writeBoardDetail, writeBoardSnapshot } from '../market-data/market-data-store.js';
 import { queryHistoricalBars, queryLatestQuote } from '../market-data/market-data-query.js';
 import { remoteMarketStatus } from '../market-data/providers.js';
@@ -137,11 +137,24 @@ function numericValue(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-export async function resolveASymbol(input: string): Promise<string> {
+export async function resolveASymbol(input: string): Promise<{ symbol: string; name?: string }> {
   const candidate = extractSymbolCandidate(input);
-  if (/^\d{6}$/.test(candidate)) return candidate;
-  const result = (await sdk.search(candidate)).find((item: { code?: string; category?: string }) => item.category === 'stock' && item.code);
-  return result?.code?.replace(/^\D+/, '') ?? normalizeASymbol(candidate);
+  if (/^\d{6}$/.test(candidate)) {
+    const result = (await sdk.search(candidate)).find((item: { code?: string; name?: string; category?: string }) => item.category === 'stock' && item.code);
+    return { symbol: candidate, name: result?.name };
+  }
+  const result = (await sdk.search(candidate)).find((item: { code?: string; name?: string; category?: string }) => item.category === 'stock' && item.code);
+  if (result) return { symbol: result.code!.replace(/^\D+/, ''), name: result.name };
+  return { symbol: normalizeASymbol(candidate) };
+}
+
+export async function isUnsupportedStockMarketQuery(input: string) {
+  const query = input.trim();
+  if (!query || query.length > 40) return false;
+  const results = await sdk.search(query);
+  const stockResults = results.filter((item) => item.category === 'stock');
+  return stockResults.some((item) => item.market === 'hk' || item.market === 'us')
+    && !stockResults.some((item) => item.market === 'sh' || item.market === 'sz' || item.market === 'bj');
 }
 
 export async function getQuote(symbolInput: string): Promise<StockDetail> {
@@ -2215,18 +2228,78 @@ async function listMarketHot(): Promise<HotFocusItem[]> {
 
 async function listSurgeHot(): Promise<HotFocusItem[]> {
   if (isBeforeChinaMarketOpen()) return [];
-  const [changes, pools] = await Promise.all([listStockChangeEvents(), listEastmoneySurgeHot().catch(() => [])]);
+  const [changesResult, poolsResult] = await Promise.allSettled([
+    sdk.marketEvent.stockChanges('all'),
+    listEastmoneySurgeHot(),
+  ]);
+  const changes = changesResult.status === 'fulfilled' ? toStockChangeHotItems(changesResult.value) : [];
+  const pools = poolsResult.status === 'fulfilled' ? poolsResult.value : [];
   return [...changes, ...pools.filter((pool) => !changes.some((change) => change.code === pool.code && change.tag === pool.tag))]
     .sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time));
 }
 
-type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
+export async function listStockSurgeEvents(symbolInput: string): Promise<StockSurgeEvent[]> {
+  const symbol = normalizeASymbol(symbolInput);
+  const [historyResult, currentResult] = await Promise.allSettled([
+    sdk.marketEvent.individualChangesHistory(symbol, { days: 7 }),
+    listSurgeHot(),
+  ]);
+  if (historyResult.status === 'rejected' && currentResult.status === 'rejected') {
+    throw new Error('个股异动历史与当日异动数据均加载失败');
+  }
 
-async function listStockChangeEvents(): Promise<HotFocusItem[]> {
-  if (isBeforeChinaMarketOpen()) return [];
-  const groups = await Promise.allSettled(stockChangeTypes.map((type) => withTimeout(sdk.marketEvent.stockChanges(type), [])));
-  return groups.flatMap((group, groupIndex) => group.status === 'fulfilled' ? toStockChangeHotItems(group.value, groupIndex) : []);
+  const historyEvents = historyResult.status === 'fulfilled' ? toIndividualHistoryEvents(historyResult.value, symbol) : [];
+  const currentEvents = currentResult.status === 'fulfilled'
+    ? currentResult.value.filter((item) => item.code === symbol).map((item) => toCurrentSurgeEvent(item, symbol))
+    : [];
+  const seen = new Set<string>();
+  return [...currentEvents, ...historyEvents]
+    .filter((item) => {
+      const key = `${item.tradeDate}-${item.time ?? ''}-${item.tag ?? ''}-${item.description ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.tradeDate.localeCompare(a.tradeDate) || surgeTimeValue(b.time) - surgeTimeValue(a.time));
 }
+
+function toIndividualHistoryEvents(
+  history: Awaited<ReturnType<typeof sdk.marketEvent.individualChangesHistory>>,
+  symbol: string,
+): StockSurgeEvent[] {
+  return history.days
+    .filter((day) => day.available)
+    .flatMap((day) =>
+      day.changes.map((change, index) => ({
+        id: `individual-${day.date}-${change.typeCode}-${change.time}-${index}`,
+        tradeDate: day.date,
+        title: history.name || symbol,
+        code: symbol,
+        name: history.name || undefined,
+        time: change.time,
+        price: change.price === null ? undefined : change.price.toFixed(2),
+        changePercent: change.changePercent === null ? undefined : formatPercent(change.changePercent),
+        description: change.info,
+        tag: formatStockChangeReason(change.changeTypeLabel, change.changeType),
+        type: /卖|跌|跳水|下挫|低|开板/.test(change.changeTypeLabel) ? 'plummet' : 'surge',
+      } satisfies StockSurgeEvent)),
+    );
+}
+
+function toCurrentSurgeEvent(item: HotFocusItem, symbol: string): StockSurgeEvent {
+  return {
+    ...item,
+    id: `current-${item.id}`,
+    tradeDate: formatIsoDate(new Date()),
+    code: symbol,
+  };
+}
+
+function formatIsoDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
 
 function isBeforeChinaMarketOpen(date = new Date()) {
   const day = date.getDay();
@@ -2235,12 +2308,12 @@ function isBeforeChinaMarketOpen(date = new Date()) {
   return minutes < 9 * 60 + 25;
 }
 
-function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEvent.stockChanges>>, groupIndex: number): HotFocusItem[] {
-  return changes.flatMap((item, index): HotFocusItem[] => {
+function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEvent.stockChanges>>): HotFocusItem[] {
+  return changes.map((item, index) => {
     const parsed = parseStockChangeInfo(item.changeType, item.info);
     const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType);
-    return [{
-      id: `surge-${item.changeType}-${item.time}-${item.code}-${groupIndex}-${index}`,
+    return {
+      id: `surge-${item.changeType}-${item.time}-${item.code}-${index}`,
       title: `${item.name} ${item.code}`,
       code: item.code,
       name: item.name,
@@ -2251,20 +2324,8 @@ function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEven
       description: reason,
       tag: reason,
       type: /卖|跌|跳水|下挫|低|开板/.test(reason) ? 'plummet' : 'surge',
-    }];
+    };
   });
-}
-
-const stockChangeTypes = [
-  'high_60d', 'low_60d', 'rocket_launch', 'quick_rebound', 'surge_60d', 'drop_60d', 'accelerate_down', 'high_dive',
-  'limit_down_seal', 'limit_up_seal', 'limit_down_open', 'limit_up_open', 'large_buy', 'large_sell',
-] as const;
-
-function withTimeout<T>(promise: Promise<T>, fallback: T, ms = 4_500) {
-  return Promise.race([
-    promise.catch(() => fallback),
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
 }
 
 function parseStockChangeInfo(type: string | undefined, info: string) {

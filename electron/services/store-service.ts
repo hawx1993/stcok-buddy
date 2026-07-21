@@ -42,7 +42,16 @@ export async function runStoreCommand(query: string): Promise<ChatResponse | und
   const mod = await import(`data:text/javascript;base64,${encoded}#${Date.now()}`) as { run?: (input: { args: string; query: string; item: StoreItem; llm?: { generate: typeof generateReport } }) => Promise<StoreCommandResult> };
   if (typeof mod.run !== 'function') throw new Error(`Store plugin ${item.id} missing run()`);
   const output = await mod.run({ args, query, item, llm: { generate: generateReport } });
-  const events = output.events ?? [{ type: 'final_answer' as const, message: output.content }];
+  const planAgents = [
+    { id: 'understand', agent: '理解问题', description: `识别${item.name ?? '命令'}` },
+    { id: 'collect', agent: '采集数据', description: item.description ?? '拉取数据' },
+    { id: 'summarize', agent: '汇总', description: '整理数据并生成报告' },
+  ];
+  const events = [
+    { type: 'plan_created' as const, title: '分析计划', message: item.description ?? item.name, progress: { current: 0, total: 3 }, plan: { agents: planAgents } },
+    ...(output.events ?? []),
+    { type: 'final_answer' as const, message: output.content },
+  ];
   return {
     events,
     message: {

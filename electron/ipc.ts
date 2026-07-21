@@ -20,7 +20,7 @@ import {
 } from './services/conversation-store.js';
 import { getMarketDataStats, getMarketDataSyncStatus, onMarketDataProgress, requestMarketDataSyncStop, retryMarketDataFailures, startMarketDataSync } from './services/market-data/market-data-sync.js';
 import { runOrchestrator } from './services/agent/orchestrator.js';
-import { getBoardDetail, getKline, getMarketPageSnapshot, getStockDetail, listHotFocus, onMarketPageSnapshotUpdated, searchStocks } from './services/stock/stock-client.js';
+import { getBoardDetail, getKline, getMarketPageSnapshot, getStockDetail, listHotFocus, listStockSurgeEvents, onMarketPageSnapshotUpdated, searchStocks } from './services/stock/stock-client.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { listSurgeDates, saveSurgeSnapshot } from './services/stock/surge-history-store.js';
 import { listMarketNews } from './services/stock/news-client.js';
@@ -86,11 +86,12 @@ export function registerIpcHandlers() {
   app.once('before-quit', removeMarketPageListener);
   ipcMain.handle('hot:list', async (_event, tab: HotFocusTab) => {
     const items = await listHotFocus(tab);
-    if (tab === 'surge' && items.length) void saveSurgeSnapshot(items).catch(console.error);
+    if (tab === 'surge' && items.length) void saveSurgeSnapshot(items).catch((error: unknown) => console.error('[surge-history] snapshot failed', error));
     return items;
   });
   ipcMain.handle('hot:historyDates', () => listSurgeDates());
   ipcMain.handle('hot:history', (_event, date: string, offset?: number, limit?: number) => listSurgeHistoryWithBackfill(date, offset, limit));
+  ipcMain.handle('stock:surgeEvents', (_event, code: string) => listStockSurgeEvents(code));
   ipcMain.handle('marketData:getStatus', () => getMarketDataSyncStatus());
   ipcMain.handle('marketData:startSync', () => startMarketDataSync(true));
   ipcMain.handle('marketData:retryFailures', () => retryMarketDataFailures());

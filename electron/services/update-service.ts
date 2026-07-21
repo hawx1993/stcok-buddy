@@ -160,6 +160,18 @@ function updateState(next: Partial<IAppUpdateState>) {
 }
 
 function updateAvailableState(info: UpdateInfo) {
+  const currentVersion = getCurrentVersion();
+  if (compareVersions(info.version, currentVersion) <= 0) {
+    return updateState({
+      status: 'not-available',
+      latestVersion: info.version,
+      releaseName: info.releaseName ?? undefined,
+      releaseNotes: toReleaseNotesText(info.releaseNotes),
+      progress: undefined,
+      error: undefined,
+      message: '已是最新版本',
+    });
+  }
   return updateState({
     status: 'available',
     latestVersion: info.version,

@@ -4,6 +4,7 @@ import gsap from 'gsap';
 import { marked } from 'marked';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { KlineModal, StockKlineChart } from '../kline-chart';
+import { AnalysisProgress } from './components/analysis-progress';
 import type {
   AgentResultCard,
   AgentRunEvent,
@@ -413,7 +414,7 @@ export function ChatView() {
                     }
                     if (event.key === 'Enter') void send();
                   }}
-                  placeholder='输入 / 打开命令，或直接输入股票名称/代码'
+                  placeholder='输入 / 打开命令，或直接输入A股股票名称/代码'
                 />
               )}
             </div>
@@ -655,7 +656,7 @@ function QuickEntry({ onSubmit, slashItems }: { onSubmit(text: string): void; sl
         </svg>
       </div>
       <div className={styles['qe-title']}>开始新的投研分析</div>
-      <div className={styles['qe-sub']}>输入股票名称或代码，AI 将为你深度解读</div>
+      <div className={styles['qe-sub']}>输入A股股票名称或代码，AI 将为你深度解读</div>
       <div className={styles['qe-search-box']}>
         {slashOpen ? (
           <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} />
@@ -767,10 +768,13 @@ function MessageBubble({
         )}
       </div>
       <div className={styles['msg-body']} data-msgbody>
-        {message.thinking ? (
+        {message.thinking && !message.runEvents?.length ? (
           <ThinkingBanner />
         ) : message.processedSeconds ? (
           <ProcessedBanner seconds={message.processedSeconds} />
+        ) : null}
+        {(message.runEvents?.length || message.thinking) ? (
+          <AnalysisProgress events={message.runEvents ?? []} toolCalls={message.toolCalls} />
         ) : null}
         {message.content.trim() ? (
           <div
@@ -788,15 +792,6 @@ function MessageBubble({
             }}
           />
         ) : null}
-        {message.thinking ? (
-          <ThinkingTrace startedAt={message.thinking.startedAt} steps={message.thinking.steps} />
-        ) : null}
-        {message.runEvents?.length ? (
-          <RunEventTrace events={message.runEvents} />
-        ) : !message.thinking && message.steps?.length ? (
-          <Trace steps={message.steps} />
-        ) : null}
-        {message.toolCalls?.length ? <ToolCallTrace toolCalls={message.toolCalls} /> : null}
         {message.result ? (
           <ResultCard result={message.result} onStockClick={onStockClick} onBoardClick={onBoardClick} />
         ) : null}
@@ -4108,6 +4103,8 @@ function eventLabel(event: AgentRunEvent) {
     subagent_completed: 'Agent完成',
     progress_updated: '进度',
     evidence_added: '证据',
+    intermediate_result: '中间结果',
+    data_source_checked: '数据源',
     summary_completed: '汇总',
     step_started: '步骤开始',
     step_completed: '步骤完成',

@@ -64,6 +64,7 @@ function prepareForUpdateInstall() {
 }
 
 function createWindow() {
+  const preloadPath = isDev ? path.join(process.cwd(), 'electron/preload.cjs') : path.join(__dirname, 'preload.cjs');
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -74,7 +75,7 @@ function createWindow() {
     backgroundColor: '#0B1426',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,

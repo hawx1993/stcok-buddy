@@ -28,6 +28,7 @@ const api = {
   listHotFocus: (tab) => ipcRenderer.invoke('hot:list', tab),
   listSurgeHistoryDates: () => ipcRenderer.invoke('hot:historyDates'),
   listSurgeHistory: (date, offset, limit) => ipcRenderer.invoke('hot:history', date, offset, limit),
+  listStockSurgeEvents: (code) => ipcRenderer.invoke('stock:surgeEvents', code),
   getMarketDataSyncStatus: () => ipcRenderer.invoke('marketData:getStatus'),
   startMarketDataSync: () => ipcRenderer.invoke('marketData:startSync'),
   retryMarketDataFailures: () => ipcRenderer.invoke('marketData:retryFailures'),

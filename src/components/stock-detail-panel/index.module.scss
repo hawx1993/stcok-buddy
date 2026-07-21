@@ -538,6 +538,175 @@
   padding: 8px 10px;
   border-radius: 4px;
 }
+.stock-surge-events {
+  padding: 0 12px 12px;
+}
+.stock-surge-events :global(.empty) {
+  min-height: 110px;
+}
+.stock-surge-date-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg);
+}
+.stock-surge-date-header em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--list-item-active);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.stock-surge-date-body {
+  position: relative;
+  padding-left: 0;
+}
+.stock-surge-event {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 8px;
+}
+.stock-surge-event-time {
+  position: relative;
+  padding-top: 9px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: right;
+}
+.stock-surge-event-time small {
+  display: block;
+  font-size: 10px;
+}
+.stock-surge-event-time::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  right: -11px;
+  z-index: 1;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.stock-surge-event-time::after {
+  content: '';
+  position: absolute;
+  top: 17px;
+  right: -9px;
+  bottom: -13px;
+  width: 1px;
+  background: var(--border);
+}
+.stock-surge-event-last .stock-surge-event-time::after {
+  display: none;
+}
+.stock-surge-event-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(66px, 76px);
+  align-items: center;
+  gap: 8px;
+  min-height: 62px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: var(--input-bg);
+  overflow: hidden;
+}
+.stock-surge-event-main {
+  min-width: 0;
+}
+.stock-surge-event-main b {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+.stock-surge-event-main b em {
+  margin-left: 6px;
+}
+.stock-surge-event-main em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.stock-surge-event-main small {
+  display: flex;
+  gap: 7px;
+  margin-top: 5px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.stock-surge-event-action {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  max-width: 92px;
+  color: var(--fg-secondary);
+  font-size: 11px;
+  line-height: 1.25;
+}
+.stock-surge-event-action > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1px 4px;
+  background: var(--surface);
+  white-space: nowrap;
+}
+.stock-surge-event-action small {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stock-surge-error {
+  padding: 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.stock-surge-skeleton {
+  display: grid;
+  gap: 8px;
+}
+.stock-surge-skeleton-item {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 8px;
+}
+.stock-surge-skeleton-item span {
+  height: 54px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-hover) 25%, var(--surface-active) 37%, var(--surface-hover) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+.stock-surge-skeleton-item span:first-child {
+  height: 16px;
+  margin-top: 10px;
+}
 .favorite-item {
   width: 100%;
   display: grid;

@@ -76,9 +76,9 @@ function formatPercentValue(value: unknown) {
 }
 
 async function streamText(text: string, onToken: (token: string) => void) {
-  for (const chunk of text.match(/[\s\S]{1,16}/g) ?? [text]) {
+  for (const chunk of text.match(/[\s\S]{1,4}/g) ?? [text]) {
     onToken(chunk);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
   return text;
 }

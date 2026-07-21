@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent 
 import gsap from 'gsap';
 import { useAppStore } from '../../store/app-store';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import type { BoardConstituent, HotFocusItem, MarketNewsItem, StockDetail } from '../../shared/types';
+import type { BoardConstituent, HotFocusItem, MarketNewsItem, StockDetail, StockSurgeEvent } from '../../shared/types';
 import { KlineModal, StockKlineChart } from '../kline-chart';
 import { Empty } from '../empty';
 import styles from './index.module.scss';
@@ -39,6 +39,9 @@ export function StockDetailPanel() {
   const [news, setNews] = useState<MarketNewsItem[]>([]);
   const [surgeLoading, setSurgeLoading] = useState(false);
   const [surgeItems, setSurgeItems] = useState<HotFocusItem[]>([]);
+  const [stockSurgeEvents, setStockSurgeEvents] = useState<StockSurgeEvent[]>([]);
+  const [stockSurgeLoading, setStockSurgeLoading] = useState(false);
+  const [stockSurgeError, setStockSurgeError] = useState<string>();
   const [surgeDateOptions, setSurgeDateOptions] = useState(() => makeSurgeDateOptions());
   const [selectedSurgeDate, setSelectedSurgeDate] = useState(surgeDateOptions[0]);
   const [isSurgeMonitoring, setSurgeMonitoring] = useState(() => isChinaMarketOpen());
@@ -110,6 +113,34 @@ export function StockDetailPanel() {
       alive = false;
     };
   }, [selectedStock]);
+
+  useEffect(() => {
+    if (!selectedStock?.code) {
+      setStockSurgeEvents([]);
+      setStockSurgeLoading(false);
+      setStockSurgeError(undefined);
+      return;
+    }
+    let alive = true;
+    setStockSurgeEvents([]);
+    setStockSurgeLoading(true);
+    setStockSurgeError(undefined);
+    getStocksenseApi()
+      .listStockSurgeEvents(selectedStock.code)
+      .then((items) => {
+        if (alive) setStockSurgeEvents(items);
+      })
+      .catch((error: unknown) => {
+        if (!alive) return;
+        setStockSurgeError(error instanceof Error ? error.message : '异动记录加载失败');
+      })
+      .finally(() => {
+        if (alive) setStockSurgeLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedStock?.code]);
 
   useEffect(() => {
     if (rightPanelTab !== 'news') return;
@@ -685,6 +716,44 @@ export function StockDetailPanel() {
               <div className={styles['summary-box']} data-summary>
                 {selectedStock.summary ?? '暂无摘要。'}
               </div>
+              <div className={styles.divider} />
+              <div className={styles['section-title']}>最近一周异动</div>
+              <div className={styles['stock-surge-events']}>
+                {stockSurgeLoading ? (
+                  <StockSurgeSkeleton />
+                ) : stockSurgeError ? (
+                  <div className={styles['stock-surge-error']}>{stockSurgeError}</div>
+                ) : stockSurgeEvents.length ? (
+                  (() => {
+                    const today = new Date().toLocaleDateString('en-CA');
+                    const groups = Object.entries(
+                      stockSurgeEvents.reduce<Record<string, StockSurgeEvent[]>>((acc, item) => {
+                        (acc[item.tradeDate] ??= []).push(item);
+                        return acc;
+                      }, {}),
+                    ).sort(([a], [b]) => b.localeCompare(a));
+                    return groups.map(([date, items]) => (
+                      <div className={styles['stock-surge-group']} key={date}>
+                        <div className={styles['stock-surge-date-header']}>
+                          <span>{date.slice(5)}</span>
+                          {date === today ? <em>今日</em> : null}
+                        </div>
+                        <div className={styles['stock-surge-date-body']}>
+                          {items.map((item, index) => (
+                            <StockSurgeEventItem
+                              key={`${item.tradeDate}-${item.id}`}
+                              item={item}
+                              isLastInGroup={index === items.length - 1}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()
+                ) : (
+                  <Empty text='最近一周暂无异动记录' />
+                )}
+              </div>
             </div>
           ) : (
             <Empty
@@ -949,6 +1018,46 @@ function SurgeSkeleton() {
               <span className={styles['sk-amount']} />
             </span>
           </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StockSurgeEventItem({ item, isLastInGroup }: { item: StockSurgeEvent; isLastInGroup?: boolean }) {
+  const isDown = String(item.changePercent).startsWith('-');
+  return (
+    <div className={cx(styles['stock-surge-event'], isLastInGroup && styles['stock-surge-event-last'])}>
+      <span className={styles['stock-surge-event-time']}>
+        <small>{item.time ?? '--'}</small>
+      </span>
+      <span className={styles['stock-surge-event-card']}>
+        <span className={styles['stock-surge-event-main']}>
+          <b>
+            {item.name ?? item.title}
+            <em>{item.code}</em>
+          </b>
+          <small>
+            当前 <span>{item.price ?? '--'}</span>
+            <span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span>
+          </small>
+        </span>
+        <span className={styles['stock-surge-event-action']}>
+          <span>{surgeReason(item)}</span>
+          {hasSurgeAmount(item.amount) ? <small>{item.amount}</small> : null}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function StockSurgeSkeleton() {
+  return (
+    <div className={styles['stock-surge-skeleton']}>
+      {Array.from({ length: 3 }, (_, index) => (
+        <div className={styles['stock-surge-skeleton-item']} key={index}>
+          <span />
+          <span />
         </div>
       ))}
     </div>

@@ -211,6 +211,8 @@ export type AgentRunEventType =
   | 'subagent_completed'
   | 'progress_updated'
   | 'evidence_added'
+  | 'intermediate_result'
+  | 'data_source_checked'
   | 'summary_completed'
   | 'final_answer'
   | 'error';
@@ -242,11 +244,26 @@ export interface AgentRunEvent {
     name: string;
     args?: string;
     mode?: string;
+    label?: string;
   };
   intent?: {
     name: string;
     target?: string;
     mode?: string;
+    label?: string;
+  };
+  plan?: {
+    agents: Array<{ id: string; agent: string; description: string }>;
+  };
+  intermediateResult?: {
+    agentName: string;
+    label: string;
+    markdown: string;
+    findings: StructuredAgentFinding[];
+  };
+  dataSource?: {
+    name: string;
+    status: 'pending' | 'loading' | 'done' | 'error';
   };
   evidence?: EvidenceItem[];
   findings?: StructuredAgentFinding[];
@@ -460,6 +477,10 @@ export interface HotFocusItem {
   type?: 'surge' | 'plummet' | 'volume' | 'neutral';
 }
 
+export interface StockSurgeEvent extends HotFocusItem {
+  tradeDate: string;
+}
+
 export interface AgentResultCard {
   title: string;
   subtitle?: string;
@@ -526,6 +547,7 @@ export interface StocksenseApi {
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
   listSurgeHistoryDates(): Promise<string[]>;
   listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;
+  listStockSurgeEvents(code: string): Promise<StockSurgeEvent[]>;
   getMarketDataSyncStatus(): Promise<MarketDataSyncStatus>;
   startMarketDataSync(): Promise<MarketDataSyncStatus>;
   retryMarketDataFailures(): Promise<MarketDataSyncStatus>;

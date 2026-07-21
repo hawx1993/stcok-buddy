@@ -24,8 +24,8 @@ export const resolveStockSymbol: AgentTool<{ query: string }, { symbol: string; 
   description: 'Resolve A-share stock code from a user query.',
   inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
   async run(input) {
-    const symbol = await resolveASymbol(text(asRecord(input), 'query'));
-    return { symbol };
+    const result = await resolveASymbol(text(asRecord(input), 'query'));
+    return result;
   },
 };
 
