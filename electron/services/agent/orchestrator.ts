@@ -2,7 +2,6 @@ import type { AgentResultCard, AgentRunEvent, AnnouncementItem, ChatRequest, Cha
 import { type DailyDragonTigerItem, isUnsupportedStockMarketQuery } from '../stock/stock-client.js';
 import { executeDag, type DagNode } from './dag-executor.js';
 import { fetchBoard } from './data-agent.js';
-import { runReportAgent } from './report-agent.js';
 import { runNewsAnalysisAgent } from './news-analysis-agent.js';
 import { reviewComplianceStructured } from './compliance-critic.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
@@ -58,7 +57,25 @@ interface AgentContext {
 
 export async function runOrchestrator(request: ChatRequest, onToken?: (token: string) => void, onEvent?: (event: AgentRunEvent) => void): Promise<ChatResponse> {
   const storeResponse = await runStoreCommand(request.message);
-  if (storeResponse) return storeResponse;
+  if (storeResponse) {
+    // Stream events so the UI shows analysis progress before the final response
+    for (const event of storeResponse.events) {
+      onEvent?.(event);
+    }
+    // Simulate typing: stream content in chunks so the UI shows a typing effect
+    if (onToken && storeResponse.message.content) {
+      const content = storeResponse.message.content;
+      const CHUNK_SIZE = 4;
+      for (let i = 0; i < content.length; i += CHUNK_SIZE) {
+        onToken(content.slice(i, i + CHUNK_SIZE));
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
+    return {
+      ...storeResponse,
+      message: { ...storeResponse.message, runEvents: storeResponse.events },
+    };
+  }
 
   const events: AgentRunEvent[] = [];
   const emitEvent = (event: AgentRunEvent) => {
@@ -71,14 +88,16 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
   let intent = command?.intent ?? classifyIntent(request.message);
   const urls = extractUrls(request.message);
   const resolvedSymbol = needsSymbol(intent) && symbolText ? await callTool('resolveStockSymbol', { query: symbolText }) : undefined;
-  let symbol = typeof resolvedSymbol?.output === 'string' ? resolvedSymbol.output : (resolvedSymbol?.output as { symbol?: string } | undefined)?.symbol;
+  let symbol = typeof resolvedSymbol?.output === 'string' ? resolvedSymbol.output : (resolvedSymbol?.output as { symbol?: string; name?: string } | undefined)?.symbol;
+  let stockName = typeof resolvedSymbol?.output === 'object' ? (resolvedSymbol.output as { name?: string } | undefined)?.name : undefined;
   if (!command && intent === 'chat' && isPossibleStockOnlyQuery(symbolText)) {
     const record = await callTool('resolveStockSymbol', { query: symbolText });
-    const candidateOutput = record.output as { symbol?: string } | undefined;
+    const candidateOutput = record.output as { symbol?: string; name?: string } | undefined;
     const candidate = candidateOutput?.symbol ?? (typeof record.output === 'string' ? record.output : '');
     if (/^\d{6}$/.test(candidate)) {
       intent = 'analysis';
       symbol = candidate;
+      stockName = candidateOutput?.name;
     }
   }
   const context: AgentContext = {
@@ -100,22 +119,35 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
     type: 'command_detected',
     title: 'Command 识别',
     message: `${command.name}${command.args ? ` ${command.args}` : ''}`,
-    command: { name: command.name, args: command.args, mode: command.singleAgent ? '单 Agent 分析' : '多 Agent 协同分析' },
+    command: { name: command.name, args: command.args, mode: command.singleAgent ? '单 Agent 分析' : '多 Agent 协同分析', label: stockName ? `${stockName}（${symbol}）` : undefined },
   } : {
     type: 'intent_detected',
     title: '意图识别',
     message: `${intentLabel(intent)}${symbol ? `：${symbol}` : ''}`,
-    intent: { name: intentLabel(intent), target: symbol ?? context.boardKeyword, mode: intent === 'analysis' ? '多 Agent 协同分析' : '单流程分析' },
+    intent: { name: intentLabel(intent), target: symbol ?? context.boardKeyword, mode: intent === 'analysis' ? '多 Agent 协同分析' : '单流程分析', label: stockName ? `${stockName}（${symbol}）` : undefined },
   });
 
   const nodes = buildDag(context, onToken);
+  const analysisAgentNodes = nodes.filter((n) => n.id.startsWith('analysis-') && n.id !== 'analysis-overview');
+  const knownDataIds = new Set(['quote', 'market-data', 'read-links', 'news-announcements', 'chat', 'memory-placeholder', 'technical']);
+  const otherNodes = nodes.filter((n) => !n.id.startsWith('analysis-') && !knownDataIds.has(n.id));
+  const hasReportStep = context.intent !== 'quote' && context.intent !== 'chat';
+  const planAgents = [
+    ...(nodes.some((n) => n.id === 'quote') ? [{ id: 'data', agent: 'DataAgent', description: '获取实时行情与K线数据' }] : []),
+    ...analysisAgentNodes.map((n) => ({ id: n.id.replace('analysis-', ''), agent: n.agent, description: n.description })),
+    ...otherNodes.map((n) => ({ id: n.id, agent: n.agent, description: n.description })),
+    ...(nodes.some((n) => n.id === 'analysis-overview') ? [{ id: 'overview', agent: '汇总分析', description: '汇总五维分析结果' }] : []),
+    ...(hasReportStep ? [{ id: 'report', agent: '生成投研报告', description: '生成综合投研报告' }] : []),
+  ];
   emitEvent({
     type: 'plan_created',
     title: '分析计划',
     message: `1. 识别用户意图\n2. 解析股票代码 / 板块 / 关键词\n3. 调用必要工具获取数据\n4. 分配子 Agent 专项分析\n5. 汇总证据并生成投研结论`,
     progress: { current: 0, total: nodes.length },
+    plan: { agents: planAgents },
   });
 
+  const totalWithReport = nodes.length + (hasReportStep ? 1 : 0);
   let completedSteps = 0;
   await executeDag(nodes, context, (step) => {
     if (step.status === 'completed' || step.status === 'error') completedSteps += 1;
@@ -125,26 +157,52 @@ export async function runOrchestrator(request: ChatRequest, onToken?: (token: st
       message: step.description,
       step,
       subAgent: { name: step.agent, description: step.description, status: step.status, summary: step.detail },
-      progress: { current: completedSteps, total: nodes.length },
+      progress: { current: completedSteps, total: totalWithReport },
     });
   });
 
+  // ── 生成投研报告（统一后处理步骤，带打字效果）──
+  const reportStepId = 'analysis-report';
+  if (hasReportStep) {
+    emitEvent({
+      type: 'subagent_started',
+      title: '子 Agent 启动',
+      message: '生成综合投研报告',
+      step: { id: reportStepId, agent: '生成投研报告', description: '生成综合投研报告', status: 'running' },
+      subAgent: { name: '生成投研报告', description: '生成综合投研报告', status: 'running' },
+      progress: { current: completedSteps, total: totalWithReport },
+    });
+  }
+
   const draft = context.singleAgent && context.analysisResults?.[0]
     ? context.analysisResults[0].content
-    : context.themeAttribution ?? context.analysisOverview ?? await runReportAgent({
-      query: buildReportQuery(request.message, context.linkedPages),
-      intent,
-      quote: context.quote,
-      technical: context.technical,
-      board: context.board,
-      news: context.news,
-      announcements: context.announcements,
-      linkedPages: context.linkedPages,
-    }, onToken);
+    : context.themeAttribution ?? context.analysisOverview ?? context.board?.narrative ?? '';
+
   const review = reviewComplianceStructured({ text: draft, evidence: context.evidence, findings: context.findings });
   context.compliance = review;
   const content = review.revisedText;
+
+  // ── 打字效果：仅在"生成投研报告"步骤流式输出 ──
+  if (onToken && content && hasReportStep) {
+    for (const chunk of content.match(/[\s\S]{1,8}/g) ?? [content]) {
+      onToken(chunk);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+  }
+
   const result = context.board ?? enrichTechnicalCard(context.technical, context.quote) ?? quoteToCard(context.quote);
+
+  if (hasReportStep) {
+    completedSteps += 1;
+    emitEvent({
+      type: 'subagent_completed',
+      title: '子 Agent 结果',
+      message: '生成综合投研报告',
+      step: { id: reportStepId, agent: '生成投研报告', description: '生成综合投研报告', status: 'completed' },
+      subAgent: { name: '生成投研报告', description: '生成综合投研报告', status: 'completed' },
+      progress: { current: completedSteps, total: totalWithReport },
+    });
+  }
 
   emitEvent({
     type: 'summary_completed',
@@ -387,6 +445,17 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
           ctx.analysisResults = [...(ctx.analysisResults ?? []), result];
           ctx.evidence.push(...result.output.evidence);
           ctx.findings.push(...result.output.findings);
+          ctx.emitEvent?.({
+            type: 'intermediate_result',
+            title: `${agent.label} 中间结论`,
+            message: result.content.slice(0, 200),
+            intermediateResult: {
+              agentName: agent.name,
+              label: agent.label,
+              markdown: result.output.markdown,
+              findings: result.output.findings,
+            },
+          });
         },
       })),
     );
@@ -394,11 +463,11 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
     if (!context.singleAgent) {
       nodes.push({
         id: 'analysis-overview',
-        agent: '汇总分析Agent',
-        description: `汇总 ${context.symbol} 五维分析结果`,
+        agent: '生成投研报告',
+        description: `生成 ${context.symbol} 综合投研报告`,
         dependsOn: analysisAgents.map((agent) => `analysis-${agent.name}`),
         run: async (ctx) => {
-          ctx.analysisOverview = await runStockAnalysisOverview(stockAnalysisInput(ctx), ctx.analysisResults ?? [], onToken);
+          ctx.analysisOverview = await runStockAnalysisOverview(stockAnalysisInput(ctx), ctx.analysisResults ?? []);
         },
       });
     }

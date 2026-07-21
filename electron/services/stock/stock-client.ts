@@ -137,11 +137,15 @@ function numericValue(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-export async function resolveASymbol(input: string): Promise<string> {
+export async function resolveASymbol(input: string): Promise<{ symbol: string; name?: string }> {
   const candidate = extractSymbolCandidate(input);
-  if (/^\d{6}$/.test(candidate)) return candidate;
-  const result = (await sdk.search(candidate)).find((item: { code?: string; category?: string }) => item.category === 'stock' && item.code);
-  return result?.code?.replace(/^\D+/, '') ?? normalizeASymbol(candidate);
+  if (/^\d{6}$/.test(candidate)) {
+    const result = (await sdk.search(candidate)).find((item: { code?: string; name?: string; category?: string }) => item.category === 'stock' && item.code);
+    return { symbol: candidate, name: result?.name };
+  }
+  const result = (await sdk.search(candidate)).find((item: { code?: string; name?: string; category?: string }) => item.category === 'stock' && item.code);
+  if (result) return { symbol: result.code!.replace(/^\D+/, ''), name: result.name };
+  return { symbol: normalizeASymbol(candidate) };
 }
 
 export async function isUnsupportedStockMarketQuery(input: string) {

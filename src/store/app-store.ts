@@ -145,7 +145,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const processedSeconds = startedAt
         ? Math.max(0.1, (Date.now() - new Date(startedAt).getTime()) / 1000)
         : undefined;
-      const next = { ...message, processedSeconds };
+      const thinking = previous?.thinking ?? message.thinking;
+      const runEvents = previous?.runEvents?.length ? previous.runEvents : message.runEvents;
+      const next = { ...message, thinking, runEvents, processedSeconds };
       if (index >= 0) messages[index] = next;
       else messages.push(next);
       return { messages };

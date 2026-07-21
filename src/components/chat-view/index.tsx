@@ -4,6 +4,7 @@ import gsap from 'gsap';
 import { marked } from 'marked';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { KlineModal, StockKlineChart } from '../kline-chart';
+import { AnalysisProgress } from './components/analysis-progress';
 import type {
   AgentResultCard,
   AgentRunEvent,
@@ -767,10 +768,13 @@ function MessageBubble({
         )}
       </div>
       <div className={styles['msg-body']} data-msgbody>
-        {message.thinking ? (
+        {message.thinking && !message.runEvents?.length ? (
           <ThinkingBanner />
         ) : message.processedSeconds ? (
           <ProcessedBanner seconds={message.processedSeconds} />
+        ) : null}
+        {(message.runEvents?.length || message.thinking) ? (
+          <AnalysisProgress events={message.runEvents ?? []} toolCalls={message.toolCalls} />
         ) : null}
         {message.content.trim() ? (
           <div
@@ -788,15 +792,6 @@ function MessageBubble({
             }}
           />
         ) : null}
-        {message.thinking ? (
-          <ThinkingTrace startedAt={message.thinking.startedAt} steps={message.thinking.steps} />
-        ) : null}
-        {message.runEvents?.length ? (
-          <RunEventTrace events={message.runEvents} />
-        ) : !message.thinking && message.steps?.length ? (
-          <Trace steps={message.steps} />
-        ) : null}
-        {message.toolCalls?.length ? <ToolCallTrace toolCalls={message.toolCalls} /> : null}
         {message.result ? (
           <ResultCard result={message.result} onStockClick={onStockClick} onBoardClick={onBoardClick} />
         ) : null}

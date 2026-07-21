@@ -1,0 +1,566 @@
+// ── Container ──
+.analysis-progress {
+  margin: 8px 0;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+// ── Collapsed header ──
+.ap-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font-size: 12px;
+  text-align: left;
+
+  &:hover {
+    background: var(--surface-hover);
+  }
+}
+
+.ap-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ap-dot {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.ap-title {
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.ap-summary {
+  color: var(--fg-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ap-caret {
+  color: var(--accent);
+  font-size: 22px;
+  width: 22px;
+  height: 22px;
+  line-height: 18px;
+  flex-shrink: 0;
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// ── Expanded body (max-height 400px, scroll) ──
+.ap-body {
+  padding: 0 12px 10px;
+  max-height: 400px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.ap-body::-webkit-scrollbar {
+  width: 3px;
+}
+
+.ap-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+// ── Section title ──
+.section-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--fg-secondary);
+  letter-spacing: 0.03em;
+  margin: 10px 0 5px;
+  text-transform: uppercase;
+
+  &:first-child {
+    margin-top: 4px;
+  }
+}
+
+// ── Progress Bar ──
+.progress-bar {
+  margin-bottom: 6px;
+}
+
+.stock-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 6px;
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.bar-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent), #69b1ff);
+  transition: width 0.5s ease;
+}
+
+.bar-percent {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 28px;
+  text-align: right;
+}
+
+// ── Step list ──
+.step-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+
+.step-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+
+  &.completed {
+    color: var(--success);
+  }
+  &.running {
+    color: var(--accent);
+  }
+  &.pending {
+    color: var(--muted);
+  }
+  &.error {
+    color: var(--danger);
+  }
+}
+
+.step-icon {
+  font-size: 9px;
+  width: 10px;
+  text-align: center;
+}
+
+.step-label {
+  white-space: nowrap;
+}
+
+// ── Agent Collaboration (full-width rows) ──
+.agent-collab {
+  margin-bottom: 4px;
+}
+
+.agent-row {
+  margin-bottom: 2px;
+}
+
+.agent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  border-radius: 4px;
+  background: var(--surface-hover);
+  border: none;
+  cursor: default;
+  color: inherit;
+  font-size: 11px;
+  text-align: left;
+
+  &.clickable {
+    cursor: pointer;
+
+    &:hover {
+      background: var(--surface-hover);
+    }
+  }
+
+  &.completed {
+    .agent-status {
+      color: var(--success);
+    }
+  }
+
+  &.running {
+    background: var(--list-item-active);
+    .agent-dot {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    .agent-status {
+      color: var(--accent);
+    }
+  }
+
+  &.error {
+    .agent-status {
+      color: var(--danger);
+    }
+  }
+
+  &.pending {
+    .agent-status {
+      color: var(--muted);
+    }
+  }
+}
+
+.agent-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
+
+  &.completed {
+    background: var(--muted);
+  }
+  &.running {
+    background: var(--accent);
+  }
+  &.error {
+    background: var(--danger);
+  }
+  &.pending {
+    background: var(--muted);
+  }
+
+  // Expandable: ring style — clearly signals "click me"
+  &.expandable {
+    background: transparent;
+    border: 2px solid var(--success);
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.15);
+
+    &:hover {
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+    }
+  }
+
+  // Expanded: solid fill
+  &.expanded {
+    background: var(--success);
+    border-color: var(--success);
+    box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+  }
+}
+
+.agent-name {
+  flex: 1;
+  color: var(--fg);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-status {
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.agent-expand-icon {
+  font-size: 18px;
+  color: var(--accent);
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// ── Agent expanded result (below agent item) ──
+.agent-result {
+  margin: 8px 0 8px 18px;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--fg-secondary);
+  line-height: 1.6;
+  background: var(--surface);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-size: 12px;
+    margin: 3px 0 2px;
+    color: var(--fg);
+  }
+  p {
+    margin: 2px 0;
+  }
+  ul,
+  ol {
+    margin: 2px 0;
+    padding-left: 14px;
+  }
+  li {
+    margin: 1px 0;
+  }
+  table {
+    font-size: 10px;
+    width: 100%;
+  }
+  th,
+  td {
+    padding: 2px 4px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  code {
+    font-size: 10px;
+  }
+  pre {
+    font-size: 10px;
+    margin: 4px 0;
+  }
+}
+
+// ── Data Sources ──
+.data-sources {
+  margin-bottom: 4px;
+}
+
+.source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+
+.source-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+
+  &.done {
+    color: var(--success);
+  }
+  &.loading {
+    color: var(--accent);
+  }
+  &.error {
+    color: var(--danger);
+  }
+  &.pending {
+    color: var(--muted);
+  }
+}
+
+.source-icon {
+  font-size: 8px;
+}
+
+// ── Timeline ──
+.timeline {
+  margin-bottom: 4px;
+}
+
+.timeline-expand {
+  display: block;
+  width: 100%;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 10px;
+  cursor: pointer;
+  text-align: left;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.timeline-list {
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.timeline-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 1px 0 1px 6px;
+  position: relative;
+  font-size: 10px;
+}
+
+.timeline-dot {
+  position: absolute;
+  left: -13px;
+  top: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.timeline-time {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 9px;
+  white-space: nowrap;
+  min-width: 50px;
+}
+
+.timeline-label {
+  color: var(--fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// ── Preparing state ──
+.preparing {
+  padding: 16px 0;
+  text-align: center;
+  color: var(--accent);
+  font-size: 12px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+// ── Tool Calls ──
+.tool-calls {
+  margin-top: 8px;
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+
+  .section-title {
+    margin: 0;
+  }
+}
+
+.tool-caret {
+  color: var(--accent);
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tool-list {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tool-item {
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--surface-hover);
+  font-size: 10px;
+}
+
+.tool-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.tool-name {
+  font-weight: 600;
+  color: var(--fg);
+  font-size: 10px;
+}
+
+.tool-meta {
+  color: var(--muted);
+  font-size: 9px;
+
+  &.error {
+    color: var(--danger);
+  }
+}
+
+.tool-io {
+  color: var(--fg-secondary);
+  font-size: 9px;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.tool-err {
+  color: var(--danger);
+  font-size: 9px;
+  margin-top: 2px;
+}
+
+// ── Animations ──
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+// ── Nested scrollbars ──
+.timeline-list::-webkit-scrollbar {
+  width: 3px;
+}
+
+.timeline-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
