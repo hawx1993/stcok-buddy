@@ -2309,12 +2309,17 @@ function toIndividualHistoryEvents(
         name: history.name || undefined,
         time: change.time,
         price: change.price === null ? undefined : change.price.toFixed(2),
-        changePercent: change.changePercent === null ? undefined : formatPercent(change.changePercent),
+        changePercent: formatPercentagePoints(change.changePercent),
         description: change.info,
         tag: formatStockChangeReason(change.changeTypeLabel, change.changeType),
         type: /卖|跌|跳水|下挫|低|开板/.test(change.changeTypeLabel) ? 'plummet' : 'surge',
       } satisfies StockSurgeEvent)),
     );
+}
+
+function formatPercentagePoints(value: number | null): string | undefined {
+  if (value === null || !Number.isFinite(value)) return undefined;
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 
 function toCurrentSurgeEvent(item: HotFocusItem, symbol: string): StockSurgeEvent {

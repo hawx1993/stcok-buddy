@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 const { spawnSync } = require('node:child_process');
+const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 
-const ROOT = join(__dirname, '..');
+const ROOT = process.env.RELEASE_NOTES_ROOT || join(__dirname, '..');
 const DEFAULT_TO = 'HEAD';
 
 function fail(message) {
@@ -66,28 +67,77 @@ function printHelp() {
   console.log(`Usage: node scripts/generate-release-notes.cjs [options]
 
 Options:
-  --from ref     Start ref, exclusive. If omitted, uses the full history up to --to.
+  --from ref     Start ref, exclusive. Overrides automatic version range detection.
   --to ref       End ref, inclusive. Defaults to HEAD.
   --repo owner/repo
                 Repository slug used for GitHub commit links.
+
+Without --from, commits are scoped to the current package.json version.
   -h, --help    Show this help.
 `);
 }
 
-function latestTag() {
-  const tags = run('git', ['tag', '--list', 'v*', '--sort=-version:refname'])
+function currentPackageVersion() {
+  const packagePath = join(ROOT, 'package.json');
+  try {
+    const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
+    if (typeof pkg.version !== 'string' || !pkg.version.trim()) {
+      fail('package.json must contain a non-empty version string.');
+    }
+    return pkg.version.trim();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(`Unable to read ${packagePath}: ${message}`);
+  }
+}
+
+function packageVersionAt(ref) {
+  const result = spawnSync('git', ['show', `${ref}:package.json`], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (result.status !== 0) return '';
+
+  try {
+    const pkg = JSON.parse(result.stdout);
+    return typeof pkg.version === 'string' ? pkg.version.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+function parentCommit(commit) {
+  const parent = spawnSync('git', ['rev-parse', `${commit}^`], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  return parent.status === 0 ? parent.stdout.trim() : '';
+}
+
+function releaseStartCommit(version, to) {
+  const commits = run('git', ['log', '--format=%H', '--reverse', to, '--', 'package.json'])
     .split('\n')
-    .map((t) => t.trim())
+    .map((commit) => commit.trim())
     .filter(Boolean);
-  return tags[0] || '';
+  const versionCommit = commits.find((commit) => {
+    const parent = parentCommit(commit);
+    return packageVersionAt(commit) === version && packageVersionAt(parent) !== version;
+  });
+  const releaseCommit = versionCommit || commits.at(-1);
+  return releaseCommit ? parentCommit(releaseCommit) : '';
 }
 
 function gitLogRange(options) {
-  if (!options.from) {
-    const tag = latestTag();
-    return tag ? `${tag}..${options.to}` : options.to;
+  if (options.from) return `${options.from}..${options.to}`;
+
+  const version = currentPackageVersion();
+  const boundary = releaseStartCommit(version, options.to);
+  if (!boundary) {
+    fail(`Could not find a package.json release start before ${version}. Pass --from explicitly.`);
   }
-  return `${options.from}..${options.to}`;
+  return `${boundary}..${options.to}`;
 }
 
 function commitUrl(repo, hash) {

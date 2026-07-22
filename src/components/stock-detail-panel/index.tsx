@@ -624,7 +624,7 @@ export function StockDetailPanel() {
           </div>
           {selectedStock ? (
             <div className={styles['stock-detail']} ref={detailRef}>
-              <div className={styles['stock-header']} data-stockheader>
+              <div className={cx(styles['stock-header'], styles['sticky-stock-header'])} data-stockheader>
                 <div className={styles['stock-name']}>
                   {selectedStock.name}
                   <span className={styles.code}>

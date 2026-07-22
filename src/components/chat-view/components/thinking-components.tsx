@@ -20,6 +20,10 @@ export function ThinkingBanner() {
   );
 }
 
+export function AnalysisThinkingBanner() {
+  return <div className='analysis-thinking-line'>Stockbuddy 正在思考中...</div>;
+}
+
 export function ProcessedBanner({ seconds }: { seconds: number }) {
   return <div className='processed-line'>StockBuddy 已处理，共耗时 {seconds.toFixed(1)}s</div>;
 }
