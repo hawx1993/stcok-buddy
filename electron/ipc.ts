@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab, IAppUpdateSettings, MarketIndexPeriod, MarketTab } from '../src/shared/types.js';
 import {
   getConfig,
@@ -27,6 +27,7 @@ import { listMarketNews } from './services/stock/news-client.js';
 import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
 import { testModelConnection } from './services/llm/index.js';
+import { notifyAiResponseCompleted, notifyAiResponseTest } from './services/desktop-notification.js';
 import {
   checkAppUpdate,
   downloadAppUpdate,
@@ -41,6 +42,18 @@ export function registerIpcHandlers() {
   ipcMain.handle('config:get', () => getConfig());
   ipcMain.handle('config:set', (_event, config: AppConfig) => setConfig(config));
   ipcMain.handle('config:testModel', (_event, config: AppConfig) => testModelConnection(config.model));
+  ipcMain.handle('notification:testAiResponse', () => notifyAiResponseTest());
+  ipcMain.handle('notification:openSettings', async () => {
+    if (process.platform === 'darwin') {
+      await shell.openExternal('x-apple.systempreferences:com.apple.preference.notifications');
+      return;
+    }
+    if (process.platform === 'win32') {
+      await shell.openExternal('ms-settings:notifications');
+      return;
+    }
+    throw new Error('请在操作系统设置中手动允许 StockBuddy 发送通知。');
+  });
   ipcMain.handle('favorite:list', () => listFavoriteStocks());
   ipcMain.handle('favorite:upsert', (_event, stock: Pick<FavoriteStock, 'code' | 'name'>) => {
     const result = upsertFavoriteStock(stock);
@@ -131,7 +144,10 @@ export function registerIpcHandlers() {
       }, (runEvent) => {
         if (request.requestId) event.sender.send('chat:token', { requestId: request.requestId, runEvent });
       });
+      const processedSeconds = Math.max(0.1, (Date.now() - startedAt) / 1000);
+      response.message.processedSeconds = processedSeconds;
       saveAssistantMessage(request.conversationId, response.message);
+      if (getConfig().notifyOnAiResponse) notifyAiResponseCompleted(response.message.content);
       captureEvent('chat_completed', {
         command,
         duration_ms: Date.now() - startedAt,

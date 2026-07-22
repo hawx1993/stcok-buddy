@@ -94,7 +94,6 @@
 .settings-row .hint a:hover {
   text-decoration: underline;
 }
-.settings-row select,
 .settings-row input {
   width: 100%;
   background: var(--input-bg);
@@ -105,9 +104,92 @@
   font-size: 13px;
   outline: none;
 }
-.settings-row select:focus,
 .settings-row input:focus {
   border-color: var(--accent);
+}
+.settings-select {
+  width: 100%;
+}
+.settings-select :global(.ant-select-selector) {
+  min-height: 32px !important;
+  background: var(--input-bg) !important;
+  border-color: var(--border) !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+.settings-select :global(.ant-select-selection-item),
+.settings-select :global(.ant-select-arrow) {
+  color: var(--fg) !important;
+}
+.settings-select :global(.ant-select-arrow) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.settings-select :global(.ant-select-arrow),
+.settings-select :global(.ant-select-suffix) {
+  color: var(--fg-secondary) !important;
+}
+.settings-select:global(.ant-select-focused) :global(.ant-select-selector) {
+  border-color: var(--accent) !important;
+}
+.settings-select-popup:global(.ant-select-dropdown) {
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--bg) 75%, transparent);
+
+  :global(.ant-empty-description) {
+    color: var(--fg-secondary);
+  }
+}
+.settings-select-option {
+  color: var(--fg) !important;
+}
+.settings-select-option:global(.ant-select-item-option-active) {
+  background: var(--surface-hover) !important;
+}
+.settings-select-option:global(.ant-select-item-option-selected) {
+  background: var(--surface-active) !important;
+  color: var(--fg) !important;
+  font-weight: 600;
+}
+.settings-select-option:global(.ant-select-item-option-disabled) {
+  color: var(--muted) !important;
+}
+.notification-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--fg);
+  cursor: pointer;
+}
+.notification-setting strong,
+.notification-setting small {
+  display: block;
+}
+.notification-setting strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.notification-setting small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.notification-setting :global(.ant-switch) {
+  flex-shrink: 0;
+}
+.notification-settings-button {
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+}
+.notification-settings-button:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
 }
 .api-key-row {
   display: flex;

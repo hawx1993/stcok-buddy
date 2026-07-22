@@ -31,7 +31,6 @@ const STEP_LABELS: Record<string, string> = {
   'analysis-capital': '资金面分析',
   'analysis-sentiment': '情绪面分析',
   'analysis-chip': '筹码分析',
-  'analysis-overview': '汇总分析',
   'analysis-report': '生成投研报告',
   'read-links': '读取链接内容',
   chat: '投研问答',
@@ -125,7 +124,6 @@ const ANALYSIS_AGENT_IDS = new Set(['technical', 'fundamental', 'capital', 'sent
 
 function planAgentToNodeId(agentId: string): string {
   if (agentId === 'data') return 'quote';
-  if (agentId === 'overview') return 'analysis-overview';
   if (agentId === 'report') return 'analysis-report';
   if (ANALYSIS_AGENT_IDS.has(agentId)) return `analysis-${agentId}`;
   return agentId;
@@ -135,7 +133,6 @@ function agentIdFromEvent(event: AgentRunEvent): string | undefined {
   const stepId = event.step?.id;
   if (!stepId) return undefined;
   if (stepId === 'quote' || stepId === 'market-data') return 'data';
-  if (stepId === 'analysis-overview') return 'overview';
   if (stepId === 'analysis-report') return 'report';
   if (stepId.startsWith('analysis-')) return stepId.replace('analysis-', '');
   // Non-analysis DAG nodes (board-data, theme-attribution-data, etc.)
@@ -177,7 +174,11 @@ export function deriveTimeline(events: AgentRunEvent[]): ITimelineEntry[] {
   const entries: ITimelineEntry[] = [];
   for (const event of events) {
     const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-    const color = event.subAgent?.name ? getAgentColor(event.subAgent.name) : event.tool?.name ? getAgentColor(event.tool.name) : '#8c8c8c';
+    const color = event.subAgent?.name
+      ? getAgentColor(event.subAgent.name)
+      : event.tool?.name
+        ? getAgentColor(event.tool.name)
+        : '#8c8c8c';
     const label = event.message ?? event.step?.description ?? event.tool?.name ?? event.type;
     if (label && event.type !== 'final_answer') {
       entries.push({ time, label, color });
@@ -222,7 +223,12 @@ export function calcEstimatedRemaining(events: AgentRunEvent[]): number | undefi
 // ── Extract stock name ──
 export function extractStockName(events: AgentRunEvent[]): string | undefined {
   const intentEvent = events.find((e) => e.type === 'intent_detected' || e.type === 'command_detected');
-  return intentEvent?.intent?.label ?? intentEvent?.command?.label ?? intentEvent?.intent?.target ?? intentEvent?.command?.args;
+  return (
+    intentEvent?.intent?.label ??
+    intentEvent?.command?.label ??
+    intentEvent?.intent?.target ??
+    intentEvent?.command?.args
+  );
 }
 
 // ── Check if analysis is still in progress ──

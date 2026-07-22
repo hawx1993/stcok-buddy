@@ -1,6 +1,6 @@
 import { message as antdMessage } from 'antd';
 import { BarChart3, MessageCircle, MoreHorizontal, Pencil, Settings, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../store/app-store';
 import { ThemeToggle } from '../theme-toggle';
 import { UpdateBanner } from './components/update-banner';
@@ -9,6 +9,32 @@ import type { ConversationSummary } from '../../shared/types';
 import { trackButtonClick, trackPageView } from '../../shared/analytics';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
+
+interface IConversationGroup {
+  label: string;
+  conversations: ConversationSummary[];
+}
+
+function calendarDateKey(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function groupConversations(conversations: ConversationSummary[], now = new Date()): IConversationGroup[] {
+  const today = calendarDateKey(now);
+  const groups = new Map<string, ConversationSummary[]>();
+
+  for (const conversation of [...conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))) {
+    const updatedAt = new Date(conversation.updatedAt);
+    const date = Number.isNaN(updatedAt.getTime()) ? new Date(0) : updatedAt;
+    const dateKey = calendarDateKey(date);
+    const label = dateKey === today ? '最新' : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(date);
+    groups.set(label, [...(groups.get(label) ?? []), conversation]);
+  }
+
+  return [...groups.entries()].map(([label, group]) => ({ label, conversations: group }));
+}
 
 export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const searchRef = useRef<HTMLInputElement>(null);
@@ -71,9 +97,12 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   };
 
   const query = search.toLowerCase();
-  const filteredConversations = conversations.filter(
-    (item) => !query || `${item.title}${item.preview}`.toLowerCase().includes(query),
-  );
+  const conversationGroups = useMemo(() => {
+    const filtered = conversations.filter(
+      (item) => !query || `${item.title}${item.preview}`.toLowerCase().includes(query),
+    );
+    return groupConversations(filtered);
+  }, [conversations, query]);
   const moveGlow = (event: React.MouseEvent<HTMLElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     event.currentTarget.style.setProperty('--mx', `${event.clientX - rect.left}px`);
@@ -121,76 +150,81 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
       </div>
 
       <div className={styles['sidebar-list']}>
-        {filteredConversations.length ? (
-          filteredConversations.map((item) => (
-            <div
-              key={item.id}
-              onMouseMove={moveGlow}
-              className={cx(
-                styles['source-item-wrap'],
-                activeConversationId === item.id && styles.active,
-                conversationMenuId === item.id && styles['menu-open'],
-                editingConversationId === item.id && styles.editing,
-              )}
-            >
-              {editingConversationId === item.id ? (
-                <div className={styles['rename-row']}>
-                  <MessageCircle size={17} className={styles['source-icon']} />
-                  <input
-                    value={editingTitle}
-                    onChange={(event) => setEditingTitle(event.target.value)}
-                    onBlur={() => void saveRename(item.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') void saveRename(item.id);
-                    }}
-                    autoFocus
-                  />
-                </div>
-              ) : (
-                <>
-                  <button
-                    className={styles['source-item']}
-                    onClick={() => {
-                      trackButtonClick('select_conversation');
-                      setConversationMenuId(undefined);
-                      setActiveConversation(item.id);
-                    }}
-                    type='button'
-                  >
-                    <MessageCircle size={17} className={styles['source-icon']} />
-                    <span className={styles.label}>{item.title}</span>
-                    <span className={styles.count}>{item.count}</span>
-                  </button>
-                  <button
-                    className={styles['source-more']}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setConversationMenuId(conversationMenuId === item.id ? undefined : item.id);
-                    }}
-                    type='button'
-                    aria-label='更多操作'
-                  >
-                    <MoreHorizontal size={16} />
-                  </button>
-                  {conversationMenuId === item.id ? (
-                    <div className={styles['conversation-menu']}>
-                      <button className={styles['conversation-action']} onClick={() => startRename(item)} type='button'>
-                        <Pencil size={15} />
-                        <span>重命名</span>
-                      </button>
+        {conversationGroups.length ? (
+          conversationGroups.map((group) => (
+            <section key={group.label} className={styles['conversation-group']}>
+              <h2 className={styles['conversation-group-title']}>{group.label}</h2>
+              {group.conversations.map((item) => (
+                <div
+                  key={item.id}
+                  onMouseMove={moveGlow}
+                  className={cx(
+                    styles['source-item-wrap'],
+                    activeConversationId === item.id && styles.active,
+                    conversationMenuId === item.id && styles['menu-open'],
+                    editingConversationId === item.id && styles.editing,
+                  )}
+                >
+                  {editingConversationId === item.id ? (
+                    <div className={styles['rename-row']}>
+                      <MessageCircle size={17} className={styles['source-icon']} />
+                      <input
+                        value={editingTitle}
+                        onChange={(event) => setEditingTitle(event.target.value)}
+                        onBlur={() => void saveRename(item.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void saveRename(item.id);
+                        }}
+                        autoFocus
+                      />
+                    </div>
+                  ) : (
+                    <>
                       <button
-                        className={cx(styles['conversation-action'], styles.danger)}
-                        onClick={() => void deleteConversation(item.id)}
+                        className={styles['source-item']}
+                        onClick={() => {
+                          trackButtonClick('select_conversation');
+                          setConversationMenuId(undefined);
+                          setActiveConversation(item.id);
+                        }}
                         type='button'
                       >
-                        <Trash2 size={15} />
-                        <span>删除对话</span>
+                        <MessageCircle size={17} className={styles['source-icon']} />
+                        <span className={styles.label}>{item.title}</span>
+                        <span className={styles.count}>{item.count}</span>
                       </button>
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </div>
+                      <button
+                        className={styles['source-more']}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setConversationMenuId(conversationMenuId === item.id ? undefined : item.id);
+                        }}
+                        type='button'
+                        aria-label='更多操作'
+                      >
+                        <MoreHorizontal size={16} />
+                      </button>
+                      {conversationMenuId === item.id ? (
+                        <div className={styles['conversation-menu']}>
+                          <button className={styles['conversation-action']} onClick={() => startRename(item)} type='button'>
+                            <Pencil size={15} />
+                            <span>重命名</span>
+                          </button>
+                          <button
+                            className={cx(styles['conversation-action'], styles.danger)}
+                            onClick={() => void deleteConversation(item.id)}
+                            type='button'
+                          >
+                            <Trash2 size={15} />
+                            <span>删除对话</span>
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ))}
+            </section>
           ))
         ) : (
           <div className={styles['empty-list']}>无匹配对话</div>

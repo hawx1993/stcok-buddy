@@ -170,8 +170,33 @@ function toStockDetail(quote: Awaited<ReturnType<typeof getRemoteFullQuote>>, sy
     turnover: `${(quote.amount / 10_000).toFixed(2)}亿`,
     turnoverRate: quote.turnoverRate === null || quote.turnoverRate === undefined ? '--' : `${quote.turnoverRate.toFixed(2)}%`,
     rating: { fundamental: '待评估', valuation: quote.pe && quote.pe < 25 ? '相对合理' : '需核查', tech: '待分析', risk: '中性' },
-    summary: `${quote.name}（${symbol}）远程行情快照，时间 ${quote.time || '--'}。`,
+    summary: `${quote.name}（${symbol}）远程行情快照，时间 ${formatQuoteTime(quote.timestamp, quote.time)}。`,
   };
+}
+
+function formatQuoteTime(timestamp: number | null, rawTime: string): string {
+  const date = timestamp === null ? parseTencentQuoteTime(rawTime) : new Date(timestamp);
+  if (!date || Number.isNaN(date.getTime())) return '--';
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}:${value('second')}`;
+}
+
+function parseTencentQuoteTime(value: string): Date | undefined {
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+  if (!match) return undefined;
+  const [, year, month, day, hour, minute, second] = match;
+  const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+08:00`);
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 function validateOptions(options: HistoricalBarsOptions, adjustType: AdjustType) {

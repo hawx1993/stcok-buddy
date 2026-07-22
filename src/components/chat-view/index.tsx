@@ -4,19 +4,12 @@ import gsap from 'gsap';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { AnalysisProgress } from './components/analysis-progress';
 import { WhaleLogo } from './components/whale-logo';
-import { ThinkingBanner, ProcessedBanner } from './components/thinking-components';
+import { ThinkingBanner, AnalysisThinkingBanner, ProcessedBanner } from './components/thinking-components';
 import { formatMessageTime } from './components/message-utils';
 import { createThinkingSteps, setBuiltInSlashItems, isGreeting } from './components/thinking-steps';
 import { ResultCard } from './components/result-card';
 import { renderCommandInText, renderMarkdownContent } from './components/markdown';
-import type {
-  BoardDetail,
-  ChatMessage,
-  StockDetail,
-  StoreCategory,
-  StoreItem,
-  ToolCallRecord,
-} from '../../shared/types';
+import type { BoardDetail, ChatMessage, StockDetail, StoreCategory, StoreItem } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
 import { track, trackButtonClick } from '../../shared/analytics';
 import styles from './index.module.scss';
@@ -772,8 +765,8 @@ function MessageBubble({
         )}
       </div>
       <div className={styles['msg-body']} data-msgbody>
-        {message.thinking && !message.runEvents?.length ? (
-          <ThinkingBanner />
+        {message.thinking ? (
+          message.runEvents?.length ? <AnalysisThinkingBanner /> : <ThinkingBanner />
         ) : message.processedSeconds ? (
           <ProcessedBanner seconds={message.processedSeconds} />
         ) : null}

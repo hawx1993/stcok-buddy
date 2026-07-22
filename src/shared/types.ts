@@ -37,6 +37,7 @@ export interface AppConfig {
   tradeStyle?: TradeStyle;
   riskProfile?: RiskProfile;
   holdingPeriod?: HoldingPeriod;
+  notifyOnAiResponse?: boolean;
 }
 
 export type ConversationTab = 'stock' | 'diagnosis' | 'market';
@@ -164,6 +165,7 @@ export interface ConversationSummary {
   title: string;
   preview: string;
   date: string;
+  updatedAt: string;
   tab: ConversationTab;
   count: number;
 }
@@ -526,11 +528,18 @@ export interface IAppUpdateState {
   message?: string;
 }
 
+export interface IDesktopNotificationResult {
+  delivered: boolean;
+  reason?: string;
+}
+
 export interface StocksenseApi {
   captureAnalytics?(event: string, properties?: AnalyticsProperties): Promise<void>;
   getConfig(): Promise<AppConfig>;
   setConfig(config: AppConfig): Promise<AppConfig>;
   testModelConfig(config: AppConfig): Promise<void>;
+  testAiResponseNotification(): Promise<IDesktopNotificationResult>;
+  openSystemNotificationSettings(): Promise<void>;
   listConversations(): Promise<ConversationSummary[]>;
   createConversation(): Promise<ConversationSummary>;
   deleteConversation(id: string): Promise<ConversationSummary[]>;

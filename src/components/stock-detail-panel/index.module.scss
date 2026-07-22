@@ -320,6 +320,13 @@
   align-items: flex-start;
   padding: 10px 12px 4px;
 }
+.sticky-stock-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
 .stock-name {
   font-size: 15px;
   font-weight: 600;

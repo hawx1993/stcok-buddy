@@ -183,10 +183,22 @@
   padding: 0;
 }
 .thinking-line,
+.analysis-thinking-line,
 .processed-line {
   margin: 0 0 6px 2px;
   font-size: 13px;
   width: 100%;
+}
+.analysis-thinking-line {
+  width: fit-content;
+  color: var(--muted);
+  font-weight: 600;
+  background: linear-gradient(90deg, var(--muted) 0%, var(--muted) 36%, var(--fg) 50%, var(--muted) 64%, var(--muted) 100%);
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: analysis-thinking-shimmer 2.2s linear infinite;
 }
 .processed-line {
   color: var(--muted);
@@ -216,6 +228,14 @@
 .thinking-shimmer span:nth-child(6) {
   animation-delay: 0.7s;
 }
+@keyframes analysis-thinking-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
 @keyframes thinking-blink {
   0%,
   70%,
@@ -229,6 +249,12 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .analysis-thinking-line {
+    animation: none;
+    background: none;
+    color: var(--fg-secondary);
+    -webkit-text-fill-color: currentColor;
+  }
   .thinking-shimmer span {
     animation: none;
     color: #e2e8f0;
