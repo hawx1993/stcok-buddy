@@ -139,6 +139,16 @@
   overflow-y: auto;
   padding: 0 8px 6px;
 }
+.conversation-group + .conversation-group {
+  margin-top: 14px;
+}
+.conversation-group-title {
+  margin: 10px 10px 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
 .sidebar-list::-webkit-scrollbar,
 .chat-messages::-webkit-scrollbar,
 .right-panel::-webkit-scrollbar {

@@ -31,7 +31,15 @@ const defaultConfig: AppConfig = {
 };
 
 const defaultConversations: ConversationSummary[] = [
-  { id: 'web-conv-1', title: '浏览器预览会话', preview: 'PWA / Browser preview', date: '刚刚', tab: 'stock', count: 0 },
+  {
+    id: 'web-conv-1',
+    title: '浏览器预览会话',
+    preview: 'PWA / Browser preview',
+    date: '刚刚',
+    updatedAt: new Date().toISOString(),
+    tab: 'stock',
+    count: 0,
+  },
 ];
 
 export function getStocksenseApi(): StocksenseApi {
@@ -95,7 +103,21 @@ function readConfig(): AppConfig {
 
 function readConversations(): ConversationSummary[] {
   const saved = localStorage.getItem('stocksense-conversations');
-  return saved ? JSON.parse(saved) : defaultConversations;
+  const conversations = saved ? (JSON.parse(saved) as ConversationSummary[]) : defaultConversations;
+  return conversations.map((conversation) => ({
+    ...conversation,
+    updatedAt: conversation.updatedAt || new Date(0).toISOString(),
+  }));
+}
+
+function sortConversations(conversations: ConversationSummary[]) {
+  return [...conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function writeConversations(conversations: ConversationSummary[]) {
+  const next = sortConversations(conversations);
+  localStorage.setItem('stocksense-conversations', JSON.stringify(next));
+  return next;
 }
 
 function sortFavorites(items: FavoriteStock[]) {
@@ -125,6 +147,20 @@ function saveLocalMessage(conversationId: string, message: ChatMessage) {
     `stocksense-messages:${conversationId}`,
     JSON.stringify([...readMessages(conversationId), message]),
   );
+  const updatedAt = message.createdAt;
+  const conversations = readConversations().map((conversation) =>
+    conversation.id === conversationId
+      ? {
+          ...conversation,
+          preview: message.content.slice(0, 80),
+          date: new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(updatedAt)),
+          title: conversation.title === '新建会话' ? message.content.slice(0, 18) : conversation.title,
+          count: conversation.count + 1,
+          updatedAt,
+        }
+      : conversation,
+  );
+  writeConversations(conversations);
 }
 
 function pageItems(items: MarketNewsItem[], page = 1, pageSize = 30): PagedMarketNews {
@@ -170,32 +206,33 @@ const webFallbackApi: StocksenseApi = {
     );
   },
   async listConversations() {
-    return readConversations();
+    return sortConversations(readConversations());
   },
   async createConversation() {
+    const updatedAt = new Date().toISOString();
     const conversation: ConversationSummary = {
       id: `web-conv-${Date.now()}`,
       title: '新建会话',
       preview: '浏览器预览',
       date: '刚刚',
+      updatedAt,
       tab: 'stock',
       count: 0,
     };
-    localStorage.setItem('stocksense-conversations', JSON.stringify([conversation, ...readConversations()]));
+    writeConversations([conversation, ...readConversations()]);
     return conversation;
   },
   async deleteConversation(id: string) {
-    const next = readConversations().filter((item) => item.id !== id);
-    localStorage.setItem('stocksense-conversations', JSON.stringify(next));
+    const next = writeConversations(readConversations().filter((item) => item.id !== id));
     localStorage.removeItem(`stocksense-messages:${id}`);
     return next;
   },
   async renameConversation(id: string, title: string) {
-    const next = readConversations().map((item) =>
-      item.id === id ? { ...item, title: title.trim() || item.title } : item,
+    return writeConversations(
+      readConversations().map((item) =>
+        item.id === id ? { ...item, title: title.trim() || item.title, updatedAt: new Date().toISOString() } : item,
+      ),
     );
-    localStorage.setItem('stocksense-conversations', JSON.stringify(next));
-    return next;
   },
   async listMessages(conversationId: string) {
     return readMessages(conversationId);

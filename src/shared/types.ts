@@ -164,6 +164,7 @@ export interface ConversationSummary {
   title: string;
   preview: string;
   date: string;
+  updatedAt: string;
   tab: ConversationTab;
   count: number;
 }

@@ -47,6 +47,7 @@ interface ConversationRow {
   title: string;
   preview: string;
   date: string;
+  updatedAt: string;
   tab: ConversationSummary['tab'];
   count: number;
 }
@@ -60,7 +61,11 @@ function nowLabel() {
 }
 
 export function listConversations(): ConversationSummary[] {
-  return getDb().prepare('SELECT id, title, preview, date, tab, count FROM conversations ORDER BY updated_at DESC').all() as ConversationSummary[];
+  return getDb().prepare(`
+    SELECT id, title, preview, date, updated_at AS updatedAt, tab, count
+    FROM conversations
+    ORDER BY updated_at DESC
+  `).all() as ConversationSummary[];
 }
 
 export function createConversation(): ConversationSummary {
@@ -70,6 +75,7 @@ export function createConversation(): ConversationSummary {
     title: '新建对话',
     preview: '开始新的投研分析',
     date: '刚刚',
+    updatedAt: createdAt,
     tab: 'stock',
     count: 0,
   };
