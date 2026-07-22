@@ -26,6 +26,7 @@ export const defaultConfig: AppConfig = {
   tradeStyle: 'value',
   riskProfile: 'moderate',
   holdingPeriod: 'medium',
+  notifyOnAiResponse: true,
 };
 function systemName() {
   if (process.platform === 'darwin') return 'macos';

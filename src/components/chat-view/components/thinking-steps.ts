@@ -54,14 +54,39 @@ export function createThinkingSteps(text: string): NonNullable<ChatMessage['step
 
   if (isStockAnalysisQuery(text)) {
     return [
-      { id: 'quote', agent: 'DataAgent', description: '0/8 获取实时行情', status: 'running' as const },
-      { id: 'market-data', agent: 'DataAgent', description: '1/8 拉取K线、技术指标与新闻样本', status: 'pending' as const },
-      { id: 'analysis-technical', agent: '技术面分析', description: '2/8 调用技术面子Agent', status: 'pending' as const },
-      { id: 'analysis-fundamental', agent: '基本面分析', description: '3/8 调用基本面子Agent', status: 'pending' as const },
-      { id: 'analysis-capital', agent: '资金面分析', description: '4/8 调用资金面子Agent', status: 'pending' as const },
-      { id: 'analysis-sentiment', agent: '情绪面分析', description: '5/8 调用情绪面子Agent', status: 'pending' as const },
-      { id: 'analysis-chip', agent: '筹码分析', description: '6/8 调用筹码分析子Agent', status: 'pending' as const },
-      { id: 'analysis-overview', agent: '汇总分析Agent', description: '7/8 汇总五维结果并生成报告', status: 'pending' as const },
+      { id: 'quote', agent: 'DataAgent', description: '0/7 获取实时行情', status: 'running' as const },
+      {
+        id: 'market-data',
+        agent: 'DataAgent',
+        description: '1/7 拉取K线、技术指标与新闻样本',
+        status: 'pending' as const,
+      },
+      {
+        id: 'analysis-technical',
+        agent: '技术面分析',
+        description: '2/7 调用技术面子Agent',
+        status: 'pending' as const,
+      },
+      {
+        id: 'analysis-fundamental',
+        agent: '基本面分析',
+        description: '3/7 调用基本面子Agent',
+        status: 'pending' as const,
+      },
+      { id: 'analysis-capital', agent: '资金面分析', description: '4/7 调用资金面子Agent', status: 'pending' as const },
+      {
+        id: 'analysis-sentiment',
+        agent: '情绪面分析',
+        description: '5/7 调用情绪面子Agent',
+        status: 'pending' as const,
+      },
+      { id: 'analysis-chip', agent: '筹码分析', description: '6/7 调用筹码分析子Agent', status: 'pending' as const },
+      {
+        id: 'analysis-report',
+        agent: '生成投研报告',
+        description: '7/7 汇总五维结果并生成报告',
+        status: 'pending' as const,
+      },
     ];
   }
   const hasStock = /[一-龥]{2,}|\d{6}/.test(text);
@@ -78,7 +103,12 @@ export function createThinkingSteps(text: string): NonNullable<ChatMessage['step
       description: hasStock ? '准备拉取行情、财务、估值与资金面数据' : '准备检索相关市场、板块与资金线索',
       status: 'pending' as const,
     },
-    { id: 'analyze', agent: '生成结论', description: '汇总基本面、技术面与风险点，组织可执行回答', status: 'pending' as const },
+    {
+      id: 'analyze',
+      agent: '生成结论',
+      description: '汇总基本面、技术面与风险点，组织可执行回答',
+      status: 'pending' as const,
+    },
     { id: 'risk', agent: '风险核查', description: '检查异常波动、估值偏离与潜在风险提示', status: 'pending' as const },
   ];
 }
@@ -109,7 +139,12 @@ export function getCommandThinkingSteps(text: string): NonNullable<ChatMessage['
     ],
     '/行业轮动': [
       { id: 'understand', agent: '理解问题', description: '识别行业轮动命令', status: 'running' as const },
-      { id: 'collect-sector', agent: '采集行业数据', description: '拉取行业涨幅榜与板块资金流', status: 'pending' as const },
+      {
+        id: 'collect-sector',
+        agent: '采集行业数据',
+        description: '拉取行业涨幅榜与板块资金流',
+        status: 'pending' as const,
+      },
       {
         id: 'summarize-sector',
         agent: '汇总行业数据',
@@ -118,7 +153,12 @@ export function getCommandThinkingSteps(text: string): NonNullable<ChatMessage['
       },
     ],
     '/龙虎榜': [
-      { id: 'understand', agent: '理解问题', description: `识别个股龙虎榜命令：${stockTarget}`, status: 'running' as const },
+      {
+        id: 'understand',
+        agent: '理解问题',
+        description: `识别个股龙虎榜命令：${stockTarget}`,
+        status: 'running' as const,
+      },
       {
         id: 'collect-lhb',
         agent: '采集龙虎榜数据',
@@ -163,8 +203,18 @@ export function getCommandThinkingSteps(text: string): NonNullable<ChatMessage['
       },
     ],
     '/新闻公告': [
-      { id: 'understand', agent: '理解问题', description: `识别新闻公告命令：${stockTarget}`, status: 'running' as const },
-      { id: 'collect-news', agent: '采集新闻公告', description: '拉取个股最近新闻、公告与事件线索', status: 'pending' as const },
+      {
+        id: 'understand',
+        agent: '理解问题',
+        description: `识别新闻公告命令：${stockTarget}`,
+        status: 'running' as const,
+      },
+      {
+        id: 'collect-news',
+        agent: '采集新闻公告',
+        description: '拉取个股最近新闻、公告与事件线索',
+        status: 'pending' as const,
+      },
       {
         id: 'summarize-news',
         agent: '汇总新闻公告',
@@ -173,7 +223,12 @@ export function getCommandThinkingSteps(text: string): NonNullable<ChatMessage['
       },
     ],
     '/综合投研报告': [
-      { id: 'understand', agent: '理解问题', description: `识别综合投研报告命令：${stockTarget}`, status: 'running' as const },
+      {
+        id: 'understand',
+        agent: '理解问题',
+        description: `识别综合投研报告命令：${stockTarget}`,
+        status: 'running' as const,
+      },
       {
         id: 'collect-stock',
         agent: '采集个股数据',

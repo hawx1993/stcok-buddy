@@ -28,6 +28,7 @@ const defaultConfig: AppConfig = {
   tradeStyle: 'value',
   riskProfile: 'moderate',
   holdingPeriod: 'medium',
+  notifyOnAiResponse: true,
 };
 
 const defaultConversations: ConversationSummary[] = [
@@ -184,6 +185,12 @@ const webFallbackApi: StocksenseApi = {
   },
   async testModelConfig() {
     throw new Error('浏览器预览模式不会连接本地大模型配置，请运行 Electron 桌面端后再测试。');
+  },
+  async testAiResponseNotification() {
+    throw new Error('系统通知仅在 Electron 桌面端可用。');
+  },
+  async openSystemNotificationSettings() {
+    throw new Error('系统通知设置仅在 Electron 桌面端可用。');
   },
   async listFavoriteStocks() {
     return readFavorites();

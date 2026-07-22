@@ -1,5 +1,5 @@
-import { Download, ExternalLink, FolderOpen, RefreshCw, RotateCw } from 'lucide-react';
-import { message as antdMessage } from 'antd';
+import { ChevronDown, Download, ExternalLink, FolderOpen, RefreshCw, RotateCw } from 'lucide-react';
+import { ConfigProvider, message as antdMessage, Select, Switch } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppConfig, HoldingPeriod, IAppUpdateSettings, IAppUpdateState, MarketColorMode, MarketDataStats, MarketDataSyncStatus, ProviderKind, RiskProfile, TAppUpdateChannel, TradeStyle } from '../../shared/types';
 import { getMarketColors, marketColorModes } from '../../shared/market-color';
@@ -140,6 +140,25 @@ export function SettingsModal() {
   const updateAppUpdateSettings = (patch: Partial<IAppUpdateSettings>) => {
     setDraft({ ...draft, appUpdate: { ...getAppUpdateSettings(draft), ...patch } });
   };
+  const setAiResponseNotification = async (notifyOnAiResponse: boolean) => {
+    setDraft({ ...draft, notifyOnAiResponse });
+    if (!notifyOnAiResponse) return;
+
+    try {
+      const result = await getStocksenseApi().testAiResponseNotification();
+      if (result.delivered) antdMessage.success('已发送通知测试；如首次使用，请在系统提示中允许通知。');
+      else antdMessage.warning(result.reason ?? '通知不可用，请检查系统通知设置。');
+    } catch (error) {
+      antdMessage.warning(error instanceof Error ? error.message : '通知测试失败，请检查系统通知设置。');
+    }
+  };
+  const openSystemNotificationSettings = async () => {
+    try {
+      await getStocksenseApi().openSystemNotificationSettings();
+    } catch (error) {
+      antdMessage.warning(error instanceof Error ? error.message : '无法打开系统通知设置。');
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -262,9 +281,42 @@ export function SettingsModal() {
   const marketSyncRunning = marketActionPending || isMarketSyncRunningState(marketStatus?.state);
   const appUpdateSettings = getAppUpdateSettings(draft);
   const updateOperationRunning = appUpdateActionPending || appUpdateState?.status === 'checking' || appUpdateState?.status === 'downloading';
+  const getSettingsSelectPopupContainer = (trigger: HTMLElement) => {
+    const modalOverlay = trigger.closest(`.${styles['modal-overlay']}`);
+    return modalOverlay instanceof HTMLElement ? modalOverlay : document.body;
+  };
+  const settingsSelectClassNames = {
+    popup: {
+      root: styles['settings-select-popup'],
+      listItem: styles['settings-select-option'],
+    },
+  };
+  const settingsSelectTheme = {
+    token: {
+      colorBgContainer: 'var(--input-bg)',
+      colorBgElevated: 'var(--surface)',
+      colorBorder: 'var(--border)',
+      colorText: 'var(--fg)',
+      colorTextPlaceholder: 'var(--fg-secondary)',
+      colorTextQuaternary: 'var(--fg-secondary)',
+      colorIcon: 'var(--fg-secondary)',
+    },
+    components: {
+      Select: {
+        selectorBg: 'var(--input-bg)',
+        optionActiveBg: 'var(--surface-hover)',
+        optionSelectedBg: 'var(--surface-active)',
+        optionSelectedColor: 'var(--fg)',
+        hoverBorderColor: 'var(--accent)',
+        activeBorderColor: 'var(--accent)',
+        activeOutlineColor: 'transparent',
+      },
+    },
+  };
 
   return (
-    <div className={`${styles['modal-overlay']} ${styles.open}`} onClick={closeSettingsModal}>
+    <ConfigProvider theme={settingsSelectTheme}>
+      <div className={`${styles['modal-overlay']} ${styles.open}`} onClick={closeSettingsModal}>
       <div className={`${styles.modal} ${styles['settings-system-modal'] ?? ''}`} onClick={(event) => event.stopPropagation()}>
         <div className={styles['modal-header']}>
           <h2>系统设置</h2>
@@ -275,10 +327,17 @@ export function SettingsModal() {
           <div className={styles['settings-section']}>
             <div className={styles['settings-section-title']}>大模型厂商配置</div>
             <div className={styles['settings-row']}>
-              <label className={styles.label} htmlFor="llm-provider">选择模型厂商</label>
-              <select id="llm-provider" value={draft.model.provider} onChange={(event) => changeProvider(event.target.value as ProviderKind)}>
-                {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
-              </select>
+              <label className={styles.label} id="llm-provider-label">选择模型厂商</label>
+              <Select
+                aria-labelledby="llm-provider-label"
+                className={styles['settings-select']}
+                classNames={settingsSelectClassNames}
+                getPopupContainer={getSettingsSelectPopupContainer}
+                value={draft.model.provider}
+                options={providers.map((provider) => ({ value: provider.id, label: provider.name }))}
+                suffixIcon={<ChevronDown aria-hidden="true" size={16} />}
+                onChange={changeProvider}
+              />
             </div>
             <div className={styles['settings-row']}>
               <label className={styles.label} htmlFor="api-endpoint">API 地址</label>
@@ -338,15 +397,20 @@ export function SettingsModal() {
           <div className={styles['settings-section']}>
             <div className={styles['settings-section-title']}>版本与更新</div>
             <div className={styles['settings-row']}>
-              <label className={styles.label} htmlFor="app-update-channel">更新渠道</label>
-              <select
-                id="app-update-channel"
+              <label className={styles.label} id="app-update-channel-label">更新渠道</label>
+              <Select
+                aria-labelledby="app-update-channel-label"
+                className={styles['settings-select']}
+                classNames={settingsSelectClassNames}
+                getPopupContainer={getSettingsSelectPopupContainer}
                 value={appUpdateSettings.channel}
-                onChange={(event) => updateAppUpdateSettings({ channel: event.target.value as TAppUpdateChannel })}
-              >
-                <option value="stable">稳定版本</option>
-                <option value="beta">测试版本</option>
-              </select>
+                options={[
+                  { value: 'stable', label: '稳定版本' },
+                  { value: 'beta', label: '测试版本' },
+                ]}
+                suffixIcon={<ChevronDown aria-hidden="true" size={16} />}
+                onChange={(channel: TAppUpdateChannel) => updateAppUpdateSettings({ channel })}
+              />
               <div className={styles.hint}>默认使用稳定版本；只有你自己切换后才会检查测试版本。</div>
             </div>
             <VersionUpdateStatusCard state={appUpdateState} />
@@ -376,6 +440,26 @@ export function SettingsModal() {
               <button type="button" className={styles['update-page-button']} onClick={() => void openDownloadPage()}>
                 <ExternalLink size={14} />
                 打开下载页
+              </button>
+            </div>
+          </div>
+
+          <div className={styles['settings-section']}>
+            <div className={styles['settings-section-title']}>通知</div>
+            <div className={styles['settings-row']}>
+              <div className={styles['notification-setting']}>
+                <span>
+                  <strong>AI 回答完成通知</strong>
+                  <small>AI 回答生成完成后发送系统通知</small>
+                </span>
+                <Switch
+                  aria-label="AI 回答完成通知"
+                  checked={draft.notifyOnAiResponse ?? true}
+                  onChange={(notifyOnAiResponse) => void setAiResponseNotification(notifyOnAiResponse)}
+                />
+              </div>
+              <button className={styles['notification-settings-button']} onClick={() => void openSystemNotificationSettings()} type="button">
+                打开系统通知设置
               </button>
             </div>
           </div>
@@ -423,10 +507,17 @@ export function SettingsModal() {
               </div>
             </div>
             <div className={styles['settings-row']}>
-              <label className={styles.label} htmlFor="holding-period">持仓周期</label>
-              <select id="holding-period" value={draft.holdingPeriod ?? 'medium'} onChange={(event) => setDraft({ ...draft, holdingPeriod: event.target.value as HoldingPeriod })}>
-                {holdingPeriods.map((period) => <option key={period.value} value={period.value}>{period.label}</option>)}
-              </select>
+              <label className={styles.label} id="holding-period-label">持仓周期</label>
+              <Select
+                aria-labelledby="holding-period-label"
+                className={styles['settings-select']}
+                classNames={settingsSelectClassNames}
+                getPopupContainer={getSettingsSelectPopupContainer}
+                value={draft.holdingPeriod ?? 'medium'}
+                options={holdingPeriods}
+                suffixIcon={<ChevronDown aria-hidden="true" size={16} />}
+                onChange={(holdingPeriod: HoldingPeriod) => setDraft({ ...draft, holdingPeriod })}
+              />
             </div>
           </div>
         </div>
@@ -437,7 +528,8 @@ export function SettingsModal() {
         </div>
       </div>
       {toast ? <div className={`${styles.toast} ${styles.show} ${styles.success}`}>{toast}</div> : null}
-    </div>
+      </div>
+    </ConfigProvider>
   );
 }
 
