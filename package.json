@@ -19,6 +19,7 @@
     "dist:all": "pnpm run build && electron-builder --config electron-builder.config.cjs --mac dmg zip --x64 --arm64 --win nsis --x64",
     "release:notes": "node scripts/generate-release-notes.cjs",
     "release:github": "node scripts/release-github.cjs",
+    "release:github:mac": "node scripts/release-github.cjs --target mac-arm64,mac-x64",
     "release:github:all": "node scripts/release-github.cjs --target all",
     "release": "pnpm run release:github",
     "preview": "vite preview",

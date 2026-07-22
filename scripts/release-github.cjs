@@ -118,6 +118,9 @@ Options:
   --notes-file file Use a custom Markdown release notes file.
   --skip-build      Skip electron-builder and upload existing release/ assets.
   --target target   Build/upload target: current (default), all, mac-arm64, mac-x64, win-x64.
+                   Multiple targets can be comma-separated, e.g. mac-arm64,mac-x64.
+                   Run pnpm run release:github:mac -- --publish to upload both macOS DMGs to one release.
+                   mac-x64 requires an x64/Rosetta Node environment for native dependencies.
                    Use all only from the matching arch host or with prebuilt native modules.
   --allow-dirty     Allow releasing with uncommitted changes.
   -h, --help        Show this help.
