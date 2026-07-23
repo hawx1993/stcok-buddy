@@ -21,7 +21,7 @@ export function ThinkingBanner() {
 }
 
 export function AnalysisThinkingBanner() {
-  return <div className='analysis-thinking-line'>Stockbuddy 正在思考中...</div>;
+  return <div className='analysis-thinking-line'>StockBuddy 正在思考中...</div>;
 }
 
 export function ProcessedBanner({ seconds }: { seconds: number }) {
