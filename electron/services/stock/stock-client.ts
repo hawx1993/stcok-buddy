@@ -2264,16 +2264,31 @@ async function listMarketHot(): Promise<HotFocusItem[]> {
   }));
 }
 
+const SURGE_CACHE_TTL_MS = 30_000;
+let surgeCache: { items: HotFocusItem[]; updatedAt: number } | undefined;
+let surgeRequest: Promise<HotFocusItem[]> | undefined;
+
 async function listSurgeHot(): Promise<HotFocusItem[]> {
   if (isBeforeChinaMarketOpen()) return [];
+  const now = Date.now();
+  if (surgeCache && now - surgeCache.updatedAt < SURGE_CACHE_TTL_MS) return surgeCache.items;
+  surgeRequest ??= fetchSurgeHot().finally(() => {
+    surgeRequest = undefined;
+  });
+  return surgeRequest;
+}
+
+async function fetchSurgeHot(): Promise<HotFocusItem[]> {
   const [changesResult, poolsResult] = await Promise.allSettled([
     sdk.marketEvent.stockChanges('all'),
     listEastmoneySurgeHot(),
   ]);
   const changes = changesResult.status === 'fulfilled' ? toStockChangeHotItems(changesResult.value) : [];
   const pools = poolsResult.status === 'fulfilled' ? poolsResult.value : [];
-  return [...changes, ...pools.filter((pool) => !changes.some((change) => change.code === pool.code && change.tag === pool.tag))]
+  const items = [...changes, ...pools.filter((pool) => !changes.some((change) => change.code === pool.code && change.tag === pool.tag))]
     .sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time));
+  surgeCache = { items, updatedAt: Date.now() };
+  return items;
 }
 
 export async function listStockSurgeEvents(symbolInput: string): Promise<StockSurgeEvent[]> {
