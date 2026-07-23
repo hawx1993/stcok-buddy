@@ -28,7 +28,8 @@
     "lint": "tsc --noEmit -p tsconfig.json",
     "selfcheck:market-data": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/market-data/market-data.selfcheck.js",
     "selfcheck:board-detail": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/board-detail.selfcheck.js",
-    "selfcheck:market-review": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/market-review.selfcheck.js"
+    "selfcheck:market-review": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/market-review.selfcheck.js",
+    "selfcheck:orchestrator": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/agent/orchestrator.selfcheck.js"
   },
   "keywords": [
     "electron",
