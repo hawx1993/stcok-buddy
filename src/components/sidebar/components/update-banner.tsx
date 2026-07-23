@@ -6,6 +6,7 @@ import { trackButtonClick } from '../../../shared/analytics';
 import styles from '../index.module.scss';
 
 const visibleStatuses = new Set<IAppUpdateState['status']>(['available', 'downloading', 'downloaded', 'error']);
+const DOWNLOAD_REMINDER_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 export function UpdateBanner() {
   const [state, setState] = useState<IAppUpdateState>();
@@ -20,14 +21,22 @@ export function UpdateBanner() {
     }).catch(console.error);
     const unsubscribe = api.onAppUpdateStateChanged?.((nextState) => {
       setState(nextState);
-      if (nextState.status === 'available' || nextState.status === 'downloaded' || nextState.status === 'error') setPendingAction(false);
-      if (nextState.status === 'available') setDismissed(false);
+      if (nextState.status === 'available' || nextState.status === 'downloaded' || nextState.status === 'error') {
+        setPendingAction(false);
+        setDismissed(false);
+      }
     });
     return () => {
       mounted = false;
       unsubscribe?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!dismissed || state?.status !== 'downloaded') return;
+    const reminderTimer = window.setTimeout(() => setDismissed(false), DOWNLOAD_REMINDER_INTERVAL_MS);
+    return () => window.clearTimeout(reminderTimer);
+  }, [dismissed, state?.status]);
 
   const progressPercent = Math.round(state?.progress?.percent ?? 0);
   const content = useMemo(() => getUpdateContent(state, progressPercent), [progressPercent, state]);

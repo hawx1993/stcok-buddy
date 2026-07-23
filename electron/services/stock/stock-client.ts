@@ -179,7 +179,7 @@ export async function getKline(symbolInput: string, limit = 120, period = '1d', 
   const symbol = normalizeASymbol(symbolInput);
   if (period === '1d') {
     // ponytail: DuckDB may hang on IO error — try direct APIs first, use DB as cache only
-    const direct = await fetchDailyKlineDirect(symbol, limit);
+    const direct = await fetchDailyKlineDirect(symbol, limit, beforeTimestamp);
     if (direct.length) return direct;
     // Last resort: try DB (may hang, but we already have data from direct)
     try {
@@ -189,10 +189,10 @@ export async function getKline(symbolInput: string, limit = 120, period = '1d', 
     return [];
   }
   try {
-    if (period === '15m') return getTencentMinuteKline(symbol, limit, '15');
-    if (period === '1h') return getTencentMinuteKline(symbol, limit, '60');
-    if (period === '4h') return aggregateKline(await getTencentMinuteKline(symbol, limit * 4, '60'), 4).slice(-limit);
-    const tencent = await getTencentHistoryKline(symbol, limit, period);
+    if (period === '15m') return getTencentMinuteKline(symbol, limit, '15', beforeTimestamp);
+    if (period === '1h') return getTencentMinuteKline(symbol, limit, '60', beforeTimestamp);
+    if (period === '4h') return aggregateKline(await getTencentMinuteKline(symbol, limit * 4, '60', beforeTimestamp), 4).slice(-limit);
+    const tencent = await getTencentHistoryKline(symbol, limit, period, beforeTimestamp);
     if (tencent.length) return tencent;
     const data = await sdk.kline.cn(symbol, { period: toSdkKlinePeriod(period), adjust: 'qfq' as const });
     return data.slice(-limit).map(toKlinePoint).filter((point): point is KlinePoint => Boolean(point));
@@ -206,10 +206,10 @@ export async function getKline(symbolInput: string, limit = 120, period = '1d', 
   }
 }
 
-async function fetchDailyKlineDirect(symbol: string, limit: number): Promise<KlinePoint[]> {
+async function fetchDailyKlineDirect(symbol: string, limit: number, beforeTimestamp?: number): Promise<KlinePoint[]> {
   // Try Tencent first (faster), Eastmoney as fallback
   try {
-    const tencent = await getTencentHistoryKline(symbol, limit, '1d');
+    const tencent = await getTencentHistoryKline(symbol, limit, '1d', beforeTimestamp);
     if (tencent.length) return tencent;
   } catch { /* continue */ }
   try { return await getEastmoneyKline(symbol, limit, '101'); } catch { return []; }
@@ -246,12 +246,13 @@ async function getEastmoneyKline(symbol: string, limit: number, klt = '101'): Pr
   }
 }
 
-async function getTencentHistoryKline(symbol: string, limit: number, period: string): Promise<KlinePoint[]> {
+async function getTencentHistoryKline(symbol: string, limit: number, period: string, beforeTimestamp?: number): Promise<KlinePoint[]> {
   const quoteSymbol = toQuoteSymbol(symbol);
   const type = period === '1w' ? 'week' : period === '1mo' ? 'month' : 'day';
   const key = `qfq${type}`;
   const url = new URL('https://ifzq.gtimg.cn/appstock/app/fqkline/get');
-  url.search = new URLSearchParams({ param: `${quoteSymbol},${type},,,${limit},qfq` }).toString();
+  const endDate = beforeTimestamp === undefined ? '' : formatTencentHistoryDate(beforeTimestamp);
+  url.search = new URLSearchParams({ param: `${quoteSymbol},${type},,${endDate},${limit},qfq` }).toString();
   try {
     const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: `https://gu.qq.com/${quoteSymbol}/gp` } });
     if (!response.ok) return [];
@@ -263,10 +264,15 @@ async function getTencentHistoryKline(symbol: string, limit: number, period: str
   }
 }
 
-async function getTencentMinuteKline(symbol: string, limit: number, period: '15' | '60'): Promise<KlinePoint[]> {
+function formatTencentHistoryDate(timestamp: number) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date(timestamp));
+}
+
+async function getTencentMinuteKline(symbol: string, limit: number, period: '15' | '60', beforeTimestamp?: number): Promise<KlinePoint[]> {
   const quoteSymbol = toQuoteSymbol(symbol);
+  const before = beforeTimestamp === undefined ? '' : formatTencentMinuteTimestamp(beforeTimestamp);
   const url = new URL('https://ifzq.gtimg.cn/appstock/app/kline/mkline');
-  url.search = new URLSearchParams({ param: `${quoteSymbol},m${period},,${limit}` }).toString();
+  url.search = new URLSearchParams({ param: `${quoteSymbol},m${period},${before},${limit}` }).toString();
   try {
     const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: `https://gu.qq.com/${quoteSymbol}/gp` } });
     if (!response.ok) return [];
@@ -1777,7 +1783,7 @@ async function fetchIndexQuote(code: string): Promise<Omit<MarketIndexSnapshot, 
 }
 
 async function fetchIndexSeries(code: string, period: IndexKlinePeriod, limit?: number, beforeTimestamp?: number) {
-  if (period === '1d' || period === '1w' || period === '1mo') return fetchIndexHistorySeries(code, period, limit ?? (period === '1d' ? 120 : period === '1w' ? 240 : 120));
+  if (period === '1d' || period === '1w' || period === '1mo') return fetchIndexHistorySeries(code, period, limit ?? (period === '1d' ? 120 : period === '1w' ? 240 : 120), beforeTimestamp);
   const k = period === '15m' ? '15' : '60';
   const count = limit ?? (period === '4h' ? 80 : 60);
   const rows = await fetchIndexMinuteSeries(code, k, period === '4h' ? count * 4 : count, beforeTimestamp);
@@ -1827,10 +1833,11 @@ function patchLatestIndexBar(data: KlinePoint[], quote: Omit<MarketIndexSnapshot
   }];
 }
 
-async function fetchIndexHistorySeries(code: string, period: '1d' | '1w' | '1mo', limit = 120) {
+async function fetchIndexHistorySeries(code: string, period: '1d' | '1w' | '1mo', limit = 120, beforeTimestamp?: number) {
   const type = period === '1w' ? 'week' : period === '1mo' ? 'month' : 'day';
   const url = new URL('https://ifzq.gtimg.cn/appstock/app/fqkline/get');
-  url.search = new URLSearchParams({ param: `${code},${type},,,${limit},qfq` }).toString();
+  const endDate = beforeTimestamp === undefined ? '' : formatTencentHistoryDate(beforeTimestamp);
+  url.search = new URLSearchParams({ param: `${code},${type},,${endDate},${limit},qfq` }).toString();
   const response = await fetch(url, { signal: AbortSignal.timeout(4_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://gu.qq.com/' } });
   if (!response.ok) return [];
   const payload = await response.json() as { data?: Record<string, Record<string, unknown[]>> };
@@ -2301,19 +2308,24 @@ function toIndividualHistoryEvents(
   return history.days
     .filter((day) => day.available)
     .flatMap((day) =>
-      day.changes.map((change, index) => ({
-        id: `individual-${day.date}-${change.typeCode}-${change.time}-${index}`,
-        tradeDate: day.date,
-        title: history.name || symbol,
-        code: symbol,
-        name: history.name || undefined,
-        time: change.time,
-        price: change.price === null ? undefined : change.price.toFixed(2),
-        changePercent: formatPercentagePoints(change.changePercent),
-        description: change.info,
-        tag: formatStockChangeReason(change.changeTypeLabel, change.changeType),
-        type: /卖|跌|跳水|下挫|低|开板/.test(change.changeTypeLabel) ? 'plummet' : 'surge',
-      } satisfies StockSurgeEvent)),
+      day.changes.map((change, index) => {
+        const reason = formatStockChangeReason(change.changeTypeLabel, change.changeType);
+        const parsed = parseStockChangeInfo(change.changeType, change.info);
+        return {
+          id: `individual-${day.date}-${change.typeCode}-${change.time}-${index}`,
+          tradeDate: day.date,
+          title: history.name || symbol,
+          code: symbol,
+          name: history.name || undefined,
+          time: change.time,
+          price: change.price === null ? undefined : change.price.toFixed(2),
+          changePercent: formatPercentagePoints(change.changePercent),
+          amount: formatChangeHands(parsed.hands, reason),
+          description: change.info,
+          tag: reason,
+          type: /卖|跌|跳水|下挫|低|开板/.test(change.changeTypeLabel) ? 'plummet' : 'surge',
+        } satisfies StockSurgeEvent;
+      }),
     );
 }
 

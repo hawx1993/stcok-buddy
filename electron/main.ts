@@ -8,7 +8,7 @@ import { registerIpcHandlers } from './ipc.js';
 import { closeMarketDataStore, initializeMarketDataStore } from './services/market-data/market-data-store.js';
 import { stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
-import { startSurgeHistoryScheduler, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
+import { stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
 import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
@@ -105,7 +105,6 @@ app.whenReady().then(() => {
   initializeQuoteStore();
   registerIpcHandlers();
   void initializeMarketDataStore().catch((error) => console.warn('[market-data] initialization failed', error));
-  startSurgeHistoryScheduler();
   createWindow();
   setTimeout(() => {
     void checkAppUpdate({ silent: true });

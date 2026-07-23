@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { KlineModal, StockKlineChart } from '../kline-chart';
+import { StockKlineChart } from '../kline-chart';
+import type { ILoadOlderKlineInput } from '../kline-chart';
+import { IndexKlineModal } from './components/index-kline-modal';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type {
   BoardDetail,
@@ -48,7 +50,7 @@ export function MarketView() {
   const [searching, setSearching] = useState(false);
   const [visibleRowCount, setVisibleRowCount] = useState(MARKET_PAGE_SIZE);
   const [sortDirection, setSortDirection] = useState<SortDirection>();
-  const [expandedIndex, setExpandedIndex] = useState<MarketIndexSnapshot>();
+  const [expandedIndexCode, setExpandedIndexCode] = useState<string>();
   const refreshTimer = useRef<number>();
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
@@ -130,6 +132,16 @@ export function MarketView() {
   }, [debouncedSearch]);
 
   const visibleRows = rowsByTab[activeTab] ?? [];
+  const expandedIndex = indices.find((item) => item.code === expandedIndexCode);
+  const selectIndexPeriod = (period: MarketIndexPeriod) => {
+    setIndexPeriod(period);
+    setLoading(true);
+  };
+  const loadOlderIndexKline = useCallback(async ({ timeframe, limit, beforeTimestamp }: ILoadOlderKlineInput) => {
+    const symbol = toMarketIndexSymbol(expandedIndexCode);
+    if (!symbol || timeframe !== indexPeriod) return [];
+    return getStocksenseApi().getKline(symbol, limit, timeframe, beforeTimestamp);
+  }, [expandedIndexCode, indexPeriod]);
   const sortedRows = sortDirection
     ? [...visibleRows].sort(
         (a, b) => (parsePercent(a.changePercent) - parsePercent(b.changePercent)) * (sortDirection === 'asc' ? 1 : -1),
@@ -263,10 +275,7 @@ export function MarketView() {
               <button
                 key={period.id}
                 className={cx(indexPeriod === period.id && styles.periodActive)}
-                onClick={() => {
-                  setIndexPeriod(period.id);
-                  setLoading(true);
-                }}
+                onClick={() => selectIndexPeriod(period.id)}
                 type='button'
               >
                 {period.label}
@@ -278,7 +287,7 @@ export function MarketView() {
       <div className={styles.indices}>
         {(indices.length ? indices : [undefined, undefined]).map((item, index) =>
           item ? (
-            <IndexCard key={item.code} item={item} onExpand={setExpandedIndex} />
+            <IndexCard key={item.code} item={item} onExpand={(index) => setExpandedIndexCode(index.code)} />
           ) : (
             <div key={index} className={styles.indexCard}>
               <div className={styles.noChart}>指数刷新中…</div>
@@ -324,11 +333,12 @@ export function MarketView() {
         ) : null}
       </div>
       {expandedIndex ? (
-        <KlineModal
-          stock={expandedIndex}
-          data={expandedIndex.minutes}
-          onClose={() => setExpandedIndex(undefined)}
-          chipsOpen={false}
+        <IndexKlineModal
+          index={expandedIndex}
+          period={indexPeriod}
+          loadOlderKline={loadOlderIndexKline}
+          onPeriodChange={selectIndexPeriod}
+          onClose={() => setExpandedIndexCode(undefined)}
         />
       ) : null}
     </section>
@@ -403,10 +413,10 @@ function StockTable({
               涨跌幅 {sortMark}
             </button>
           </th>
+          <th>最新价</th>
           <th>换手率</th>
           <th>成交量</th>
           <th>成交额</th>
-          <th>最新价</th>
         </tr>
       </thead>
       <tbody>
@@ -416,15 +426,21 @@ function StockTable({
             <td>{row.code}</td>
             <td>{row.name}</td>
             <td className={tone(row.changePercent)}>{formatPercent(row.changePercent)}</td>
+            <td className={tone(row.changePercent)}>{row.price ?? '--'}</td>
             <td>{formatPercent(row.turnoverRate)}</td>
             <td>{formatVolume(row.volume)}</td>
             <td>{formatMoney(row.amount)}</td>
-            <td className={tone(row.changePercent)}>{row.price ?? '--'}</td>
           </tr>
         ))}
       </tbody>
     </table>
   );
+}
+
+function toMarketIndexSymbol(code: string | undefined) {
+  if (code === '000001') return 'sh000001';
+  if (code === '399001') return 'sz399001';
+  return undefined;
 }
 
 function isChinaMarketOpen(date = new Date()) {

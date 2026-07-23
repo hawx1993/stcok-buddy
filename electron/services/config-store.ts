@@ -1,11 +1,12 @@
 import Store from 'electron-store';
 import { randomUUID } from 'node:crypto';
-import type { AppConfig, FavoriteStock } from '../../src/shared/types.js';
+import type { AppConfig, FavoriteStock, IPendingDownloadedUpdate } from '../../src/shared/types.js';
 
 export interface StoreSchema {
   config: AppConfig;
   favoriteStocks: FavoriteStock[];
   installedStoreItems: string[];
+  pendingDownloadedUpdate?: IPendingDownloadedUpdate;
   deviceId: string;
 }
 
@@ -72,6 +73,18 @@ export function setConfig(config: AppConfig): AppConfig {
   };
   store.set('config', normalized);
   return normalized;
+}
+
+export function getPendingDownloadedUpdate(): IPendingDownloadedUpdate | undefined {
+  return store.get('pendingDownloadedUpdate');
+}
+
+export function setPendingDownloadedUpdate(update: IPendingDownloadedUpdate) {
+  store.set('pendingDownloadedUpdate', update);
+}
+
+export function clearPendingDownloadedUpdate() {
+  store.delete('pendingDownloadedUpdate');
 }
 
 function sortFavorites(items: FavoriteStock[]) {

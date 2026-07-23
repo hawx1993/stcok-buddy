@@ -45,7 +45,8 @@ function ensureReady() {
       tag TEXT,
       type TEXT
     );
-    DROP INDEX IF EXISTS idx_stock_surge_events_date;
+    CREATE INDEX IF NOT EXISTS idx_stock_surge_events_date_id
+      ON stock_surge_events (trade_date, id);
   `);
   return ready;
 }

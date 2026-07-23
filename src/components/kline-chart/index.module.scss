@@ -145,8 +145,8 @@
   border-radius: 0;
 }
 .header + .wrap .chart {
-  height: calc(100% - 20px);
+  height: calc(100% - 40px);
 }
 .header + .wrap .timeframes {
-  bottom: 0;
+  bottom: 12px;
 }

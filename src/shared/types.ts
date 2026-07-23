@@ -515,6 +515,13 @@ export interface IAppUpdateProgress {
   bytesPerSecond: number;
 }
 
+export interface IPendingDownloadedUpdate {
+  version: string;
+  releaseName?: string;
+  releaseNotes?: string;
+  message?: string;
+}
+
 export type TAppUpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
 
 export interface IAppUpdateState {

@@ -5,8 +5,9 @@ const CAPTURE_INTERVAL_MS = 30_000;
 let isCapturing = false;
 let isStopped = false;
 let timer: NodeJS.Timeout | undefined;
+let lastPrunedDate = '';
 
-export function startSurgeHistoryScheduler() {
+export function ensureSurgeHistoryCapture() {
   if (timer) return;
   isStopped = false;
   void captureIfTradingTime();
@@ -26,7 +27,11 @@ async function captureIfTradingTime(now = new Date()) {
   try {
     const items = await listHotFocus('surge');
     if (!isStopped && items.length) await saveSurgeSnapshot(items, now);
-    if (!isStopped) await pruneSurgeHistory(7);
+    const dateKey = now.toISOString().slice(0, 10);
+    if (!isStopped && lastPrunedDate !== dateKey) {
+      await pruneSurgeHistory(7);
+      lastPrunedDate = dateKey;
+    }
   } catch (error) {
     console.warn('[surge-history] capture failed', error);
   } finally {
