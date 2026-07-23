@@ -1,6 +1,7 @@
 #!/usr/bin/env node
+const { createHash } = require('node:crypto');
 const { execFileSync, spawnSync } = require('node:child_process');
-const { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } = require('node:fs');
+const { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require('node:fs');
 const { basename, join } = require('node:path');
 const { tmpdir } = require('node:os');
 
@@ -328,6 +329,93 @@ function parseLatestMacAssetNames(latestMacPath) {
     .filter((name) => name.endsWith('.zip') || name.endsWith('.dmg'));
 }
 
+function macUpdateAssetNames(version, arch) {
+  return [
+    `StockBuddy-${version}-mac-${arch}.zip`,
+    `StockBuddy-${version}-mac-${arch}.dmg`,
+  ];
+}
+
+function sha512Base64(filePath) {
+  return createHash('sha512').update(readFileSync(filePath)).digest('base64');
+}
+
+function createMacUpdateFileEntry(filePath) {
+  return {
+    url: basename(filePath),
+    sha512: sha512Base64(filePath),
+    size: statSync(filePath).size,
+  };
+}
+
+function formatMacUpdateManifest(version, files) {
+  const primaryFile = files.find((file) => file.url.endsWith('.zip'));
+  if (!primaryFile) fail('macOS update manifest requires at least one ZIP asset.');
+  const entries = files.map((file) => [
+    `  - url: ${file.url}`,
+    `    sha512: ${file.sha512}`,
+    `    size: ${file.size}`,
+  ].join('\n')).join('\n');
+  return [
+    `version: ${version}`,
+    'files:',
+    entries,
+    `path: ${primaryFile.url}`,
+    `sha512: ${primaryFile.sha512}`,
+    `releaseDate: '${new Date().toISOString()}'`,
+    '',
+  ].join('\n');
+}
+
+function composeMacUpdateManifest(version, targets) {
+  const targetValues = resolveTargetValues(targets);
+  const arches = targetValues.includes('all')
+    ? ['arm64', 'x64']
+    : ['arm64', 'x64'].filter((arch) => targetValues.includes(`mac-${arch}`));
+  if (!arches.length) return;
+
+  const files = arches.flatMap((arch) => macUpdateAssetNames(version, arch)
+    .map((name) => join(RELEASE_DIR, name))
+    .map((filePath) => {
+      if (!existsSync(filePath)) fail(`Missing macOS update asset required for latest-mac.yml: ${basename(filePath)}`);
+      return createMacUpdateFileEntry(filePath);
+    }));
+  const manifestPath = join(RELEASE_DIR, 'latest-mac.yml');
+  writeFileSync(manifestPath, formatMacUpdateManifest(version, files));
+  log(`Composed latest-mac.yml for macOS ${arches.join(' and ')} updates.`);
+}
+
+function expectedMacUpdateArches(targets) {
+  const targetValues = resolveTargetValues(targets);
+  if (targetValues.includes('all')) return ['arm64', 'x64'];
+  return ['arm64', 'x64'].filter((arch) => targetValues.includes(`mac-${arch}`));
+}
+
+function assertLatestMacManifestMatchesAssets(latestMacPath, assets, expectedArches) {
+  const content = readFileSync(latestMacPath, 'utf8');
+  const names = new Set(assets.map((asset) => basename(asset)));
+  const referencedNames = parseLatestMacAssetNames(latestMacPath);
+  if (!referencedNames.length) fail('latest-mac.yml does not reference any macOS update asset.');
+  if (!referencedNames.some((name) => name.endsWith('.zip'))) fail('latest-mac.yml must reference a macOS ZIP for electron-updater.');
+
+  for (const name of referencedNames) {
+    if (!names.has(name)) fail(`latest-mac.yml references missing asset: ${name}`);
+  }
+  for (const arch of expectedArches) {
+    const zipName = referencedNames.find((name) => name.endsWith(`-mac-${arch}.zip`));
+    if (!zipName) fail(`latest-mac.yml must reference a macOS ${arch} ZIP update asset.`);
+    const zipPath = assets.find((asset) => basename(asset) === zipName);
+    if (!zipPath) fail(`Unable to verify macOS ${arch} ZIP update asset.`);
+    const expectedHash = sha512Base64(zipPath);
+    const expectedSize = statSync(zipPath).size;
+    const escapedName = zipName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const entry = content.match(new RegExp(`- url: ${escapedName}\\n\\s+sha512: ([^\\n]+)\\n\\s+size: (\\d+)`));
+    if (!entry) fail(`latest-mac.yml is missing checksum or size for ${zipName}.`);
+    if (entry[1] !== expectedHash) fail(`latest-mac.yml has an invalid SHA-512 checksum for ${zipName}.`);
+    if (Number(entry[2]) !== expectedSize) fail(`latest-mac.yml has an invalid size for ${zipName}.`);
+  }
+}
+
 function findAppBundle(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
@@ -379,21 +467,15 @@ function verifyMacZipSignature(zipPath) {
   }
 }
 
-function verifyLatestMacMetadata(assets) {
+function verifyLatestMacMetadata(assets, targets) {
   const latestMacPath = assets.find((asset) => basename(asset) === 'latest-mac.yml');
   if (!latestMacPath) return;
-  const names = new Set(assets.map((asset) => basename(asset)));
-  const referencedNames = parseLatestMacAssetNames(latestMacPath);
-  if (!referencedNames.length) fail('latest-mac.yml does not reference any macOS update asset.');
-  if (!referencedNames.some((name) => name.endsWith('.zip'))) fail('latest-mac.yml must reference a macOS zip for electron-updater.');
-  for (const name of referencedNames) {
-    if (!names.has(name)) fail(`latest-mac.yml references missing asset: ${name}`);
-  }
+  assertLatestMacManifestMatchesAssets(latestMacPath, assets, expectedMacUpdateArches(targets));
 }
 
 function verifyMacUpdateArtifacts(assets, targets) {
   if (!hasMacTarget(targets)) return;
-  verifyLatestMacMetadata(assets);
+  verifyLatestMacMetadata(assets, targets);
   const macZips = assets.filter((asset) => /^StockBuddy-.+-mac-(arm64|x64)\.zip$/.test(basename(asset)));
   if (!macZips.length) fail('No macOS zip assets found for electron-updater.');
   for (const zipPath of macZips) verifyMacZipSignature(zipPath);
@@ -506,6 +588,7 @@ function main() {
   if (!options.skipBuild) {
     cleanReleaseDir();
     buildArtifacts(version, targets);
+    composeMacUpdateManifest(version, targets);
   }
 
   const assets = findAssets(targets);
@@ -516,4 +599,10 @@ function main() {
   verifyRelease(tag, targets);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = {
+  assertLatestMacManifestMatchesAssets,
+  createMacUpdateFileEntry,
+  formatMacUpdateManifest,
+};

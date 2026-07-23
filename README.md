@@ -103,6 +103,19 @@ gh auth login
 pnpm run release:github
 ```
 
+发布同时支持 Intel 与 Apple Silicon 时，必须构建两个架构；发布脚本会把两个 ZIP/DMG 的校验信息合并到同一个 `latest-mac.yml`，让 macOS 自动更新根据当前机器架构选择匹配的 ZIP：
+
+```bash
+pnpm run release:github:mac -- --publish
+```
+
+上传后请检查 Release 中的更新元数据是否同时引用 `mac-arm64.zip` 与 `mac-x64.zip`：
+
+```bash
+gh release download v0.4.7 --repo hawx1993/stcok-buddy --pattern latest-mac.yml --output /tmp/latest-mac.yml --clobber
+cat /tmp/latest-mac.yml
+```
+
 默认会使用 `package.json` 里的版本号创建草稿 Release，例如 `v0.3.6`。常用参数：
 
 ```bash
