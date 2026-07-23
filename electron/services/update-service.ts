@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import type { AppUpdater, ProgressInfo, UpdateDownloadedEvent, UpdateInfo } from 'electron-updater';
 import type { IAppUpdateProgress, IAppUpdateSettings, IAppUpdateState, TAppUpdateChannel } from '../../src/shared/types.js';
-import { getConfig } from './config-store.js';
+import { clearPendingDownloadedUpdate, getConfig, getPendingDownloadedUpdate, setPendingDownloadedUpdate } from './config-store.js';
 
 const require = createRequire(import.meta.url);
 const { autoUpdater } = require('electron-updater') as { autoUpdater: AppUpdater };
@@ -90,12 +90,13 @@ async function fetchGitHubReleases(channel: TAppUpdateChannel) {
 async function checkDevGitHubRelease(settings?: IAppUpdateSettings) {
   const { channel } = getUpdateSettings(settings);
   const metadataAssetName = getLatestYmlAssetName(channel);
-  updateState({ status: 'checking', error: undefined, message: '正在检查更新…' });
+  if (state.status !== 'downloaded') updateState({ status: 'checking', error: undefined, message: '正在检查更新…' });
   const release = await fetchGitHubReleases(channel);
   const latestVersion = releaseTagToVersion(release.tag_name);
   const hasPlatformMetadata = release.assets.some((asset) => asset.name === metadataAssetName);
   if (!hasPlatformMetadata) throw new Error(`最新 Release 缺少 ${metadataAssetName}，请用打包命令生成并上传更新元数据`);
   if (compareVersions(latestVersion, getCurrentVersion()) <= 0) {
+    clearPendingDownloadedUpdate();
     return updateState({
       status: 'not-available',
       latestVersion,
@@ -106,6 +107,8 @@ async function checkDevGitHubRelease(settings?: IAppUpdateSettings) {
       message: '已是最新版本',
     });
   }
+  if (getPendingDownloadedUpdate()?.version === latestVersion) return getRestoredDownloadedState() ?? state;
+  clearPendingDownloadedUpdate();
   return updateState({
     status: 'available',
     latestVersion,
@@ -124,7 +127,25 @@ let installHandler: (() => void) | undefined;
 let checkingPromise: Promise<IAppUpdateState> | undefined;
 let downloadPromise: Promise<IAppUpdateState> | undefined;
 let downloadSettingsOverride: IAppUpdateSettings | undefined;
-let state: IAppUpdateState = {
+
+function getRestoredDownloadedState(): IAppUpdateState | undefined {
+  const pendingUpdate = getPendingDownloadedUpdate();
+  if (!pendingUpdate) return undefined;
+  if (compareVersions(pendingUpdate.version, getCurrentVersion()) <= 0) {
+    clearPendingDownloadedUpdate();
+    return undefined;
+  }
+  return {
+    status: 'downloaded',
+    currentVersion: getCurrentVersion(),
+    latestVersion: pendingUpdate.version,
+    releaseName: pendingUpdate.releaseName,
+    releaseNotes: pendingUpdate.releaseNotes,
+    message: pendingUpdate.message ?? '下载完成，点击安装后将退出当前软件',
+  };
+}
+
+let state: IAppUpdateState = getRestoredDownloadedState() ?? {
   status: 'idle',
   currentVersion: getCurrentVersion(),
 };
@@ -162,16 +183,10 @@ function updateState(next: Partial<IAppUpdateState>) {
 function updateAvailableState(info: UpdateInfo) {
   const currentVersion = getCurrentVersion();
   if (compareVersions(info.version, currentVersion) <= 0) {
-    return updateState({
-      status: 'not-available',
-      latestVersion: info.version,
-      releaseName: info.releaseName ?? undefined,
-      releaseNotes: toReleaseNotesText(info.releaseNotes),
-      progress: undefined,
-      error: undefined,
-      message: '已是最新版本',
-    });
+    return updateNotAvailableState(info);
   }
+  if (state.status === 'downloaded' && state.latestVersion === info.version) return state;
+  clearPendingDownloadedUpdate();
   return updateState({
     status: 'available',
     latestVersion: info.version,
@@ -180,6 +195,20 @@ function updateAvailableState(info: UpdateInfo) {
     progress: undefined,
     error: undefined,
     message: `发现新版本 v${info.version}`,
+  });
+}
+
+function updateNotAvailableState(info: UpdateInfo) {
+  if (state.status === 'downloaded' && state.latestVersion === info.version) return state;
+  clearPendingDownloadedUpdate();
+  return updateState({
+    status: 'not-available',
+    latestVersion: info.version,
+    releaseName: info.releaseName ?? undefined,
+    releaseNotes: toReleaseNotesText(info.releaseNotes),
+    progress: undefined,
+    error: undefined,
+    message: '已是最新版本',
   });
 }
 
@@ -192,22 +221,33 @@ function copyDownloadedUpdate(event: UpdateDownloadedEvent, settings?: IAppUpdat
 }
 
 function updateDownloadedState(event: UpdateDownloadedEvent) {
-  const baseState = updateState({
-    status: 'downloaded',
-    latestVersion: event.version,
+  const downloadedUpdate = {
+    version: event.version,
     releaseName: event.releaseName ?? undefined,
     releaseNotes: toReleaseNotesText(event.releaseNotes),
+    message: '下载完成，点击安装后将退出当前软件',
+  };
+  setPendingDownloadedUpdate(downloadedUpdate);
+  const baseState = updateState({
+    status: 'downloaded',
+    latestVersion: downloadedUpdate.version,
+    releaseName: downloadedUpdate.releaseName,
+    releaseNotes: downloadedUpdate.releaseNotes,
     progress: undefined,
     error: undefined,
-    message: '下载完成，点击安装后将退出当前软件',
+    message: downloadedUpdate.message,
   });
   try {
     const copiedPath = copyDownloadedUpdate(event, downloadSettingsOverride);
     if (!copiedPath) return baseState;
-    return updateState({ message: `下载完成，安装包已保存到 ${copiedPath}` });
+    const message = `下载完成，安装包已保存到 ${copiedPath}`;
+    setPendingDownloadedUpdate({ ...downloadedUpdate, message });
+    return updateState({ message });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return updateState({ error: `更新已下载，但复制到指定目录失败：${detail}`, message: `更新已下载，但复制到指定目录失败：${detail}` });
+    const message = `更新已下载，但复制到指定目录失败：${detail}`;
+    setPendingDownloadedUpdate({ ...downloadedUpdate, message });
+    return updateState({ error: `更新已下载，但复制到指定目录失败：${detail}`, message });
   }
 }
 
@@ -242,6 +282,7 @@ function formatUpdateError(error: Error) {
 }
 
 function updateErrorState(error: Error) {
+  if (state.status === 'downloaded') return state;
   const message = formatUpdateError(error);
   return updateState({
     status: 'error',
@@ -251,22 +292,12 @@ function updateErrorState(error: Error) {
 }
 
 autoUpdater.on('checking-for-update', () => {
-  updateState({ status: 'checking', error: undefined, message: '正在检查更新…' });
+  if (state.status !== 'downloaded') updateState({ status: 'checking', error: undefined, message: '正在检查更新…' });
 });
 
 autoUpdater.on('update-available', updateAvailableState);
 
-autoUpdater.on('update-not-available', (info) => {
-  updateState({
-    status: 'not-available',
-    latestVersion: info.version,
-    releaseName: info.releaseName ?? undefined,
-    releaseNotes: toReleaseNotesText(info.releaseNotes),
-    progress: undefined,
-    error: undefined,
-    message: '已是最新版本',
-  });
-});
+autoUpdater.on('update-not-available', updateNotAvailableState);
 
 autoUpdater.on('download-progress', (progress) => {
   updateState({ status: 'downloading', progress: normalizeProgress(progress), error: undefined, message: '正在下载更新…' });
@@ -337,6 +368,7 @@ export async function installAppUpdate() {
   if (state.status !== 'downloaded') {
     return updateState({ status: 'error', error: '更新尚未下载完成', message: '更新尚未下载完成' });
   }
+  clearPendingDownloadedUpdate();
   installHandler?.();
   autoUpdater.quitAndInstall(false, true);
   return state;

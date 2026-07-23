@@ -23,6 +23,7 @@ import { runOrchestrator } from './services/agent/orchestrator.js';
 import { getBatchQuotes, getBoardDetail, getKline, getMarketPageSnapshot, getStockDetail, listHotFocus, listStockSurgeEvents, onMarketPageSnapshotUpdated, searchStocks } from './services/stock/stock-client.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { listSurgeDates, saveSurgeSnapshot } from './services/stock/surge-history-store.js';
+import { ensureSurgeHistoryCapture } from './services/stock/surge-history-scheduler.js';
 import { listMarketNews } from './services/stock/news-client.js';
 import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
@@ -99,13 +100,23 @@ export function registerIpcHandlers() {
   });
   app.once('before-quit', removeMarketPageListener);
   ipcMain.handle('hot:list', async (_event, tab: HotFocusTab) => {
+    if (tab === 'surge') ensureSurgeHistoryCapture();
     const items = await listHotFocus(tab);
     if (tab === 'surge' && items.length) void saveSurgeSnapshot(items).catch((error: unknown) => console.error('[surge-history] snapshot failed', error));
     return items;
   });
-  ipcMain.handle('hot:historyDates', () => listSurgeDates());
-  ipcMain.handle('hot:history', (_event, date: string, offset?: number, limit?: number) => listSurgeHistoryWithBackfill(date, offset, limit));
-  ipcMain.handle('stock:surgeEvents', (_event, code: string) => listStockSurgeEvents(code));
+  ipcMain.handle('hot:historyDates', () => {
+    ensureSurgeHistoryCapture();
+    return listSurgeDates();
+  });
+  ipcMain.handle('hot:history', (_event, date: string, offset?: number, limit?: number) => {
+    ensureSurgeHistoryCapture();
+    return listSurgeHistoryWithBackfill(date, offset, limit);
+  });
+  ipcMain.handle('stock:surgeEvents', (_event, code: string) => {
+    ensureSurgeHistoryCapture();
+    return listStockSurgeEvents(code);
+  });
   ipcMain.handle('marketData:getStatus', () => getMarketDataSyncStatus());
   ipcMain.handle('marketData:startSync', () => startMarketDataSync(true));
   ipcMain.handle('marketData:retryFailures', () => retryMarketDataFailures());

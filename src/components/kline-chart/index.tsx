@@ -23,6 +23,14 @@ export const klineTimeframes = [
 
 export type TimeframeId = (typeof klineTimeframes)[number]['id'];
 
+export interface ILoadOlderKlineInput {
+  timeframe: TimeframeId;
+  limit: number;
+  beforeTimestamp?: number;
+}
+
+export type TLoadOlderKline = (input: ILoadOlderKlineInput) => Promise<KlinePoint[]>;
+
 type KlineStock = Pick<StockDetail, 'code' | 'name' | 'pe' | 'price'>;
 
 const EMPTY_KLINE_DATA: KlinePoint[] = [];
@@ -41,6 +49,7 @@ interface StockKlineChartProps {
   showLegend?: boolean;
   timeframe?: TimeframeId;
   onTimeframeChange?: (timeframe: TimeframeId) => void;
+  loadOlderKline?: TLoadOlderKline;
   staticData?: boolean;
 }
 
@@ -56,13 +65,14 @@ export function StockKlineChart({
   showLegend = true,
   timeframe,
   onTimeframeChange,
+  loadOlderKline,
   staticData = false,
 }: StockKlineChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
   const loadingMoreRef = useRef(false);
-  const appendingOlderRef = useRef(false);
   const loadedLimitRef = useRef(0);
+  const hasMoreOlderDataRef = useRef(true);
   const chartDataRef = useRef<KlinePoint[]>([]);
   const marketColorMode = useAppStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
   const marketColors = useMemo(() => getMarketColors(marketColorMode), [marketColorMode]);
@@ -73,6 +83,7 @@ export function StockKlineChart({
   const [loadedData, setLoadedData] = useState<KlinePoint[]>(() => {
     if (usesProvidedData || (data.length > 0 && !staticData)) {
       loadedLimitRef.current = data.length;
+      hasMoreOlderDataRef.current = true;
       return data;
     }
     return [];
@@ -105,14 +116,14 @@ export function StockKlineChart({
       console.log('[kline] using parent seed data', { code: stock?.code, bars: data.length });
       setLoadedData(data);
       loadedLimitRef.current = data.length;
-      appendingOlderRef.current = false;
+      hasMoreOlderDataRef.current = true;
       setHoverIndex(undefined);
       setHoverPoint(undefined);
       return;
     }
     setLoadedData([]);
-    appendingOlderRef.current = false;
     loadedLimitRef.current = 0;
+    hasMoreOlderDataRef.current = true;
     setHoverIndex(undefined);
     setHoverPoint(undefined);
     console.log('[kline] no seed data, fetching from API', { code: stock?.code });
@@ -123,6 +134,7 @@ export function StockKlineChart({
         if (alive) {
           setLoadedData(next);
           loadedLimitRef.current = frame.limit;
+          hasMoreOlderDataRef.current = true;
           setHoverIndex(undefined);
           setHoverPoint(undefined);
         }
@@ -132,6 +144,7 @@ export function StockKlineChart({
         if (alive) {
           setLoadedData([]);
           loadedLimitRef.current = 0;
+          hasMoreOlderDataRef.current = false;
         }
       });
     return () => {
@@ -139,8 +152,8 @@ export function StockKlineChart({
     };
   }, [usesProvidedData, stock?.code, frame.limit, tf, data.length, staticData]);
 
-  const loadOlderData = useCallback(async (options: { appendViaLoader?: boolean; anchorTimestamp?: number } = {}) => {
-    if (!stock?.code || staticData || loadingMoreRef.current || loadedLimitRef.current >= KLINE_MAX_LIMIT || !chartDataRef.current.length)
+  const loadOlderData = useCallback(async (options: { anchorTimestamp?: number } = {}) => {
+    if (!stock?.code || loadingMoreRef.current || !hasMoreOlderDataRef.current || loadedLimitRef.current >= KLINE_MAX_LIMIT || !chartDataRef.current.length)
       return [];
     const firstTimestamp =
       options.anchorTimestamp ??
@@ -154,7 +167,9 @@ export function StockKlineChart({
       Math.max(loadedLimitRef.current + KLINE_LOAD_STEP, frame.limit + KLINE_LOAD_STEP),
     );
     try {
-      const next = await getStocksenseApi().getKline(toKlineRequestSymbol(stock), nextLimit, tf, firstTimestamp);
+      const next = loadOlderKline
+        ? await loadOlderKline({ timeframe: tf, limit: nextLimit, beforeTimestamp: firstTimestamp })
+        : await getStocksenseApi().getKline(toKlineRequestSymbol(stock), nextLimit, tf, firstTimestamp);
       const older =
         firstTimestamp === undefined
           ? next
@@ -162,20 +177,21 @@ export function StockKlineChart({
               (point, index) =>
                 (point.timestamp ?? parseKlineTimestamp(point.time, index, next.length, frame.period)) < firstTimestamp,
             );
-      if (older.length) {
-        appendingOlderRef.current = options.appendViaLoader === true;
-        loadedLimitRef.current = nextLimit;
-        setLoadedData(next);
+      if (!older.length) {
+        hasMoreOlderDataRef.current = false;
+        return [];
       }
+      loadedLimitRef.current = Math.min(KLINE_MAX_LIMIT, chartDataRef.current.length + older.length);
+      setLoadedData((current) => mergeKlineData(older, current, frame.period));
       return older;
     } finally {
       loadingMoreRef.current = false;
     }
-  }, [frame.limit, frame.period, stock, tf, staticData]);
+  }, [frame.limit, frame.period, loadOlderKline, stock, tf]);
   const loadOlderDataRef = useRef(loadOlderData);
 
-  const requestOlderData = useCallback((appendViaLoader: boolean, anchorTimestamp?: number) => {
-    void loadOlderDataRef.current({ appendViaLoader, anchorTimestamp });
+  const requestOlderData = useCallback((anchorTimestamp?: number) => {
+    void loadOlderDataRef.current({ anchorTimestamp });
   }, []);
 
   useEffect(() => {
@@ -212,7 +228,7 @@ export function StockKlineChart({
     if (!chart) return;
     chartRef.current = chart;
     const updateHoverIndex = (nextIndex: number | undefined) => {
-      if (nextIndex !== undefined && nextIndex < 12) requestOlderData(false, getFirstKlineTimestamp(frame.period, chartDataRef.current));
+      if (nextIndex !== undefined && nextIndex < 12) requestOlderData(getFirstKlineTimestamp(frame.period, chartDataRef.current));
       setHoverIndex(nextIndex);
       setHoverPoint(nextIndex === undefined ? undefined : chartDataRef.current[nextIndex]);
     };
@@ -221,7 +237,7 @@ export function StockKlineChart({
     };
     const onVisibleRangeChange = (value?: unknown) => {
       const range = value as VisibleRange | undefined;
-      if (range && range.realFrom <= 2) requestOlderData(false, getFirstKlineTimestamp(frame.period, chartDataRef.current));
+      if (range && range.from === 0) requestOlderData(getFirstKlineTimestamp(frame.period, chartDataRef.current));
     };
     const onMouseMove = (event: MouseEvent) => {
       const rect = hostRef.current?.getBoundingClientRect();
@@ -256,10 +272,6 @@ export function StockKlineChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    if (appendingOlderRef.current) {
-      appendingOlderRef.current = false;
-      return;
-    }
     chart.setSymbol({
       ticker: stock?.code || 'kline',
       name: stock?.name || 'K线',
@@ -270,14 +282,11 @@ export function StockKlineChart({
     chart.setDataLoader({
       getBars: async ({ type, timestamp, callback }) => {
         if (type === 'forward') {
-          const older = await loadOlderData({ appendViaLoader: true, anchorTimestamp: timestamp ?? undefined });
-          callback(
-            older.map((point, index) => toKLineData(point, index, older.length, frame.period)),
-            { forward: older.length > 0, backward: false },
-          );
+          await loadOlderData({ anchorTimestamp: timestamp ?? undefined });
+          callback([], { forward: hasMoreOlderDataRef.current, backward: false });
           return;
         }
-        callback(klineData, { forward: klineData.length > 0 && !staticData && loadedLimitRef.current < KLINE_MAX_LIMIT, backward: false });
+        callback(klineData, { forward: klineData.length > 0 && hasMoreOlderDataRef.current && loadedLimitRef.current < KLINE_MAX_LIMIT, backward: false });
       },
     });
     chart.resetData();
@@ -353,6 +362,15 @@ export function KlineModal({
     )} />
   );
   return createPortal(modal, document.body);
+}
+
+function mergeKlineData(older: KlinePoint[], current: KlinePoint[], period: Period) {
+  const rows = new Map<number, KlinePoint>();
+  [...older, ...current].forEach((point, index) => {
+    const timestamp = point.timestamp ?? parseKlineTimestamp(point.time, index, older.length + current.length, period);
+    rows.set(timestamp, { ...point, timestamp });
+  });
+  return [...rows.values()].sort((left, right) => (left.timestamp ?? 0) - (right.timestamp ?? 0));
 }
 
 function getFirstKlineTimestamp(period: Period, data: KlinePoint[]) {
