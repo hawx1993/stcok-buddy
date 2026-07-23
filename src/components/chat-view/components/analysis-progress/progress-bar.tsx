@@ -3,8 +3,8 @@ import styles from './index.module.scss';
 import cx from '../../../../shared/cx';
 
 export function ProgressBar({ stockName, steps }: { stockName?: string; steps: IStep[] }) {
-  const completed = steps.filter((s) => s.status === 'completed').length;
-  const percent = steps.length ? Math.round((completed / steps.length) * 100) : 0;
+  const terminal = steps.filter((s) => s.status === 'completed' || s.status === 'error').length;
+  const percent = steps.length ? Math.round((terminal / steps.length) * 100) : 0;
 
   return (
     <div className={styles['progress-bar']}>

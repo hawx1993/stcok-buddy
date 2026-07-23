@@ -10,6 +10,7 @@ import type {
   IStockFundFlowSnapshot,
   KlinePoint,
   MarketNewsItem,
+  TMarketReviewReport,
   StockDetail,
   StructuredAgentFinding,
   ToolCallRecord,
@@ -20,6 +21,8 @@ import { fetchBoard } from './data-agent.js';
 import { runNewsAnalysisAgent } from './news-analysis-agent.js';
 import { reviewComplianceStructured } from './compliance-critic.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
+import { generateReport } from '../llm/index.js';
+import { createMarketReviewMessages } from './market-review-prompt.js';
 import {
   runStockAnalysisSubAgent,
   stockAnalysisAgentNames,
@@ -48,6 +51,7 @@ type Intent =
   | 'news-announcements'
   | 'theme-attribution'
   | 'daily-lhb'
+  | 'market-review'
   | 'board'
   | 'portfolio'
   | 'chat';
@@ -70,6 +74,7 @@ const slashCommands = [
     allowEmptyArgs: true,
   },
   { name: '/全市场龙虎榜', intent: 'daily-lhb' as const, usage: '今天龙虎榜哪些票净买入最多', allowEmptyArgs: true },
+  { name: '/复盘今日行情', intent: 'market-review' as const, usage: '直接发送即可，系统将复盘最近可用交易日行情', allowEmptyArgs: true },
   {
     name: '/技术面分析',
     intent: 'analysis' as const,
@@ -125,6 +130,7 @@ interface AgentContext {
   fundFlow?: IStockFundFlowSnapshot;
   largeOrders?: HotFocusItem[];
   dailyDragonTiger?: DailyDragonTigerItem[];
+  marketReview?: TMarketReviewReport;
   linkedPages?: Array<{ url: string; title?: string; content: string }>;
   analysisResults?: StockAnalysisResult[];
   analysisOverview?: string;
@@ -291,7 +297,7 @@ export async function runOrchestrator(
   const draft =
     context.singleAgent && context.analysisResults?.[0]
       ? context.analysisResults[0].content
-      : (context.themeAttribution ?? context.analysisOverview ?? context.board?.narrative ?? '');
+      : (context.marketReview ? context.analysisOverview ?? '' : context.themeAttribution ?? context.analysisOverview ?? context.board?.narrative ?? '');
 
   const review = reviewComplianceStructured({ text: draft, evidence: context.evidence, findings: context.findings });
   context.compliance = review;
@@ -330,6 +336,7 @@ export async function runOrchestrator(
     title: '最终结论',
     message: content,
     result,
+    marketReview: context.marketReview,
     stock: context.quote,
     evidence: context.evidence,
     findings: context.findings,
@@ -345,6 +352,7 @@ export async function runOrchestrator(
       runEvents: events,
       steps: events.map((event) => event.step).filter((step): step is NonNullable<typeof step> => Boolean(step)),
       result,
+      marketReview: context.marketReview,
       evidence: context.evidence,
       findings: context.findings,
       toolCalls: context.toolCalls,
@@ -467,6 +475,33 @@ function buildDag(context: AgentContext, onToken?: (token: string) => void): Dag
           ctx.evidence.push(...evidenceFromHotFocus(ctx.hotFocus));
           ctx.board = themeAttributionToCard(surge, sector, flow);
           ctx.themeAttribution = ctx.board.narrative;
+        },
+      },
+    ];
+  }
+
+  if (context.intent === 'market-review') {
+    return [
+      ...linkNodes,
+      {
+        id: 'market-review-data',
+        agent: 'MarketReviewDataAgent',
+        description: '采集全市场行情、板块资金流与涨跌停池真实数据',
+        run: async (ctx) => {
+          ctx.marketReview = await runContextTool<TMarketReviewReport | undefined>(ctx, 'getMarketReview', {}, () => undefined);
+        },
+      },
+      {
+        id: 'market-review-report',
+        agent: '生成市场复盘',
+        description: '基于真实数据生成今日行情复盘',
+        dependsOn: ['market-review-data'],
+        run: async (ctx) => {
+          if (!ctx.marketReview) {
+            ctx.analysisOverview = '今日行情复盘数据源暂不可用，请稍后重试。';
+            return;
+          }
+          ctx.analysisOverview = await generateReport(createMarketReviewMessages(ctx.marketReview));
         },
       },
     ];
@@ -723,6 +758,7 @@ function buildReportQuery(query: string, pages?: Array<{ url: string; title?: st
 }
 
 function classifyIntent(query: string): Intent {
+  if (/复盘今日行情|今日行情复盘|市场复盘/.test(query)) return 'market-review';
   if (/全市场龙虎榜|龙虎榜.*净买入|净买入.*龙虎榜/.test(query)) return 'daily-lhb';
   if (/题材归因|哪些股票走强|主要是什么题材/.test(query)) return 'theme-attribution';
   if (hasStock(query) && /新闻|公告/.test(query)) return 'news-announcements';
@@ -758,6 +794,7 @@ function intentLabel(intent: Intent) {
     'news-announcements': '新闻公告',
     'theme-attribution': '题材归因',
     'daily-lhb': '全市场龙虎榜',
+    'market-review': '今日行情复盘',
     board: '板块分析',
     portfolio: '持仓管理',
     chat: '普通问答',

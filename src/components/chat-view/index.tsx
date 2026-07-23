@@ -8,6 +8,7 @@ import { ThinkingBanner, AnalysisThinkingBanner, ProcessedBanner } from './compo
 import { formatMessageTime } from './components/message-utils';
 import { createThinkingSteps, setBuiltInSlashItems, isGreeting } from './components/thinking-steps';
 import { ResultCard } from './components/result-card';
+import { MarketReviewCard } from './components/market-review-card';
 import { renderCommandInText, renderMarkdownContent } from './components/markdown';
 import type { BoardDetail, ChatMessage, StockDetail, StoreCategory, StoreItem } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
@@ -46,6 +47,14 @@ const builtInSlashItems = [
     label: '全市场龙虎榜',
     command: '/全市场龙虎榜',
     description: '今天龙虎榜哪些票净买入最多',
+    argPlaceholder: '直接发送即可',
+  },
+  {
+    id: 'market-review',
+    section: 'Commands',
+    label: '复盘今日行情',
+    command: '/复盘今日行情',
+    description: '基于真实全市场数据复盘最近可用交易日行情',
     argPlaceholder: '直接发送即可',
   },
   {
@@ -789,6 +798,7 @@ function MessageBubble({
             }}
           />
         ) : null}
+        {message.marketReview ? <MarketReviewCard report={message.marketReview} onBoardClick={onBoardClick} /> : null}
         {message.result ? (
           <ResultCard result={message.result} onStockClick={onStockClick} onBoardClick={onBoardClick} />
         ) : null}

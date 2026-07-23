@@ -177,6 +177,7 @@ export interface ChatMessage {
   role: MessageRole;
   content: string;
   createdAt: string;
+  marketReview?: TMarketReviewReport;
   runEvents?: AgentRunEvent[];
   steps?: AgentStep[];
   thinking?: {
@@ -269,6 +270,7 @@ export interface AgentRunEvent {
   };
   evidence?: EvidenceItem[];
   findings?: StructuredAgentFinding[];
+  marketReview?: TMarketReviewReport;
 }
 
 export interface ChatRequest {
@@ -491,6 +493,71 @@ export interface AgentResultCard {
   narrative?: string;
   stocks?: StockDetail[];
   chart?: { type: 'kline'; data: KlinePoint[] };
+}
+
+export type TMarketReviewRating = 1 | 2 | 3 | 4 | 5;
+
+export interface IMarketReviewMetric {
+  label: string;
+  value: number | null;
+  unit?: '家' | '%' | '板' | '亿' | '分';
+}
+
+export interface IMarketReviewHotTheme {
+  id: string;
+  boardCode: string | null;
+  name: string;
+  score: TMarketReviewRating | null;
+  changePercent: number | null;
+  limitUpCount: number | null;
+  leaderName: string | null;
+  leaderCode: string | null;
+  leaderHeight: number | null;
+  mainNetInflow: number | null;
+  amount: number | null;
+  limitUpStocks: Array<{ code: string; name: string; height: number | null }>;
+  coreStocks: Array<{ code: string; name: string; changePercent: number | null }>;
+  reason: string | null;
+  trackingNote: string | null;
+}
+
+export interface IMarketReviewLeader {
+  code: string;
+  name: string;
+  concepts: string[];
+  height: number | null;
+  amount: number | null;
+  turnoverRate: number | null;
+  sealAmount: number | null;
+  changePercent: number | null;
+}
+
+export type TMarketReviewWatchCategory = 'leader' | 'theme' | 'liquidity' | 'sentiment' | 'risk' | 'northbound';
+export type TMarketReviewTone = 'up' | 'down' | 'neutral' | 'warn';
+
+export interface IMarketReviewWatchItem {
+  id: string;
+  category: TMarketReviewWatchCategory;
+  condition: string;
+  baseline: number | null;
+  unit?: '%' | '家' | '亿' | '板';
+  tone: TMarketReviewTone;
+}
+
+export interface TMarketReviewReport {
+  tradeDate: string;
+  generatedAt: string;
+  dataSources: string[];
+  dataGaps: string[];
+  indexSummary: Array<{ name: string; changePercent: number | null; amount: number | null }>;
+  sentimentScore: number | null;
+  sentiment: IMarketReviewMetric[];
+  wealthEffect: IMarketReviewMetric[];
+  profitDirections: string[];
+  lossDirections: string[];
+  hotThemes: IMarketReviewHotTheme[];
+  leaders: IMarketReviewLeader[];
+  nextDayFocus: IMarketReviewWatchItem[];
 }
 
 export interface StoreItem {

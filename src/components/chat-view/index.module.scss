@@ -362,6 +362,43 @@
   user-select: text;
   overflow: hidden;
 }
+.market-review-card {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+.market-review-header, .review-theme-facts, .review-leader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.market-review-header { justify-content: space-between; margin-bottom: 10px; }
+.market-review-header > div:first-child { display: grid; gap: 3px; }
+.market-review-header span, .review-leader span { color: var(--muted); }
+.sentiment-score { color: var(--accent); font-weight: 700; font-size: 15px; }
+.review-section { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.review-section h4 { margin: 0 0 8px; font-size: 13px; color: var(--fg); }
+.review-metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 20px; padding: 8px 0 12px; border-bottom: 1px solid var(--border); }
+.review-metric-grid > div { display: grid; gap: 8px; }
+.review-metric-grid span { color: var(--muted); font-size: 12px; }
+.review-metric-grid strong { color: var(--fg); font-size: 20px; line-height: 1; }
+.review-directions { margin: 10px 0 0; }.review-directions span { color: var(--muted); }.review-direction-profit { color: var(--market-up); }.review-direction-loss { color: var(--market-down); }
+.review-theme { border: 1px solid var(--border); border-radius: 6px; margin-top: 6px; overflow: hidden; }
+.review-theme-heading { display: flex; justify-content: space-between; gap: 8px; padding: 7px 8px; background: var(--surface); }
+.review-theme-board-link, .review-theme-expand { border: 0; background: transparent; cursor: pointer; font: inherit; }
+.review-theme-board-link { color: var(--accent); font-weight: 600; text-align: left; }.review-theme-board-link:hover:not(:disabled), .review-theme-board-link:focus-visible { text-decoration: underline; }.review-theme-board-link:disabled { color: var(--muted); cursor: default; }
+.review-theme-expand { color: var(--muted); padding: 0; }.review-theme-expand:hover, .review-theme-expand:focus-visible { color: var(--accent); }
+.review-theme-facts { padding: 6px 8px; flex-wrap: wrap; color: var(--muted); }
+.review-theme-detail { padding: 0 8px 8px; }.review-theme-detail p { margin: 5px 0; }
+.review-leader { flex-wrap: wrap; padding: 7px 0; border-bottom: 1px solid var(--border); }.review-leader:last-child { border-bottom: 0; }.review-leader strong { color: var(--fg); }
+.review-focus-lead { margin: 0 0 8px; color: var(--muted); }.review-focus-list { display: grid; gap: 7px; margin: 0; padding-left: 24px; }.review-focus-list li { padding-left: 2px; line-height: 1.45; }.review-focus-summary { margin: 10px 0 0; padding: 8px; border-radius: 6px; background: var(--surface); color: var(--fg-secondary); }.review-focus-summary span { color: var(--accent); font-weight: 600; }
+.review-tone-up { color: var(--market-up) !important; }.review-tone-down { color: var(--market-down) !important; }.review-tone-neutral { color: var(--accent) !important; }.review-tone-warn { color: var(--warning) !important; }
+.review-empty { color: var(--muted); margin: 0; }.review-gaps { margin-top: 10px; color: var(--warning); }
+
 .card-title {
   font-size: 13px;
   font-weight: 600;
