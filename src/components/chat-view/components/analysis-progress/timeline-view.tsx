@@ -8,7 +8,13 @@ const MAX_VISIBLE = 8;
 function stripMarkdown(text: string): string {
   const html = marked.parse(text, { async: false, breaks: false }) as string;
   // Strip all HTML tags, decode entities, collapse whitespace
-  const stripped = html.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  const stripped = html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
   return stripped.replace(/\s+/g, ' ').trim();
 }
 
@@ -27,7 +33,7 @@ export function TimelineView({ entries }: { entries: ITimelineEntry[] }) {
     <div className={styles['timeline']}>
       <div className={styles['section-title']}>⏱ 执行时间轴</div>
       {hidden > 0 && !showAll ? (
-        <button className={styles['timeline-expand']} onClick={() => setShowAll(true)} type="button">
+        <button className={styles['timeline-expand']} onClick={() => setShowAll(true)} type='button'>
           展开前面 {hidden} 条…
         </button>
       ) : null}

@@ -336,14 +336,46 @@ function stripTags(text: string) {
   return decodeHtml(text.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
 }
 
-function articleToText(html: string) {
-  return decodeHtml(
-    html
+export function articleToText(html: string) {
+  const tables: string[] = [];
+  const body = html.replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, (table) => {
+    const marker = `\n\n[[STOCK_BUDDY_TABLE_${tables.length}]]\n\n`;
+    tables.push(JSON.stringify(parseArticleTable(table)));
+    return marker;
+  });
+  const text = decodeHtml(
+    body
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/p>/gi, '\n\n')
       .replace(/<p[^>]*>/gi, '')
       .replace(/<[^>]+>/g, ''),
   ).replace(/[^\S\n]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return tables.reduce((content, table, index) => content.replace(`[[STOCK_BUDDY_TABLE_${index}]]`, `[[STOCK_BUDDY_TABLE:${encodeURIComponent(table)}]]`), text);
+}
+
+interface IArticleTableCell {
+  content: string;
+  header: boolean;
+  colSpan?: number;
+  rowSpan?: number;
+}
+
+function parseArticleTable(html: string): IArticleTableCell[][] {
+  return Array.from(html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi), ([, row]) =>
+    Array.from(row.matchAll(/<(th|td)\b([^>]*)>([\s\S]*?)<\/\1>/gi), ([, tag, attributes, content]) => ({
+      content: stripTags(content),
+      header: tag.toLowerCase() === 'th',
+      colSpan: readTableSpan(attributes, 'colspan'),
+      rowSpan: readTableSpan(attributes, 'rowspan'),
+    })),
+  ).filter((row) => row.length > 0);
+}
+
+function readTableSpan(attributes: string, name: 'colspan' | 'rowspan'): number | undefined {
+  const value = attributes.match(new RegExp(`\\b${name}=["']?(\\d+)`, 'i'))?.[1];
+  if (!value) return undefined;
+  const span = Number(value);
+  return Number.isInteger(span) && span > 1 ? span : undefined;
 }
 
 function decodeHtml(text: string) {

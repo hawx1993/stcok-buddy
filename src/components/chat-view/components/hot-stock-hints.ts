@@ -29,7 +29,9 @@ function createMixedGroups(baseGroups: IHotStockHint[][]): IHotStockHint[][] {
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
-  return Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
+  return Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+    items.slice(index * size, (index + 1) * size),
+  );
 }
 
 function uniqueCandidates(items: HotFocusItem[]): IHotStockHint[] {
@@ -42,7 +44,9 @@ function uniqueCandidates(items: HotFocusItem[]): IHotStockHint[] {
     const existing = byCode.get(code);
     if (!existing || candidate.priority > existing.priority) byCode.set(code, candidate);
   }
-  return [...byCode.values()].sort((left, right) => right.priority - left.priority || left.code.localeCompare(right.code));
+  return [...byCode.values()].sort(
+    (left, right) => right.priority - left.priority || left.code.localeCompare(right.code),
+  );
 }
 
 function toCandidate(item: HotFocusItem, code: string, name: string): IHotStockHint {

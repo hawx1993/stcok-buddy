@@ -78,7 +78,10 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   return (
     <>
       <div className={styles['right-panel-header']}>
-        <span className={styles.title}><Star className={styles['panel-title-icon']} size={16} />收藏个股</span>
+        <span className={styles.title}>
+          <Star className={styles['panel-title-icon']} size={16} />
+          收藏个股
+        </span>
       </div>
       <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
         {favoriteStocks.length ? (

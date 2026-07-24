@@ -4,7 +4,7 @@ import gsap from 'gsap';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
-import type { StockDetail, StockSurgeEvent } from '../../../shared/types';
+import type { StockSurgeEvent } from '../../../shared/types';
 import { useAppStore } from '../../../store/app-store';
 import { Empty } from '../../empty';
 import { KlineModal, StockKlineChart } from '../../kline-chart';
@@ -148,7 +148,13 @@ export function StockDetailView({ returnToSurge, onReturnToSurge }: IStockDetail
             </div>
             <div className={styles['stock-side']}>
               <div className={styles['stock-actions']}>
-                <button className={styles['robot-btn']} onClick={() => void sendStockReport(selectedStock.code)} title='诊股' aria-label='诊股' type='button'>
+                <button
+                  className={styles['robot-btn']}
+                  onClick={() => void sendStockReport(selectedStock.code)}
+                  title='诊股'
+                  aria-label='诊股'
+                  type='button'
+                >
                   <Bot size={15} />
                 </button>
                 <button
@@ -164,10 +170,22 @@ export function StockDetailView({ returnToSurge, onReturnToSurge }: IStockDetail
             </div>
           </div>
           <div className={styles['kline-box']} data-klinebox>
-            <button className={styles['kline-expand']} onClick={() => setKlineModalOpen(true)} title='放大K线图' type='button'>
+            <button
+              className={styles['kline-expand']}
+              onClick={() => setKlineModalOpen(true)}
+              title='放大K线图'
+              type='button'
+            >
               ⛶
             </button>
-            <StockKlineChart stock={selectedStock} data={selectedStock.kline} showSwitcher showChips chipsOpen={chipsOpen} showLegend={false} />
+            <StockKlineChart
+              stock={selectedStock}
+              data={selectedStock.kline}
+              showSwitcher
+              showChips
+              chipsOpen={chipsOpen}
+              showLegend={false}
+            />
             <div className={styles['chip-label']}>
               <span>
                 <span className={cx(styles.bar, styles.up)} />
@@ -199,7 +217,9 @@ export function StockDetailView({ returnToSurge, onReturnToSurge }: IStockDetail
           </div>
           <div className={styles.divider} />
           <div className={styles['section-title']}>快评</div>
-          <div className={styles['summary-box']} data-summary>{selectedStock.summary ?? '暂无摘要。'}</div>
+          <div className={styles['summary-box']} data-summary>
+            {selectedStock.summary ?? '暂无摘要。'}
+          </div>
           <div className={styles.divider} />
           <div className={styles['section-title']}>最近一周异动</div>
           <StockSurgeEvents events={stockSurgeEvents} loading={stockSurgeLoading} error={stockSurgeError} />
@@ -214,7 +234,12 @@ export function StockDetailView({ returnToSurge, onReturnToSurge }: IStockDetail
         />
       )}
       {isKlineModalOpen && selectedStock ? (
-        <KlineModal stock={selectedStock} data={selectedStock.kline} onClose={() => setKlineModalOpen(false)} chipsOpen={chipsOpen} />
+        <KlineModal
+          stock={selectedStock}
+          data={selectedStock.kline}
+          onClose={() => setKlineModalOpen(false)}
+          chipsOpen={chipsOpen}
+        />
       ) : null}
     </>
   );
@@ -246,7 +271,13 @@ function StockSurgeEvents({ events, loading, error }: IStockSurgeEventsProps) {
             {date === today ? <em>今日</em> : null}
           </div>
           <div className={styles['stock-surge-date-body']}>
-            {items.map((item, index) => <StockSurgeEventItem key={`${item.tradeDate}-${item.id}`} item={item} isLastInGroup={index === items.length - 1} />)}
+            {items.map((item, index) => (
+              <StockSurgeEventItem
+                key={`${item.tradeDate}-${item.id}`}
+                item={item}
+                isLastInGroup={index === items.length - 1}
+              />
+            ))}
           </div>
         </div>
       ))}
@@ -263,11 +294,19 @@ function StockSurgeEventItem({ item, isLastInGroup }: IStockSurgeEventItemProps)
   const isDown = String(item.changePercent).startsWith('-');
   return (
     <div className={cx(styles['stock-surge-event'], isLastInGroup && styles['stock-surge-event-last'])}>
-      <span className={styles['stock-surge-event-time']}><small>{item.time ?? '--'}</small></span>
+      <span className={styles['stock-surge-event-time']}>
+        <small>{item.time ?? '--'}</small>
+      </span>
       <span className={styles['stock-surge-event-card']}>
         <span className={styles['stock-surge-event-main']}>
-          <b>{item.name ?? item.title}<em>{item.code}</em></b>
-          <small>当前 <span>{item.price ?? '--'}</span><span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span></small>
+          <b>
+            {item.name ?? item.title}
+            <em>{item.code}</em>
+          </b>
+          <small>
+            当前 <span>{item.price ?? '--'}</span>
+            <span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span>
+          </small>
         </span>
         <span className={styles['stock-surge-event-action']}>
           <span>{getSurgeReason(item)}</span>
@@ -282,7 +321,10 @@ function StockSurgeSkeleton() {
   return (
     <div className={styles['stock-surge-skeleton']}>
       {Array.from({ length: 3 }, (_, index) => (
-        <div className={styles['stock-surge-skeleton-item']} key={index}><span /><span /></div>
+        <div className={styles['stock-surge-skeleton-item']} key={index}>
+          <span />
+          <span />
+        </div>
       ))}
     </div>
   );
@@ -294,7 +336,12 @@ interface IMetricProps {
 }
 
 function Metric({ label, value }: IMetricProps) {
-  return <div className={styles.si}><div className={styles.lbl}>{label}</div><div className={styles.v}>{value}</div></div>;
+  return (
+    <div className={styles.si}>
+      <div className={styles.lbl}>{label}</div>
+      <div className={styles.v}>{value}</div>
+    </div>
+  );
 }
 
 interface IRatingProps {
@@ -304,7 +351,12 @@ interface IRatingProps {
 }
 
 function Rating({ label, score, tone }: IRatingProps) {
-  return <div className={styles.r}><div className={cx(styles.s, tone === 'warn' ? styles.warn : 'up')}>{score}</div><div className={styles.l}>{label}</div></div>;
+  return (
+    <div className={styles.r}>
+      <div className={cx(styles.s, tone === 'warn' ? styles.warn : 'up')}>{score}</div>
+      <div className={styles.l}>{label}</div>
+    </div>
+  );
 }
 
 function getSurgeReason(event: StockSurgeEvent) {
