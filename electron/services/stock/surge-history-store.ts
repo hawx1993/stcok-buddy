@@ -55,29 +55,28 @@ export function saveSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date()
   if (!items.length) return Promise.resolve();
   return withDb(async () => {
     const captured = capturedAt.toISOString();
-    for (const item of items) {
-      await run(`DELETE FROM stock_surge_events WHERE trade_date = ${sqlValue(tradeDate)} AND id = ${sqlValue(item.id)}`);
-      await run(
-        `INSERT INTO stock_surge_events
-          (trade_date, captured_at, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type)
-         VALUES (${[
-           tradeDate,
-           captured,
-           item.id,
-           item.code,
-           item.name,
-           item.title,
-           item.time,
-           stringify(item.price),
-           item.changePercent,
-           item.turnover,
-           item.amount,
-           item.description,
-           item.tag,
-           item.type,
-         ].map(sqlValue).join(', ')})`,
-      );
-    }
+    const statements = items.flatMap((item) => [
+      `DELETE FROM stock_surge_events WHERE trade_date = ${sqlValue(tradeDate)} AND id = ${sqlValue(item.id)}`,
+      `INSERT INTO stock_surge_events
+        (trade_date, captured_at, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type)
+       VALUES (${[
+         tradeDate,
+         captured,
+         item.id,
+         item.code,
+         item.name,
+         item.title,
+         item.time,
+         stringify(item.price),
+         item.changePercent,
+         item.turnover,
+         item.amount,
+         item.description,
+         item.tag,
+         item.type,
+       ].map(sqlValue).join(', ')})`,
+    ]);
+    await run(`BEGIN TRANSACTION; ${statements.join('; ')}; COMMIT`);
   });
 }
 

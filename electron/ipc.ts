@@ -22,7 +22,7 @@ import { getMarketDataStats, getMarketDataSyncStatus, onMarketDataProgress, requ
 import { runOrchestrator } from './services/agent/orchestrator.js';
 import { getBatchQuotes, getBoardDetail, getKline, getMarketPageSnapshot, getStockDetail, listHotFocus, listStockSurgeEvents, onMarketPageSnapshotUpdated, searchStocks } from './services/stock/stock-client.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
-import { listSurgeDates, saveSurgeSnapshot } from './services/stock/surge-history-store.js';
+import { listSurgeDates } from './services/stock/surge-history-store.js';
 import { ensureSurgeHistoryCapture } from './services/stock/surge-history-scheduler.js';
 import { listMarketNews } from './services/stock/news-client.js';
 import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
@@ -101,9 +101,7 @@ export function registerIpcHandlers() {
   app.once('before-quit', removeMarketPageListener);
   ipcMain.handle('hot:list', async (_event, tab: HotFocusTab) => {
     if (tab === 'surge') ensureSurgeHistoryCapture();
-    const items = await listHotFocus(tab);
-    if (tab === 'surge' && items.length) void saveSurgeSnapshot(items).catch((error: unknown) => console.error('[surge-history] snapshot failed', error));
-    return items;
+    return listHotFocus(tab);
   });
   ipcMain.handle('hot:historyDates', () => {
     ensureSurgeHistoryCapture();
