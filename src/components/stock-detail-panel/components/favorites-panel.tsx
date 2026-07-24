@@ -1,5 +1,5 @@
 import { message as antdMessage } from 'antd';
-import { Pin, PinOff, Trash2 } from 'lucide-react';
+import { Pin, PinOff, Star, Trash2 } from 'lucide-react';
 import { useEffect, useState, type MouseEvent } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
@@ -78,7 +78,7 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   return (
     <>
       <div className={styles['right-panel-header']}>
-        <span className={styles.title}>⭐ 收藏个股</span>
+        <span className={styles.title}><Star className={styles['panel-title-icon']} size={16} />收藏个股</span>
       </div>
       <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
         {favoriteStocks.length ? (

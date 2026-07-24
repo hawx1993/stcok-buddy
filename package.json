@@ -1,6 +1,6 @@
 {
   "name": "stockbuddy-desktop",
-  "version": "0.4.8",
+  "version": "0.5.0",
   "description": "StockBuddy - 对话式 A 股投研助手 Electron 跨端桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
@@ -27,7 +27,13 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "tsc --noEmit -p tsconfig.json",
     "selfcheck:market-data": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/market-data/market-data.selfcheck.js",
-    "selfcheck:board-detail": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/board-detail.selfcheck.js"
+    "selfcheck:board-detail": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/board-detail.selfcheck.js",
+    "selfcheck:market-review": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/market-review.selfcheck.js",
+    "selfcheck:orchestrator": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/agent/orchestrator.selfcheck.js",
+    "selfcheck:trade-date": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/market-data/trade-date-resolver.selfcheck.js",
+    "selfcheck:surge-monitor": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/surge-monitor.selfcheck.js",
+    "selfcheck:news-summary": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/news-client.selfcheck.js",
+    "selfcheck:hot-stock-hints": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/hot-stock-hints.selfcheck.js"
   },
   "keywords": [
     "electron",

@@ -1,5 +1,5 @@
 import { message as antdMessage } from 'antd';
-import { RefreshCw } from 'lucide-react';
+import { Layers, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
@@ -79,6 +79,7 @@ export function BoardDetailPanel() {
     <div className={styles['board-detail']}>
       <div className={styles['stock-header']}>
         <div className={styles['stock-name']}>
+          <Layers className={styles['panel-title-icon']} size={16} />
           {board.name}
           <span className={styles.code}>{board.code} · 板块</span>
         </div>

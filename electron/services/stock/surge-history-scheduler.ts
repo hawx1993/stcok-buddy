@@ -1,3 +1,4 @@
+import { isChinaMarketOpen } from '../../../src/shared/market-time.js';
 import { listHotFocus } from './stock-client.js';
 import { pruneSurgeHistory, saveSurgeSnapshot } from './surge-history-store.js';
 
@@ -22,7 +23,7 @@ export function stopSurgeHistoryScheduler() {
 }
 
 async function captureIfTradingTime(now = new Date()) {
-  if (isStopped || isCapturing || !isTradingWindow(now)) return;
+  if (isStopped || isCapturing || !isChinaMarketOpen(now)) return;
   isCapturing = true;
   try {
     const items = await listHotFocus('surge');
@@ -39,9 +40,3 @@ async function captureIfTradingTime(now = new Date()) {
   }
 }
 
-function isTradingWindow(date: Date) {
-  const day = date.getDay();
-  if (day === 0 || day === 6) return false;
-  const minutes = date.getHours() * 60 + date.getMinutes();
-  return minutes >= 9 * 60 + 25 && minutes <= 15 * 60;
-}

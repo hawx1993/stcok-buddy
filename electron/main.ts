@@ -7,6 +7,7 @@ import { config as loadDotenv } from 'dotenv';
 import { registerIpcHandlers } from './ipc.js';
 import { closeMarketDataStore, initializeMarketDataStore } from './services/market-data/market-data-store.js';
 import { stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
+import { startMarketNewsSummaryScheduler, stopMarketNewsSummaryScheduler } from './services/market-data/market-news-summary-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
 import { stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
@@ -60,6 +61,7 @@ function prepareForUpdateInstall() {
   cleanupDone = true;
   if (forceExitTimer) clearTimeout(forceExitTimer);
   stopMarketDataScheduler();
+  stopMarketNewsSummaryScheduler();
   stopSurgeHistoryScheduler();
 }
 
@@ -105,6 +107,7 @@ app.whenReady().then(() => {
   initializeQuoteStore();
   registerIpcHandlers();
   void initializeMarketDataStore().catch((error) => console.warn('[market-data] initialization failed', error));
+  void startMarketNewsSummaryScheduler().catch((error) => console.warn('[news-summary] scheduler initialization failed', error));
   createWindow();
   setTimeout(() => {
     void checkAppUpdate({ silent: true });
@@ -123,6 +126,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', (event) => {
   if (installingUpdate) return;
   stopMarketDataScheduler();
+  stopMarketNewsSummaryScheduler();
   stopSurgeHistoryScheduler();
   if (cleanupDone || cleanupStarted) return;
   event.preventDefault();

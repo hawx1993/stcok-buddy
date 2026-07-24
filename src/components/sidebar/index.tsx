@@ -3,8 +3,9 @@ import { BarChart3, MessageCircle, MoreHorizontal, Pencil, Settings, Trash2 } fr
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../store/app-store';
 import { ThemeToggle } from '../theme-toggle';
-import { UpdateBanner } from './components/update-banner';
+import { createChatConversation } from './components/create-chat-conversation';
 import { getStocksenseApi } from '../../shared/stocksense-api';
+import { UpdateBanner } from './components/update-banner';
 import type { ConversationSummary } from '../../shared/types';
 import { trackButtonClick, trackPageView } from '../../shared/analytics';
 import styles from './index.module.scss';
@@ -49,23 +50,11 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const setSearch = useAppStore((state) => state.setSearch);
   const setActiveConversation = useAppStore((state) => state.setActiveConversation);
   const setConversations = useAppStore((state) => state.setConversations);
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const clearMessages = useAppStore((state) => state.clearMessages);
   const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
   const setMainView = useAppStore((state) => state.setMainView);
 
-  const createConversation = async () => {
-    trackButtonClick('create_conversation');
-    if (activeConversationId === conversations[0]?.id && conversations[0]?.count === 0) {
-      antdMessage.info('当前已处于最新会话');
-      return;
-    }
-    const item = await getStocksenseApi().createConversation();
-    setConversations([item, ...conversations]);
-    setActiveConversation(item.id);
-    setSelectedStock(undefined);
-    clearMessages();
-  };
+  const createConversation = createChatConversation;
 
   const deleteConversation = async (id: string) => {
     trackButtonClick('delete_conversation');

@@ -4,6 +4,7 @@ import { queryHistoricalBars } from '../market-data/market-data-query.js';
 import { runTechnicalAnalysis } from '../agent/analysis-agent.js';
 import { listMarketNews, listStockNewsAnnouncements } from '../stock/news-client.js';
 import { getChipDistribution, getKline, getQuote, getStockFundFlowSnapshot as fetchStockFundFlowSnapshot, listDailyDragonTiger, listHotFocus, resolveASymbol } from '../stock/stock-client.js';
+import { getMarketReview as fetchMarketReview } from '../stock/market-review-service.js';
 import type { AgentTool } from './types.js';
 
 function asRecord(input: unknown): Record<string, unknown> {
@@ -107,6 +108,13 @@ export const getStockChipDistribution: AgentTool<{ symbol: string }, Awaited<Ret
   description: 'Fetch A-share chip distribution data.',
   inputSchema: { type: 'object', properties: { symbol: { type: 'string' } }, required: ['symbol'] },
   run: (input) => getChipDistribution(text(asRecord(input), 'symbol')),
+};
+
+export const getMarketReview: AgentTool<Record<string, never>, Awaited<ReturnType<typeof fetchMarketReview>>> = {
+  name: 'getMarketReview',
+  description: 'Fetch and calculate a real-data A-share daily market review.',
+  inputSchema: { type: 'object', properties: {} },
+  run: () => fetchMarketReview(),
 };
 
 export const getDragonTiger: AgentTool<{ symbol?: string; limit?: number }, Awaited<ReturnType<typeof listDailyDragonTiger>>> = {

@@ -10,7 +10,9 @@ const SCRIPT = join(ROOT, 'scripts', 'release-github.cjs');
 const {
   assertLatestMacManifestMatchesAssets,
   createMacUpdateFileEntry,
+  findMissingReleaseAssets,
   formatMacUpdateManifest,
+  orderReleaseAssets,
 } = require(SCRIPT);
 
 function writeAsset(dir, name, content) {
@@ -34,6 +36,42 @@ function main() {
     assert.match(manifest, /StockBuddy-1\.2\.3-mac-arm64\.zip/);
     assert.match(manifest, /StockBuddy-1\.2\.3-mac-x64\.zip/);
     assertLatestMacManifestMatchesAssets(manifestPath, [...assets, manifestPath], ['arm64', 'x64']);
+
+    const orderedAssets = orderReleaseAssets([
+      join(directory, 'latest-mac.yml'),
+      writeAsset(directory, 'StockBuddy-1.2.3-mac-arm64.zip.blockmap', 'arm64 zip blockmap'),
+      arm64Zip,
+      arm64Dmg,
+      x64Zip,
+      x64Dmg,
+    ]);
+    assert.deepEqual(orderedAssets.map((filePath) => filePath.split('/').pop()), [
+      'StockBuddy-1.2.3-mac-arm64.dmg',
+      'StockBuddy-1.2.3-mac-arm64.zip',
+      'StockBuddy-1.2.3-mac-x64.dmg',
+      'StockBuddy-1.2.3-mac-x64.zip',
+      'StockBuddy-1.2.3-mac-arm64.zip.blockmap',
+      'latest-mac.yml',
+    ]);
+    assert.deepEqual(
+      findMissingReleaseAssets(
+        [...assets, manifestPath].map((filePath) => filePath.split('/').pop()),
+        [...assets, manifestPath],
+      ),
+      [],
+    );
+    assert.deepEqual(
+      findMissingReleaseAssets(
+        ['StockBuddy-1.2.3-mac-arm64.zip.blockmap', 'latest-mac.yml'],
+        [...assets, manifestPath],
+      ),
+      [
+        'StockBuddy-1.2.3-mac-arm64.zip',
+        'StockBuddy-1.2.3-mac-arm64.dmg',
+        'StockBuddy-1.2.3-mac-x64.zip',
+        'StockBuddy-1.2.3-mac-x64.dmg',
+      ],
+    );
 
     const invalidManifestPath = join(directory, 'latest-mac-x64-only.yml');
     writeFileSync(invalidManifestPath, formatMacUpdateManifest('1.2.3', [createMacUpdateFileEntry(x64Zip), createMacUpdateFileEntry(x64Dmg)]));

@@ -276,6 +276,12 @@ const webFallbackApi: StocksenseApi = {
   async listMarketNews(_query = '', page = 1, pageSize = 30) {
     return pageItems([], page, pageSize);
   },
+  async getMarketNewsSummaryState() {
+    throw new Error('AI 新闻总结仅在 Electron 桌面端可用。');
+  },
+  async openMarketNews() {
+    throw new Error('新闻详情仅在 Electron 桌面端可用。');
+  },
   async listHotFocus(_tab: HotFocusTab) {
     return [];
   },

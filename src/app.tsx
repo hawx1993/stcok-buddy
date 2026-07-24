@@ -1,7 +1,8 @@
-import { Activity, Layers, LineChart, Newspaper, Search, Star } from 'lucide-react';
+import { Activity, Layers, LineChart, MessageSquarePlus, Newspaper, Search, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAppStore } from './store/app-store';
 import { Sidebar } from './components/sidebar';
+import { createChatConversation } from './components/sidebar/components/create-chat-conversation';
 import { ChatView } from './components/chat-view';
 import { MarketView } from './components/market-view';
 import { StockDetailPanel } from './components/stock-detail-panel';
@@ -111,14 +112,18 @@ export function App() {
           <button
             className={styles['search-btn']}
             onClick={() => {
+              if (isLeftSidebarCollapsed) {
+                void createChatConversation();
+                return;
+              }
               trackButtonClick('toggle_search');
               setSearchOpen((open) => !open);
             }}
-            title='搜索'
+            title={isLeftSidebarCollapsed ? '新建会话' : '搜索'}
             type='button'
-            aria-label='搜索'
+            aria-label={isLeftSidebarCollapsed ? '新建会话' : '搜索'}
           >
-            <Search size={17} />
+            {isLeftSidebarCollapsed ? <MessageSquarePlus size={17} /> : <Search size={17} />}
           </button>
         </div>
         <ErrorBoundary name='左侧栏'>
@@ -139,6 +144,7 @@ export function App() {
               onClick={() => openRightRail('favorites')}
               type='button'
               title='收藏个股'
+              data-label='收藏个股'
               aria-label='收藏个股'
             >
               <Star size={18} />
@@ -148,6 +154,7 @@ export function App() {
               onClick={() => openRightRail('stock')}
               type='button'
               title='个股详情'
+              data-label='个股详情'
               aria-label='个股详情'
             >
               <LineChart size={18} />
@@ -157,6 +164,7 @@ export function App() {
               onClick={() => openRightRail('board')}
               type='button'
               title='板块详情'
+              data-label='板块详情'
               aria-label='板块详情'
             >
               <Layers size={18} />
@@ -166,6 +174,7 @@ export function App() {
               onClick={() => openRightRail('surge')}
               type='button'
               title='个股异动'
+              data-label='个股异动'
               aria-label='个股异动'
             >
               <Activity size={18} />
@@ -175,6 +184,7 @@ export function App() {
               onClick={() => openRightRail('news')}
               type='button'
               title='热点新闻'
+              data-label='热点新闻'
               aria-label='热点新闻'
             >
               <Newspaper size={18} />

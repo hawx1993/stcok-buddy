@@ -1,7 +1,16 @@
-import type { AnnouncementItem, MarketNewsItem, PagedMarketNews } from '../../../src/shared/types.js';
+import type { IMarketNewsSummary, IMarketNewsSummaryState, AnnouncementItem, MarketNewsItem, PagedMarketNews } from '../../../src/shared/types.js';
+import { getMarketNewsSummaryState as readMarketNewsSummaryState, setMarketNewsSummaryState } from '../config-store.js';
+import { generateReport } from '../llm/index.js';
+import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
 
-const fallbackNews: MarketNewsItem[] = [];
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
+const ARTICLE_BODY_PATTERNS = [
+  /<div[^>]+id=["']ContentBody["'][^>]*>([\s\S]*?)<\/div>\s*<div[^>]+class=["'](?:source|share|statement)/i,
+  /<div[^>]+id=["']ContentBody["'][^>]*>([\s\S]*?)<\/div>/i,
+  /<article[^>]*>([\s\S]*?)<\/article>/i,
+];
+let activeMarketNewsSummary: Promise<IMarketNewsSummary> | undefined;
+let activeMarketNewsSummaryState: Promise<IMarketNewsSummaryState> | undefined;
 let cninfoOrgIdMap: Record<string, string> | undefined;
 
 export async function listMarketNews(query = '', page = 1, pageSize = 30): Promise<PagedMarketNews> {
@@ -14,9 +23,102 @@ export async function listMarketNews(query = '', page = 1, pageSize = 30): Promi
     if (!response.ok) throw new Error(`news http ${response.status}`);
     const html = await response.text();
     return paginate(filterNews(parseEastmoneyNews(html), query), page, pageSize);
-  } catch {
-    return paginate(filterNews(fallbackNews, query), page, pageSize);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '未知错误';
+    throw new Error(`热点新闻数据源暂不可用：${message}`);
   }
+}
+
+export async function getMarketNewsItem(id: string): Promise<MarketNewsItem> {
+  const item = (await listMarketNews('', 1, 150)).items.find((candidate) => candidate.id === id);
+  if (!item) throw new Error('新闻内容已更新，请刷新热点新闻后重试');
+  const content = item.url ? await fetchNewsArticleContent(item.url).catch(() => item.content) : item.content;
+  return { ...item, content };
+}
+
+async function fetchNewsArticleContent(url: string): Promise<string | undefined> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(8_000), headers: { 'User-Agent': UA, Referer: 'https://finance.eastmoney.com/' } });
+  if (!response.ok) throw new Error(`news article http ${response.status}`);
+  const html = await response.text();
+  for (const pattern of ARTICLE_BODY_PATTERNS) {
+    const article = html.match(pattern)?.[1];
+    const content = articleToText(article ?? '');
+    if (content.length >= 80) return content;
+  }
+  return undefined;
+}
+
+export async function getMarketNewsSummaryState(): Promise<IMarketNewsSummaryState> {
+  const tradeDate = await resolveTradingDate(0);
+  return getMarketNewsSummaryStateFromStore(tradeDate);
+}
+
+export async function ensureMarketNewsSummaryState(
+  readState: () => Promise<IMarketNewsSummaryState> = getMarketNewsSummaryState,
+  refresh: () => Promise<IMarketNewsSummary> = refreshMarketNewsSummary,
+): Promise<IMarketNewsSummaryState> {
+  const current = await readState();
+  if (current.summary) return current;
+  if (!activeMarketNewsSummaryState) {
+    activeMarketNewsSummaryState = refresh()
+      .then((summary) => ({ tradeDate: summary.tradeDate, summary }))
+      .catch(() => readState())
+      .finally(() => {
+        activeMarketNewsSummaryState = undefined;
+      });
+  }
+  return activeMarketNewsSummaryState;
+}
+
+export async function refreshMarketNewsSummary(): Promise<IMarketNewsSummary> {
+  if (!activeMarketNewsSummary) activeMarketNewsSummary = refreshMarketNewsSummaryOnce().finally(() => {
+    activeMarketNewsSummary = undefined;
+  });
+  return activeMarketNewsSummary;
+}
+
+async function refreshMarketNewsSummaryOnce(): Promise<IMarketNewsSummary> {
+  const tradeDate = await resolveTradingDate(0);
+  const current = getMarketNewsSummaryStateFromStore(tradeDate);
+  if (current.summary) return current.summary;
+  try {
+    const result = await listMarketNews('', 1, 12);
+    if (!result.items.length) throw new Error('未获取到真实 A 股热点新闻');
+    const sourceNews = uniqueNewsByTitle(result.items).slice(0, 8);
+    const content = await generateReport([
+      {
+        role: 'system',
+        content: `你是一名专业 A 股投研分析师。仅基于输入的真实新闻标题、时间、来源与摘要进行汇总，不得补充、推测或编造事实、数据、个股、板块或市场表现。输出 Markdown，必须使用以下标题：\n## 📰 核心事件\n## ✅ 利好因素\n## ⚠️ 利空因素\n## 📈 短期影响\n## 🏛️ 中长期影响\n## 🚨 风险提示\n## 🎯 综合结论\n综合结论必须包含 🟢 偏利好、🟡 中性 或 🔴 偏利空之一。每段至多两个专业金融风格 Emoji，禁止娱乐化或炒作型 Emoji。信息不足时明确写“暂无数据”或“需持续观察”。每个章节最多 2 条，总字数不超过 700 字。`,
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({ tradeDate, news: sourceNews.map(({ time, title, source, content: summary }) => ({ time, title, source, summary })) }),
+      },
+    ]);
+    const summary: IMarketNewsSummary = {
+      tradeDate,
+      generatedAt: new Date().toISOString(),
+      content: content.trim(),
+      sourceNews: sourceNews.map(({ id, title, source, time }) => ({ id, title, source, time })),
+    };
+    setMarketNewsSummaryState({ tradeDate, summary });
+    return summary;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '新闻热点汇总失败';
+    setMarketNewsSummaryState({ tradeDate, error: message });
+    throw error;
+  }
+}
+
+function uniqueNewsByTitle(items: MarketNewsItem[]): MarketNewsItem[] {
+  const titles = new Set<string>();
+  return items.filter((item) => !titles.has(item.title) && titles.add(item.title));
+}
+
+function getMarketNewsSummaryStateFromStore(tradeDate: string): IMarketNewsSummaryState {
+  const state = readMarketNewsSummaryState();
+  if (!state || state.tradeDate !== tradeDate) return { tradeDate };
+  return state;
 }
 
 export async function listStockNewsAnnouncements(code: string, pageSize = 10) {
@@ -162,6 +264,16 @@ function inferTagType(title: string): MarketNewsItem['tagType'] {
 
 function stripTags(text: string) {
   return decodeHtml(text.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+}
+
+function articleToText(html: string) {
+  return decodeHtml(
+    html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<p[^>]*>/gi, '')
+      .replace(/<[^>]+>/g, ''),
+  ).replace(/[^\S\n]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function decodeHtml(text: string) {

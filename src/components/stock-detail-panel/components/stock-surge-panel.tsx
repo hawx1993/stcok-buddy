@@ -1,8 +1,10 @@
+import { ConfigProvider, Select } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Filter } from 'lucide-react';
+import { Activity, Filter } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { HotFocusItem, StockDetail } from '../../../shared/types';
+import { isChinaMarketOpen } from '../../../shared/market-time';
 import { Empty } from '../../empty';
 import cx from '../../../shared/cx';
 import styles from '../index.module.scss';
@@ -44,7 +46,6 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   const [refresh, setRefresh] = useState(0);
   const [refreshMode, setRefreshMode] = useState<'manual' | 'poll'>('manual');
   const [isMonitoring, setMonitoring] = useState(() => isChinaMarketOpen());
-  const [lastPollAt, setLastPollAt] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<SurgeFilter[]>(['全部']);
 
@@ -81,7 +82,6 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     load
       .then((rows) => {
         if (!alive || loadId !== loadIdRef.current) return;
-        if (refreshMode === 'poll') setLastPollAt(Date.now());
         setItems(rows);
         setHasMore(rows.length === SURGE_PAGE_SIZE);
       })
@@ -101,7 +101,7 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   useEffect(() => {
     if (!isActive || selectedDate !== today) return;
     const checkMarket = () => {
-      if (!isChinaMarketOpen()) setMonitoring(false);
+      setMonitoring((current) => isChinaMarketOpen() ? current : false);
     };
     checkMarket();
     const id = window.setInterval(checkMarket, 60_000);
@@ -180,23 +180,60 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     if (!isChinaMarketOpen()) return;
     setMonitoring(true);
   };
-  const isPollFresh = isMonitoring && lastPollAt > 0;
+
+  const getSurgeDateSelectPopupContainer = (trigger: HTMLElement) => trigger.parentElement ?? document.body;
+  const surgeDateSelectClassNames = {
+    popup: {
+      root: styles['surge-date-select-popup'],
+      listItem: styles['surge-date-select-option'],
+    },
+  };
+  const surgeDateSelectTheme = {
+    token: {
+      colorBgContainer: 'var(--input-bg)',
+      colorBgElevated: 'var(--surface)',
+      colorBorder: 'var(--border)',
+      colorText: 'var(--fg)',
+      colorTextPlaceholder: 'var(--fg-secondary)',
+      colorTextQuaternary: 'var(--fg-secondary)',
+      colorIcon: 'var(--fg-secondary)',
+    },
+    components: {
+      Select: {
+        selectorBg: 'var(--input-bg)',
+        optionActiveBg: 'var(--surface-hover)',
+        optionSelectedBg: 'var(--surface-active)',
+        optionSelectedColor: 'var(--fg)',
+        hoverBorderColor: 'var(--accent)',
+        activeBorderColor: 'var(--accent)',
+        activeOutlineColor: 'transparent',
+      },
+    },
+  };
 
   return (
     <>
       <div className={styles['right-panel-header']}>
         <div className={styles['surge-title-row']}>
-          <span className={styles.title}>⚡ 个股异动</span>
+          <span className={styles.title}><Activity className={styles['panel-title-icon']} size={16} />个股异动</span>
           <button className={styles['surge-filter-label']} onClick={() => setFiltersOpen((open) => !open)} type='button'>
             筛选 <span className={styles['surge-filter-icon']}><Filter size={14} />{filters.includes('全部') ? null : <span className={styles['surge-filter-badge']}>{filters.length}</span>}</span>
           </button>
         </div>
         {filtersOpen ? <div className={styles['surge-filters']}>{surgeFilters.map((filter) => <button key={filter} className={cx(styles['surge-filter'], filters.includes(filter) && styles.active)} onClick={() => toggleFilter(filter)} type='button'>{filter}</button>)}</div> : null}
         <div className={styles['surge-date-row']}>
-          <select className={styles['surge-date-select']} value={selectedDate} onChange={(event) => { setRefreshMode('manual'); setFilters(['全部']); setSelectedDate(event.target.value); }} aria-label='筛选异动日期'>
-            {dateOptions.map((date, index) => <option key={date} value={date}>{index === 0 ? `今天 ${date.slice(5)}` : date}</option>)}
-          </select>
-          {selectedDate === today ? <><button className={styles['surge-date-button']} onClick={() => { setRefreshMode('manual'); setRefresh((value) => value + 1); }} type='button'>刷新</button><button className={cx(styles['surge-monitor-button'], isPollFresh && styles.active)} onClick={toggleMonitor} title={isMonitoring ? '关闭监控' : '开启监控'} aria-label={isMonitoring ? '关闭监控' : '开启监控'} type='button'><span /></button></> : null}
+          <ConfigProvider theme={surgeDateSelectTheme}>
+            <Select
+              aria-label='筛选异动日期'
+              className={styles['surge-date-select']}
+              classNames={surgeDateSelectClassNames}
+              getPopupContainer={getSurgeDateSelectPopupContainer}
+              value={selectedDate}
+              options={dateOptions.map((date, index) => ({ value: date, label: index === 0 ? `今天 ${date.slice(5)}` : date }))}
+              onChange={(date: string) => { setRefreshMode('manual'); setFilters(['全部']); setSelectedDate(date); }}
+            />
+          </ConfigProvider>
+          {selectedDate === today ? <><button className={styles['surge-date-button']} onClick={() => { setRefreshMode('manual'); setRefresh((value) => value + 1); }} type='button'>刷新</button><button className={cx(styles['surge-monitor-button'], isMonitoring && styles.active)} onClick={toggleMonitor} title={isMonitoring ? '关闭监控' : '开启监控'} aria-label={isMonitoring ? '关闭监控' : '开启监控'} type='button'><span /></button></> : null}
         </div>
       </div>
       <div className={styles['right-panel-body']} ref={listRef}>
@@ -221,7 +258,6 @@ function SurgeItem({ item, onClick }: { item: HotFocusItem; onClick(): void }) {
 }
 
 function SurgeSkeleton() { return <div className={styles['surge-skeleton']}>{Array.from({ length: 12 }, (_, index) => <div className={styles['surge-skeleton-item']} key={index}><span className={styles['surge-skeleton-time']} /><span className={styles['surge-skeleton-card']}><span className={styles['surge-skeleton-main']}><span className={styles['sk-name']} /><span className={styles['sk-price']} /></span><span className={styles['surge-skeleton-action']}><span className={styles['sk-tag']} /><span className={styles['sk-amount']} /></span></span></div>)}</div>; }
-function isChinaMarketOpen(date = new Date()) { const day = date.getDay(); if (day === 0 || day === 6) return false; const minutes = date.getHours() * 60 + date.getMinutes(); return (minutes >= 565 && minutes <= 690) || (minutes >= 780 && minutes <= 900); }
 function makeSurgeDateOptions() { return Array.from({ length: 7 }, (_, index) => { const date = new Date(); date.setDate(date.getDate() - index); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }); }
 function surgeReason(item: HotFocusItem) { const reason = item.tag ?? item.description?.split(' · ')[0] ?? '--'; return ({ 涨停池: '封涨停板', 炸板池: '涨停开板', 跌停池: '封跌停板' } as Record<string, string>)[reason] ?? reason; }
 function hasSurgeAmount(amount?: string) { return Boolean(amount && !/^(?:封单|成交额)?[+-]?0(?:\.00)?(?:手|万|亿)?$/.test(amount)); }
