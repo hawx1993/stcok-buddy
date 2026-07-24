@@ -6,6 +6,8 @@
 
 ![StockBuddy 产品展示](public/images/preview-11.png)
 
+下载地址：[https://github.com/StockBuddy/StockBuddy/releases](https://github.com/StockBuddy/StockBuddy/releases)
+
 ## 功能特性
 
 - 三栏桌面端 UI：会话列表、对话式投研、股票详情面板
