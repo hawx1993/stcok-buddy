@@ -77,59 +77,6 @@ StockBuddy 希望把传统投研终端里的信息检索、行情观察、指标
 
 ![桌面端体验](public/images/preview-9.png)
 
-## 安装
-
-推荐使用 pnpm：
-
-```bash
-pnpm install
-pnpm run dev
-pnpm run dist:mac # 打包 macOS 应用
-pnpm run dist:win # 打包 Windows 应用
-pnpm run dist:all # 打包 macOS + Windows 应用，并生成 latest.yml/latest-mac.yml
-```
-
-## 发布到 GitHub Release
-
-发布前需要安装并登录 GitHub CLI：
-
-```bash
-gh auth login
-```
-
-一键构建当前 Mac 架构、生成 changelog，并上传安装包与 `latest-mac.yml` 到 GitHub Release：
-
-```bash
-pnpm run release:github
-```
-
-发布同时支持 Intel 与 Apple Silicon 时，必须构建两个架构；发布脚本会把两个 ZIP/DMG 的校验信息合并到同一个 `latest-mac.yml`，让 macOS 自动更新根据当前机器架构选择匹配的 ZIP：
-
-```bash
-pnpm run release:github:mac -- --publish
-```
-
-上传后请检查 Release 中的更新元数据是否同时引用 `mac-arm64.zip` 与 `mac-x64.zip`：
-
-```bash
-gh release download v0.4.7 --repo hawx1993/stcok-buddy --pattern latest-mac.yml --output /tmp/latest-mac.yml --clobber
-cat /tmp/latest-mac.yml
-```
-
-默认会使用 `package.json` 里的版本号创建草稿 Release，例如 `v0.3.6`。常用参数：
-
-```bash
-pnpm run release:github -- --tag v0.3.6       # 指定发布 tag
-pnpm run release:github -- --target mac-arm64 # 仅构建 macOS arm64
-pnpm run release:github -- --target mac-x64   # 仅构建 macOS x64，需在 x64/Rosetta Node 环境运行
-pnpm run release:github -- --target all       # 构建全量资产，需匹配架构环境或预置 native 依赖
-pnpm run release:github -- --publish          # 直接发布为正式 Release
-pnpm run release:github -- --reuse-release    # 复用已有 Release 并覆盖上传资产
-pnpm run release:notes                        # 仅生成 changelog 预览
-```
-
-> 完整打包 macOS DMG/ZIP 需要在 macOS 上运行。包含 `better-sqlite3` 这类 native 依赖时，不要在 arm64 Node 环境直接跨构建 macOS x64；请用对应架构 Node 分别构建，或在确认 native 依赖已有预编译产物后再使用 `--target all`。Windows NSIS 安装包由 electron-builder 生成，首次构建可能需要下载依赖缓存。
-
 ## ChangeLog 更新日志
 
 [https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd](https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd)
