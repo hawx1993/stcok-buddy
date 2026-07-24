@@ -13,6 +13,7 @@ import type {
   PagedMarketNews,
   StoreItem,
   IAppUpdateState,
+  IStockNewsPreferences,
 } from './types.js';
 
 const defaultConfig: AppConfig = {
@@ -136,6 +137,18 @@ function writeFavorites(items: FavoriteStock[]) {
   const next = sortFavorites(items);
   localStorage.setItem('stocksense-favorites', JSON.stringify(next));
   return next;
+}
+
+function readStockNewsPreferences(): IStockNewsPreferences {
+  const saved = localStorage.getItem('stocksense-stock-news-preferences');
+  if (!saved) return { favoritesOnly: false, manualStocks: [] };
+  const preferences = JSON.parse(saved) as IStockNewsPreferences;
+  return { favoritesOnly: Boolean(preferences.favoritesOnly), manualStocks: preferences.manualStocks ?? [] };
+}
+
+function writeStockNewsPreferences(preferences: IStockNewsPreferences): IStockNewsPreferences {
+  localStorage.setItem('stocksense-stock-news-preferences', JSON.stringify(preferences));
+  return preferences;
 }
 
 function readMessages(conversationId: string): ChatMessage[] {
@@ -276,10 +289,33 @@ const webFallbackApi: StocksenseApi = {
   async listMarketNews(_query = '', page = 1, pageSize = 30) {
     return pageItems([], page, pageSize);
   },
+  async listStockNewsFeed() {
+    throw new Error('个股新闻仅在 Electron 桌面端可用。');
+  },
+  async getStockNewsPreferences() {
+    return readStockNewsPreferences();
+  },
+  async setStockNewsFavoritesOnly(favoritesOnly: boolean) {
+    return writeStockNewsPreferences({ ...readStockNewsPreferences(), favoritesOnly });
+  },
+  async addStockNewsSubscription(stock) {
+    const preferences = readStockNewsPreferences();
+    if (readFavorites().some((item) => item.code === stock.code)) throw new Error('该股票已在收藏列表中，无需重复关注');
+    if (preferences.manualStocks.some((item) => item.code === stock.code)) return preferences;
+    if (preferences.manualStocks.length >= 12) throw new Error('手动关注的股票最多 12 只');
+    return writeStockNewsPreferences({
+      ...preferences,
+      manualStocks: [{ code: stock.code, name: stock.name, createdAt: new Date().toISOString() }, ...preferences.manualStocks],
+    });
+  },
+  async removeStockNewsSubscription(code: string) {
+    const preferences = readStockNewsPreferences();
+    return writeStockNewsPreferences({ ...preferences, manualStocks: preferences.manualStocks.filter((item) => item.code !== code) });
+  },
   async getMarketNewsSummaryState() {
     throw new Error('AI 新闻总结仅在 Electron 桌面端可用。');
   },
-  async openMarketNews() {
+  async getMarketNewsItem() {
     throw new Error('新闻详情仅在 Electron 桌面端可用。');
   },
   async listHotFocus(_tab: HotFocusTab) {

@@ -1,12 +1,13 @@
 import Store from 'electron-store';
 import { randomUUID } from 'node:crypto';
-import type { AppConfig, FavoriteStock, IMarketNewsSummaryState, IPendingDownloadedUpdate } from '../../src/shared/types.js';
+import type { AppConfig, FavoriteStock, IMarketNewsSummaryState, IPendingDownloadedUpdate, IStockNewsPreferences, IStockNewsSubscription } from '../../src/shared/types.js';
 
 export interface StoreSchema {
   config: AppConfig;
   favoriteStocks: FavoriteStock[];
   installedStoreItems: string[];
   marketNewsSummary?: IMarketNewsSummaryState;
+  stockNewsPreferences: IStockNewsPreferences;
   pendingDownloadedUpdate?: IPendingDownloadedUpdate;
   deviceId: string;
 }
@@ -43,6 +44,7 @@ export const store = new Store<StoreSchema>({
     config: defaultConfig,
     favoriteStocks: [],
     installedStoreItems: [],
+    stockNewsPreferences: { favoritesOnly: false, manualStocks: [] },
     deviceId: `${systemName()}-${randomUUID()}`,
   },
 });
@@ -74,6 +76,43 @@ export function setConfig(config: AppConfig): AppConfig {
   };
   store.set('config', normalized);
   return normalized;
+}
+
+export function getStockNewsPreferences(): IStockNewsPreferences {
+  const preferences = store.get('stockNewsPreferences', { favoritesOnly: false, manualStocks: [] });
+  return {
+    favoritesOnly: Boolean(preferences.favoritesOnly),
+    manualStocks: preferences.manualStocks ?? [],
+  };
+}
+
+export function setStockNewsFavoritesOnly(favoritesOnly: boolean): IStockNewsPreferences {
+  const next = { ...getStockNewsPreferences(), favoritesOnly };
+  store.set('stockNewsPreferences', next);
+  return next;
+}
+
+export function addStockNewsSubscription(stock: Pick<IStockNewsSubscription, 'code' | 'name'>): IStockNewsPreferences {
+  const code = stock.code.trim();
+  const name = stock.name.trim();
+  if (!/^\d{6}$/.test(code) || !name) throw new Error('请选择有效的 A 股股票');
+  if (listFavoriteStocks().some((item) => item.code === code)) throw new Error('该股票已在收藏列表中，无需重复关注');
+  const preferences = getStockNewsPreferences();
+  if (preferences.manualStocks.some((item) => item.code === code)) return preferences;
+  if (preferences.manualStocks.length >= 12) throw new Error('手动关注的股票最多 12 只');
+  const next = {
+    ...preferences,
+    manualStocks: [{ code, name, createdAt: new Date().toISOString() }, ...preferences.manualStocks],
+  };
+  store.set('stockNewsPreferences', next);
+  return next;
+}
+
+export function removeStockNewsSubscription(code: string): IStockNewsPreferences {
+  const preferences = getStockNewsPreferences();
+  const next = { ...preferences, manualStocks: preferences.manualStocks.filter((item) => item.code !== code) };
+  store.set('stockNewsPreferences', next);
+  return next;
 }
 
 export function getPendingDownloadedUpdate(): IPendingDownloadedUpdate | undefined {

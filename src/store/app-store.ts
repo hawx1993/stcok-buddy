@@ -7,6 +7,7 @@ import type {
   FavoriteStock,
   StockDetail,
   BoardDetail,
+  MarketNewsItem,
   ThemeMode,
   AgentRunEvent,
 } from '../shared/types';
@@ -15,7 +16,19 @@ export type SidebarTab = 'all' | 'surge' | 'stock' | 'diagnosis' | 'market';
 export type SidebarMainTab = 'session' | 'hot';
 export type HotSubTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
 export type RightPanelTab = 'favorites' | 'stock' | 'board' | 'surge' | 'news';
-export type MainView = 'chat' | 'market';
+export type MainView = 'chat' | 'market' | 'news-reader';
+
+let latestNewsReaderRequestId = 0;
+
+interface INewsReaderState {
+  id: string;
+  source: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>;
+  requestId: number;
+  previousView: Exclude<MainView, 'news-reader'>;
+  item?: MarketNewsItem;
+  loading: boolean;
+  error?: string;
+}
 
 export interface SurgeStock extends StockDetail {
   type: 'surge' | 'plummet' | 'volume';
@@ -31,6 +44,7 @@ interface AppState {
   hotSubTab: HotSubTab;
   rightPanelTab: RightPanelTab;
   mainView: MainView;
+  newsReader?: INewsReaderState;
   isLeftSidebarCollapsed: boolean;
   isRightPanelCollapsed: boolean;
   search: string;
@@ -50,7 +64,11 @@ interface AppState {
   setSidebarMainTab(tab: SidebarMainTab): void;
   setHotSubTab(tab: HotSubTab): void;
   setRightPanelTab(tab: RightPanelTab): void;
-  setMainView(view: MainView): void;
+  setMainView(view: Exclude<MainView, 'news-reader'>): void;
+  openNewsReader(item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>): number;
+  setNewsReaderItem(requestId: number, item: MarketNewsItem): void;
+  setNewsReaderError(requestId: number, error: string): void;
+  closeNewsReader(): void;
   toggleLeftSidebar(): void;
   toggleRightPanel(): void;
   openRightPanel(): void;
@@ -104,6 +122,38 @@ export const useAppStore = create<AppState>((set, get) => ({
       isRightPanelCollapsed: state.rightPanelTab === tab ? !state.isRightPanelCollapsed : false,
     })),
   setMainView: (view) => set({ mainView: view }),
+  openNewsReader: (source) => {
+    const requestId = latestNewsReaderRequestId + 1;
+    latestNewsReaderRequestId = requestId;
+    set((state) => ({
+      mainView: 'news-reader',
+      newsReader: {
+        id: source.id,
+        source,
+        requestId,
+        previousView: state.mainView === 'news-reader' ? state.newsReader?.previousView ?? 'chat' : state.mainView,
+        loading: true,
+      },
+    }));
+    return requestId;
+  },
+  setNewsReaderItem: (requestId, item) =>
+    set((state) => (
+      state.newsReader?.requestId === requestId
+        ? { newsReader: { ...state.newsReader, item, loading: false, error: undefined } }
+        : state
+    )),
+  setNewsReaderError: (requestId, error) =>
+    set((state) => (
+      state.newsReader?.requestId === requestId
+        ? { newsReader: { ...state.newsReader, loading: false, error } }
+        : state
+    )),
+  closeNewsReader: () =>
+    set((state) => ({
+      mainView: state.newsReader?.previousView ?? 'chat',
+      newsReader: undefined,
+    })),
   toggleLeftSidebar: () => set((state) => ({ isLeftSidebarCollapsed: !state.isLeftSidebarCollapsed })),
   toggleRightPanel: () => set((state) => ({ isRightPanelCollapsed: !state.isRightPanelCollapsed })),
   openRightPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'stock' }),

@@ -1,5 +1,5 @@
-import type { IMarketNewsSummary, IMarketNewsSummaryState, AnnouncementItem, MarketNewsItem, PagedMarketNews } from '../../../src/shared/types.js';
-import { getMarketNewsSummaryState as readMarketNewsSummaryState, setMarketNewsSummaryState } from '../config-store.js';
+import type { IMarketNewsSummary, IMarketNewsSummaryState, IStockNewsFeed, AnnouncementItem, FavoriteStock, MarketNewsItem, PagedMarketNews } from '../../../src/shared/types.js';
+import { getMarketNewsSummaryState as readMarketNewsSummaryState, getStockNewsPreferences, listFavoriteStocks, setMarketNewsSummaryState } from '../config-store.js';
 import { generateReport } from '../llm/index.js';
 import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
 
@@ -30,10 +30,30 @@ export async function listMarketNews(query = '', page = 1, pageSize = 30): Promi
 }
 
 export async function getMarketNewsItem(id: string): Promise<MarketNewsItem> {
-  const item = (await listMarketNews('', 1, 150)).items.find((candidate) => candidate.id === id);
+  const items = (await listMarketNews('', 1, 150)).items;
+  const item = items.find((candidate) => candidate.id === id) ?? findMarketNewsByLegacyId(items, id);
   if (!item) throw new Error('新闻内容已更新，请刷新热点新闻后重试');
-  const content = item.url ? await fetchNewsArticleContent(item.url).catch(() => item.content) : item.content;
-  return { ...item, content };
+  return getMarketNewsDetail(item);
+}
+
+export async function getMarketNewsDetail(item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>): Promise<MarketNewsItem> {
+  const source = item.url ? item : await resolveMarketNewsSource(item);
+  const content = source.url ? await fetchNewsArticleContent(source.url) : source.content;
+  if (!content?.trim()) throw new Error('新闻正文暂不可用，请稍后刷新热点新闻后重试');
+  return { ...source, tags: [], content };
+}
+
+async function resolveMarketNewsSource(item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>) {
+  if (item.content?.trim()) return item;
+  const items = (await listMarketNews('', 1, 150)).items;
+  const source = items.find((candidate) => candidate.id === item.id) ?? findMarketNewsByLegacyId(items, item.id) ?? items.find((candidate) => candidate.title === item.title);
+  if (!source) throw new Error('新闻内容已更新，请刷新热点新闻后重试');
+  return source;
+}
+
+function findMarketNewsByLegacyId(items: MarketNewsItem[], id: string): MarketNewsItem | undefined {
+  const title = id.match(/^em-\d+-(.+)$/)?.[1];
+  return title ? items.find((item) => item.title === title) : undefined;
 }
 
 async function fetchNewsArticleContent(url: string): Promise<string | undefined> {
@@ -99,7 +119,7 @@ async function refreshMarketNewsSummaryOnce(): Promise<IMarketNewsSummary> {
       tradeDate,
       generatedAt: new Date().toISOString(),
       content: content.trim(),
-      sourceNews: sourceNews.map(({ id, title, source, time }) => ({ id, title, source, time })),
+      sourceNews: sourceNews.map(({ id, title, source, time, url, content: summary }) => ({ id, title, source, time, url, content: summary })),
     };
     setMarketNewsSummaryState({ tradeDate, summary });
     return summary;
@@ -121,12 +141,62 @@ function getMarketNewsSummaryStateFromStore(tradeDate: string): IMarketNewsSumma
   return state;
 }
 
+export async function listStockNewsFeed(): Promise<IStockNewsFeed> {
+  const preferences = getStockNewsPreferences();
+  const stocks = stockNewsStocks(preferences.favoritesOnly, listFavoriteStocks(), preferences.manualStocks);
+  if (!stocks.length) return { preferences, items: [] };
+
+  const results = await Promise.allSettled(stocks.map(async (stock) => {
+    const { news } = await listStockNewsAnnouncements(stock.code, 12);
+    return news.map((item) => ({ ...item, stockCode: stock.code, stockName: stock.name }));
+  }));
+  const fulfilled = results.filter((result): result is PromiseFulfilledResult<Array<MarketNewsItem & { stockCode: string; stockName: string }>> => result.status === 'fulfilled');
+  if (!fulfilled.length) {
+    const messages = results
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => result.reason instanceof Error ? result.reason.message : '未知错误');
+    throw new Error(`个股新闻数据源暂不可用：${messages.join('；')}`);
+  }
+  return { preferences, items: sortAndDeduplicateStockNews(fulfilled.flatMap((result) => result.value)) };
+}
+
+function stockNewsStocks(favoritesOnly: boolean, favorites: FavoriteStock[], manualStocks: IStockNewsFeed['preferences']['manualStocks']) {
+  const byCode = new Map<string, Pick<FavoriteStock, 'code' | 'name'>>();
+  for (const stock of favorites) byCode.set(stock.code, stock);
+  if (!favoritesOnly) {
+    for (const stock of manualStocks) {
+      if (!byCode.has(stock.code)) byCode.set(stock.code, stock);
+    }
+  }
+  return [...byCode.values()];
+}
+
+function sortAndDeduplicateStockNews(items: MarketNewsItem[]): MarketNewsItem[] {
+  const seen = new Set<string>();
+  return items
+    .filter((item) => {
+      const key = `${item.stockCode ?? ''}:${item.url ?? item.title}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => right.time.localeCompare(left.time));
+}
+
 export async function listStockNewsAnnouncements(code: string, pageSize = 10) {
-  const [news, announcements] = await Promise.all([
-    eastmoneyStockNews(code, pageSize).catch(() => []),
-    cninfoAnnouncements(code, pageSize).catch(() => []),
+  const [newsResult, announcementsResult] = await Promise.allSettled([
+    eastmoneyStockNews(code, pageSize),
+    cninfoAnnouncements(code, pageSize),
   ]);
-  return { news, announcements };
+  if (newsResult.status === 'rejected' && announcementsResult.status === 'rejected') {
+    const newsError = newsResult.reason instanceof Error ? newsResult.reason.message : '未知错误';
+    const announcementError = announcementsResult.reason instanceof Error ? announcementsResult.reason.message : '未知错误';
+    throw new Error(`个股资讯与公告数据源均不可用：${newsError}；${announcementError}`);
+  }
+  return {
+    news: newsResult.status === 'fulfilled' ? newsResult.value : [],
+    announcements: announcementsResult.status === 'fulfilled' ? announcementsResult.value : [],
+  };
 }
 
 async function eastmoneyStockNews(code: string, pageSize: number): Promise<MarketNewsItem[]> {
@@ -143,7 +213,7 @@ async function eastmoneyStockNews(code: string, pageSize: number): Promise<Marke
   const url = new URL('https://search-api-web.eastmoney.com/search/jsonp');
   url.search = new URLSearchParams({ cb, param: innerParams }).toString();
   const response = await fetch(url, { signal: AbortSignal.timeout(15_000), headers: { 'User-Agent': UA, Referer: 'https://so.eastmoney.com/' } });
-  if (!response.ok) return [];
+  if (!response.ok) throw new Error(`个股新闻请求失败：${response.status}`);
   const text = await response.text();
   const json = text.slice(text.indexOf('(') + 1, text.lastIndexOf(')'));
   const payload = JSON.parse(json) as { result?: { cmsArticleWebOld?: Array<Record<string, unknown>> } };
@@ -187,7 +257,7 @@ async function cninfoAnnouncements(code: string, pageSize: number): Promise<Anno
       Origin: 'https://www.cninfo.com.cn',
     },
   });
-  if (!response.ok) return [];
+  if (!response.ok) throw new Error(`个股公告请求失败：${response.status}`);
   const payload = await response.json() as { announcements?: Array<Record<string, unknown>> };
   return (payload.announcements ?? []).map((item) => ({
     title: stripTags(String(item.announcementTitle ?? '')),

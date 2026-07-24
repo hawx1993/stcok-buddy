@@ -1,14 +1,17 @@
-import { Skeleton } from 'antd';
 import { ChevronLeft, ChevronRight, Newspaper, RefreshCw, Search, SquareArrowOutUpRight } from 'lucide-react';
 import { marked, Renderer } from 'marked';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
+import { useAppStore } from '../../../store/app-store';
 import cx from '../../../shared/cx';
 import type { IMarketNewsSummaryState, MarketNewsItem } from '../../../shared/types';
+import { StockNewsPanel } from './stock-news-panel';
+import { NewsLinkCopyButton } from './news-link-copy-button';
+import { NewsSkeleton } from './news-skeleton';
 import styles from '../index.module.scss';
 
 const NEWS_PAGE_SIZE = 30;
-type TNewsTab = 'hot' | 'summary';
+type TNewsTab = 'hot' | 'stock' | 'summary';
 
 interface IMarketNewsPanelProps {
   isActive: boolean;
@@ -83,20 +86,23 @@ export function MarketNewsPanel({ isActive }: IMarketNewsPanelProps) {
         </div>
         <div className={styles['news-tabs']} aria-label='新闻内容分类'>
           <button aria-pressed={activeTab === 'hot'} className={activeTab === 'hot' ? styles.active : ''} onClick={() => setActiveTab('hot')} type='button'>热门新闻</button>
+          <button aria-pressed={activeTab === 'stock'} className={activeTab === 'stock' ? styles.active : ''} onClick={() => setActiveTab('stock')} type='button'>个股新闻</button>
           <button aria-pressed={activeTab === 'summary'} className={activeTab === 'summary' ? styles.active : ''} onClick={() => setActiveTab('summary')} type='button'>AI 总结</button>
         </div>
-        <div className={styles['news-search-row']}>
-          {activeTab === 'hot' ? (
-            <label className={styles['rp-search-row']}>
-              <Search aria-hidden='true' size={14} />
-              <input aria-label='搜索新闻' value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder='搜索新闻' />
-            </label>
-          ) : null}
-          <button aria-label={loading ? '正在刷新新闻' : '刷新新闻'} className={styles['news-refresh']} disabled={loading} onClick={() => setRefresh((value) => value + 1)} title={loading ? '正在刷新' : '刷新'} type='button'>
-            <RefreshCw aria-hidden='true' className={loading ? styles['refreshing-icon'] : undefined} size={14} />
-            <span>{loading ? '刷新中' : '刷新'}</span>
-          </button>
-        </div>
+        {activeTab !== 'stock' ? (
+          <div className={styles['news-search-row']}>
+            {activeTab === 'hot' ? (
+              <label className={styles['rp-search-row']}>
+                <Search aria-hidden='true' size={14} />
+                <input aria-label='搜索新闻' value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder='搜索新闻' />
+              </label>
+            ) : null}
+            <button aria-label={loading ? '正在刷新新闻' : '刷新新闻'} className={styles['news-refresh']} disabled={loading} onClick={() => setRefresh((value) => value + 1)} title={loading ? '正在刷新' : '刷新'} type='button'>
+              <RefreshCw aria-hidden='true' className={loading ? styles['refreshing-icon'] : undefined} size={14} />
+              <span>{loading ? '刷新中' : '刷新'}</span>
+            </button>
+          </div>
+        ) : null}
       </div>
       <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
         {activeTab === 'hot' ? (
@@ -118,7 +124,7 @@ export function MarketNewsPanel({ isActive }: IMarketNewsPanelProps) {
               </button>
             </div>
           </>
-        ) : <NewsSummary state={summaryState} loading={loading} error={error} />}
+        ) : activeTab === 'stock' ? <StockNewsPanel isActive={isActive} /> : <NewsSummary state={summaryState} loading={loading} error={error} />}
       </div>
     </>
   );
@@ -155,8 +161,16 @@ function escapeHtml(value: string): string {
   })[character] ?? character);
 }
 
-function openNewsDetail(id: string) {
-  void getStocksenseApi().openMarketNews(id).catch(console.error);
+function openNewsDetail(item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>) {
+  const requestId = useAppStore.getState().openNewsReader(item);
+  void getStocksenseApi()
+    .getMarketNewsItem(item)
+    .then((item) => useAppStore.getState().setNewsReaderItem(requestId, item))
+    .catch((error: unknown) => {
+      console.error(error);
+      const message = error instanceof Error ? error.message : '新闻详情加载失败，请稍后重试';
+      useAppStore.getState().setNewsReaderError(requestId, message);
+    });
 }
 
 function NewsSummary({ state, loading, error }: { state?: IMarketNewsSummaryState; loading: boolean; error?: string }) {
@@ -173,7 +187,7 @@ function NewsSummary({ state, loading, error }: { state?: IMarketNewsSummaryStat
       />
       <div className={styles['news-summary-sources']}>
         引用新闻：{state.summary.sourceNews.map((item) => (
-          <button key={item.id} onClick={() => openNewsDetail(item.id)} type='button'>
+          <button key={item.id} onClick={() => openNewsDetail(item)} type='button'>
             {item.title}
           </button>
         ))}
@@ -182,22 +196,24 @@ function NewsSummary({ state, loading, error }: { state?: IMarketNewsSummaryStat
   );
 }
 
-function NewsSkeleton({ rows }: { rows: number }) {
-  return <div className={styles['news-skeleton']}>{Array.from({ length: rows }, (_, index) => <Skeleton key={index} active paragraph={{ rows: 1 }} title={{ width: '72%' }} className={styles['news-skeleton-row']} />)}</div>;
-}
-
 function NewsItem({ item }: { item: MarketNewsItem }) {
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openNewsDetail(item);
+    }
+  };
   return (
-    <button aria-label={`打开新闻：${item.title}`} className={styles['news-item']} onClick={() => void getStocksenseApi().openMarketNews(item.id).catch(console.error)} type='button'>
+    <div aria-label={`打开新闻：${item.title}`} className={styles['news-item']} onClick={() => openNewsDetail(item)} onKeyDown={onKeyDown} role='button' tabIndex={0}>
       <div className={styles['news-meta']}>
         <span className={styles['news-time']}>{item.time || '--:--'}</span>
         {item.source ? <span className={styles['news-source']}>{item.source}</span> : null}
       </div>
       <div className={styles['news-title-row']}>
         <div className={styles['news-title']}>{item.title}</div>
-        <SquareArrowOutUpRight aria-hidden='true' className={styles['news-open-icon']} size={13} />
+        <span className={styles['news-item-actions']}><NewsLinkCopyButton url={item.url} /><SquareArrowOutUpRight aria-hidden='true' className={styles['news-open-icon']} size={13} /></span>
       </div>
       {item.tags.length ? <div className={styles['news-tags']}>{item.tags.map((tag) => <span className={cx(styles.nt, item.tagType ? styles[item.tagType] : undefined)} key={tag}>{tag}</span>)}</div> : null}
-    </button>
+    </div>
   );
 }
