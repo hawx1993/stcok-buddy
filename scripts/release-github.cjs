@@ -320,6 +320,26 @@ function findAssets(targets) {
   return assets.sort((left, right) => basename(left).localeCompare(basename(right)));
 }
 
+function releaseAssetPriority(filePath) {
+  const name = basename(filePath);
+  if (name.endsWith('.dmg') || name.endsWith('.zip') || name.endsWith('.exe')) return 0;
+  if (name.endsWith('.blockmap')) return 1;
+  if (name === 'latest.yml' || name === 'latest-mac.yml') return 2;
+  return 3;
+}
+
+function orderReleaseAssets(assets) {
+  return [...assets].sort((left, right) => {
+    const priorityDifference = releaseAssetPriority(left) - releaseAssetPriority(right);
+    if (priorityDifference !== 0) return priorityDifference;
+    return basename(left).localeCompare(basename(right));
+  });
+}
+
+function formatFileSize(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function parseLatestMacAssetNames(latestMacPath) {
   return readFileSync(latestMacPath, 'utf8')
     .split('\n')
@@ -558,14 +578,28 @@ function createOrReuseRelease(options, tag, version, notesPath) {
 }
 
 function uploadAssets(tag, assets) {
-  log(`Uploading ${assets.length} release assets...`);
-  run('gh', ['release', 'upload', tag, '--repo', REPO, ...assets, '--clobber']);
+  const orderedAssets = orderReleaseAssets(assets);
+  log(`Uploading ${orderedAssets.length} release assets...`);
+  for (const [index, asset] of orderedAssets.entries()) {
+    log(`Uploading [${index + 1}/${orderedAssets.length}] ${basename(asset)} (${formatFileSize(statSync(asset).size)})...`);
+    run('gh', ['release', 'upload', tag, '--repo', REPO, asset, '--clobber']);
+    log(`Uploaded [${index + 1}/${orderedAssets.length}] ${basename(asset)}.`);
+  }
 }
 
-function verifyRelease(tag, targets) {
+function findMissingReleaseAssets(remoteAssetNames, assets) {
+  const remoteNames = new Set(remoteAssetNames);
+  return assets
+    .map((asset) => basename(asset))
+    .filter((name) => !remoteNames.has(name));
+}
+
+function verifyRelease(tag, targets, assets) {
   const raw = run('gh', ['release', 'view', tag, '--repo', REPO, '--json', 'assets,isDraft,url'], { capture: true });
   const release = JSON.parse(raw);
   const names = release.assets.map((asset) => asset.name);
+  const missing = findMissingReleaseAssets(names, assets);
+  if (missing.length) fail(`GitHub release is missing release assets: ${missing.join(', ')}`);
   const targetValues = resolveTargetValues(targets);
   if ((targetValues.includes('all') || targetValues.includes('win-x64')) && !names.includes('latest.yml')) fail('GitHub release is missing latest.yml');
   if ((targetValues.includes('all') || targetValues.some((target) => target.startsWith('mac-'))) && !names.includes('latest-mac.yml')) fail('GitHub release is missing latest-mac.yml');
@@ -596,7 +630,7 @@ function main() {
   const notesPath = createNotes(options, tag, version, targets);
   createOrReuseRelease(options, tag, version, notesPath);
   uploadAssets(tag, assets);
-  verifyRelease(tag, targets);
+  verifyRelease(tag, targets, assets);
 }
 
 if (require.main === module) main();
@@ -604,5 +638,7 @@ if (require.main === module) main();
 module.exports = {
   assertLatestMacManifestMatchesAssets,
   createMacUpdateFileEntry,
+  findMissingReleaseAssets,
   formatMacUpdateManifest,
+  orderReleaseAssets,
 };
