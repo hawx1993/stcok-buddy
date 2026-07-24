@@ -1,5 +1,5 @@
 import { message as antdMessage } from 'antd';
-import { Bot, Star } from 'lucide-react';
+import { Bot, LineChart, Star } from 'lucide-react';
 import gsap from 'gsap';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
@@ -125,6 +125,7 @@ export function StockDetailView({ returnToSurge, onReturnToSurge }: IStockDetail
               ← 异动
             </button>
           ) : null}
+          <LineChart className={styles['panel-title-icon']} size={16} />
           个股详情
         </span>
         {selectedStock ? (

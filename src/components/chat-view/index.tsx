@@ -9,6 +9,8 @@ import { formatMessageTime } from './components/message-utils';
 import { createThinkingSteps, setBuiltInSlashItems, isGreeting } from './components/thinking-steps';
 import { ResultCard } from './components/result-card';
 import { MarketReviewCard } from './components/market-review-card';
+import { QuickEntry, type TSlashItem } from './components/quick-entry';
+import { SlashCommandMenu } from './components/slash-command-menu';
 import { renderCommandInText, renderMarkdownContent } from './components/markdown';
 import type { BoardDetail, ChatMessage, StockDetail, StoreCategory, StoreItem } from '../../shared/types';
 import { useAppStore } from '../../store/app-store';
@@ -99,14 +101,7 @@ const builtInSlashItems = [
   },
 ] satisfies SlashItem[];
 
-type SlashItem = {
-  id: string;
-  section: string;
-  label: string;
-  command: string;
-  description: string;
-  argPlaceholder: string;
-};
+type SlashItem = TSlashItem;
 const storeTabs: Array<{ id: StoreCategory; label: string }> = [
   { id: 'commands', label: 'Commands' },
   { id: 'skills', label: 'Skills' },
@@ -351,7 +346,7 @@ export function ChatView() {
     <div className={styles['chat-wrap']} ref={rootRef}>
       <div className={styles['chat-messages']} ref={listRef}>
         {messages.length === 0 ? (
-          <QuickEntry onSubmit={send} slashItems={slashItems} />
+          <QuickEntry conversationId={activeConversationId} onSubmit={send} slashItems={slashItems} />
         ) : (
           messages.map((message) => (
             <MessageBubble
@@ -546,164 +541,6 @@ function storeItemToSlashItem(item: StoreItem): SlashItem {
     description: item.description,
     argPlaceholder: item.argPlaceholder ?? '[请输入参数]',
   };
-}
-
-function SlashCommandMenu({
-  slashItems,
-  selectedIndex,
-  onSelect,
-}: {
-  slashItems: SlashItem[];
-  selectedIndex: number;
-  onSelect(item?: SlashItem): void;
-}) {
-  const activeRef = useRef<HTMLButtonElement>(null);
-  const sections = Array.from(new Set(slashItems.map((item) => item.section)));
-
-  useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [selectedIndex]);
-
-  return (
-    <div className={styles['slash-menu']}>
-      {sections.map((section) => (
-        <div key={section}>
-          <div className={styles['slash-section']}>{section}</div>
-          {slashItems.map((item, index) =>
-            item.section === section ? (
-              <button
-                ref={index === selectedIndex ? activeRef : undefined}
-                className={cx(styles['slash-item'], index === selectedIndex && styles.active)}
-                key={item.id}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  onSelect(item);
-                }}
-                type='button'
-              >
-                <span className='slash-icon'>/</span>
-                <span className={styles['slash-copy']}>
-                  <span className={styles['slash-label']}>{item.label}</span>
-                  <span className={styles['slash-desc']}>{item.description}</span>
-                </span>
-                <span className={styles['slash-meta']}>
-                  <span>{item.section === 'Commands' ? '命令' : '全局'}</span>
-                  <code>{item.command}</code>
-                </span>
-              </button>
-            ) : null,
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function QuickEntry({ onSubmit, slashItems }: { onSubmit(text: string): void; slashItems: SlashItem[] }) {
-  const [value, setValue] = useState('');
-  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
-  const examples = ['五粮液', '贵州茅台', '宁德时代', '招商银行', '比亚迪'];
-  const slashOpen = value.startsWith('/') && !value.includes(' ');
-  const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
-    if (item) setValue(`${item.command} `);
-  };
-  return (
-    <div className={styles['quick-entry']} data-quickentry>
-      <div className={styles['qe-hero']} aria-hidden='true'>
-        <svg viewBox='0 0 420 200' xmlns='http://www.w3.org/2000/svg'>
-          <rect width='420' height='200' fill='var(--bg)' rx='8' />
-          <g stroke='var(--surface)' strokeWidth='0.5' opacity='0.75'>
-            <line x1='40' y1='30' x2='380' y2='30' />
-            <line x1='40' y1='60' x2='380' y2='60' />
-            <line x1='40' y1='90' x2='380' y2='90' />
-            <line x1='40' y1='120' x2='380' y2='120' />
-            <line x1='40' y1='150' x2='380' y2='150' />
-            <line x1='108' y1='30' x2='108' y2='150' />
-            <line x1='176' y1='30' x2='176' y2='150' />
-            <line x1='244' y1='30' x2='244' y2='150' />
-            <line x1='312' y1='30' x2='312' y2='150' />
-          </g>
-          <path
-            className={styles['qe-wave']}
-            d='M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70 L 360 150 Z'
-            fill='rgba(59,130,246,0.08)'
-          />
-          <path
-            className={styles['qe-trend']}
-            d='M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70'
-            stroke='var(--accent)'
-            strokeWidth='2'
-            fill='none'
-            strokeLinecap='round'
-          />
-          {[80, 140, 200, 260, 320].map((x, index) => (
-            <g key={x} transform={`translate(${x},${index % 2 ? 112 : 82})`}>
-              <g className={styles['qe-candle']} style={{ animationDelay: `${index * -0.35}s` }}>
-                <line
-                  x1='6'
-                  y1='0'
-                  x2='6'
-                  y2='40'
-                  stroke={index % 2 ? 'var(--danger)' : 'var(--success)'}
-                  strokeWidth='1.5'
-                />
-                <rect
-                  x='1'
-                  y='10'
-                  width='10'
-                  height='20'
-                  fill={index % 2 ? 'var(--danger)' : 'var(--success)'}
-                  rx='1'
-                />
-              </g>
-            </g>
-          ))}
-          <line x1='40' y1='150' x2='380' y2='150' stroke='var(--border)' strokeWidth='1' />
-        </svg>
-      </div>
-      <div className={styles['qe-title']}>开始新的投研分析</div>
-      <div className={styles['qe-sub']}>输入A股股票名称或代码，AI 将为你深度解读</div>
-      <div className={styles['qe-search-box']}>
-        {slashOpen ? (
-          <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} />
-        ) : null}
-        <input
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (slashOpen && event.key === 'Enter') {
-              event.preventDefault();
-              selectSlashItem();
-              return;
-            }
-            if (slashOpen && event.key === 'ArrowDown') {
-              event.preventDefault();
-              setSelectedSlashIndex((current) => Math.min(current + 1, slashItems.length - 1));
-              return;
-            }
-            if (slashOpen && event.key === 'ArrowUp') {
-              event.preventDefault();
-              setSelectedSlashIndex((current) => Math.max(current - 1, 0));
-              return;
-            }
-            if (event.key === 'Enter') onSubmit(value);
-          }}
-          placeholder='例如：/综合投研报告 中公教育、000858……'
-          autoFocus
-        />
-        <button onClick={() => onSubmit(value)} type='button'>
-          开始分析
-        </button>
-      </div>
-      <div className={styles['qe-hints']}>
-        {examples.map((example) => (
-          <button key={example} className={styles['qe-hint']} onClick={() => setValue(example)} type='button'>
-            {example}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function MessageBubble({

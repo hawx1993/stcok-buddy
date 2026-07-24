@@ -1001,6 +1001,23 @@
   border-color: var(--accent);
   color: var(--accent);
 }
+.qe-hints-refresh {
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 2px 10px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+.qe-hints-refresh:hover {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+.qe-hints-status {
+  color: var(--muted);
+  font-size: 12px;
+}
 .qe-hints {
   display: flex;
   gap: 4px;

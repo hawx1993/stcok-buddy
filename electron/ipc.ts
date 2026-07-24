@@ -24,7 +24,8 @@ import { getBatchQuotes, getBoardDetail, getKline, getMarketPageSnapshot, getSto
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { listSurgeDates } from './services/stock/surge-history-store.js';
 import { ensureSurgeHistoryCapture } from './services/stock/surge-history-scheduler.js';
-import { listMarketNews } from './services/stock/news-client.js';
+import { ensureMarketNewsSummaryState, getMarketNewsItem, listMarketNews } from './services/stock/news-client.js';
+import { openMarketNewsWindow } from './services/news-window.js';
 import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
 import { testModelConnection } from './services/llm/index.js';
@@ -125,6 +126,11 @@ export function registerIpcHandlers() {
   });
   app.once('before-quit', removeMarketDataListener);
   ipcMain.handle('news:list', (_event, query?: string, page?: number, pageSize?: number) => listMarketNews(query, page, pageSize));
+  ipcMain.handle('news:getSummary', () => ensureMarketNewsSummaryState());
+  ipcMain.handle('news:open', async (_event, id: string) => {
+    if (!/^em-\d+-/.test(id)) throw new Error('新闻标识无效');
+    openMarketNewsWindow(await getMarketNewsItem(id), getConfig().theme);
+  });
   ipcMain.handle('store:list', () => listStoreItems());
   ipcMain.handle('store:installed', () => listInstalledStoreItems());
   ipcMain.handle('store:install', (_event, id: string) => installStoreItem(id));

@@ -13,6 +13,6 @@
     "resolveJsonModule": true,
     "types": ["node", "electron"]
   },
-  "include": ["electron/main.ts", "electron/ipc.ts", "electron/services/**/*.ts", "src/shared/**/*.ts"],
+  "include": ["electron/main.ts", "electron/ipc.ts", "electron/services/**/*.ts", "src/shared/**/*.ts", "src/components/chat-view/components/hot-stock-hints.ts"],
   "exclude": ["electron/preload.ts"]
 }

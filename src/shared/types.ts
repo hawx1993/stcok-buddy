@@ -401,6 +401,19 @@ export interface PagedMarketNews {
   pageSize: number;
 }
 
+export interface IMarketNewsSummary {
+  tradeDate: string;
+  generatedAt: string;
+  content: string;
+  sourceNews: Array<Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time'>>;
+}
+
+export interface IMarketNewsSummaryState {
+  tradeDate: string;
+  summary?: IMarketNewsSummary;
+  error?: string;
+}
+
 export type HotFocusTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
 export type MarketTab = 'sh-main' | 'sz-main' | 'bj' | 'gem' | 'star';
 export type MarketIndexPeriod = '15m' | '1h' | '4h' | '1d';
@@ -628,6 +641,8 @@ export interface StocksenseApi {
   getKline(symbol: string, limit?: number, period?: string, beforeTimestamp?: number): Promise<KlinePoint[]>;
   getBatchQuotes(codes: string[]): Promise<StockDetail[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
+  getMarketNewsSummaryState(): Promise<IMarketNewsSummaryState>;
+  openMarketNews(id: string): Promise<void>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
   listSurgeHistoryDates(): Promise<string[]>;
   listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;

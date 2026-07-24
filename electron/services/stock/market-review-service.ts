@@ -1,10 +1,13 @@
 import type { HotFocusItem, IMarketReviewHotTheme, IMarketReviewLeader, IMarketReviewMetric, IMarketReviewWatchItem, TMarketReviewRating, TMarketReviewReport } from '../../../src/shared/types.js';
+import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
 import { uniqueRowsByCode } from './market-review-data.js';
 import { getMarketPageSnapshot, listEastmoneySurgeByDate, listHotFocus } from './stock-client.js';
 
 const marketTabs = ['sh-main', 'sz-main', 'bj', 'gem', 'star'] as const;
 
 export async function getMarketReview(): Promise<TMarketReviewReport> {
+  const now = new Date();
+  const tradeDate = await resolveTradingDate(9 * 60 + 30, now);
   const [snapshotsResult, sectorsResult, flowsResult] = await Promise.allSettled([
     Promise.all(marketTabs.map((tab) => getMarketPageSnapshot(tab))),
     listHotFocus('sector'),
@@ -16,7 +19,6 @@ export async function getMarketReview(): Promise<TMarketReviewReport> {
   const rows = uniqueRowsByCode(snapshots.flatMap((snapshot) => snapshot.rows));
   if (!rows.length) throw new Error('未获取到全市场真实行情，无法生成今日行情复盘');
 
-  const tradeDate = snapshots.map((snapshot) => snapshot.updatedAt.slice(0, 10)).sort().at(-1) ?? new Date().toISOString().slice(0, 10);
   const pools = await listEastmoneySurgeByDate(tradeDate.replaceAll('-', ''));
   const limitUps = pools.filter((item) => item.tag === '封涨停板');
   const broken = pools.filter((item) => item.tag === '涨停开板');

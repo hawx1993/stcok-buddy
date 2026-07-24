@@ -1,11 +1,12 @@
 import Store from 'electron-store';
 import { randomUUID } from 'node:crypto';
-import type { AppConfig, FavoriteStock, IPendingDownloadedUpdate } from '../../src/shared/types.js';
+import type { AppConfig, FavoriteStock, IMarketNewsSummaryState, IPendingDownloadedUpdate } from '../../src/shared/types.js';
 
 export interface StoreSchema {
   config: AppConfig;
   favoriteStocks: FavoriteStock[];
   installedStoreItems: string[];
+  marketNewsSummary?: IMarketNewsSummaryState;
   pendingDownloadedUpdate?: IPendingDownloadedUpdate;
   deviceId: string;
 }
@@ -81,6 +82,14 @@ export function getPendingDownloadedUpdate(): IPendingDownloadedUpdate | undefin
 
 export function setPendingDownloadedUpdate(update: IPendingDownloadedUpdate) {
   store.set('pendingDownloadedUpdate', update);
+}
+
+export function getMarketNewsSummaryState(): IMarketNewsSummaryState | undefined {
+  return store.get('marketNewsSummary');
+}
+
+export function setMarketNewsSummaryState(state: IMarketNewsSummaryState) {
+  store.set('marketNewsSummary', state);
 }
 
 export function clearPendingDownloadedUpdate() {

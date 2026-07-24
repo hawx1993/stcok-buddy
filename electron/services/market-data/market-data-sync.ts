@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
+import { resolveTradingDate } from './trade-date-resolver.js';
 import { partitionValidDailyBars } from './quality.js';
-import { isRemoteTradingDay, listRemoteSecurities, listRemoteTradingCalendar, previousRemoteTradingDay, stockSdkHistoricalProvider } from './providers.js';
+import { listRemoteSecurities, listRemoteTradingCalendar, stockSdkHistoricalProvider } from './providers.js';
 import {
   clearSyncFailure, countDailyBarsForDate, createSyncJob, getLatestSyncJob, getLatestTradeDate,
   getMarketDataStats, listDailyBars, listLatestSyncFailures, listSecurities, recordSyncFailure,
@@ -56,11 +57,7 @@ export async function waitForMarketDataSync() {
 }
 
 export async function determineTargetTradeDate(now = new Date()) {
-  const today = isoDate(now);
-  const isTradingDay = await isRemoteTradingDay(today).catch(() => false);
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  if (isTradingDay && minutes >= 15 * 60 + 30) return today;
-  return previousRemoteTradingDay(today).catch(() => previousWeekday(now));
+  return resolveTradingDate(15 * 60 + 30, now);
 }
 
 async function runSync(force: boolean): Promise<MarketDataSyncStatus> {
@@ -199,7 +196,6 @@ function idleStatus(): MarketDataSyncStatus {
 }
 function yearsAgo(target: string, years: number) { const date = new Date(`${target}T12:00:00+08:00`); date.setFullYear(date.getFullYear() - years); return isoDate(date); }
 function dayAfter(value: string) { const date = new Date(`${value}T12:00:00+08:00`); date.setDate(date.getDate() + 1); return isoDate(date); }
-function previousWeekday(now: Date) { const date = new Date(now); do date.setDate(date.getDate() - 1); while (date.getDay() === 0 || date.getDay() === 6); return isoDate(date); }
 function isoDate(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
 
 export { getMarketDataStats };
