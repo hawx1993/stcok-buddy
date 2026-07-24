@@ -5,6 +5,7 @@ import { Sidebar } from './components/sidebar';
 import { createChatConversation } from './components/sidebar/components/create-chat-conversation';
 import { ChatView } from './components/chat-view';
 import { MarketView } from './components/market-view';
+import { NewsReader } from './components/news-reader';
 import { StockDetailPanel } from './components/stock-detail-panel';
 import { SettingsModal } from './components/settings-modal';
 import { ErrorBoundary } from './components/error-boundary';
@@ -130,9 +131,9 @@ export function App() {
           <Sidebar searchOpen={searchOpen} />
         </ErrorBoundary>
         <main className={styles.main}>
-          <ErrorBoundary name={mainView === 'market' ? '行情区' : '聊天区'}>
-            {mainView === 'market' ? <MarketView /> : <ChatView />}
-          </ErrorBoundary>
+          <ErrorBoundary name={mainView === 'market' ? '行情区' : mainView === 'news-reader' ? '新闻阅读区' : '聊天区'}>
+            {mainView === 'news-reader' ? <NewsReader /> : mainView === 'market' ? <MarketView /> : <ChatView />
+          }</ErrorBoundary>
         </main>
         <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)}>
           <div className={styles['right-rail']}>

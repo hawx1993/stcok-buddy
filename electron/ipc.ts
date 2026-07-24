@@ -1,10 +1,14 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab, IAppUpdateSettings, MarketIndexPeriod, MarketTab } from '../src/shared/types.js';
+import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, FavoriteStock, HotFocusTab, IAppUpdateSettings, MarketIndexPeriod, MarketNewsItem, MarketTab } from '../src/shared/types.js';
 import {
+  addStockNewsSubscription,
   getConfig,
+  getStockNewsPreferences,
   listFavoriteStocks,
   removeFavoriteStock,
+  removeStockNewsSubscription,
   setConfig,
+  setStockNewsFavoritesOnly,
   toggleFavoriteStockPin,
   upsertFavoriteStock,
 } from './services/config-store.js';
@@ -24,8 +28,7 @@ import { getBatchQuotes, getBoardDetail, getKline, getMarketPageSnapshot, getSto
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { listSurgeDates } from './services/stock/surge-history-store.js';
 import { ensureSurgeHistoryCapture } from './services/stock/surge-history-scheduler.js';
-import { ensureMarketNewsSummaryState, getMarketNewsItem, listMarketNews } from './services/stock/news-client.js';
-import { openMarketNewsWindow } from './services/news-window.js';
+import { ensureMarketNewsSummaryState, getMarketNewsDetail, listMarketNews, listStockNewsFeed } from './services/stock/news-client.js';
 import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
 import { testModelConnection } from './services/llm/index.js';
@@ -126,10 +129,18 @@ export function registerIpcHandlers() {
   });
   app.once('before-quit', removeMarketDataListener);
   ipcMain.handle('news:list', (_event, query?: string, page?: number, pageSize?: number) => listMarketNews(query, page, pageSize));
+  ipcMain.handle('news:stockFeed', () => listStockNewsFeed());
+  ipcMain.handle('news:stockPreferences', () => getStockNewsPreferences());
+  ipcMain.handle('news:setFavoritesOnly', (_event, favoritesOnly: boolean) => {
+    if (typeof favoritesOnly !== 'boolean') throw new Error('仅收藏开关参数无效');
+    return setStockNewsFavoritesOnly(favoritesOnly);
+  });
+  ipcMain.handle('news:addStockSubscription', (_event, stock: Pick<FavoriteStock, 'code' | 'name'>) => addStockNewsSubscription(stock));
+  ipcMain.handle('news:removeStockSubscription', (_event, code: string) => removeStockNewsSubscription(code));
   ipcMain.handle('news:getSummary', () => ensureMarketNewsSummaryState());
-  ipcMain.handle('news:open', async (_event, id: string) => {
-    if (!/^em-\d+-/.test(id)) throw new Error('新闻标识无效');
-    openMarketNewsWindow(await getMarketNewsItem(id), getConfig().theme);
+  ipcMain.handle('news:getDetail', async (_event, item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>) => {
+    if (!/^em-\d+-|^stock-news-\d{6}-/.test(item.id)) throw new Error('新闻标识无效');
+    return getMarketNewsDetail(item);
   });
   ipcMain.handle('store:list', () => listStoreItems());
   ipcMain.handle('store:installed', () => listInstalledStoreItems());

@@ -375,6 +375,22 @@ export interface ChipDistribution {
   points: ChipPoint[];
 }
 
+export interface IStockNewsSubscription {
+  code: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface IStockNewsPreferences {
+  favoritesOnly: boolean;
+  manualStocks: IStockNewsSubscription[];
+}
+
+export interface IStockNewsFeed {
+  preferences: IStockNewsPreferences;
+  items: MarketNewsItem[];
+}
+
 export interface MarketNewsItem {
   id: string;
   time: string;
@@ -384,6 +400,8 @@ export interface MarketNewsItem {
   tagType?: 'positive' | 'impact' | 'neutral';
   url?: string;
   source?: string;
+  stockCode?: string;
+  stockName?: string;
 }
 
 export interface AnnouncementItem {
@@ -405,7 +423,7 @@ export interface IMarketNewsSummary {
   tradeDate: string;
   generatedAt: string;
   content: string;
-  sourceNews: Array<Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time'>>;
+  sourceNews: Array<Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>>;
 }
 
 export interface IMarketNewsSummaryState {
@@ -641,8 +659,13 @@ export interface StocksenseApi {
   getKline(symbol: string, limit?: number, period?: string, beforeTimestamp?: number): Promise<KlinePoint[]>;
   getBatchQuotes(codes: string[]): Promise<StockDetail[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
+  listStockNewsFeed(): Promise<IStockNewsFeed>;
+  getStockNewsPreferences(): Promise<IStockNewsPreferences>;
+  setStockNewsFavoritesOnly(favoritesOnly: boolean): Promise<IStockNewsPreferences>;
+  addStockNewsSubscription(stock: Pick<IStockNewsSubscription, 'code' | 'name'>): Promise<IStockNewsPreferences>;
+  removeStockNewsSubscription(code: string): Promise<IStockNewsPreferences>;
   getMarketNewsSummaryState(): Promise<IMarketNewsSummaryState>;
-  openMarketNews(id: string): Promise<void>;
+  getMarketNewsItem(item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>): Promise<MarketNewsItem>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
   listSurgeHistoryDates(): Promise<string[]>;
   listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;
