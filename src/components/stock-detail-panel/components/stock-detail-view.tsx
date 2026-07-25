@@ -190,7 +190,7 @@ export function StockDetailView({ returnToSurge, onReturnToSurge }: IStockDetail
               <span>
                 <span className={cx(styles.bar, styles.up)} />
                 获利 <span className={cx(styles.bar, styles.down)} />
-                亏损 <span className={styles['chip-note']}>估算</span>
+                套牢 <span className={styles['chip-note']}>真实数据</span>
               </span>
               <button className={styles['chip-toggle']} onClick={() => setChipsOpen((value) => !value)} type='button'>
                 筹码峰{chipsOpen ? '收起' : '展开'}

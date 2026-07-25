@@ -68,7 +68,9 @@ export function SettingsModal() {
   useEffect(() => {
     isOpenRef.current = isOpen;
   }, [isOpen]);
-  useEffect(() => setDraft(config), [config]);
+  useEffect(() => {
+    if (isOpen) setDraft(config);
+  }, [config, isOpen]);
   useEffect(() => {
     if (!isOpen) return;
     setDraft((value) => {

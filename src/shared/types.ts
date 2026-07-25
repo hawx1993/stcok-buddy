@@ -364,6 +364,8 @@ export interface ChipPoint {
   profit?: number;
 }
 
+export type TChipDistributionSource = 'stock-sdk' | 'a-stock-data';
+
 export interface ChipDistribution {
   date: string;
   profitRatio?: number;
@@ -373,6 +375,14 @@ export interface ChipDistribution {
   concentration90?: number;
   concentration70?: number;
   points: ChipPoint[];
+}
+
+export interface IChipDistributionResult {
+  latest?: ChipDistribution;
+  distributions: ChipDistribution[];
+  trend: Array<{ days: number; concentration70?: number; concentration90?: number }>;
+  source: TChipDistributionSource;
+  warnings?: string[];
 }
 
 export interface IStockNewsSubscription {
@@ -663,6 +673,7 @@ export interface StocksenseApi {
   searchStocks(query: string): Promise<MarketSearchResult[]>;
   getBoardDetail(symbol: string, forceRefresh?: boolean, boardName?: string): Promise<BoardDetail>;
   getKline(symbol: string, limit?: number, period?: string, beforeTimestamp?: number): Promise<KlinePoint[]>;
+  getChipDistribution(symbol: string): Promise<IChipDistributionResult>;
   getBatchQuotes(codes: string[]): Promise<StockDetail[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listStockNewsFeed(): Promise<IStockNewsFeed>;

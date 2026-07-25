@@ -284,6 +284,9 @@ const webFallbackApi: StocksenseApi = {
   async getKline(_symbol: string, _limit = 120, _period = '1d', _beforeTimestamp?: number) {
     return [];
   },
+  async getChipDistribution(_symbol: string) {
+    throw new Error('筹码分布仅在 Electron 桌面端可用。');
+  },
   async getBatchQuotes(_codes: string[]) {
     return [];
   },

@@ -26,6 +26,7 @@ const api = {
   searchStocks: (query) => ipcRenderer.invoke('stock:search', query),
   getBoardDetail: (symbol, forceRefresh, boardName) => ipcRenderer.invoke('board:getDetail', symbol, forceRefresh, boardName),
   getKline: (symbol, limit, period, beforeTimestamp) => ipcRenderer.invoke('stock:getKline', symbol, limit, period, beforeTimestamp),
+  getChipDistribution: (symbol) => ipcRenderer.invoke('stock:getChipDistribution', symbol),
   getBatchQuotes: (codes) => ipcRenderer.invoke('stock:getBatchQuotes', codes),
   listMarketNews: (query, page, pageSize) => ipcRenderer.invoke('news:list', query, page, pageSize),
   listStockNewsFeed: () => ipcRenderer.invoke('news:stockFeed'),
