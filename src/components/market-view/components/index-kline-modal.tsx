@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import { StockKlineChart } from '../../kline-chart';
-import type { TLoadOlderKline } from '../../kline-chart';
+import type { TimeframeId, TLoadOlderKline } from '../../kline-chart';
 import type { MarketIndexPeriod, MarketIndexSnapshot } from '../../../shared/types';
 import cx from '../../../shared/cx';
 import styles from '../../kline-chart/index.module.scss';
@@ -26,7 +26,9 @@ export function IndexKlineModal({ index, period, loadOlderKline, onPeriodChange,
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={(event) => event.stopPropagation()}>
         <div className={styles.header}>
-          <div>{index.name}（{index.code || '--'}）K线图</div>
+          <div>
+            {index.name}（{index.code || '--'}）K线图
+          </div>
           <button onClick={onClose} type='button'>
             ✕
           </button>
@@ -38,7 +40,7 @@ export function IndexKlineModal({ index, period, loadOlderKline, onPeriodChange,
             data={index.minutes}
             height='100%'
             showIndicators
-            timeframe={period}
+            timeframe={period as TimeframeId}
             loadOlderKline={loadOlderKline}
             staticData
           />

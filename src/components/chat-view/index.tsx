@@ -123,6 +123,8 @@ export function ChatView() {
   const [now, setNow] = useState(Date.now());
   const activeConversationId = useAppStore((state) => state.activeConversationId);
   const isSending = useAppStore((state) => state.isSending);
+  const config = useAppStore((state) => state.config);
+  const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
   const addMessage = useAppStore((state) => state.addMessage);
   const replaceLastAssistant = useAppStore((state) => state.replaceLastAssistant);
   const finalizeLastAssistant = useAppStore((state) => state.finalizeLastAssistant);
@@ -210,6 +212,7 @@ export function ChatView() {
   };
 
   const slashOpen = input.startsWith('/') && !input.includes(' ');
+  const activeModelName = config?.model.customModel?.trim() || config?.model.model || '模型设置';
   const activeCommand = slashItems.find((item) => input.startsWith(`${item.command} `));
   const commandArg = activeCommand ? input.slice(activeCommand.command.length + 1) : '';
   const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
@@ -422,7 +425,19 @@ export function ChatView() {
             <div className={styles['composer-toolbar']}>
               <AppStoreBar onOpen={() => setStoreOpen(true)} />
               <div className={styles['composer-actions']}>
-                <span className={styles['model-pill']}>StockBuddy</span>
+                <button
+                  className={styles['model-pill']}
+                  onClick={() => {
+                    trackButtonClick('open_model_settings');
+                    setSettingsOpen(true);
+                  }}
+                  type='button'
+                  aria-label={`当前模型：${activeModelName}。打开模型设置`}
+                  title={`当前模型：${activeModelName}。点击打开模型设置`}
+                >
+                  <span className={styles['model-pill-label']}>模型</span>
+                  <span className={styles['model-pill-name']}>{activeModelName}</span>
+                </button>
                 <button
                   className={cx(styles['send-btn'], isSending && styles.sending)}
                   onClick={isSending ? stopThinking : () => void send()}

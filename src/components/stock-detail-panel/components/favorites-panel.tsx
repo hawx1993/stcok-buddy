@@ -78,7 +78,10 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   return (
     <>
       <div className={styles['right-panel-header']}>
-        <span className={styles.title}><Star className={styles['panel-title-icon']} size={16} />收藏个股</span>
+        <span className={styles.title}>
+          <Star className={styles['panel-title-icon']} size={16} />
+          收藏个股
+        </span>
       </div>
       <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
         {favoriteStocks.length ? (
@@ -124,6 +127,10 @@ function FavoriteStockItem({ stock, pinned, onOpen, onRemove, onTogglePin }: IFa
     action();
   };
   const isUp = !String(stock.changePercent ?? '--').startsWith('-');
+  const marketSummary = [
+    hasQuoteMetric(stock.turnover) ? `成交额 ${stock.turnover}` : undefined,
+    hasQuoteMetric(stock.turnoverRate) ? `换手率 ${formatTurnoverRate(stock.turnoverRate)}` : undefined,
+  ].filter((value): value is string => Boolean(value)).join(' · ');
   return (
     <div
       className={styles['favorite-item']}
@@ -140,7 +147,7 @@ function FavoriteStockItem({ stock, pinned, onOpen, onRemove, onTogglePin }: IFa
           <em>{stock.code}</em>
           {pinned ? <small>置顶</small> : null}
         </b>
-        <span>{stock.turnover ? `成交额 ${stock.turnover}` : (stock.summary ?? '实时行情')}</span>
+        <span>{marketSummary || stock.summary || '实时行情'}</span>
       </span>
       <span className={styles['favorite-side']}>
         <strong>{stock.price ?? '--'}</strong>
@@ -156,4 +163,13 @@ function FavoriteStockItem({ stock, pinned, onOpen, onRemove, onTogglePin }: IFa
       </span>
     </div>
   );
+}
+
+function hasQuoteMetric(value: string | number | undefined): value is string | number {
+  return value !== undefined && value !== '' && value !== '--';
+}
+
+function formatTurnoverRate(value: string | number) {
+  const text = String(value);
+  return text.endsWith('%') ? text : `${text}%`;
 }

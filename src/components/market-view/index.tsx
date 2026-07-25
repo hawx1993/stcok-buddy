@@ -137,11 +137,14 @@ export function MarketView() {
     setIndexPeriod(period);
     setLoading(true);
   };
-  const loadOlderIndexKline = useCallback(async ({ timeframe, limit, beforeTimestamp }: ILoadOlderKlineInput) => {
-    const symbol = toMarketIndexSymbol(expandedIndexCode);
-    if (!symbol || timeframe !== indexPeriod) return [];
-    return getStocksenseApi().getKline(symbol, limit, timeframe, beforeTimestamp);
-  }, [expandedIndexCode, indexPeriod]);
+  const loadOlderIndexKline = useCallback(
+    async ({ timeframe, limit, beforeTimestamp }: ILoadOlderKlineInput) => {
+      const symbol = toMarketIndexSymbol(expandedIndexCode);
+      if (!symbol || timeframe !== indexPeriod) return [];
+      return getStocksenseApi().getKline(symbol, limit, timeframe, beforeTimestamp);
+    },
+    [expandedIndexCode, indexPeriod],
+  );
   const sortedRows = sortDirection
     ? [...visibleRows].sort(
         (a, b) => (parsePercent(a.changePercent) - parsePercent(b.changePercent)) * (sortDirection === 'asc' ? 1 : -1),
@@ -180,7 +183,11 @@ export function MarketView() {
       setSelectedStock(rowSnapshot);
       try {
         const detail = await getStocksenseApi().getStockDetail(row.code);
-        setSelectedStock({ ...rowSnapshot, ...detail, name: detail.name === detail.code ? rowSnapshot.name : detail.name });
+        setSelectedStock({
+          ...rowSnapshot,
+          ...detail,
+          name: detail.name === detail.code ? rowSnapshot.name : detail.name,
+        });
       } catch {
         setSelectedStock(rowSnapshot);
       }

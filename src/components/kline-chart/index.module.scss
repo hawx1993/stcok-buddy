@@ -10,28 +10,201 @@
   width: 100%;
   height: 100%;
 }
-.chips {
+.chip-overlay {
   position: absolute;
-  top: 20px;
   right: 58px;
-  bottom: 58px;
-  width: 88px;
+  width: 122px;
+  z-index: 4;
   pointer-events: none;
-  opacity: 0.95;
 }
-.chips span {
-  position: absolute;
+.modal-chip-overlay {
+  top: 0 !important;
   right: 0;
-  height: 3px;
-  min-width: 2px;
-  border-radius: 1px;
+  bottom: 40px;
+  width: 220px;
+  height: auto !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-active) 20%, transparent), transparent 34%),
+    color-mix(in srgb, var(--surface) 96%, var(--bg));
+  box-shadow: inset 8px 0 18px -18px color-mix(in srgb, var(--fg) 34%, transparent);
+}
+.chips {
+  display: block;
+  width: 118px;
+  height: 100%;
+  margin-left: auto;
+  overflow: visible;
+  pointer-events: auto;
+}
+.chip-bar {
+  cursor: crosshair;
+  opacity: 0.48;
+  pointer-events: all;
+  shape-rendering: geometricPrecision;
+  transition: opacity 100ms ease;
+}
+.chip-bar:hover {
+  opacity: 0.82;
+}
+.chip-column-divider {
+  stroke: color-mix(in srgb, var(--border) 54%, transparent);
+  stroke-width: 1;
+}
+.chip-axis-tick {
+  fill: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  paint-order: stroke;
+  stroke: color-mix(in srgb, var(--surface) 92%, transparent);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.chip-price-line line {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  opacity: 0.85;
+}
+.chip-price-line text,
+.chip-average-line text {
+  fill: var(--fg-secondary);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: color-mix(in srgb, var(--surface) 94%, transparent);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.chip-average-line line {
+  stroke: color-mix(in srgb, #3b82f6 78%, var(--muted));
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.72;
+}
+.chip-tooltip {
+  position: absolute;
+  right: 8px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 7px;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 97%, var(--bg));
+  color: var(--muted);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--bg) 38%, transparent);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
   transform: translateY(-50%);
+  pointer-events: none;
 }
-.profit {
-  background: var(--chip-up, rgba(34, 197, 94, 0.25));
+.chip-tooltip b {
+  color: var(--fg);
 }
-.loss {
-  background: var(--chip-down, rgba(239, 68, 68, 0.15));
+.chip-summary {
+  position: absolute;
+  right: 12px;
+  width: 196px;
+  padding: 10px 11px 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 97%, var(--bg));
+  color: var(--muted);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 5%, transparent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.chip-summary > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.chip-summary b {
+  color: var(--fg-secondary);
+  font-weight: 600;
+  text-align: right;
+}
+.chip-summary-head {
+  min-height: 22px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 56%, transparent);
+}
+.chip-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chip-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-secondary);
+  white-space: nowrap;
+}
+.chip-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  opacity: 0.76;
+}
+.chip-profit-ratio {
+  color: var(--fg) !important;
+  font-size: 12px;
+  font-weight: 700 !important;
+}
+.chip-primary-metric {
+  padding: 8px 0 6px;
+}
+.chip-primary-metric span {
+  color: var(--muted);
+}
+.chip-primary-metric b {
+  color: var(--fg) !important;
+  font-size: 16px;
+  font-weight: 650 !important;
+  letter-spacing: -0.02em;
+}
+.chip-summary-row {
+  min-height: 20px;
+}
+.chip-summary-row span {
+  color: var(--muted);
+}
+.chip-summary-row b {
+  color: var(--fg-secondary);
+  letter-spacing: -0.01em;
+}
+.chip-summary small {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  color: var(--muted);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.chip-state {
+  position: absolute;
+  top: 24px;
+  right: 58px;
+  z-index: 2;
+  max-width: 120px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+  pointer-events: none;
 }
 .timeframes {
   position: absolute;
@@ -39,7 +212,7 @@
   bottom: -30px;
   display: flex;
   gap: 4px;
-  z-index: 2;
+  z-index: 3;
   padding: 3px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--surface) 82%, transparent);
@@ -146,6 +319,38 @@
 }
 .header + .wrap .chart {
   height: calc(100% - 40px);
+}
+.header + .wrap:has(.modal-chip-overlay) .chart {
+  width: calc(100% - 160px);
+}
+.header + .wrap:has(.modal-chip-overlay) {
+  background: linear-gradient(to right, var(--bg) calc(100% - 220px), var(--surface) calc(100% - 220px));
+}
+.modal-chip-plot {
+  position: absolute;
+  left: 0;
+  width: 220px;
+  background-image: linear-gradient(
+    to bottom,
+    transparent calc(25% - 0.5px),
+    color-mix(in srgb, var(--border) 24%, transparent) 25%,
+    transparent calc(25% + 0.5px),
+    transparent calc(50% - 0.5px),
+    color-mix(in srgb, var(--border) 24%, transparent) 50%,
+    transparent calc(50% + 0.5px),
+    transparent calc(75% - 0.5px),
+    color-mix(in srgb, var(--border) 24%, transparent) 75%,
+    transparent calc(75% + 0.5px)
+  );
+}
+.modal-chip-overlay .chips {
+  width: 220px;
+}
+.modal-chip-overlay .chip-tooltip {
+  right: 8px;
+}
+.modal-chip-overlay .chip-summary {
+  right: 12px;
 }
 .header + .wrap .timeframes {
   bottom: 12px;

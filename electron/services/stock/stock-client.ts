@@ -1,11 +1,13 @@
 import { EventEmitter } from 'node:events';
 import StockSDK from 'stock-sdk';
-import type { AgentResultCard, BoardDetail, ChipDistribution, ChipPoint, HotFocusItem, HotFocusTab, IStockFundFlowSnapshot, KlinePoint, MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketSearchResult, MarketTab, StockDetail, StockSurgeEvent } from '../../../src/shared/types.js';
+import type { AgentResultCard, BoardDetail, HotFocusItem, HotFocusTab, IChipDistributionResult, IStockFundFlowSnapshot, KlinePoint, MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketSearchResult, MarketTab, StockDetail, StockSurgeEvent } from '../../../src/shared/types.js';
 import { getLatestDailyBar, listDailyBars, listLatestMarketRows, listSecurities, readBoardDetail, readBoardSnapshot, writeBoardDetail, writeBoardSnapshot } from '../market-data/market-data-store.js';
 import { queryHistoricalBars, queryLatestQuote } from '../market-data/market-data-query.js';
-import { remoteMarketStatus } from '../market-data/providers.js';
+import { isRemoteTradingDay, remoteMarketStatus } from '../market-data/providers.js';
+import { toShanghaiMarketTime } from '../../../src/shared/market-time.js';
 import { formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { analyzeIndicators } from './indicators.js';
+import { calculateChipDistribution, chipRowsToResult } from './chip-distribution.js';
 import { getStoredQuoteRows, getStoredQuoteRowsByTab, upsertQuoteRows } from './quote-store.js';
 import { extractSymbolCandidate, normalizeASymbol, inferExchange, toQuoteSymbol } from './symbols.js';
 
@@ -21,7 +23,9 @@ type IndexKlinePeriod = MarketIndexPeriod | '1w' | '1mo';
 type BoardApi = typeof sdk.board.industry;
 const boardKindCache = new Map<string, BoardKind>();
 const searchBoardNameCache = new Map<string, string>();
+const chipDistributionCache = new Map<string, { result?: IChipDistributionResult; updatedAt: number; promise?: Promise<IChipDistributionResult> }>();
 let boardApisLoadingPromise: Promise<void> | undefined;
+const CHIP_DISTRIBUTION_CACHE_TTL_MS = 5 * 60_000;
 const BOARD_DETAIL_TIMEOUT = 8_000;
 const BOARD_SDK_REQUEST_TIMEOUT = 2_500;
 const BOARD_SDK_OUTER_TIMEOUT = 7_000;
@@ -1050,18 +1054,21 @@ async function aggregateBaiduBoardKline(codes: string[]): Promise<KlinePoint[]> 
   return averageKlineSeries(series);
 }
 
-async function getBaiduStockKline(code: string): Promise<KlinePoint[]> {
+async function getBaiduStockKline(code: string, limit = 240): Promise<KlinePoint[]> {
   const url = new URL('https://finance.pae.baidu.com/selfselect/getstockquotation');
   url.search = new URLSearchParams({
     all: '1', isIndex: 'false', isBk: 'false', isBlock: 'false', isFutures: 'false', isStock: 'true',
     newFormat: '1', group: 'quotation_kline_ab', finClientType: 'pc', code, ktype: '1',
   }).toString();
-  const response = await fetch(url, { signal: AbortSignal.timeout(5_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Accept: 'application/vnd.finance-web.v1+json', Origin: 'https://gushitong.baidu.com', Referer: 'https://gushitong.baidu.com/' } });
-  if (!response.ok) return [];
-  const payload = await response.json() as { Result?: { newMarketData?: { keys?: string[]; marketData?: string } } };
+  const response = await fetch(url, { signal: AbortSignal.timeout(8_000), headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Accept: 'application/vnd.finance-web.v1+json', Origin: 'https://gushitong.baidu.com', Referer: 'https://gushitong.baidu.com/' } });
+  if (!response.ok) throw new Error(`百度股市通日 K 请求失败：HTTP ${response.status}`);
+  const payload = await response.json() as { ResultCode?: number | string; Result?: { newMarketData?: { keys?: string[]; marketData?: string } } };
+  if (String(payload.ResultCode ?? '0') !== '0') throw new Error(`百度股市通返回错误码 ${payload.ResultCode}`);
   const keys = payload.Result?.newMarketData?.keys ?? [];
   const rows = payload.Result?.newMarketData?.marketData?.split(';').filter(Boolean) ?? [];
-  return rows.map((line) => parseBaiduKline(line, keys)).filter((item): item is KlinePoint => Boolean(item)).slice(-120);
+  const data = rows.map((line) => parseBaiduKline(line, keys)).filter((item): item is KlinePoint => Boolean(item)).slice(-limit);
+  if (!data.length) throw new Error(`${code} 暂无百度股市通日 K 数据`);
+  return data;
 }
 
 function parseBaiduKline(line: string, keys: string[]): KlinePoint | undefined {
@@ -1078,7 +1085,7 @@ function parseBaiduKline(line: string, keys: string[]): KlinePoint | undefined {
     amount: Number(at('amount')) || undefined,
     change: Number(at('ratioamount')) || undefined,
     changePercent: Number(at('ratioprice')) || undefined,
-    turnoverRate: Number(at('turnover')) || undefined,
+    turnoverRate: Number(at('turnoverratio') ?? at('turnover')) || undefined,
   };
   return [point.open, point.close, point.high, point.low].every(Number.isFinite) ? point : undefined;
 }
@@ -2082,43 +2089,39 @@ function activeOrderStats(items: Awaited<ReturnType<typeof sdk.marketEvent.indiv
   return { buy, sell, total: buy + sell };
 }
 
-export async function getChipDistribution(symbolInput: string): Promise<{ latest?: ChipDistribution; trend: Array<{ days: number; concentration70?: number; concentration90?: number }> }> {
+export async function getChipDistribution(symbolInput: string): Promise<IChipDistributionResult> {
   const symbol = normalizeASymbol(symbolInput);
-  const rows = await sdk.chips.cn(symbol, { days: 20, includeHistogram: 'last' });
-  const latest = rows.at(-1) as AnyRecord | undefined;
-  const at = (n: number) => rows.at(-n) as AnyRecord | undefined;
-  return {
-    latest: latest ? toChipDistribution(latest) : undefined,
-    trend: [5, 10, 20].map((days) => {
-      const row = at(days) ?? latest;
-      return { days, concentration70: pickNumber(row ?? {}, ['concentration70']), concentration90: pickNumber(row ?? {}, ['concentration90']) };
-    }),
-  };
+  const cached = chipDistributionCache.get(symbol);
+  const now = Date.now();
+  if (cached?.result && now - cached.updatedAt < CHIP_DISTRIBUTION_CACHE_TTL_MS) return cached.result;
+  if (cached?.promise) return cached.promise;
+  const promise = loadChipDistribution(symbol)
+    .then((result) => {
+      chipDistributionCache.set(symbol, { result, updatedAt: Date.now() });
+      return result;
+    })
+    .catch((error: unknown) => {
+      chipDistributionCache.delete(symbol);
+      throw error;
+    });
+  chipDistributionCache.set(symbol, { result: cached?.result, updatedAt: cached?.updatedAt ?? 0, promise });
+  return promise;
 }
 
-function toChipDistribution(row: AnyRecord): ChipDistribution {
-  const histogram = row.histogram as { prices?: unknown[]; weights?: unknown[]; profit?: unknown[] } | undefined;
-  const prices = histogram?.prices ?? [];
-  const weights = histogram?.weights ?? [];
-  const profits = histogram?.profit ?? [];
-  const cost70Low = pickNumber(row, ['cost70Low']);
-  const cost70High = pickNumber(row, ['cost70High']);
-  const cost90Low = pickNumber(row, ['cost90Low']);
-  const cost90High = pickNumber(row, ['cost90High']);
-  return {
-    date: pickString(row, ['date']) ?? '',
-    profitRatio: pickNumber(row, ['profitRatio']),
-    avgCost: pickNumber(row, ['avgCost']),
-    cost70: cost70Low === undefined || cost70High === undefined ? undefined : `${cost70Low.toFixed(2)}-${cost70High.toFixed(2)}`,
-    cost90: cost90Low === undefined || cost90High === undefined ? undefined : `${cost90Low.toFixed(2)}-${cost90High.toFixed(2)}`,
-    concentration70: pickNumber(row, ['concentration70']),
-    concentration90: pickNumber(row, ['concentration90']),
-    points: prices.map((price, index): ChipPoint => ({
-      price: Number(price),
-      weight: Number(weights[index]) || 0,
-      profit: profits[index] === undefined ? undefined : Number(profits[index]),
-    })).filter((point) => Number.isFinite(point.price) && point.weight > 0),
-  };
+async function loadChipDistribution(symbol: string): Promise<IChipDistributionResult> {
+  try {
+    const rows = await sdk.chips.cn(symbol, { days: 360, range: 120, includeHistogram: 'all' });
+    return chipRowsToResult(rows, 'stock-sdk');
+  } catch (stockSdkError) {
+    const stockSdkMessage = stockSdkError instanceof Error ? stockSdkError.message : String(stockSdkError);
+    try {
+      const klines = await getBaiduStockKline(symbol, 360);
+      return calculateChipDistribution(klines, 'a-stock-data', [`stock-sdk 筹码数据获取失败：${stockSdkMessage}`]);
+    } catch (fallbackError) {
+      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      throw new Error(`筹码分布数据获取失败。stock-sdk：${stockSdkMessage}；a-stock-data 百度日 K：${fallbackMessage}`);
+    }
+  }
 }
 
 export async function analyzeTechnical(symbolInput: string): Promise<AgentResultCard> {
@@ -2269,7 +2272,8 @@ let surgeCache: { items: HotFocusItem[]; updatedAt: number } | undefined;
 let surgeRequest: Promise<HotFocusItem[]> | undefined;
 
 async function listSurgeHot(): Promise<HotFocusItem[]> {
-  if (isBeforeChinaMarketOpen()) return [];
+  const marketTime = toShanghaiMarketTime(new Date());
+  if (!(await isRemoteTradingDay(marketTime.date)) || marketTime.minutes < 9 * 60 + 25) return [];
   const now = Date.now();
   if (surgeCache && now - surgeCache.updatedAt < SURGE_CACHE_TTL_MS) return surgeCache.items;
   surgeRequest ??= fetchSurgeHot().finally(() => {
@@ -2363,13 +2367,6 @@ function formatIsoDate(date: Date) {
 }
 
 type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
-
-function isBeforeChinaMarketOpen(date = new Date()) {
-  const day = date.getDay();
-  if (day === 0 || day === 6) return false;
-  const minutes = date.getHours() * 60 + date.getMinutes();
-  return minutes < 9 * 60 + 25;
-}
 
 function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEvent.stockChanges>>): HotFocusItem[] {
   return changes.map((item, index) => {

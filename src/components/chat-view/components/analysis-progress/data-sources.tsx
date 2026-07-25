@@ -7,10 +7,14 @@ export function DataSources({ sources }: { sources: IDataSource[] }) {
 
   const statusIcon = (status: IDataSource['status']) => {
     switch (status) {
-      case 'done': return '✓';
-      case 'loading': return '⏳';
-      case 'error': return '✗';
-      default: return '○';
+      case 'done':
+        return '✓';
+      case 'loading':
+        return '⏳';
+      case 'error':
+        return '✗';
+      default:
+        return '○';
     }
   };
 

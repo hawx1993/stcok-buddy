@@ -19,7 +19,13 @@ export function ProgressBar({ stockName, steps }: { stockName?: string; steps: I
         {steps.map((step) => (
           <div key={step.id} className={cx(styles['step-item'], styles[step.status])}>
             <span className={styles['step-icon']}>
-              {step.status === 'completed' ? '✓' : step.status === 'running' ? '⏳' : step.status === 'error' ? '✗' : '○'}
+              {step.status === 'completed'
+                ? '✓'
+                : step.status === 'running'
+                  ? '⏳'
+                  : step.status === 'error'
+                    ? '✗'
+                    : '○'}
             </span>
             <span className={styles['step-label']}>{step.label}</span>
           </div>

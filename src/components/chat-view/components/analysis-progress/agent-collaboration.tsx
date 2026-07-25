@@ -21,24 +21,31 @@ export function AgentCollaboration({
 
   const statusIcon = (status: IAgentStatus['status']) => {
     switch (status) {
-      case 'completed': return '✓';
-      case 'running': return '⏳';
-      case 'error': return '✗';
-      default: return '○';
+      case 'completed':
+        return '✓';
+      case 'running':
+        return '⏳';
+      case 'error':
+        return '✗';
+      default:
+        return '○';
     }
   };
 
   const statusText = (status: IAgentStatus['status']) => {
     switch (status) {
-      case 'completed': return '已完成';
-      case 'running': return '分析中…';
-      case 'error': return '失败';
-      default: return '等待中';
+      case 'completed':
+        return '已完成';
+      case 'running':
+        return '分析中…';
+      case 'error':
+        return '失败';
+      default:
+        return '等待中';
     }
   };
 
-  const getResult = (agentId: string) =>
-    intermediateResults.find((r) => r.agentName === agentId);
+  const getResult = (agentId: string) => intermediateResults.find((r) => r.agentName === agentId);
 
   const toggle = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -57,16 +64,21 @@ export function AgentCollaboration({
             <button
               className={cx(styles['agent-item'], styles[agent.status], canExpand && styles['clickable'])}
               onClick={() => canExpand && toggle(agent.id)}
-              type="button"
+              type='button'
             >
-              <span className={cx(styles['agent-dot'], styles[agent.status], canExpand && styles['expandable'], isExpanded && styles['expanded'])} />
+              <span
+                className={cx(
+                  styles['agent-dot'],
+                  styles[agent.status],
+                  canExpand && styles['expandable'],
+                  isExpanded && styles['expanded'],
+                )}
+              />
               <span className={styles['agent-name']}>{agent.label}</span>
               <span className={styles['agent-status']}>
                 {statusIcon(agent.status)} {statusText(agent.status)}
               </span>
-              {canExpand ? (
-                <span className={styles['agent-expand-icon']}>{isExpanded ? '▾' : '▸'}</span>
-              ) : null}
+              {canExpand ? <span className={styles['agent-expand-icon']}>{isExpanded ? '▾' : '▸'}</span> : null}
             </button>
             {isExpanded && result ? (
               <div

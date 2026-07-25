@@ -19,7 +19,17 @@ export function NewsLinkCopyButton({ url }: INewsLinkCopyButtonProps) {
       antdMessage.error('复制原文链接失败');
     }
   };
-  return <button aria-label='复制原文链接' className={styles['news-copy-button']} onClick={(event) => void copy(event)} title='复制原文链接' type='button'><Copy aria-hidden='true' size={13} /></button>;
+  return (
+    <button
+      aria-label='复制原文链接'
+      className={styles['news-copy-button']}
+      onClick={(event) => void copy(event)}
+      title='复制原文链接'
+      type='button'
+    >
+      <Copy aria-hidden='true' size={13} />
+    </button>
+  );
 }
 
 function isSafeArticleUrl(value?: string): value is string {

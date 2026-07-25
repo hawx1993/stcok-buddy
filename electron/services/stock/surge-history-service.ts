@@ -7,7 +7,7 @@ export async function listSurgeHistoryWithBackfill(date: string, offset = 0, lim
   const local = await listSurgeHistory(date, offset, limit);
   if (local.length || offset > 0) return local;
 
-  const remote = await listEastmoneySurgeByDate(date).catch(() => []);
+  const remote = await listEastmoneySurgeByDate(date);
   if (remote.length) void saveSurgeSnapshot(remote, new Date(`${date}T15:00:00+08:00`), date).catch(console.error);
   return remote.slice(0, limit);
 }

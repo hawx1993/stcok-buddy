@@ -12,6 +12,7 @@ import type {
   MarketTab,
   PagedMarketNews,
   StoreItem,
+  IHotStockHintSource,
   IAppUpdateState,
   IStockNewsPreferences,
 } from './types.js';
@@ -283,6 +284,9 @@ const webFallbackApi: StocksenseApi = {
   async getKline(_symbol: string, _limit = 120, _period = '1d', _beforeTimestamp?: number) {
     return [];
   },
+  async getChipDistribution(_symbol: string) {
+    throw new Error('筹码分布仅在 Electron 桌面端可用。');
+  },
   async getBatchQuotes(_codes: string[]) {
     return [];
   },
@@ -320,6 +324,9 @@ const webFallbackApi: StocksenseApi = {
   },
   async listHotFocus(_tab: HotFocusTab) {
     return [];
+  },
+  async getHotStockHintSource(): Promise<IHotStockHintSource> {
+    return { items: [], isPreviousTradeDay: false };
   },
   async listSurgeHistoryDates() {
     return [];

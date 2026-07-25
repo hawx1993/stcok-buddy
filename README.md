@@ -6,7 +6,7 @@
 
 ![StockBuddy 产品展示](public/images/preview-11.png)
 
-下载地址：[https://github.com/StockBuddy/StockBuddy/releases](https://github.com/StockBuddy/StockBuddy/releases)
+下载地址：[https://github.com/hawx1993/stcok-buddy/releases](https://github.com/hawx1993/stcok-buddy/releases)
 
 ## 功能特性
 
@@ -72,6 +72,17 @@ StockBuddy 希望把传统投研终端里的信息检索、行情观察、指标
 报告内容采用结构化 Markdown 展示，突出核心事件、利好因素、利空因素、短期影响、中长期影响、风险提示和综合结论。
 
 ![投研报告展示](public/images/preview-1.png)
+
+### 个股新闻和多渠道新闻展示
+
+支持展示个股新闻和多渠道新闻，方便用户了解个股的最新动态和市场热点。
+
+![个股新闻和多渠道新闻展示](public/images/preview-14.png)
+
+同时支持AI总结当日市场热点新闻，方便用户了解当日市场热点和市场情绪。
+
+中间栏可渲染股票代码和名称，支持与右侧栏个股详情一键联动
+![个股新闻和多渠道新闻展示](public/images/preview-13.png)
 
 ### 深浅色主题与桌面体验
 

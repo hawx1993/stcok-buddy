@@ -364,6 +364,8 @@ export interface ChipPoint {
   profit?: number;
 }
 
+export type TChipDistributionSource = 'stock-sdk' | 'a-stock-data';
+
 export interface ChipDistribution {
   date: string;
   profitRatio?: number;
@@ -373,6 +375,14 @@ export interface ChipDistribution {
   concentration90?: number;
   concentration70?: number;
   points: ChipPoint[];
+}
+
+export interface IChipDistributionResult {
+  latest?: ChipDistribution;
+  distributions: ChipDistribution[];
+  trend: Array<{ days: number; concentration70?: number; concentration90?: number }>;
+  source: TChipDistributionSource;
+  warnings?: string[];
 }
 
 export interface IStockNewsSubscription {
@@ -512,6 +522,12 @@ export interface HotFocusItem {
   type?: 'surge' | 'plummet' | 'volume' | 'neutral';
 }
 
+export interface IHotStockHintSource {
+  items: HotFocusItem[];
+  tradeDate?: string;
+  isPreviousTradeDay: boolean;
+}
+
 export interface StockSurgeEvent extends HotFocusItem {
   tradeDate: string;
 }
@@ -620,7 +636,14 @@ export interface IPendingDownloadedUpdate {
   message?: string;
 }
 
-export type TAppUpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+export type TAppUpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error';
 
 export interface IAppUpdateState {
   status: TAppUpdateStatus;
@@ -657,6 +680,7 @@ export interface StocksenseApi {
   searchStocks(query: string): Promise<MarketSearchResult[]>;
   getBoardDetail(symbol: string, forceRefresh?: boolean, boardName?: string): Promise<BoardDetail>;
   getKline(symbol: string, limit?: number, period?: string, beforeTimestamp?: number): Promise<KlinePoint[]>;
+  getChipDistribution(symbol: string): Promise<IChipDistributionResult>;
   getBatchQuotes(codes: string[]): Promise<StockDetail[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listStockNewsFeed(): Promise<IStockNewsFeed>;
@@ -665,8 +689,11 @@ export interface StocksenseApi {
   addStockNewsSubscription(stock: Pick<IStockNewsSubscription, 'code' | 'name'>): Promise<IStockNewsPreferences>;
   removeStockNewsSubscription(code: string): Promise<IStockNewsPreferences>;
   getMarketNewsSummaryState(): Promise<IMarketNewsSummaryState>;
-  getMarketNewsItem(item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>): Promise<MarketNewsItem>;
+  getMarketNewsItem(
+    item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>,
+  ): Promise<MarketNewsItem>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
+  getHotStockHintSource(): Promise<IHotStockHintSource>;
   listSurgeHistoryDates(): Promise<string[]>;
   listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;
   listStockSurgeEvents(code: string): Promise<StockSurgeEvent[]>;
