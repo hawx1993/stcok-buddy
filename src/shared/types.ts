@@ -512,6 +512,12 @@ export interface HotFocusItem {
   type?: 'surge' | 'plummet' | 'volume' | 'neutral';
 }
 
+export interface IHotStockHintSource {
+  items: HotFocusItem[];
+  tradeDate?: string;
+  isPreviousTradeDay: boolean;
+}
+
 export interface StockSurgeEvent extends HotFocusItem {
   tradeDate: string;
 }
@@ -667,6 +673,7 @@ export interface StocksenseApi {
   getMarketNewsSummaryState(): Promise<IMarketNewsSummaryState>;
   getMarketNewsItem(item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>): Promise<MarketNewsItem>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
+  getHotStockHintSource(): Promise<IHotStockHintSource>;
   listSurgeHistoryDates(): Promise<string[]>;
   listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;
   listStockSurgeEvents(code: string): Promise<StockSurgeEvent[]>;

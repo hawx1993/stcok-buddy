@@ -13,6 +13,14 @@ export type TSlashItem = {
   argPlaceholder: string;
 };
 
+const commonStockShortcuts: IHotStockHint[] = [
+  { code: '600519', name: '贵州茅台', priority: 0 },
+  { code: '000001', name: '平安银行', priority: 0 },
+  { code: '300750', name: '宁德时代', priority: 0 },
+  { code: '688981', name: '中芯国际', priority: 0 },
+  { code: '830799', name: '艾融软件', priority: 0 },
+];
+
 export function QuickEntry({
   conversationId,
   onSubmit,
@@ -24,7 +32,7 @@ export function QuickEntry({
 }) {
   const [value, setValue] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
-  const { hints, loading, refresh } = useHotStockHints(conversationId);
+  const { hints, loading, error, isPreviousTradeDay, tradeDate, refresh } = useHotStockHints(conversationId);
   const slashOpen = value.startsWith('/') && !value.includes(' ');
   const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
     if (item) setValue(`${item.command} `);
@@ -117,7 +125,15 @@ export function QuickEntry({
           开始分析
         </button>
       </div>
-      <HintList hints={hints} loading={loading} onRefresh={refresh} onSelect={(hint) => setValue(hint.code)} />
+      <HintList
+        hints={hints}
+        loading={loading}
+        error={error}
+        isPreviousTradeDay={isPreviousTradeDay}
+        tradeDate={tradeDate}
+        onRefresh={refresh}
+        onSelect={(hint) => setValue(hint.code)}
+      />
     </div>
   );
 }
@@ -125,11 +141,17 @@ export function QuickEntry({
 function HintList({
   hints,
   loading,
+  error,
+  isPreviousTradeDay,
+  tradeDate,
   onRefresh,
   onSelect,
 }: {
   hints: IHotStockHint[];
   loading: boolean;
+  error?: string;
+  isPreviousTradeDay: boolean;
+  tradeDate?: string;
   onRefresh(): void;
   onSelect(hint: IHotStockHint): void;
 }) {
@@ -139,14 +161,25 @@ function HintList({
         <span className={styles['qe-hints-status']}>正在获取真实热点推荐…</span>
       </div>
     );
+  if (error)
+    return (
+      <HintShortcutList
+        status={isPreviousTradeDay ? '上一交易日热点数据暂不可用' : '热点数据暂不可用'}
+        onSelect={onSelect}
+      />
+    );
   if (!hints.length)
     return (
-      <div className={styles['qe-hints']}>
-        <span className={styles['qe-hints-status']}>暂无真实热点推荐</span>
-      </div>
+      <HintShortcutList
+        status={isPreviousTradeDay ? `上一交易日暂无热点数据（${tradeDate ?? '--'}）` : ''}
+        onSelect={onSelect}
+      />
     );
   return (
     <div className={styles['qe-hints']}>
+      {isPreviousTradeDay && tradeDate ? (
+        <span className={styles['qe-hints-status']}>上一交易日热点（{tradeDate}）</span>
+      ) : null}
       {hints.map((hint) => (
         <button key={hint.code} className={styles['qe-hint']} onClick={() => onSelect(hint)} type='button'>
           {hint.name}（{hint.code}）{hint.label ? ` · ${hint.label}` : ''}
@@ -155,6 +188,19 @@ function HintList({
       <button className={styles['qe-hints-refresh']} onClick={onRefresh} type='button'>
         换一组
       </button>
+    </div>
+  );
+}
+
+function HintShortcutList({ status, onSelect }: { status: string; onSelect(hint: IHotStockHint): void }) {
+  return (
+    <div className={styles['qe-hints']}>
+      <span className={styles['qe-hints-status']}>{status}</span>
+      {commonStockShortcuts.map((shortcut) => (
+        <button key={shortcut.code} className={styles['qe-hint']} onClick={() => onSelect(shortcut)} type='button'>
+          {shortcut.name}（{shortcut.code}）
+        </button>
+      ))}
     </div>
   );
 }

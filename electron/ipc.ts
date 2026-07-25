@@ -25,6 +25,7 @@ import {
 import { getMarketDataStats, getMarketDataSyncStatus, onMarketDataProgress, requestMarketDataSyncStop, retryMarketDataFailures, startMarketDataSync } from './services/market-data/market-data-sync.js';
 import { runOrchestrator } from './services/agent/orchestrator.js';
 import { getBatchQuotes, getBoardDetail, getKline, getMarketPageSnapshot, getStockDetail, listHotFocus, listStockSurgeEvents, onMarketPageSnapshotUpdated, searchStocks } from './services/stock/stock-client.js';
+import { listHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { listSurgeDates } from './services/stock/surge-history-store.js';
 import { ensureSurgeHistoryCapture } from './services/stock/surge-history-scheduler.js';
@@ -107,6 +108,7 @@ export function registerIpcHandlers() {
     if (tab === 'surge') ensureSurgeHistoryCapture();
     return listHotFocus(tab);
   });
+  ipcMain.handle('hot:hintSource', () => listHotStockHintSource());
   ipcMain.handle('hot:historyDates', () => {
     ensureSurgeHistoryCapture();
     return listSurgeDates();

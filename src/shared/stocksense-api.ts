@@ -12,6 +12,7 @@ import type {
   MarketTab,
   PagedMarketNews,
   StoreItem,
+  IHotStockHintSource,
   IAppUpdateState,
   IStockNewsPreferences,
 } from './types.js';
@@ -320,6 +321,9 @@ const webFallbackApi: StocksenseApi = {
   },
   async listHotFocus(_tab: HotFocusTab) {
     return [];
+  },
+  async getHotStockHintSource(): Promise<IHotStockHintSource> {
+    return { items: [], isPreviousTradeDay: false };
   },
   async listSurgeHistoryDates() {
     return [];
