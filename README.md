@@ -6,7 +6,7 @@
 
 ![StockBuddy 产品展示](public/images/preview-11.png)
 
-下载地址：[https://github.com/StockBuddy/StockBuddy/releases](https://github.com/StockBuddy/StockBuddy/releases)
+下载地址：[https://github.com/hawx1993/stcok-buddy/releases](https://github.com/hawx1993/stcok-buddy/releases)
 
 ## 功能特性
 

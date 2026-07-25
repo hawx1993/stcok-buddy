@@ -3,7 +3,8 @@ import StockSDK from 'stock-sdk';
 import type { AgentResultCard, BoardDetail, ChipDistribution, ChipPoint, HotFocusItem, HotFocusTab, IStockFundFlowSnapshot, KlinePoint, MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketSearchResult, MarketTab, StockDetail, StockSurgeEvent } from '../../../src/shared/types.js';
 import { getLatestDailyBar, listDailyBars, listLatestMarketRows, listSecurities, readBoardDetail, readBoardSnapshot, writeBoardDetail, writeBoardSnapshot } from '../market-data/market-data-store.js';
 import { queryHistoricalBars, queryLatestQuote } from '../market-data/market-data-query.js';
-import { remoteMarketStatus } from '../market-data/providers.js';
+import { isRemoteTradingDay, remoteMarketStatus } from '../market-data/providers.js';
+import { toShanghaiMarketTime } from '../../../src/shared/market-time.js';
 import { formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { analyzeIndicators } from './indicators.js';
 import { getStoredQuoteRows, getStoredQuoteRowsByTab, upsertQuoteRows } from './quote-store.js';
@@ -2269,7 +2270,8 @@ let surgeCache: { items: HotFocusItem[]; updatedAt: number } | undefined;
 let surgeRequest: Promise<HotFocusItem[]> | undefined;
 
 async function listSurgeHot(): Promise<HotFocusItem[]> {
-  if (isBeforeChinaMarketOpen()) return [];
+  const marketTime = toShanghaiMarketTime(new Date());
+  if (!(await isRemoteTradingDay(marketTime.date)) || marketTime.minutes < 9 * 60 + 25) return [];
   const now = Date.now();
   if (surgeCache && now - surgeCache.updatedAt < SURGE_CACHE_TTL_MS) return surgeCache.items;
   surgeRequest ??= fetchSurgeHot().finally(() => {
@@ -2363,13 +2365,6 @@ function formatIsoDate(date: Date) {
 }
 
 type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
-
-function isBeforeChinaMarketOpen(date = new Date()) {
-  const day = date.getDay();
-  if (day === 0 || day === 6) return false;
-  const minutes = date.getHours() * 60 + date.getMinutes();
-  return minutes < 9 * 60 + 25;
-}
 
 function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEvent.stockChanges>>): HotFocusItem[] {
   return changes.map((item, index) => {

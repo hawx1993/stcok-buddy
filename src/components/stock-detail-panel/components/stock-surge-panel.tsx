@@ -1,5 +1,5 @@
 import { ConfigProvider, Select } from 'antd';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Filter } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
@@ -36,6 +36,7 @@ interface IStockSurgePanelProps {
 export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearReturnCode }: IStockSurgePanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const loadIdRef = useRef(0);
+  const pagingRef = useRef(false);
   const [dateOptions] = useState(() => makeSurgeDateOptions());
   const [selectedDate, setSelectedDate] = useState(() => makeSurgeDateOptions()[0]);
   const [items, setItems] = useState<HotFocusItem[]>([]);
@@ -56,7 +57,7 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     [filters, items],
   );
   const virtualizer = useVirtualizer({
-    count: filteredItems.length + (hasMore && selectedDate !== today ? 1 : 0),
+    count: filteredItems.length + (selectedDate !== today ? 1 : 0),
     getScrollElement: () => listRef.current,
     estimateSize: (index) => (index < filteredItems.length ? SURGE_ROW_HEIGHT : 36),
     overscan: 6,
@@ -67,6 +68,7 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
       loadIdRef.current += 1;
       setLoading(false);
       setPaging(false);
+      pagingRef.current = false;
       return;
     }
     let alive = true;
@@ -74,6 +76,8 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     setItems([]);
     setError(undefined);
     setHasMore(true);
+    setPaging(false);
+    pagingRef.current = false;
     setLoading(true);
     const load =
       selectedDate === today
@@ -130,40 +134,36 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     return () => window.cancelAnimationFrame(frame);
   }, [filteredItems, isActive, onClearReturnCode, returnCode, virtualizer]);
 
-  useEffect(() => {
-    const virtualItems = virtualizer.getVirtualItems();
-    const last = virtualItems[virtualItems.length - 1];
-    if (
-      !isActive ||
-      !last ||
-      last.index < filteredItems.length ||
-      paging ||
-      loading ||
-      !hasMore ||
-      selectedDate === today
-    )
-      return;
-    let alive = true;
+  const loadMore = useCallback(() => {
+    if (!isActive || pagingRef.current || loading || !hasMore || selectedDate === today) return;
+    const loadId = loadIdRef.current;
+    pagingRef.current = true;
     setPaging(true);
     getStocksenseApi()
       .listSurgeHistory(selectedDate, items.length, SURGE_PAGE_SIZE)
       .then((rows) => {
-        if (!alive) return;
+        if (loadId !== loadIdRef.current) return;
         setItems((current) => [...current, ...rows]);
         setHasMore(rows.length === SURGE_PAGE_SIZE);
       })
       .catch((error: unknown) => {
-        if (!alive) return;
+        if (loadId !== loadIdRef.current) return;
         console.error(error);
         setError(error instanceof Error ? error.message : '加载更多异动数据失败，请稍后再试');
       })
       .finally(() => {
-        if (alive) setPaging(false);
+        if (loadId === loadIdRef.current) {
+          pagingRef.current = false;
+          setPaging(false);
+        }
       });
-    return () => {
-      alive = false;
-    };
-  }, [filteredItems.length, hasMore, isActive, items.length, loading, paging, selectedDate, today, virtualizer]);
+  }, [hasMore, isActive, items.length, loading, selectedDate, today]);
+
+  useEffect(() => {
+    const virtualItems = virtualizer.getVirtualItems();
+    const last = virtualItems[virtualItems.length - 1];
+    if (last?.index === filteredItems.length) loadMore();
+  }, [filteredItems.length, loadMore, virtualizer]);
 
   const toggleFilter = (filter: SurgeFilter) => {
     setFilters((current) => {
@@ -300,7 +300,14 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
           ) : null}
         </div>
       </div>
-      <div className={styles['right-panel-body']} ref={listRef}>
+      <div
+        className={styles['right-panel-body']}
+        ref={listRef}
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          if (element.scrollTop + element.clientHeight >= element.scrollHeight - 24) loadMore();
+        }}
+      >
         {loading && !items.length ? (
           <SurgeSkeleton />
         ) : error ? (
@@ -326,7 +333,7 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
                     <SurgeItem item={item} onClick={() => openStock(item)} />
                   ) : (
                     <div className={styles['surge-load-state']}>
-                      {paging ? <span className={styles.spinner} /> : '向下滚动加载更多'}
+                      {paging ? <span className={styles.spinner} /> : hasMore ? '向下滚动加载更多' : '~到底啦~'}
                     </div>
                   )}
                 </div>
@@ -353,7 +360,7 @@ function SurgeItem({ item, onClick }: { item: HotFocusItem; onClick(): void }) {
             <em>{item.code}</em>
           </b>
           <small>
-            当前 <span>{item.price ?? '--'}</span>
+            当前 <span className={isDown ? 'down' : 'up'}>{item.price ?? '--'}</span>
             <span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span>
           </small>
         </span>
