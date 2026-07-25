@@ -636,7 +636,14 @@ export interface IPendingDownloadedUpdate {
   message?: string;
 }
 
-export type TAppUpdateStatus = 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+export type TAppUpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error';
 
 export interface IAppUpdateState {
   status: TAppUpdateStatus;
@@ -682,7 +689,9 @@ export interface StocksenseApi {
   addStockNewsSubscription(stock: Pick<IStockNewsSubscription, 'code' | 'name'>): Promise<IStockNewsPreferences>;
   removeStockNewsSubscription(code: string): Promise<IStockNewsPreferences>;
   getMarketNewsSummaryState(): Promise<IMarketNewsSummaryState>;
-  getMarketNewsItem(item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>): Promise<MarketNewsItem>;
+  getMarketNewsItem(
+    item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>,
+  ): Promise<MarketNewsItem>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
   getHotStockHintSource(): Promise<IHotStockHintSource>;
   listSurgeHistoryDates(): Promise<string[]>;
