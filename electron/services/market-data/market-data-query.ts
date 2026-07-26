@@ -165,7 +165,7 @@ function toStockDetail(quote: Awaited<ReturnType<typeof getRemoteFullQuote>>, sy
     low: quote.low ?? '--',
     prevClose: quote.prevClose ?? '--',
     pe: quote.pe ?? '--', pb: quote.pb ?? '--',
-    marketCap: quote.totalMarketCap === null ? '--' : `${(quote.totalMarketCap / 100000000).toFixed(1)}亿`,
+    marketCap: quote.totalMarketCap === null ? '--' : `${quote.totalMarketCap.toFixed(1)}亿`,
     volume: `${(quote.volume / 10_000).toFixed(1)}万手`,
     turnover: `${(quote.amount / 10_000).toFixed(2)}亿`,
     turnoverRate: quote.turnoverRate === null || quote.turnoverRate === undefined ? '--' : `${quote.turnoverRate.toFixed(2)}%`,

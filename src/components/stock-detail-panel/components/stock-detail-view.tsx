@@ -8,6 +8,7 @@ import type { StockSurgeEvent } from '../../../shared/types';
 import { useAppStore } from '../../../store/app-store';
 import { Empty } from '../../empty';
 import { KlineModal, StockKlineChart } from '../../kline-chart';
+import { StockQuickNews } from './stock-quick-news';
 import styles from '../index.module.scss';
 
 interface IStockDetailViewProps {
@@ -221,6 +222,9 @@ export function StockDetailView({ returnToSurge, onReturnToSurge }: IStockDetail
             {selectedStock.summary ?? '暂无摘要。'}
           </div>
           <div className={styles.divider} />
+          <div className={styles['section-title']}>快讯</div>
+          <StockQuickNews code={selectedStock.code} />
+          <div className={styles.divider} />
           <div className={styles['section-title']}>最近一周异动</div>
           <StockSurgeEvents events={stockSurgeEvents} loading={stockSurgeLoading} error={stockSurgeError} />
         </div>
@@ -292,6 +296,8 @@ interface IStockSurgeEventItemProps {
 
 function StockSurgeEventItem({ item, isLastInGroup }: IStockSurgeEventItemProps) {
   const isDown = String(item.changePercent).startsWith('-');
+  const surgeReason = getSurgeReason(item);
+  const showSurgeAction = surgeReason !== '--' || hasSurgeAmount(item.amount);
   return (
     <div className={cx(styles['stock-surge-event'], isLastInGroup && styles['stock-surge-event-last'])}>
       <span className={styles['stock-surge-event-time']}>
@@ -303,15 +309,22 @@ function StockSurgeEventItem({ item, isLastInGroup }: IStockSurgeEventItemProps)
             {item.name ?? item.title}
             <em>{item.code}</em>
           </b>
-          <small>
-            当前 <span>{item.price ?? '--'}</span>
-            <span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span>
+          <small
+            className={styles['stock-surge-event-quote']}
+            style={{ display: 'block', width: '100%', overflowX: 'auto', overflowY: 'hidden', whiteSpace: 'nowrap' }}
+          >
+            <span style={{ display: 'inline-flex', gap: 7, minWidth: 'max-content' }}>
+              当前 <span>{item.price ?? '--'}</span>
+              <span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span>
+            </span>
           </small>
         </span>
-        <span className={styles['stock-surge-event-action']}>
-          <span>{getSurgeReason(item)}</span>
-          {hasSurgeAmount(item.amount) ? <small>{item.amount}</small> : null}
-        </span>
+        {showSurgeAction ? (
+          <span className={styles['stock-surge-event-action']}>
+            {surgeReason !== '--' ? <span>{surgeReason}</span> : null}
+            {hasSurgeAmount(item.amount) ? <small>{item.amount}</small> : null}
+          </span>
+        ) : null}
       </span>
     </div>
   );

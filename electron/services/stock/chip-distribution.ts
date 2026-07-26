@@ -58,17 +58,55 @@ function toChipDistribution(row: ChipDistributionItem): ChipDistribution {
   const cost90High = nullableNumber(row.cost90High);
   const prices = row.histogram?.prices ?? [];
   const ratios = row.histogram?.ratios ?? [];
+  const interpolated = buildInterpolatedConcentration(prices, ratios);
   return {
     date: row.date,
     profitRatio: nullableNumber(row.profitRatio),
     avgCost: nullableNumber(row.avgCost),
     cost70: formatCostRange(cost70Low, cost70High),
     cost90: formatCostRange(cost90Low, cost90High),
-    concentration70: nullableNumber(row.concentration70),
-    concentration90: nullableNumber(row.concentration90),
+    concentration70: interpolated?.concentration70 ?? nullableNumber(row.concentration70),
+    concentration90: interpolated?.concentration90 ?? nullableNumber(row.concentration90),
     points: prices
       .map((price, index): ChipPoint => ({ price, weight: ratios[index] ?? 0 }))
       .filter((point) => Number.isFinite(point.price) && Number.isFinite(point.weight) && point.weight > 0),
+  };
+}
+
+function buildInterpolatedConcentration(
+  prices: number[],
+  ratios: number[],
+): { concentration90: number; concentration70: number } | undefined {
+  if (!prices.length || !ratios.length || prices.length !== ratios.length) return undefined;
+  const total = ratios.reduce((sum, r) => sum + r, 0);
+  if (total <= 0) return undefined;
+  const cdf: number[] = [];
+  let acc = 0;
+  for (let i = 0; i < ratios.length; i++) {
+    acc += ratios[i];
+    cdf.push(acc / total);
+  }
+  const quantilePrice = (target: number) => {
+    if (target <= 0) return prices[0];
+    if (target >= 1) return prices[prices.length - 1];
+    for (let i = 0; i < cdf.length; i++) {
+      if (cdf[i] >= target) {
+        if (i === 0) return prices[0];
+        const t = (target - cdf[i - 1]) / (cdf[i] - cdf[i - 1]);
+        return prices[i - 1] + t * (prices[i] - prices[i - 1]);
+      }
+    }
+    return prices[prices.length - 1];
+  };
+  const p05 = quantilePrice(0.05);
+  const p95 = quantilePrice(0.95);
+  const p15 = quantilePrice(0.15);
+  const p85 = quantilePrice(0.85);
+  const concentration90 = p95 + p05 === 0 ? 0 : (p95 - p05) / (p95 + p05);
+  const concentration70 = p85 + p15 === 0 ? 0 : (p85 - p15) / (p85 + p15);
+  return {
+    concentration90: Math.round(concentration90 * 1000) / 1000,
+    concentration70: Math.round(concentration70 * 1000) / 1000,
   };
 }
 
