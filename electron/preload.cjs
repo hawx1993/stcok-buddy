@@ -29,6 +29,7 @@ const api = {
   getChipDistribution: (symbol) => ipcRenderer.invoke('stock:getChipDistribution', symbol),
   getBatchQuotes: (codes) => ipcRenderer.invoke('stock:getBatchQuotes', codes),
   listMarketNews: (query, page, pageSize) => ipcRenderer.invoke('news:list', query, page, pageSize),
+  listStockNews: (code, limit) => ipcRenderer.invoke('news:stockList', code, limit),
   listStockNewsFeed: () => ipcRenderer.invoke('news:stockFeed'),
   getStockNewsPreferences: () => ipcRenderer.invoke('news:stockPreferences'),
   setStockNewsFavoritesOnly: (favoritesOnly) => ipcRenderer.invoke('news:setFavoritesOnly', favoritesOnly),

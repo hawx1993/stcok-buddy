@@ -31,6 +31,7 @@ const api: StocksenseApi = {
   getChipDistribution: (symbol: string) => ipcRenderer.invoke('stock:getChipDistribution', symbol),
   getBatchQuotes: (codes: string[]) => ipcRenderer.invoke('stock:getBatchQuotes', codes),
   listMarketNews: (query?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('news:list', query, page, pageSize),
+  listStockNews: (code: string, limit?: number) => ipcRenderer.invoke('news:stockList', code, limit),
   listStockNewsFeed: () => ipcRenderer.invoke('news:stockFeed'),
   getStockNewsPreferences: () => ipcRenderer.invoke('news:stockPreferences'),
   setStockNewsFavoritesOnly: (favoritesOnly: boolean) => ipcRenderer.invoke('news:setFavoritesOnly', favoritesOnly),

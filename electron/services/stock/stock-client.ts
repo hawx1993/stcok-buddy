@@ -48,6 +48,7 @@ function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
   const pe = pickNumber(record, ['pe', 'PE', '市盈率', 'f9']);
   const pb = pickNumber(record, ['pb', 'PB', '市净率', 'f23']);
   const marketCap = pickNumber(record, ['marketCap', 'totalMarketCap', '总市值', 'f20']);
+  const normalizedMarketCap = marketCap === undefined ? undefined : normalizeMarketCap(marketCap);
   const open = pickNumber(record, ['open', '今开', '开盘价', 'f17']);
   const high = pickNumber(record, ['high', '最高', '最高价', 'f15']);
   const low = pickNumber(record, ['low', '最低', '最低价', 'f16']);
@@ -67,7 +68,7 @@ function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
     prevClose: prevClose === undefined ? '--' : formatNumber(prevClose),
     pe: pe === undefined ? '--' : formatNumber(pe),
     pb: pb === undefined ? '--' : formatNumber(pb),
-    marketCap: marketCap === undefined ? '--' : `${(marketCap / 100000000).toFixed(1)}亿`,
+    marketCap: normalizedMarketCap === undefined ? '--' : `${normalizedMarketCap.toFixed(1)}亿`,
     volume: volume === undefined ? '--' : `${(volume / 10000).toFixed(1)}万手`,
     turnover: turnover === undefined ? '--' : `${(turnover / 100000000).toFixed(2)}亿`,
     turnoverRate: turnoverRate === undefined ? '--' : `${formatNumber(turnoverRate)}%`,

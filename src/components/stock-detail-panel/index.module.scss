@@ -946,6 +946,32 @@
   padding: 8px 10px;
   border-radius: 4px;
 }
+.stock-quick-news {
+  margin: 4px 12px 12px;
+  min-height: 174px;
+  max-height: 174px;
+  overflow-y: auto;
+  border-radius: 4px;
+  background: var(--input-bg);
+}
+.stock-quick-news .news-item {
+  padding-right: 10px;
+  padding-left: 12px;
+}
+.stock-quick-news-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 174px;
+  margin: 4px 12px 12px;
+  padding: 10px;
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
 .stock-surge-events {
   padding: 0 12px 12px;
 }

@@ -683,6 +683,7 @@ export interface StocksenseApi {
   getChipDistribution(symbol: string): Promise<IChipDistributionResult>;
   getBatchQuotes(codes: string[]): Promise<StockDetail[]>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
+  listStockNews(code: string, limit?: number): Promise<MarketNewsItem[]>;
   listStockNewsFeed(): Promise<IStockNewsFeed>;
   getStockNewsPreferences(): Promise<IStockNewsPreferences>;
   setStockNewsFavoritesOnly(favoritesOnly: boolean): Promise<IStockNewsPreferences>;

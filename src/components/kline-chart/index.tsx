@@ -126,28 +126,30 @@ export function StockKlineChart({
     let alive = true;
     // For daily timeframe use provided data as seed, allow loadOlderData to fetch more on drag-left.
     // For other timeframes always fetch via API since the data prop is daily-only.
-    if (data.length > 0 && !staticData && tf === '1d') {
+    const hasDailySeed = data.length > 0 && !staticData && tf === '1d';
+    if (hasDailySeed) {
       console.log('[kline] using parent seed data', { code: stock?.code, bars: data.length });
       setLoadedData(data);
       loadedLimitRef.current = data.length;
       hasMoreOlderDataRef.current = true;
       setHoverIndex(undefined);
       setHoverPoint(undefined);
-      return;
+    } else {
+      setLoadedData([]);
+      loadedLimitRef.current = 0;
+      hasMoreOlderDataRef.current = true;
+      setHoverIndex(undefined);
+      setHoverPoint(undefined);
     }
-    setLoadedData([]);
-    loadedLimitRef.current = 0;
-    hasMoreOlderDataRef.current = true;
-    setHoverIndex(undefined);
-    setHoverPoint(undefined);
-    console.log('[kline] no seed data, fetching from API', { code: stock?.code });
+    console.log(hasDailySeed ? '[kline] refreshing seed data from API' : '[kline] no seed data, fetching from API', { code: stock?.code });
     getStocksenseApi()
       .getKline(toKlineRequestSymbol(stock), frame.limit, tf)
       .then((next) => {
         console.log('[kline] API fetch done', { code: stock?.code, bars: next.length, firstDate: next[0]?.time });
         if (alive) {
-          setLoadedData(next);
-          loadedLimitRef.current = frame.limit;
+          const merged = hasDailySeed ? mergeKlineData(data, next, frame.period) : next;
+          setLoadedData(merged);
+          loadedLimitRef.current = hasDailySeed ? Math.max(data.length, next.length) : frame.limit;
           hasMoreOlderDataRef.current = true;
           setHoverIndex(undefined);
           setHoverPoint(undefined);
@@ -167,7 +169,7 @@ export function StockKlineChart({
     return () => {
       alive = false;
     };
-  }, [usesProvidedData, stock?.code, frame.limit, tf, data.length, staticData]);
+  }, [usesProvidedData, stock?.code, frame.limit, frame.period, tf, data, staticData]);
 
   const loadOlderData = useCallback(
     async (options: { anchorTimestamp?: number } = {}) => {

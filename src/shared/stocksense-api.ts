@@ -64,6 +64,11 @@ export function getStocksenseApi(): StocksenseApi {
       window
         .stocksense!.toggleFavoriteStockPin(code)
         .catch(fallbackFavoriteError(() => webFallbackApi.toggleFavoriteStockPin(code))),
+    listStockNews: (code, limit) => {
+      if (typeof window.stocksense!.listStockNews === 'function')
+        return window.stocksense!.listStockNews(code, limit).catch(fallbackFavoriteError(() => webFallbackApi.listStockNews(code, limit)));
+      return Promise.reject(new Error('个股快讯功能不可用，请重启客户端'));
+    },
   };
 }
 
@@ -292,6 +297,9 @@ const webFallbackApi: StocksenseApi = {
   },
   async listMarketNews(_query = '', page = 1, pageSize = 30) {
     return pageItems([], page, pageSize);
+  },
+  async listStockNews() {
+    throw new Error('个股快讯仅在 Electron 桌面端可用。');
   },
   async listStockNewsFeed() {
     throw new Error('个股新闻仅在 Electron 桌面端可用。');

@@ -29,7 +29,7 @@ import { listHotStockHintSource } from './services/stock/hot-stock-hints-service
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { listSurgeDates } from './services/stock/surge-history-store.js';
 import { ensureSurgeHistoryCapture } from './services/stock/surge-history-scheduler.js';
-import { ensureMarketNewsSummaryState, getMarketNewsDetail, listMarketNews, listStockNewsFeed } from './services/stock/news-client.js';
+import { ensureMarketNewsSummaryState, getMarketNewsDetail, listMarketNews, listStockNewsAnnouncements, listStockNewsFeed } from './services/stock/news-client.js';
 import { installStoreItem, listInstalledStoreItems, listStoreItems, uninstallStoreItem } from './services/store-service.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
 import { testModelConnection } from './services/llm/index.js';
@@ -132,6 +132,12 @@ export function registerIpcHandlers() {
   });
   app.once('before-quit', removeMarketDataListener);
   ipcMain.handle('news:list', (_event, query?: string, page?: number, pageSize?: number) => listMarketNews(query, page, pageSize));
+  ipcMain.handle('news:stockList', async (_event, code: string, limit = 10) => {
+    if (!/^\d{6}$/.test(code)) throw new Error('股票代码无效');
+    const safeLimit = Math.min(10, Math.max(1, Number.isFinite(limit) ? Math.trunc(limit) : 10));
+    const { news } = await listStockNewsAnnouncements(code, safeLimit);
+    return news.slice(0, safeLimit);
+  });
   ipcMain.handle('news:stockFeed', () => listStockNewsFeed());
   ipcMain.handle('news:stockPreferences', () => getStockNewsPreferences());
   ipcMain.handle('news:setFavoritesOnly', (_event, favoritesOnly: boolean) => {

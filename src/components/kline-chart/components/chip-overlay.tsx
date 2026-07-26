@@ -120,6 +120,8 @@ export function ChipOverlay({
           </div>
           <div className={styles['chip-summary-row']}><span>70% 成本区间</span><b>{chips.cost70 ?? '--'}</b></div>
           <div className={styles['chip-summary-row']}><span>90% 成本区间</span><b>{chips.cost90 ?? '--'}</b></div>
+          <div className={styles['chip-summary-row']}><span>90% 筹码集中度</span><b>{formatPercent(chips.concentration90)}</b></div>
+          <div className={styles['chip-summary-row']}><span>70% 筹码集中度</span><b>{formatPercent(chips.concentration70)}</b></div>
           <small>
             <span>{chips.date}</span>
             <span>{source === 'a-stock-data' ? 'a-stock-data' : 'stock-sdk'}</span>
