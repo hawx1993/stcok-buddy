@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import type { HotFocusItem } from '../../../src/shared/types.js';
 import { createHotStockHintGroups } from '../../../src/components/chat-view/components/hot-stock-hints.js';
-import { listHotStockHintSource } from './hot-stock-hints-service.js';
+import { listHotStockHintSource } from '../../../src/shared/hot-stock-hints-service.js';
 
 const items: HotFocusItem[] = Array.from({ length: 25 }, (_, index) => ({
   id: `hint-${index}`,

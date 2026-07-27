@@ -1,4 +1,5 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import gsap from 'gsap';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { StockKlineChart } from '../kline-chart';
 import type { ILoadOlderKlineInput } from '../kline-chart';
 import { IndexKlineModal } from './components/index-kline-modal';
@@ -19,6 +20,8 @@ import cx from '../../shared/cx';
 import styles from './index.module.scss';
 
 const MARKET_PAGE_SIZE = 20;
+const MARKET_ROW_ANIMATION_DURATION = 0.42;
+const marketCellFields: TMarketCellField[] = ['changePercent', 'price', 'turnoverRate', 'volume', 'amount', 'marketCap', 'industry'];
 
 const tabs: Array<{ id: MarketTab; label: string }> = [
   { id: 'sh-main', label: '上海主板' },
@@ -42,6 +45,7 @@ export function MarketView() {
   const [indexPeriod, setIndexPeriod] = useState<MarketIndexPeriod>('1d');
   const [indices, setIndices] = useState<MarketIndexSnapshot[]>([]);
   const [rowsByTab, setRowsByTab] = useState<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
+  const rowsByTabRef = useRef<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
   const [updatedAt, setUpdatedAt] = useState('');
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -52,6 +56,8 @@ export function MarketView() {
   const [sortDirection, setSortDirection] = useState<SortDirection>();
   const [expandedIndexCode, setExpandedIndexCode] = useState<string>();
   const refreshTimer = useRef<number>();
+  const scrollIdleRefreshTimer = useRef<number>();
+  const refreshActiveTabRef = useRef<() => void>(() => undefined);
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
@@ -60,43 +66,63 @@ export function MarketView() {
   const openBoardPanel = useAppStore((state) => state.openBoardPanel);
 
   useEffect(() => {
+    rowsByTabRef.current = rowsByTab;
+  }, [rowsByTab]);
+
+  useEffect(() => {
     let alive = true;
     const api = getStocksenseApi();
-    setLoading(true);
     const hasContent = (data: MarketPageSnapshot) => data.rows.length > 0;
     const applySnapshot = (data: MarketPageSnapshot, done = true) => {
       if (!alive) return;
       if (data.indices.length) setIndices(data.indices);
-      setRowsByTab((current) => ({ ...current, [data.tab]: data.rows }));
+      setRowsByTab((current) => {
+        const nextRows = mergeMarketRows(current[data.tab] ?? [], data.rows);
+        const next = current[data.tab] === nextRows ? current : { ...current, [data.tab]: nextRows };
+        rowsByTabRef.current = next;
+        return next;
+      });
       if (data.tab === activeTab) {
         setUpdatedAt(data.updatedAt);
         if (done || hasContent(data)) setLoading(false);
       }
     };
-    const load = () =>
+    setLoading(!rowsByTabRef.current[activeTab]?.length);
+    const loadTab = (tab: MarketTab, done = tab === activeTab) =>
       api
-        .getMarketPageSnapshot(activeTab, indexPeriod)
-        .then((data) => applySnapshot(data))
+        .getMarketPageSnapshot(tab, indexPeriod)
+        .then((data) => applySnapshot(data, done))
         .catch(console.error);
-    void load();
+    refreshActiveTabRef.current = () => {
+      if (alive) void loadTab(activeTab);
+    };
+    refreshActiveTabRef.current();
+    for (const tab of tabs) {
+      if (tab.id !== activeTab && !rowsByTabRef.current[tab.id]?.length) void loadTab(tab.id, false);
+    }
     const unsubscribe = api.onMarketPageSnapshotUpdated?.((data) => {
       if (!alive || (data.period ?? '1d') !== indexPeriod) return;
       if (data.indices.length) setIndices(data.indices);
-      setRowsByTab((current) => ({ ...current, [data.tab]: data.rows }));
+      setRowsByTab((current) => {
+        const nextRows = mergeMarketRows(current[data.tab] ?? [], data.rows);
+        const next = current[data.tab] === nextRows ? current : { ...current, [data.tab]: nextRows };
+        rowsByTabRef.current = next;
+        return next;
+      });
       if (data.tab === activeTab) {
         setUpdatedAt(data.updatedAt);
         setLoading(false);
       }
     });
     window.clearInterval(refreshTimer.current);
-    if (isChinaMarketOpen())
-      refreshTimer.current = window.setInterval(() => {
-        if (alive) void load();
-      }, 15_000);
+    refreshTimer.current = window.setInterval(() => {
+      if (alive && isChinaMarketOpen()) refreshActiveTabRef.current();
+    }, 15_000);
     return () => {
       alive = false;
       unsubscribe?.();
       window.clearInterval(refreshTimer.current);
+      window.clearTimeout(scrollIdleRefreshTimer.current);
     };
   }, [activeTab, indexPeriod]);
 
@@ -145,12 +171,28 @@ export function MarketView() {
     },
     [expandedIndexCode, indexPeriod],
   );
-  const sortedRows = sortDirection
-    ? [...visibleRows].sort(
-        (a, b) => (parsePercent(a.changePercent) - parsePercent(b.changePercent)) * (sortDirection === 'asc' ? 1 : -1),
-      )
-    : visibleRows;
-  const renderedRows = sortedRows.slice(0, visibleRowCount);
+  const sortedRows = useMemo(
+    () =>
+      sortDirection
+        ? [...visibleRows].sort(
+            (a, b) =>
+              (parsePercent(a.changePercent) - parsePercent(b.changePercent)) * (sortDirection === 'asc' ? 1 : -1) ||
+              String(a.code).localeCompare(String(b.code)),
+          )
+        : visibleRows,
+    [sortDirection, visibleRows],
+  );
+  const renderedRows = useMemo(() => sortedRows.slice(0, visibleRowCount), [sortedRows, visibleRowCount]);
+
+  const handleTableScroll = () => {
+    const el = tableWrapRef.current;
+    if (!el) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreRows();
+    window.clearTimeout(scrollIdleRefreshTimer.current);
+    scrollIdleRefreshTimer.current = window.setTimeout(() => {
+      if (isChinaMarketOpen()) refreshActiveTabRef.current();
+    }, 160);
+  };
 
   const changeTab = (tab: MarketTab) => {
     setActiveTab(tab);
@@ -317,10 +359,7 @@ export function MarketView() {
       <div
         ref={tableWrapRef}
         className={styles.tableWrap}
-        onScroll={(event) => {
-          const el = event.currentTarget;
-          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreRows();
-        }}
+        onScroll={handleTableScroll}
       >
         <StockTable
           rows={renderedRows}
@@ -396,6 +435,9 @@ const IndexCard = memo(function IndexCard({
   );
 });
 
+type TMarketCellField = 'changePercent' | 'price' | 'turnoverRate' | 'volume' | 'amount' | 'marketCap' | 'industry';
+type TMarketCellSnapshot = Record<TMarketCellField, string>;
+
 function StockTable({
   rows,
   sortDirection,
@@ -408,6 +450,57 @@ function StockTable({
   onOpen(row: MarketQuoteRow): void;
 }) {
   const sortMark = sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : '↕';
+  const rowElements = useRef(new Map<string, HTMLTableRowElement>());
+  const previousTops = useRef(new Map<string, number>());
+  const previousCellSnapshots = useRef(new Map<string, TMarketCellSnapshot>());
+  const [cellFlashVersions, setCellFlashVersions] = useState<Record<string, number>>({});
+  const rowKey = rows.map((row) => row.code).join('|');
+
+  useLayoutEffect(() => {
+    const nextTops = new Map<string, number>();
+    for (const row of rows) {
+      const element = rowElements.current.get(row.code);
+      if (!element) continue;
+      const top = element.getBoundingClientRect().top;
+      const previousTop = previousTops.current.get(row.code);
+      nextTops.set(row.code, top);
+      if (previousTop === undefined) continue;
+      const delta = previousTop - top;
+      if (Math.abs(delta) < 1) continue;
+      gsap.killTweensOf(element);
+      gsap.fromTo(element, { y: delta }, { y: 0, duration: MARKET_ROW_ANIMATION_DURATION, ease: 'power2.out' });
+    }
+    previousTops.current = nextTops;
+  }, [rowKey, rows]);
+
+  useEffect(() => {
+    const nextSnapshots = new Map<string, TMarketCellSnapshot>();
+    const changedCellKeys: string[] = [];
+    for (const row of rows) {
+      const nextSnapshot = getMarketCellSnapshot(row);
+      const previousSnapshot = previousCellSnapshots.current.get(row.code);
+      nextSnapshots.set(row.code, nextSnapshot);
+      if (!previousSnapshot) continue;
+      for (const field of marketCellFields) {
+        if (previousSnapshot[field] !== nextSnapshot[field]) changedCellKeys.push(getMarketCellKey(row.code, field));
+      }
+    }
+    previousCellSnapshots.current = nextSnapshots;
+    if (!changedCellKeys.length) return;
+    setCellFlashVersions((current) => {
+      const next = { ...current };
+      for (const key of changedCellKeys) next[key] = (next[key] ?? 0) + 1;
+      return next;
+    });
+  }, [rows]);
+
+  useEffect(() => {
+    const elements = rowElements.current;
+    return () => {
+      for (const element of elements.values()) gsap.killTweensOf(element);
+    };
+  }, []);
+
   return (
     <table className={styles.marketTable}>
       <thead>
@@ -424,23 +517,119 @@ function StockTable({
           <th>换手率</th>
           <th>成交量</th>
           <th>成交额</th>
+          <th>市值</th>
+          <th>所属行业</th>
         </tr>
       </thead>
       <tbody>
-        {rows.map((row, index) => (
-          <tr key={row.code} onClick={() => onOpen(row)}>
-            <td>{index + 1}</td>
-            <td>{row.code}</td>
-            <td>{row.name}</td>
-            <td className={tone(row.changePercent)}>{formatPercent(row.changePercent)}</td>
-            <td className={tone(row.changePercent)}>{row.price ?? '--'}</td>
-            <td>{formatPercent(row.turnoverRate)}</td>
-            <td>{formatVolume(row.volume)}</td>
-            <td>{formatMoney(row.amount)}</td>
-          </tr>
-        ))}
+        {rows.map((row, index) => {
+          const changePercentVersion = getCellFlashVersion(cellFlashVersions, row.code, 'changePercent');
+          const priceVersion = getCellFlashVersion(cellFlashVersions, row.code, 'price');
+          const turnoverRateVersion = getCellFlashVersion(cellFlashVersions, row.code, 'turnoverRate');
+          const volumeVersion = getCellFlashVersion(cellFlashVersions, row.code, 'volume');
+          const amountVersion = getCellFlashVersion(cellFlashVersions, row.code, 'amount');
+          const marketCapVersion = getCellFlashVersion(cellFlashVersions, row.code, 'marketCap');
+          const industryVersion = getCellFlashVersion(cellFlashVersions, row.code, 'industry');
+          return (
+            <tr
+              key={row.code}
+              ref={(element) => {
+                if (element) rowElements.current.set(row.code, element);
+                else rowElements.current.delete(row.code);
+              }}
+              onClick={() => onOpen(row)}
+            >
+              <td>{index + 1}</td>
+              <td>{row.code}</td>
+              <td>{row.name}</td>
+              <td key={`changePercent-${changePercentVersion}`} className={cx(tone(row.changePercent), changePercentVersion > 0 && styles.cellUpdated)}>
+                {formatPercent(row.changePercent)}
+              </td>
+              <td key={`price-${priceVersion}`} className={cx(tone(row.changePercent), priceVersion > 0 && styles.cellUpdated)}>
+                {row.price ?? '--'}
+              </td>
+              <td key={`turnoverRate-${turnoverRateVersion}`} className={cx(turnoverRateVersion > 0 && styles.cellUpdated)}>
+                {formatPercent(row.turnoverRate)}
+              </td>
+              <td key={`volume-${volumeVersion}`} className={cx(volumeVersion > 0 && styles.cellUpdated)}>
+                {formatVolume(row.volume)}
+              </td>
+              <td key={`amount-${amountVersion}`} className={cx(amountVersion > 0 && styles.cellUpdated)}>
+                {formatMoney(row.amount)}
+              </td>
+              <td key={`marketCap-${marketCapVersion}`} className={cx(marketCapVersion > 0 && styles.cellUpdated)}>
+                {formatMarketCap(row.marketCap)}
+              </td>
+              <td key={`industry-${industryVersion}`} className={cx(industryVersion > 0 && styles.cellUpdated)}>
+                {row.industry ?? '--'}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
+  );
+}
+
+function mergeMarketRows(currentRows: MarketQuoteRow[], incomingRows: MarketQuoteRow[]) {
+  if (!currentRows.length) return incomingRows;
+  const currentByCode = new Map(currentRows.map((row) => [row.code, row]));
+  let changed = currentRows.length !== incomingRows.length;
+  const nextRows = incomingRows.map((incomingRow) => {
+    const currentRow = currentByCode.get(incomingRow.code);
+    if (!currentRow) {
+      changed = true;
+      return incomingRow;
+    }
+    if (sameMarketRowData(currentRow, incomingRow)) return currentRow;
+    changed = true;
+    return incomingRow;
+  });
+  if (!changed && sameMarketRowOrder(currentRows, nextRows)) return currentRows;
+  return nextRows;
+}
+
+function sameMarketRowData(firstRow: MarketQuoteRow, secondRow: MarketQuoteRow) {
+  return (
+    firstRow.code === secondRow.code &&
+    firstRow.name === secondRow.name &&
+    firstRow.price === secondRow.price &&
+    firstRow.changePercent === secondRow.changePercent &&
+    firstRow.volume === secondRow.volume &&
+    firstRow.amount === secondRow.amount &&
+    firstRow.open === secondRow.open &&
+    firstRow.high === secondRow.high &&
+    firstRow.low === secondRow.low &&
+    firstRow.prevClose === secondRow.prevClose &&
+    firstRow.turnoverRate === secondRow.turnoverRate &&
+    firstRow.marketCap === secondRow.marketCap &&
+    firstRow.industry === secondRow.industry
+  );
+}
+
+function getCellFlashVersion(cellFlashVersions: Record<string, number>, code: string, field: TMarketCellField) {
+  return cellFlashVersions[getMarketCellKey(code, field)] ?? 0;
+}
+
+function getMarketCellKey(code: string, field: TMarketCellField) {
+  return `${code}:${field}`;
+}
+
+function getMarketCellSnapshot(row: MarketQuoteRow): TMarketCellSnapshot {
+  return {
+    changePercent: formatPercent(row.changePercent),
+    price: String(row.price ?? '--'),
+    turnoverRate: formatPercent(row.turnoverRate),
+    volume: formatVolume(row.volume),
+    amount: formatMoney(row.amount),
+    marketCap: formatMarketCap(row.marketCap),
+    industry: row.industry ?? '--',
+  };
+}
+
+function sameMarketRowOrder(firstRows: MarketQuoteRow[], secondRows: MarketQuoteRow[]) {
+  return (
+    firstRows.length === secondRows.length && firstRows.every((row, index) => row.code === secondRows[index]?.code)
   );
 }
 
@@ -494,5 +683,6 @@ function formatMoney(value: unknown) {
 function formatMarketCap(value: unknown) {
   const num = Number(value);
   if (!Number.isFinite(num)) return String(value ?? '--');
-  return num >= 10_000 ? `${(num / 10_000).toFixed(2)}万亿` : `${num.toFixed(1)}亿`;
+  const yi = num / 100_000_000;
+  return yi >= 10_000 ? `${(yi / 10_000).toFixed(2)}万亿` : `${yi.toFixed(1)}亿`;
 }

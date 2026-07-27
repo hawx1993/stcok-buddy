@@ -4,6 +4,7 @@ import gsap from 'gsap';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
+import { isChinaMarketOpen } from '../../../shared/market-time';
 import type { StockSurgeEvent } from '../../../shared/types';
 import { useAppStore } from '../../../store/app-store';
 import { Empty } from '../../empty';
@@ -14,10 +15,13 @@ import styles from '../index.module.scss';
 interface IStockDetailViewProps {
   returnToSurge: boolean;
   onReturnToSurge(): void;
+  onGenericBack?(): void;
+  genericBackLabel?: string;
 }
 
-export function StockDetailView({ returnToSurge, onReturnToSurge }: IStockDetailViewProps) {
+export function StockDetailView({ returnToSurge, onReturnToSurge, onGenericBack, genericBackLabel }: IStockDetailViewProps) {
   const detailRef = useRef<HTMLDivElement>(null);
+  const quoteTimerRef = useRef<number>();
   const [isKlineModalOpen, setKlineModalOpen] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(true);
   const [stockSurgeEvents, setStockSurgeEvents] = useState<StockSurgeEvent[]>([]);
@@ -87,6 +91,50 @@ export function StockDetailView({ returnToSurge, onReturnToSurge }: IStockDetail
     };
   }, [selectedStock?.code]);
 
+  useEffect(() => {
+    if (!selectedStock?.code) return;
+    let alive = true;
+    const code = selectedStock.code;
+
+    const refreshQuote = () => {
+      getStocksenseApi()
+        .getBatchQuotes([code])
+        .then((quotes) => {
+          if (!alive || !quotes.length) return;
+          const quote = quotes[0];
+          const current = useAppStore.getState().selectedStock;
+          if (!current || current.code !== code) return;
+          useAppStore.getState().setSelectedStock({
+            ...current,
+            price: quote.price ?? current.price,
+            changePercent: quote.changePercent ?? current.changePercent,
+            change: quote.change ?? current.change,
+            open: quote.open ?? current.open,
+            high: quote.high ?? current.high,
+            low: quote.low ?? current.low,
+            prevClose: quote.prevClose ?? current.prevClose,
+            volume: quote.volume ?? current.volume,
+            turnover: quote.turnover ?? current.turnover,
+            turnoverRate: quote.turnoverRate ?? current.turnoverRate,
+            marketCap: quote.marketCap ?? current.marketCap,
+            pe: quote.pe ?? current.pe,
+            pb: quote.pb ?? current.pb,
+          });
+        })
+        .catch((error: unknown) => console.error(error));
+    };
+
+    window.clearInterval(quoteTimerRef.current);
+    if (isChinaMarketOpen()) {
+      quoteTimerRef.current = window.setInterval(refreshQuote, 15_000);
+    }
+
+    return () => {
+      alive = false;
+      window.clearInterval(quoteTimerRef.current);
+    };
+  }, [selectedStock?.code]);
+
   const sendStockReport = async (code: string) => {
     const api = getStocksenseApi();
     const conversation = await api.createConversation();
@@ -124,6 +172,10 @@ export function StockDetailView({ returnToSurge, onReturnToSurge }: IStockDetail
           {returnToSurge ? (
             <button className={styles['back-to-surge']} onClick={onReturnToSurge} type='button'>
               ← 异动
+            </button>
+          ) : genericBackLabel ? (
+            <button className={styles['back-to-surge']} onClick={onGenericBack} type='button'>
+              ← {genericBackLabel}
             </button>
           ) : null}
           <LineChart className={styles['panel-title-icon']} size={16} />

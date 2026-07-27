@@ -8,6 +8,7 @@ import type {
   BoardDetail,
   StocksenseApi,
   HotFocusTab,
+  HotFocusItem,
   MarketNewsItem,
   MarketTab,
   PagedMarketNews,
@@ -16,6 +17,8 @@ import type {
   IAppUpdateState,
   IStockNewsPreferences,
 } from './types.js';
+import StockSDK from 'stock-sdk';
+import { listHotStockHintSource, type IHotStockHintLoaders } from './hot-stock-hints-service.js';
 
 const defaultConfig: AppConfig = {
   theme: 'dark',
@@ -194,6 +197,115 @@ const browserUpdateState: IAppUpdateState = {
   message: '自动升级仅在 Electron 桌面端可用',
 };
 
+let browserStockSdk: StockSDK | undefined;
+
+function getBrowserStockSdk(): StockSDK {
+  if (!browserStockSdk) {
+    browserStockSdk = new StockSDK({ timeout: 12_000 });
+  }
+  return browserStockSdk;
+}
+
+function browserHotStockLoaders(): IHotStockHintLoaders {
+  const sdk = getBrowserStockSdk();
+  return {
+    isTradingDay: (date) => sdk.calendar.isTradingDay(date),
+    previousTradingDay: (date) => sdk.calendar.prevTradingDay(date),
+    listCurrentHotFocus: async () => {
+      const [changes, ztPool, sector] = await Promise.allSettled([
+        sdk.marketEvent.stockChanges('all'),
+        sdk.marketEvent.ztPool('zt'),
+        sdk.fundFlow.sectorRank({ indicator: 'today' }),
+      ]);
+      const items: HotFocusItem[] = [];
+      if (changes.status === 'fulfilled') {
+        for (const item of changes.value) {
+          if (item.code && item.name) {
+            items.push({
+              id: `browser-change-${item.code}-${item.time ?? 'latest'}`,
+              title: `${item.name} ${item.code}`,
+              code: item.code,
+              name: item.name,
+              description: item.changeTypeLabel,
+              tag: item.changeTypeLabel,
+              type: item.changeTypeLabel?.includes('卖') || item.changeTypeLabel?.includes('跌') ? 'plummet' : 'surge',
+            });
+          }
+        }
+      }
+      if (ztPool.status === 'fulfilled') {
+        for (const item of ztPool.value) {
+          if (item.code && item.name && !items.some((existing) => existing.code === item.code)) {
+            items.push({
+              id: `browser-zt-${item.code}`,
+              title: `${item.name} ${item.code}`,
+              code: item.code,
+              name: item.name,
+              description: item.ztStatistics ?? '涨停',
+              tag: '封涨停板',
+              type: 'surge',
+            });
+          }
+        }
+      }
+      if (sector.status === 'fulfilled' && sector.value.length) {
+        for (const item of sector.value.slice(0, 10)) {
+          if (item.topStockCode && item.topStockName && !items.some((existing) => existing.code === item.topStockCode)) {
+            items.push({
+              id: `browser-sector-${item.code}-${item.topStockCode}`,
+              title: `${item.topStockName} ${item.topStockCode}`,
+              code: item.topStockCode,
+              name: item.topStockName,
+              description: `领涨板块：${item.name}`,
+              tag: item.name,
+              type: 'surge',
+            });
+          }
+        }
+      }
+      return items;
+    },
+    listPreviousSurge: async (date) => {
+      const [ztPool, sector] = await Promise.allSettled([
+        sdk.marketEvent.ztPool('zt', date),
+        sdk.fundFlow.sectorRank({ indicator: 'today' }),
+      ]);
+      const items: HotFocusItem[] = [];
+      if (ztPool.status === 'fulfilled') {
+        for (const item of ztPool.value) {
+          if (item.code && item.name) {
+            items.push({
+              id: `browser-prev-zt-${date}-${item.code}`,
+              title: `${item.name} ${item.code}`,
+              code: item.code,
+              name: item.name,
+              description: item.ztStatistics ?? '涨停',
+              tag: '封涨停板',
+              type: 'surge',
+            });
+          }
+        }
+      }
+      if (sector.status === 'fulfilled' && sector.value.length) {
+        for (const item of sector.value.slice(0, 10)) {
+          if (item.topStockCode && item.topStockName && !items.some((existing) => existing.code === item.topStockCode)) {
+            items.push({
+              id: `browser-prev-sector-${date}-${item.code}-${item.topStockCode}`,
+              title: `${item.topStockName} ${item.topStockCode}`,
+              code: item.topStockCode,
+              name: item.topStockName,
+              description: `领涨板块：${item.name}`,
+              tag: item.name,
+              type: 'surge',
+            });
+          }
+        }
+      }
+      return items;
+    },
+  };
+}
+
 const webFallbackApi: StocksenseApi = {
   async getConfig() {
     return readConfig();
@@ -334,7 +446,13 @@ const webFallbackApi: StocksenseApi = {
     return [];
   },
   async getHotStockHintSource(): Promise<IHotStockHintSource> {
-    return { items: [], isPreviousTradeDay: false };
+    try {
+      const loaders = browserHotStockLoaders();
+      return await listHotStockHintSource(new Date(), loaders);
+    } catch (error: unknown) {
+      console.error('获取热点推荐失败', error);
+      return { items: [], isPreviousTradeDay: false };
+    }
   },
   async listSurgeHistoryDates() {
     return [];

@@ -354,7 +354,7 @@
 }
 .marketTable th:nth-child(3),
 .marketTable td:nth-child(3) {
-  min-width: 150px;
+  min-width: 80px;
 }
 .marketTable th:last-child,
 .marketTable td:last-child {
@@ -375,9 +375,24 @@
 }
 .marketTable tbody tr {
   cursor: pointer;
+  will-change: transform;
 }
 .marketTable tbody tr:hover {
   background: var(--list-item-hover);
+}
+.cellUpdated {
+  animation: market-cell-updated 1s ease-out;
+}
+@keyframes market-cell-updated {
+  0% {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  45% {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
 }
 .loadState {
   height: 42px;

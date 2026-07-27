@@ -459,6 +459,7 @@ export interface MarketQuoteRow {
   prevClose?: number | string;
   turnoverRate?: number | string;
   marketCap?: number | string;
+  industry?: string;
 }
 
 export interface MarketBoardRow {

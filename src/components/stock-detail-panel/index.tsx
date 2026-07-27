@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type { StockDetail } from '../../shared/types';
 import { Empty } from '../empty';
 import { useAppStore } from '../../store/app-store';
+import type { RightPanelTab } from '../../store/app-store';
 import { BoardDetailPanel } from './components/board-detail-panel';
 import { FavoritesPanel } from './components/favorites-panel';
 import { MarketNewsPanel } from './components/market-news-panel';
@@ -10,14 +11,27 @@ import { StockDetailView } from './components/stock-detail-view';
 import { StockSurgePanel } from './components/stock-surge-panel';
 import styles from './index.module.scss';
 
+const BACK_LABELS: Record<RightPanelTab, string> = {
+  favorites: '收藏个股',
+  board: '板块详情',
+  surge: '异动',
+  news: '新闻',
+  stock: '返回',
+};
+
 export function StockDetailPanel() {
   const [surgeReturnCode, setSurgeReturnCode] = useState<string>();
+  const previousTabRef = useRef<RightPanelTab>();
   const selectedStock = useAppStore((state) => state.selectedStock);
   const selectedBoard = useAppStore((state) => state.selectedBoard);
   const rightPanelTab = useAppStore((state) => state.rightPanelTab);
   const isRightPanelCollapsed = useAppStore((state) => state.isRightPanelCollapsed);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+
+  useEffect(() => {
+    if (rightPanelTab !== 'stock') previousTabRef.current = rightPanelTab;
+  }, [rightPanelTab]);
 
   const openSurgeStock = async (stock: StockDetail) => {
     setSurgeReturnCode(stock.code);
@@ -36,6 +50,14 @@ export function StockDetailPanel() {
   };
 
   const showSurgeBack = Boolean(selectedStock && selectedStock.code === surgeReturnCode);
+
+  const previousTab = previousTabRef.current;
+  const showGenericBack =
+    !showSurgeBack && Boolean(selectedStock) && Boolean(previousTab) && previousTab !== 'stock';
+
+  const handleGenericBack = () => {
+    if (previousTab) setRightPanelTab(previousTab);
+  };
 
   return (
     <aside className={`${styles['right-panel']} right-panel`}>
@@ -63,7 +85,12 @@ export function StockDetailPanel() {
         />
       ) : null}
       {rightPanelTab === 'stock' ? (
-        <StockDetailView returnToSurge={showSurgeBack} onReturnToSurge={returnToSurge} />
+        <StockDetailView
+          returnToSurge={showSurgeBack}
+          onReturnToSurge={returnToSurge}
+          onGenericBack={showGenericBack ? handleGenericBack : undefined}
+          genericBackLabel={showGenericBack && previousTab ? BACK_LABELS[previousTab] : undefined}
+        />
       ) : null}
     </aside>
   );
