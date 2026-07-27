@@ -115,7 +115,7 @@ export interface EvidenceItem {
   periodStart?: string;
   periodEnd?: string;
   isComplete?: boolean;
-  adjustType?: 'qfq' | 'none';
+  adjustType?: 'qfq' | 'none' | 'qfq_weekly' | 'qfq_monthly';
   raw?: unknown;
 }
 
@@ -671,7 +671,24 @@ export interface IDesktopNotificationResult {
   reason?: string;
 }
 
+export interface IStorageStats {
+  chat: { label: string; bytes: number };
+  config: { label: string; bytes: number };
+  quotes: { label: string; bytes: number };
+  market: { label: string; bytes: number };
+  surge: { label: string; bytes: number };
+}
+
+export interface IDiskInfo {
+  totalBytes: number;
+  freeBytes: number;
+  usedByAppBytes: number;
+}
+
 export interface StocksenseApi {
+  getStorageStats(): Promise<IStorageStats>;
+  clearStorage(keys: string[]): Promise<IStorageStats>;
+  getDiskInfo(): Promise<IDiskInfo>;
   captureAnalytics?(event: string, properties?: AnalyticsProperties): Promise<void>;
   getConfig(): Promise<AppConfig>;
   setConfig(config: AppConfig): Promise<AppConfig>;

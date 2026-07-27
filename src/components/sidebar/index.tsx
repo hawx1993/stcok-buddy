@@ -1,6 +1,6 @@
 import { Dropdown, message as antdMessage } from 'antd';
 import type { MenuProps } from 'antd';
-import { BarChart3, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
+import { BarChart3, Database, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
 import { useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../store/app-store';
 import { ThemeToggle } from '../theme-toggle';
@@ -82,6 +82,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const clearMessages = useAppStore((state) => state.clearMessages);
   const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
   const setAboutOpen = useAppStore((state) => state.setAboutOpen);
+  const setStorageManagerOpen = useAppStore((state) => state.setStorageManagerOpen);
   const setMainView = useAppStore((state) => state.setMainView);
 
   const createConversation = createChatConversation;
@@ -136,6 +137,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const menuItems: MenuProps['items'] = [
     { key: 'about', label: menuLabel(<Info size={15} />, '关于 StockBuddy'), className: styles['about-menu-item'] },
     { key: 'settings', label: menuLabel(<Settings size={15} />, '系统设置', settingsShortcut) },
+    { key: 'storage', label: menuLabel(<Database size={15} />, '存储空间管理') },
     { key: 'check-update', label: menuLabel(<RefreshCw size={15} />, '检查更新') },
     { key: 'release-notes', label: menuLabel(<FileText size={15} />, '更新日志') },
     { key: 'feedback', label: menuLabel(<HelpCircle size={15} />, '帮助与反馈') },
@@ -168,6 +170,11 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
     if (key === 'about') {
       trackButtonClick('open_about_stockbuddy');
       setAboutOpen(true);
+    }
+    if (key === 'storage') {
+      trackButtonClick('open_storage_manager');
+      setStorageManagerOpen(true);
+      return;
     }
   };
 

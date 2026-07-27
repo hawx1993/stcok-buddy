@@ -556,6 +556,15 @@ const webFallbackApi: StocksenseApi = {
   async selectAppUpdateDownloadDirectory() {
     throw new Error('更新下载目录仅在 Electron 桌面端可配置');
   },
+  async getStorageStats() {
+    return { chat: { label: '聊天记录', bytes: 0 }, config: { label: '应用配置和收藏', bytes: 0 }, quotes: { label: '最新行情缓存', bytes: 0 }, market: { label: '本地行情数据库', bytes: 0 }, surge: { label: '异动/热点历史', bytes: 0 } };
+  },
+  async clearStorage(_keys: string[]) {
+    throw new Error('存储空间管理仅在 Electron 桌面端可用');
+  },
+  async getDiskInfo() {
+    return { totalBytes: 0, freeBytes: 0, usedByAppBytes: 0 };
+  },
 };
 
 function webMessage(request: ChatRequest, content: string): ChatResponse {

@@ -7,7 +7,12 @@ import type {
   MarketQuoteRow,
   MarketTab,
 } from '../../../src/shared/types.js';
-import { listDailyBars, listLatestMarketRows, listSecurities } from '../market-data/market-data-store.js';
+import {
+  listDailyBars,
+  listLatestMarketRows,
+  listSecurities,
+  updateSecurityIndustries,
+} from '../market-data/market-data-store.js';
 import { pickString } from './format.js';
 import {
   fetchEastmoneyClist,
@@ -176,7 +181,14 @@ async function enrichMarketPageRows(rows: MarketQuoteRow[], tab: MarketTab): Pro
     loadEastmoneyIndustryMapForRows(rows).catch(() => new Map<string, string>()),
     loadBoardConstituentIndustryMap().catch(() => new Map<string, string>()),
   ]);
-  return mergeMarketPageIndustries(rows, [rowIndustryMap, eastmoneyIndustryMap, localIndustryMap, boardIndustryMap]);
+  const enriched = mergeMarketPageIndustries(rows, [
+    rowIndustryMap,
+    eastmoneyIndustryMap,
+    localIndustryMap,
+    boardIndustryMap,
+  ]);
+  persistResolvedIndustries(rows, enriched);
+  return enriched;
 }
 
 function mergeMarketPageIndustries(rows: MarketQuoteRow[], industryMaps: Array<Map<string, string>>): MarketQuoteRow[] {
@@ -196,6 +208,19 @@ function mergeMarketPageIndustries(rows: MarketQuoteRow[], industryMaps: Array<M
   return changed ? enriched : rows;
 }
 
+/** Persist newly-resolved stock→industry mappings to DuckDB so they survive restarts and work offline. */
+function persistResolvedIndustries(original: MarketQuoteRow[], enriched: MarketQuoteRow[]) {
+  const mappings: Array<{ symbol: string; industry: string }> = [];
+  for (let i = 0; i < enriched.length; i++) {
+    const prev = normalizeIndustryName(original[i]?.industry);
+    const next = normalizeIndustryName(enriched[i].industry);
+    if (!prev && next) mappings.push({ symbol: enriched[i].code, industry: next });
+  }
+  if (mappings.length) {
+    updateSecurityIndustries(mappings).catch((err) => console.warn('[market] persist industries failed', err));
+  }
+}
+
 function hasMissingMarketPageIndustries(rows: MarketQuoteRow[]) {
   return rows.some((row) => !normalizeIndustryName(row.industry));
 }
@@ -213,7 +238,9 @@ async function enrichMarketPageRowsFast(rows: MarketQuoteRow[], tab: MarketTab):
       () => new Map<string, string>(),
     ),
   ]);
-  return mergeMarketPageIndustries(rows, [rowIndustryMap, eastmoneyIndustryMap, localIndustryMap]);
+  const enriched = mergeMarketPageIndustries(rows, [rowIndustryMap, eastmoneyIndustryMap, localIndustryMap]);
+  persistResolvedIndustries(rows, enriched);
+  return enriched;
 }
 
 function scheduleMarketPageIndustryRefresh(snapshot: MarketPageSnapshot) {

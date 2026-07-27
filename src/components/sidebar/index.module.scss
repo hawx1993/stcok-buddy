@@ -5,7 +5,7 @@
   isolation: isolate;
   backdrop-filter: blur(14px) saturate(112%);
   -webkit-backdrop-filter: blur(14px) saturate(112%);
-  border-right: 1px solid var(--glass-border);
+  border-right: 0.5px solid var(--glass-border);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -492,14 +492,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.account-dropdown {
+  // 确保 popup 容器透明，不阻挡内部 menu 的毛玻璃效果
+  background: transparent;
+}
+
 .account-dropdown :global(.ant-dropdown-menu) {
   min-width: 210px;
   padding: 6px;
-  border: 1px solid var(--glass-border);
   border-radius: 12px;
-  background: var(--surface);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
 }
 .account-dropdown :global(.ant-dropdown-menu-item),

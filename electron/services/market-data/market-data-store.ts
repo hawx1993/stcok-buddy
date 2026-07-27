@@ -120,6 +120,27 @@ export function upsertSecurities(items: SecurityRecord[]) {
   });
 }
 
+export function updateSecurityIndustries(items: Array<{ symbol: string; industry: string }>) {
+  if (!items.length) return Promise.resolve();
+  return write(async (connection) => {
+    await connection.run('BEGIN TRANSACTION');
+    try {
+      const statement = await connection.prepare(
+        'UPDATE securities SET industry = $industry, updated_at = $updatedAt WHERE symbol = $symbol',
+      );
+      const now = new Date().toISOString();
+      for (const item of items) {
+        statement.bind({ symbol: item.symbol, industry: item.industry, updatedAt: now });
+        await statement.run();
+      }
+      await connection.run('COMMIT');
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
 export function upsertTradingCalendar(items: TradeCalendarRecord[]) {
   if (!items.length) return Promise.resolve();
   return write(async (connection) => {

@@ -7,7 +7,8 @@ import type {
   MarketSearchResult,
   StockDetail,
 } from '../../../src/shared/types.js';
-import { listDailyBars } from '../market-data/market-data-store.js';
+import { listDailyBars, upsertDailyBars } from '../market-data/market-data-store.js';
+import type { AdjustType, DailyBarRecord } from '../market-data/types.js';
 import { queryHistoricalBars, queryLatestQuote } from '../market-data/market-data-query.js';
 import { formatMoney, formatNumber, formatPercent } from './format.js';
 import {
@@ -22,6 +23,7 @@ import {
   withTimeoutReject,
   sdk,
 } from './shared.js';
+import type { IndexKlinePeriod } from './shared.js';
 
 import { analyzeIndicators } from './indicators.js';
 import { calculateChipDistribution, chipRowsToResult } from './chip-distribution.js';
@@ -97,25 +99,78 @@ export async function getKline(
 ): Promise<KlinePoint[]> {
   const indexCode = normalizeIndexSymbol(symbolInput);
   if (indexCode) {
-    const snapshot = isIndexKlinePeriod(period)
-      ? await fetchMarketIndex(indexCode, period, limit, beforeTimestamp)
-      : undefined;
+    if (!isIndexKlinePeriod(period)) return [];
+    // Daily/weekly/monthly: persist to local DB for offline access
+    if (period === '1d' || period === '1w' || period === '1mo') {
+      return getCachedIndexKline(indexCode, period, limit, beforeTimestamp);
+    }
+    // Intraday (15m/1h/4h): remote-only, too granular for daily_bars table
+    const snapshot = await fetchMarketIndex(indexCode, period, limit, beforeTimestamp);
     return (snapshot?.minutes ?? []).slice(-limit);
   }
 
   const symbol = normalizeASymbol(symbolInput);
   if (period === '1d') {
-    // ponytail: DuckDB may hang on IO error — try direct APIs first, use DB as cache only
-    const direct = await fetchDailyKlineDirect(symbol, limit, beforeTimestamp);
-    if (direct.length) return direct;
-    // Last resort: try DB (may hang, but we already have data from direct)
-    try {
-      const fromDb = await queryHistoricalBars(symbol, { limit, period: '1d', adjustType: 'qfq' });
-      if (fromDb.data.length) return fromDb.data;
-    } catch {
-      /* DB broken, already returned direct data or empty */
+    // Remote-first (fastest path), fallback to DuckDB, persist remote data for offline
+    let data = await fetchDailyKlineDirect(symbol, limit, beforeTimestamp);
+    if (!data.length) {
+      try {
+        const result = await queryHistoricalBars(symbol, {
+          limit,
+          period: '1d',
+          adjustType: 'qfq',
+          ...(beforeTimestamp ? { endDate: timestampToDate(beforeTimestamp) } : {}),
+        });
+        data = result.data;
+      } catch {
+        /* DB also failed */
+      }
+    } else {
+      // Cache remote data to DuckDB for offline access (fire-and-forget)
+      persistDailyKlineToDb(symbol, data);
     }
-    return [];
+    return data;
+  }
+  if (period === '1w' || period === '1mo') {
+    const wmAdjust = (period === '1w' ? 'qfq_weekly' : 'qfq_monthly') as AdjustType;
+    // Local DB first
+    try {
+      const cached = await listDailyBars(symbol, { limit, adjustType: wmAdjust });
+      if (cached.length >= limit) return cached.map(dailyBarToKline);
+    } catch { /* DB read failed, fall through to remote */ }
+    // Fetch remote and persist
+    try {
+      const remote = await fetchWeeklyMonthlyRemote(symbol, period, limit, beforeTimestamp);
+      if (remote.length) {
+        const bars: DailyBarRecord[] = remote
+          .filter((p) => p.time && /^\d{4}-?\d{2}-?\d{2}/.test(p.time))
+          .map((p) => ({
+            symbol,
+            tradeDate: p.time.slice(0, 10),
+            open: p.open,
+            high: p.high,
+            low: p.low,
+            close: p.close,
+            volume: p.volume,
+            amount: p.amount,
+            change: p.change,
+            changePercent: p.changePercent,
+            turnoverRate: p.turnoverRate,
+            adjustType: wmAdjust,
+            source: 'stock-sdk:tencent',
+            fetchedAt: new Date().toISOString(),
+          }));
+        if (bars.length) upsertDailyBars(bars).catch((err) => console.warn('[stock-client] weekly/monthly persist failed', err));
+        return remote;
+      }
+    } catch (err) {
+      console.warn('[stock-client] weekly/monthly remote failed', err);
+    }
+    // Last resort: partial local data
+    try {
+      const cached = await listDailyBars(symbol, { limit, adjustType: wmAdjust });
+      return cached.map(dailyBarToKline);
+    } catch { return []; }
   }
   try {
     if (period === '15m') return getTencentMinuteKline(symbol, limit, '15', beforeTimestamp);
@@ -154,6 +209,157 @@ async function fetchDailyKlineDirect(symbol: string, limit: number, beforeTimest
   } catch {
     return [];
   }
+}
+
+function timestampToDate(ts: number): string {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+function persistDailyKlineToDb(symbol: string, points: KlinePoint[]): void {
+  const bars: DailyBarRecord[] = points
+    .filter((p) => p.time && /^\d{4}-?\d{2}-?\d{2}/.test(p.time))
+    .map((p) => ({
+      symbol,
+      tradeDate: p.time.slice(0, 10),
+      open: p.open,
+      high: p.high,
+      low: p.low,
+      close: p.close,
+      volume: p.volume,
+      amount: p.amount,
+      change: p.change,
+      changePercent: p.changePercent,
+      turnoverRate: p.turnoverRate,
+      adjustType: 'qfq' as AdjustType,
+      source: 'stock-sdk:tencent',
+      fetchedAt: new Date().toISOString(),
+    }));
+  if (bars.length) upsertDailyBars(bars).catch((err) => console.warn('[stock-client] daily kline persist failed', err));
+}
+
+function dailyBarToKline(bar: DailyBarRecord): KlinePoint {
+  return {
+    time: bar.tradeDate,
+    timestamp: parseMarketTime(bar.tradeDate),
+    open: bar.open,
+    close: bar.close,
+    high: bar.high,
+    low: bar.low,
+    volume: bar.volume,
+    amount: bar.amount,
+    change: bar.change,
+    changePercent: bar.changePercent,
+    turnoverRate: bar.turnoverRate,
+  };
+}
+
+async function fetchWeeklyMonthlyRemote(
+  symbol: string,
+  period: '1w' | '1mo',
+  limit: number,
+  beforeTimestamp?: number,
+): Promise<KlinePoint[]> {
+  const tencent = await getTencentHistoryKline(symbol, limit, period, beforeTimestamp);
+  if (tencent.length) return tencent;
+  const data = await sdk.kline.cn(symbol, { period: toSdkKlinePeriod(period), adjust: 'qfq' as const });
+  return data
+    .slice(-limit)
+    .map(toKlinePoint)
+    .filter((p): p is KlinePoint => Boolean(p));
+}
+
+/** Cache index K-line to DuckDB so it's available offline. Reads local DB first, fetches remote on miss. */
+async function getCachedIndexKline(
+  indexCode: 'sh000001' | 'sz399001',
+  period: IndexKlinePeriod,
+  limit: number,
+  beforeTimestamp?: number,
+): Promise<KlinePoint[]> {
+  const dbSymbol = indexCode.replace(/^(sh|sz)/, '');
+
+  // Try local DB first
+  try {
+    const local = await listDailyBars(dbSymbol, { limit, adjustType: 'qfq' });
+    if (local.length >= limit) {
+      return local.map((bar) => ({
+        time: bar.tradeDate,
+        timestamp: parseMarketTime(bar.tradeDate),
+        open: bar.open,
+        close: bar.close,
+        high: bar.high,
+        low: bar.low,
+        volume: bar.volume,
+        amount: bar.amount,
+        change: bar.change,
+        changePercent: bar.changePercent,
+        turnoverRate: bar.turnoverRate,
+      }));
+    }
+  } catch {
+    // DB read failed, continue to remote fetch
+  }
+
+  // Fetch from remote and persist
+  try {
+    const snapshot = await fetchMarketIndex(indexCode, period, limit, beforeTimestamp);
+    if (snapshot?.minutes?.length) {
+      // Persist to local DB for offline access (fire-and-forget, don't block UI)
+      const bars: DailyBarRecord[] = snapshot.minutes
+        .filter((p) => p.time && /^\d{4}-?\d{2}-?\d{2}/.test(p.time))
+        .map((p) => ({
+          symbol: dbSymbol,
+          tradeDate: normalizeIndexDate(p.time),
+          open: p.open,
+          high: p.high,
+          low: p.low,
+          close: p.close,
+          volume: p.volume,
+          amount: p.amount,
+          change: p.change,
+          changePercent: p.changePercent,
+          turnoverRate: p.turnoverRate,
+          adjustType: 'qfq' as const,
+          source: 'stock-sdk:tencent-index',
+          fetchedAt: new Date().toISOString(),
+        }));
+      if (bars.length) {
+        upsertDailyBars(bars).catch((err) =>
+          console.warn('[market-data] index kline persist failed', err),
+        );
+      }
+      return snapshot.minutes.slice(-limit);
+    }
+  } catch (err) {
+    console.warn('[market-data] index kline remote fetch failed', err);
+  }
+
+  // Last resort: return whatever partial data is in local DB
+  try {
+    const local = await listDailyBars(dbSymbol, { limit, adjustType: 'qfq' });
+    return local.map((bar) => ({
+      time: bar.tradeDate,
+      timestamp: parseMarketTime(bar.tradeDate),
+      open: bar.open,
+      close: bar.close,
+      high: bar.high,
+      low: bar.low,
+      volume: bar.volume,
+      amount: bar.amount,
+      change: bar.change,
+      changePercent: bar.changePercent,
+      turnoverRate: bar.turnoverRate,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Normalize Tencent compact dates ("20240722") to ISO ("2024-07-22") for DuckDB DATE columns. */
+function normalizeIndexDate(time: string): string {
+  const compact = time.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(time)) return time;
+  return time.slice(0, 10);
 }
 
 function toSdkKlinePeriod(period: string): 'daily' | 'weekly' | 'monthly' {

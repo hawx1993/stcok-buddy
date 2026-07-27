@@ -9,6 +9,7 @@ import { NewsReader } from './components/news-reader';
 import { StockDetailPanel } from './components/stock-detail-panel';
 import { SettingsModal } from './components/settings-modal';
 import { AboutModal } from './components/about-modal';
+import { StorageManagerModal } from './components/storage-manager-modal';
 import { ErrorBoundary } from './components/error-boundary';
 import { getStocksenseApi } from './shared/stocksense-api';
 import { track, trackButtonClick, trackPageView } from './shared/analytics';
@@ -201,6 +202,9 @@ export function App() {
         </ErrorBoundary>
         <ErrorBoundary name='关于 StockBuddy'>
           <AboutModal />
+        </ErrorBoundary>
+        <ErrorBoundary name='存储空间管理'>
+          <StorageManagerModal />
         </ErrorBoundary>
       </div>
     </div>

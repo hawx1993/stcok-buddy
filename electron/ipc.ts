@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { statSync, statfsSync, unlinkSync } from 'node:fs';
+import path from 'node:path';
 import type {
   AnalyticsProperties,
   AppConfig,
@@ -7,12 +9,15 @@ import type {
   FavoriteStock,
   HotFocusTab,
   IAppUpdateSettings,
+  IDiskInfo,
+  IStorageStats,
   MarketIndexPeriod,
   MarketNewsItem,
   MarketTab,
 } from '../src/shared/types.js';
 import {
   addStockNewsSubscription,
+  defaultConfig,
   getConfig,
   getStockNewsPreferences,
   listFavoriteStocks,
@@ -20,10 +25,12 @@ import {
   removeStockNewsSubscription,
   setConfig,
   setStockNewsFavoritesOnly,
+  store,
   toggleFavoriteStockPin,
   upsertFavoriteStock,
 } from './services/config-store.js';
 import {
+  closeConversationStore,
   createConversation,
   deleteConversation,
   listConversations,
@@ -71,6 +78,9 @@ import {
   listStoreItems,
   uninstallStoreItem,
 } from './services/store-service.js';
+import { closeQuoteStore, flushQuoteRows, initializeQuoteStore } from './services/stock/quote-store.js';
+import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
+import { closeMarketDataStore, getMarketDataDatabasePath, initializeMarketDataStore } from './services/market-data/market-data-store.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
 import { testModelConnection } from './services/llm/index.js';
 import { notifyAiResponseCompleted, notifyAiResponseTest } from './services/desktop-notification.js';
@@ -253,6 +263,12 @@ export function registerIpcHandlers() {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('appUpdate:stateChanged', state);
   });
   app.once('before-quit', removeAppUpdateListener);
+
+  // ── storage space management ──
+  ipcMain.handle('storage:getStats', () => getStorageStats());
+  ipcMain.handle('storage:clear', (_event, keys: string[]) => clearStorages(keys));
+  ipcMain.handle('system:getDiskInfo', () => getDiskInfo());
+
   ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
     const startedAt = Date.now();
     const command = request.message.trim().startsWith('/') ? request.message.trim().split(/\s+/, 1)[0] : undefined;
@@ -288,4 +304,82 @@ export function registerIpcHandlers() {
       throw error;
     }
   });
+}
+
+// ── storage: helpers ──
+
+function fileSize(filePath: string) {
+  try { return statSync(filePath).size; } catch { return 0; }
+}
+
+function userDataDir() {
+  return app.getPath('userData');
+}
+
+function getStorageStats(): IStorageStats {
+  const chatPath = path.join(userDataDir(), 'stocksense-chat.sqlite');
+  const quotesSqlite = app.isPackaged ? 'stocksense-quotes.sqlite' : 'stocksense-quotes-dev.sqlite';
+  const quotesPath = path.join(userDataDir(), quotesSqlite);
+  const configPath = path.join(userDataDir(), 'stocksense-store.json');
+  const surgeDb = app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb';
+  const surgePath = path.join(userDataDir(), surgeDb);
+  const marketPath = getMarketDataDatabasePath();
+
+  return {
+    chat:     { label: '聊天记录',    bytes: fileSize(chatPath) },
+    config:   { label: '应用配置和收藏', bytes: fileSize(configPath) },
+    quotes:   { label: '最新行情缓存',  bytes: fileSize(quotesPath) },
+    market:   { label: '本地行情数据库', bytes: fileSize(marketPath) },
+    surge:    { label: '异动/热点历史', bytes: fileSize(surgePath) },
+  };
+}
+
+function getDiskInfo(): IDiskInfo {
+  const stats = getStorageStats();
+  const usedByAppBytes = stats.chat.bytes + stats.config.bytes + stats.quotes.bytes + stats.market.bytes + stats.surge.bytes;
+  let totalBytes = 0;
+  let freeBytes = 0;
+  try {
+    const s = statfsSync(userDataDir());
+    totalBytes = Number(s.blocks) * Number(s.bsize);
+    freeBytes = Number(s.bavail > 0 ? s.bavail : s.bfree) * Number(s.bsize);
+  } catch { /* fall back to zeros if statfs not available */ }
+  return { totalBytes, freeBytes, usedByAppBytes };
+}
+
+async function clearStorages(keys: string[]) {
+  for (const key of keys) {
+    switch (key) {
+      case 'chat':
+        closeConversationStore();
+        try { unlinkSync(path.join(userDataDir(), 'stocksense-chat.sqlite')); } catch { /* file may not exist */ }
+        break;
+      case 'config':
+        store.clear();
+        store.set({
+          config: defaultConfig,
+          favoriteStocks: [],
+          installedStoreItems: [],
+          stockNewsPreferences: { favoritesOnly: false, manualStocks: [] },
+          deviceId: store.get('deviceId', ''),
+        });
+        break;
+      case 'quotes':
+        flushQuoteRows();
+        closeQuoteStore();
+        const quotesName = app.isPackaged ? 'stocksense-quotes.sqlite' : 'stocksense-quotes-dev.sqlite';
+        try { unlinkSync(path.join(userDataDir(), quotesName)); } catch { /* file may not exist */ }
+        break;
+      case 'market':
+        await closeMarketDataStore();
+        try { unlinkSync(getMarketDataDatabasePath()); } catch { /* file may not exist */ }
+        break;
+      case 'surge':
+        await closeSurgeHistoryStore();
+        const surgeName = app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb';
+        try { unlinkSync(path.join(userDataDir(), surgeName)); } catch { /* file may not exist */ }
+        break;
+    }
+  }
+  return getStorageStats();
 }

@@ -95,6 +95,9 @@ const api: StocksenseApi = {
   installAppUpdate: () => ipcRenderer.invoke('appUpdate:install'),
   openAppReleaseNotes: () => ipcRenderer.invoke('appUpdate:openReleaseNotes'),
   selectAppUpdateDownloadDirectory: () => ipcRenderer.invoke('appUpdate:selectDownloadDirectory'),
+  getStorageStats: () => ipcRenderer.invoke('storage:getStats'),
+  clearStorage: (keys: string[]) => ipcRenderer.invoke('storage:clear', keys),
+  getDiskInfo: () => ipcRenderer.invoke('system:getDiskInfo'),
   onAppUpdateStateChanged: (handler: (state: IAppUpdateState) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, state: IAppUpdateState) => handler(state);
     ipcRenderer.on('appUpdate:stateChanged', listener);

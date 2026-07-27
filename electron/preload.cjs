@@ -76,6 +76,9 @@ const api = {
     ipcRenderer.on('appUpdate:stateChanged', listener);
     return () => ipcRenderer.removeListener('appUpdate:stateChanged', listener);
   },
+  getStorageStats: () => ipcRenderer.invoke('storage:getStats'),
+  clearStorage: (keys) => ipcRenderer.invoke('storage:clear', keys),
+  getDiskInfo: () => ipcRenderer.invoke('system:getDiskInfo'),
 };
 
 contextBridge.exposeInMainWorld('stocksense', api);
