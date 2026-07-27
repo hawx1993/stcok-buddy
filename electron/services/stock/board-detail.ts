@@ -246,8 +246,8 @@ async function firstBoardKlineFromTargets(targets: string[]): Promise<KlinePoint
 
 async function getAStockBoardKline(symbol: string, period: MarketIndexPeriod): Promise<KlinePoint[]> {
   if (!/^BK\d+/i.test(symbol)) return [];
-  const klt = ({ '15m': '15', '1h': '60', '4h': '60', '1d': '101' } as const)[period];
-  const limit = period === '4h' ? 80 : period === '1d' ? 120 : 60;
+  const klt = ({ '15m': '15', '1h': '60', '4h': '60', '1d': '101', '1w': '102', '1mo': '103' } as const)[period];
+  const limit = period === '4h' ? 80 : period === '1d' ? 120 : period === '1w' ? 240 : period === '1mo' ? 120 : 60;
   const params = new URLSearchParams({
     secid: `90.${symbol.toUpperCase()}`,
     fields1: 'f1,f2,f3,f4,f5,f6',

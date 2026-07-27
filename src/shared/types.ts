@@ -445,7 +445,7 @@ export interface IMarketNewsSummaryState {
 
 export type HotFocusTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
 export type MarketTab = 'sh-main' | 'sz-main' | 'bj' | 'gem' | 'star';
-export type MarketIndexPeriod = '15m' | '1h' | '4h' | '1d';
+export type MarketIndexPeriod = '15m' | '1h' | '4h' | '1d' | '1w' | '1mo';
 
 export interface MarketQuoteRow {
   code: string;

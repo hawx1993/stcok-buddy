@@ -8,8 +8,9 @@ import styles from '../../kline-chart/index.module.scss';
 const periods: Array<{ id: MarketIndexPeriod; label: string }> = [
   { id: '15m', label: '15分钟' },
   { id: '1h', label: '1小时' },
-  { id: '4h', label: '4小时' },
   { id: '1d', label: '天' },
+  { id: '1w', label: '周' },
+  { id: '1mo', label: '月' },
 ];
 
 interface IndexKlineModalProps {
