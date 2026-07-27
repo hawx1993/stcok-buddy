@@ -314,6 +314,14 @@ const webFallbackApi: StocksenseApi = {
     localStorage.setItem('stocksense-config', JSON.stringify(config));
     return config;
   },
+  async getAppRuntimeInfo() {
+    return {
+      version: 'browser',
+      electronVersion: '--',
+      chromeVersion: '--',
+      nodeVersion: '--',
+    };
+  },
   async testModelConfig() {
     throw new Error('浏览器预览模式不会连接本地大模型配置，请运行 Electron 桌面端后再测试。');
   },

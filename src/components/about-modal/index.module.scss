@@ -1,0 +1,244 @@
+.about-modal {
+  --ant-modal-content-bg: var(--surface);
+  --ant-modal-header-bg: var(--surface);
+  --ant-modal-title-color: var(--fg);
+  --ant-modal-close-color: var(--fg-secondary);
+}
+
+.about-modal :global(.ant-modal-container),
+.about-modal :global(.ant-modal-content) {
+  background: var(--surface) !important;
+  color: var(--fg);
+}
+
+.about-modal :global(.ant-modal-content) {
+  border: 1px solid var(--glass-border);
+  border-radius: 28px;
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
+}
+
+.about-modal :global(.ant-modal-body) {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.about-modal :global(.ant-modal-close) {
+  color: var(--fg-secondary);
+  background: transparent;
+}
+
+.about-modal :global(.ant-modal-close-x) {
+  color: inherit;
+}
+
+.about-modal :global(.ant-modal-close:hover) {
+  color: var(--fg);
+  background: var(--surface-hover);
+}
+
+:global(:root[data-theme='light']) .about-modal :global(.ant-modal-content),
+:global(:root[data-theme='light']) .about-modal :global(.ant-modal-body) {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.content {
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 34px 38px 30px;
+  color: var(--fg);
+  background: var(--surface);
+  text-align: center;
+}
+
+.whale-stage {
+  position: relative;
+  width: 200px;
+  height: 170px;
+  display: grid;
+  place-items: center;
+  border-radius: 42px;
+  background: radial-gradient(circle at 50% 42%, rgba(59, 130, 246, 0.16), transparent 68%);
+}
+
+.whale-stage::before {
+  content: '';
+  position: absolute;
+  inset: 22px;
+  border-radius: 38px;
+  background: radial-gradient(circle at 50% 35%, rgba(125, 211, 252, 0.26), transparent 66%);
+  filter: blur(18px);
+  opacity: 0.8;
+  animation: whale-stage-glow 1.25s ease-in-out infinite;
+}
+
+.whale {
+  position: relative;
+  z-index: 1;
+  width: 124px;
+  height: 94px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: 50% 70%;
+  animation: whale-swim 1.25s ease-in-out infinite;
+}
+
+.whale :global(.whale-logo) {
+  width: 124px;
+  height: 94px;
+  display: block;
+  pointer-events: none;
+  animation: whale-float 1.25s ease-in-out infinite;
+}
+
+.whale-splash {
+  position: absolute;
+  left: 82px;
+  top: -4px;
+  width: 84px;
+  height: 84px;
+  pointer-events: none;
+}
+
+.whale-splash span {
+  position: absolute;
+  left: 10px;
+  bottom: 20px;
+  width: 14px;
+  height: 14px;
+  border: 3px solid rgba(125, 211, 252, 0.95);
+  border-radius: 999px;
+  background: rgba(224, 242, 254, 0.58);
+  box-shadow: 0 0 10px rgba(125, 211, 252, 0.58);
+  transform-origin: 50% 50%;
+  animation: whale-droplet 1.05s ease-out infinite;
+}
+
+.whale-splash span:nth-child(1) {
+  --x: -8px;
+  --y: -36px;
+  --s: 0.65;
+}
+
+.whale-splash span:nth-child(2) {
+  --x: 14px;
+  --y: -56px;
+  --s: 0.9;
+  animation-delay: 0.08s;
+}
+
+.whale-splash span:nth-child(3) {
+  --x: 36px;
+  --y: -66px;
+  --s: 0.55;
+  animation-delay: 0.16s;
+}
+
+.whale-splash span:nth-child(4) {
+  --x: 52px;
+  --y: -40px;
+  --s: 0.75;
+  animation-delay: 0.24s;
+}
+
+.whale-splash span:nth-child(5) {
+  --x: 28px;
+  --y: -22px;
+  --s: 0.45;
+  animation-delay: 0.32s;
+}
+
+.content h2 {
+  margin: 18px 0 26px;
+  color: var(--fg);
+  font-size: 30px;
+  font-weight: 800;
+  user-select: text;
+  line-height: 1.2;
+}
+
+.versions {
+  color: var(--fg);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.35;
+  user-select: text;
+}
+
+.description {
+  max-width: 430px;
+  margin: 24px 0 0;
+  color: var(--fg-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+  user-select: text;
+}
+
+@keyframes whale-swim {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(-2deg);
+  }
+  35% {
+    transform: translate(16px, -10px) rotate(3deg);
+  }
+  70% {
+    transform: translate(-6px, 6px) rotate(-1deg);
+  }
+}
+
+@keyframes whale-float {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes whale-droplet {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.2);
+  }
+  18% {
+    opacity: 0.95;
+  }
+  72% {
+    opacity: 0.75;
+    transform: translate(var(--x), var(--y)) scale(var(--s));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--x) * 1.08), calc(var(--y) * 1.08)) scale(0.15);
+  }
+}
+
+@keyframes whale-stage-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.92;
+    transform: scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .whale-stage::before,
+  .whale,
+  .whale :global(.whale-logo),
+  .whale-splash span {
+    animation: none;
+  }
+}

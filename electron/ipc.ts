@@ -89,6 +89,12 @@ export function registerIpcHandlers() {
   );
   ipcMain.handle('config:get', () => getConfig());
   ipcMain.handle('config:set', (_event, config: AppConfig) => setConfig(config));
+  ipcMain.handle('app:getRuntimeInfo', () => ({
+    version: app.getVersion(),
+    electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome,
+    nodeVersion: process.versions.node,
+  }));
   ipcMain.handle('config:testModel', (_event, config: AppConfig) => testModelConnection(config.model));
   ipcMain.handle('notification:testAiResponse', () => notifyAiResponseTest());
   ipcMain.handle('notification:openSettings', async () => {

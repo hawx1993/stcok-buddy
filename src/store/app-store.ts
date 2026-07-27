@@ -54,6 +54,7 @@ interface AppState {
   selectedStock?: StockDetail;
   selectedBoard?: BoardDetail;
   isSettingsOpen: boolean;
+  isAboutOpen: boolean;
   isSending: boolean;
   surgeStocks: SurgeStock[];
   setConfig(config: AppConfig): void;
@@ -86,6 +87,7 @@ interface AppState {
   setSelectedStock(stock?: StockDetail): void;
   setSelectedBoard(board?: BoardDetail): void;
   setSettingsOpen(open: boolean): void;
+  setAboutOpen(open: boolean): void;
   setSending(isSending: boolean): void;
 }
 
@@ -106,6 +108,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedStock: undefined,
   selectedBoard: undefined,
   isSettingsOpen: false,
+  isAboutOpen: false,
   isSending: false,
   surgeStocks: [],
   setConfig: (config) => set({ config }),
@@ -250,6 +253,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   setSelectedBoard: (board) => set({ selectedBoard: board, selectedStock: undefined }),
   setSettingsOpen: (open) => set({ isSettingsOpen: open }),
+  setAboutOpen: (open) => set({ isAboutOpen: open }),
   setSending: (isSending) => set({ isSending }),
 }));
 

@@ -21,6 +21,7 @@ const api: StocksenseApi = {
     ipcRenderer.invoke('analytics:capture', event, properties),
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config: AppConfig) => ipcRenderer.invoke('config:set', config),
+  getAppRuntimeInfo: () => ipcRenderer.invoke('app:getRuntimeInfo'),
   testModelConfig: (config) => ipcRenderer.invoke('config:testModel', config),
   testAiResponseNotification: () => ipcRenderer.invoke('notification:testAiResponse'),
   openSystemNotificationSettings: () => ipcRenderer.invoke('notification:openSettings'),

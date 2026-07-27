@@ -659,6 +659,13 @@ export interface IAppUpdateState {
   message?: string;
 }
 
+export interface IAppRuntimeInfo {
+  version: string;
+  electronVersion: string;
+  chromeVersion: string;
+  nodeVersion: string;
+}
+
 export interface IDesktopNotificationResult {
   delivered: boolean;
   reason?: string;
@@ -668,6 +675,7 @@ export interface StocksenseApi {
   captureAnalytics?(event: string, properties?: AnalyticsProperties): Promise<void>;
   getConfig(): Promise<AppConfig>;
   setConfig(config: AppConfig): Promise<AppConfig>;
+  getAppRuntimeInfo(): Promise<IAppRuntimeInfo>;
   testModelConfig(config: AppConfig): Promise<void>;
   testAiResponseNotification(): Promise<IDesktopNotificationResult>;
   openSystemNotificationSettings(): Promise<void>;

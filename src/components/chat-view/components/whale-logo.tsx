@@ -1,8 +1,18 @@
 import styles from '../index.module.scss';
 
-export function WhaleLogo() {
+interface IWhaleLogoProps {
+  width?: number;
+  height?: number;
+}
+
+export function WhaleLogo({ width, height }: IWhaleLogoProps) {
   return (
-    <svg className={styles['whale-logo']} viewBox='0 0 352 294' aria-hidden='true'>
+    <svg
+      className={styles['whale-logo']}
+      viewBox='0 0 352 294'
+      aria-hidden='true'
+      style={width || height ? { width, height } : undefined}
+    >
       <path
         fill='#F6FAFE'
         opacity='1.000000'
