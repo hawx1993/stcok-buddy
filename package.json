@@ -1,6 +1,6 @@
 {
   "name": "stockbuddy-desktop",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "StockBuddy - 对话式 A 股投研助手 Electron 跨端桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
@@ -27,6 +27,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "tsc --noEmit -p tsconfig.json",
     "selfcheck:market-data": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/market-data/market-data.selfcheck.js",
+    "selfcheck:market-page": "tsc -p tsconfig.node.json && node dist-electron/electron/services/stock/market-page.selfcheck.js",
     "selfcheck:board-detail": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/board-detail.selfcheck.js",
     "selfcheck:chip-distribution": "tsc -p tsconfig.node.json && ELECTRON_RUN_AS_NODE=1 electron dist-electron/electron/services/stock/chip-distribution.selfcheck.js",
     "selfcheck:market-review": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/market-review.selfcheck.js",

@@ -380,8 +380,12 @@
 .marketTable tbody tr:hover {
   background: var(--list-item-hover);
 }
-.cellUpdated {
+.cellUpdated,
+.rankUpdated {
   animation: market-cell-updated 1s ease-out;
+}
+.rankUpdated {
+  font-weight: 700;
 }
 @keyframes market-cell-updated {
   0% {
@@ -406,6 +410,15 @@
 }
 :global(.down) {
   color: var(--market-down) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .marketTable tbody tr {
+    will-change: auto;
+  }
+  .cellUpdated,
+  .rankUpdated {
+    animation-duration: 0.2s;
+  }
 }
 @media (max-width: 1100px) {
   .indices {

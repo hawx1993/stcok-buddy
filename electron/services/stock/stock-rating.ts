@@ -25,6 +25,7 @@ export function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
   const low = pickNumber(record, ['low', '最低', '最低价', 'f16']);
   const prevClose = pickNumber(record, ['prevClose', '昨收', '昨收价', 'f18']);
   const turnoverRate = pickNumber(record, ['turnoverRate', '换手率', 'f8']);
+  const industry = pickString(record, ['industry', '所属行业', 'f100']);
 
   return {
     code,
@@ -43,6 +44,7 @@ export function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
     volume: volume === undefined ? '--' : `${(volume / 10000).toFixed(1)}万手`,
     turnover: turnover === undefined ? '--' : `${(turnover / 100000000).toFixed(2)}亿`,
     turnoverRate: turnoverRate === undefined ? '--' : `${formatNumber(turnoverRate)}%`,
+    industry,
     rating: deriveStockRating({ pe, pb, changePercent, turnoverRate }),
     summary: `${name}（${code}）实时行情来自 stock-sdk。当前价格 ${price === undefined ? '--' : price}，涨跌幅 ${changePercent === undefined ? '--' : formatPercent(changePercent)}。`,
   };

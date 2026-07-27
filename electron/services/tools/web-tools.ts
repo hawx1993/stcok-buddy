@@ -56,10 +56,19 @@ async function readWithFirecrawl(url: string): Promise<ReadUrlOutput> {
     },
     body: JSON.stringify({ url, formats: ['markdown'] }),
   });
-  const data = await response.json() as { data?: { markdown?: string; title?: string; metadata?: { title?: string } }; markdown?: string; title?: string };
+  const data = (await response.json()) as {
+    data?: { markdown?: string; title?: string; metadata?: { title?: string } };
+    markdown?: string;
+    title?: string;
+  };
   const content = truncateText(data.data?.markdown ?? data.markdown ?? '');
   if (!content) throw new Error('Firecrawl 未返回正文');
-  return { url, title: data.data?.metadata?.title ?? data.data?.title ?? data.title ?? extractMarkdownTitle(content), content, method: 'firecrawl' };
+  return {
+    url,
+    title: data.data?.metadata?.title ?? data.data?.title ?? data.title ?? extractMarkdownTitle(content),
+    content,
+    method: 'firecrawl',
+  };
 }
 
 async function readGithubReadme(url: string): Promise<ReadUrlOutput> {
@@ -79,7 +88,13 @@ async function readGithubReadme(url: string): Promise<ReadUrlOutput> {
     try {
       const response = await fetchWithTimeout(candidate);
       const content = truncateText(await response.text());
-      if (content) return { url, title: extractMarkdownTitle(content) ?? `${owner}/${repoName}`, content, method: 'github-readme' };
+      if (content)
+        return {
+          url,
+          title: extractMarkdownTitle(content) ?? `${owner}/${repoName}`,
+          content,
+          method: 'github-readme',
+        };
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
     }
@@ -94,7 +109,9 @@ async function readWithCrawl4AI(url: string): Promise<ReadUrlOutput> {
 }
 
 function runCrawl4AI(url: string) {
-  const python = existsSync(join(process.cwd(), '.venv/bin/python')) ? join(process.cwd(), '.venv/bin/python') : 'python3';
+  const python = existsSync(join(process.cwd(), '.venv/bin/python'))
+    ? join(process.cwd(), '.venv/bin/python')
+    : 'python3';
   const script = `
 import asyncio, json, sys
 from crawl4ai import AsyncWebCrawler
@@ -133,12 +150,14 @@ async function readDirectUrl(url: string): Promise<ReadUrlOutput> {
 
 export function cleanHtml(html: string) {
   const title = decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').trim();
-  const content = decodeEntities(html
-    .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, ' ')
-    .replace(/<svg\b[\s\S]*?<\/svg>/gi, ' ')
-    .replace(/<[^>]+>/g, ' '));
+  const content = decodeEntities(
+    html
+      .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<svg\b[\s\S]*?<\/svg>/gi, ' ')
+      .replace(/<[^>]+>/g, ' '),
+  );
   return { title, content: truncateText(content) };
 }
 

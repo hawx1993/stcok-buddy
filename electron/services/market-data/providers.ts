@@ -1,5 +1,11 @@
 import StockSDK, { type FullQuote, type HistoryKline } from 'stock-sdk';
-import type { AdjustType, DailyBarRecord, HistoricalBarProvider, SecurityRecord, TradeCalendarRecord } from './types.js';
+import type {
+  AdjustType,
+  DailyBarRecord,
+  HistoricalBarProvider,
+  SecurityRecord,
+  TradeCalendarRecord,
+} from './types.js';
 
 const sdk = new StockSDK({
   timeout: 12_000,
@@ -26,7 +32,12 @@ export const stockSdkHistoricalProvider: HistoricalBarProvider = {
     const bars = rows.map((row) => toDailyBar(symbol, row, options.adjustType, fetchedAt));
     // ponytail: log first/last row dates to diagnose date format issues
     if (bars.length) {
-      console.log('[market-data] getDailyBars ok', { symbol, count: bars.length, firstDate: bars[0].tradeDate, lastDate: bars.at(-1)?.tradeDate });
+      console.log('[market-data] getDailyBars ok', {
+        symbol,
+        count: bars.length,
+        firstDate: bars[0].tradeDate,
+        lastDate: bars.at(-1)?.tradeDate,
+      });
     } else {
       console.log('[market-data] getDailyBars empty', { symbol, options });
     }
@@ -34,7 +45,10 @@ export const stockSdkHistoricalProvider: HistoricalBarProvider = {
   },
 };
 
-export async function listRemoteSecurities(onProgress?: (completed: number, total: number) => void, shouldStop?: () => boolean): Promise<SecurityRecord[]> {
+export async function listRemoteSecurities(
+  onProgress?: (completed: number, total: number) => void,
+  shouldStop?: () => boolean,
+): Promise<SecurityRecord[]> {
   const codes = await sdk.codes.cn({ simple: true });
   const now = new Date().toISOString();
   const names = new Map<string, string>();

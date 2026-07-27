@@ -40,7 +40,7 @@ export async function callTool(name: keyof typeof stockToolRegistry | string, in
   const tool = stockToolRegistry[name as keyof typeof stockToolRegistry];
   const startedAtMs = Date.now();
   const record: ToolCallRecord = {
-    id: `tool-${Date.now()}-${nextToolCallId += 1}`,
+    id: `tool-${Date.now()}-${(nextToolCallId += 1)}`,
     toolName: name,
     input,
     startedAt: new Date().toISOString(),

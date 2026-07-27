@@ -64,11 +64,7 @@ export class PostHogCallbackHandler extends BaseCallbackHandler {
 
   private runs = new Map<string, RunState>();
 
-  override handleChatModelStart(
-    llm: Serialized,
-    messages: BaseMessage[][],
-    runId: string,
-  ): void {
+  override handleChatModelStart(llm: Serialized, messages: BaseMessage[][], runId: string): void {
     const { model, provider, baseUrl } = extractModelInfo(llm);
     this.runs.set(runId, {
       startedAt: Date.now(),

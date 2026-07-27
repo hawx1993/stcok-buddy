@@ -39,9 +39,8 @@ export async function runOrchestrator(
   if (symbolText && (await isUnsupportedStockMarketQuery(symbolText))) return unsupportedMarketResponse();
 
   let intent = command?.intent ?? classifyIntent(request.message);
-  const resolvedSymbol = needsSymbol(intent) && symbolText
-    ? await callTool('resolveStockSymbol', { query: symbolText })
-    : undefined;
+  const resolvedSymbol =
+    needsSymbol(intent) && symbolText ? await callTool('resolveStockSymbol', { query: symbolText }) : undefined;
   let symbol = readSymbol(resolvedSymbol?.output);
   let stockName = readStockName(resolvedSymbol?.output);
   if (!command && intent === 'chat' && isPossibleStockOnlyQuery(symbolText)) {
@@ -89,9 +88,12 @@ export async function runOrchestrator(
   });
 
   if (hasReportStep && !hasDagReportStep) emitReportStep('running', completedSteps, totalWithReport, emitEvent);
-  const draft = context.singleAgent && context.analysisResults?.[0]
-    ? context.analysisResults[0].content
-    : context.marketReview ? context.analysisOverview ?? '' : context.themeAttribution ?? context.analysisOverview ?? context.board?.narrative ?? '';
+  const draft =
+    context.singleAgent && context.analysisResults?.[0]
+      ? context.analysisResults[0].content
+      : context.marketReview
+        ? (context.analysisOverview ?? '')
+        : (context.themeAttribution ?? context.analysisOverview ?? context.board?.narrative ?? '');
   const review = reviewComplianceStructured({ text: draft, evidence: context.evidence, findings: context.findings });
   context.compliance = review;
   const content = review.revisedText;
@@ -108,7 +110,16 @@ export async function runOrchestrator(
     message: `工具调用：${context.toolCalls.length} 次\n子 Agent：${(context.analysisResults?.length ?? 0) || nodes.length} 个\n有效证据：${dedupeEvidence(context.evidence).length} 条\n数据缺口：${dataGaps(context).join('、') || '无明确缺口'}`,
     evidence: dedupeEvidence(context.evidence),
   });
-  emitEvent({ type: 'final_answer', title: '最终结论', message: content, result, marketReview: context.marketReview, stock: context.quote, evidence: context.evidence, findings: context.findings });
+  emitEvent({
+    type: 'final_answer',
+    title: '最终结论',
+    message: content,
+    result,
+    marketReview: context.marketReview,
+    stock: context.quote,
+    evidence: context.evidence,
+    findings: context.findings,
+  });
   return {
     events,
     message: {
@@ -128,43 +139,96 @@ export async function runOrchestrator(
   };
 }
 
-function emitIntentEvent({ command, context, stockName, emitEvent }: {
+function emitIntentEvent({
+  command,
+  context,
+  stockName,
+  emitEvent,
+}: {
   command: ReturnType<typeof parseSlashCommand>;
   context: IAgentContext;
   stockName?: string;
   emitEvent: (event: AgentRunEvent) => void;
 }) {
-  emitEvent(command ? {
-    type: 'command_detected', title: 'Command 识别', message: `${command.name}${command.args ? ` ${command.args}` : ''}`,
-    command: { name: command.name, args: command.args, mode: command.singleAgent ? '单 Agent 分析' : '多 Agent 协同分析', label: stockName ? `${stockName}（${context.symbol}）` : undefined },
-  } : {
-    type: 'intent_detected', title: '意图识别', message: `${intentLabel(context.intent)}${context.symbol ? `：${context.symbol}` : ''}`,
-    intent: { name: intentLabel(context.intent), target: context.symbol ?? context.boardKeyword, mode: context.intent === 'analysis' ? '多 Agent 协同分析' : '单流程分析', label: stockName ? `${stockName}（${context.symbol}）` : undefined },
-  });
+  emitEvent(
+    command
+      ? {
+          type: 'command_detected',
+          title: 'Command 识别',
+          message: `${command.name}${command.args ? ` ${command.args}` : ''}`,
+          command: {
+            name: command.name,
+            args: command.args,
+            mode: command.singleAgent ? '单 Agent 分析' : '多 Agent 协同分析',
+            label: stockName ? `${stockName}（${context.symbol}）` : undefined,
+          },
+        }
+      : {
+          type: 'intent_detected',
+          title: '意图识别',
+          message: `${intentLabel(context.intent)}${context.symbol ? `：${context.symbol}` : ''}`,
+          intent: {
+            name: intentLabel(context.intent),
+            target: context.symbol ?? context.boardKeyword,
+            mode: context.intent === 'analysis' ? '多 Agent 协同分析' : '单流程分析',
+            label: stockName ? `${stockName}（${context.symbol}）` : undefined,
+          },
+        },
+  );
 }
 
 function emitPlanEvent(nodes: ReturnType<typeof buildAgentWorkflow>, emitEvent: (event: AgentRunEvent) => void) {
   const analysisAgents = nodes.filter((node) => node.id.startsWith('analysis-') && node.id !== 'analysis-report');
-  const knownDataIds = new Set(['quote', 'market-data', 'read-links', 'news-announcements', 'chat', 'memory-placeholder', 'technical']);
+  const knownDataIds = new Set([
+    'quote',
+    'market-data',
+    'read-links',
+    'news-announcements',
+    'chat',
+    'memory-placeholder',
+    'technical',
+  ]);
   const otherNodes = nodes.filter((node) => !node.id.startsWith('analysis-') && !knownDataIds.has(node.id));
   emitEvent({
-    type: 'plan_created', title: '分析计划',
-    message: '1. 识别用户意图\n2. 解析股票代码 / 板块 / 关键词\n3. 调用必要工具获取数据\n4. 分配子 Agent 专项分析\n5. 汇总证据并生成投研结论',
+    type: 'plan_created',
+    title: '分析计划',
+    message:
+      '1. 识别用户意图\n2. 解析股票代码 / 板块 / 关键词\n3. 调用必要工具获取数据\n4. 分配子 Agent 专项分析\n5. 汇总证据并生成投研结论',
     progress: { current: 0, total: nodes.length },
     plan: {
       agents: [
-        ...(nodes.some((node) => node.id === 'quote') ? [{ id: 'data', agent: 'DataAgent', description: '获取实时行情与K线数据' }] : []),
-        ...analysisAgents.map((node) => ({ id: node.id.replace('analysis-', ''), agent: node.agent, description: node.description })),
+        ...(nodes.some((node) => node.id === 'quote')
+          ? [{ id: 'data', agent: 'DataAgent', description: '获取实时行情与K线数据' }]
+          : []),
+        ...analysisAgents.map((node) => ({
+          id: node.id.replace('analysis-', ''),
+          agent: node.agent,
+          description: node.description,
+        })),
         ...otherNodes.map((node) => ({ id: node.id, agent: node.agent, description: node.description })),
-        ...(nodes.some((node) => node.id === 'analysis-report') ? [{ id: 'report', agent: '生成投研报告', description: '汇总五维分析结果并生成综合投研报告' }] : []),
+        ...(nodes.some((node) => node.id === 'analysis-report')
+          ? [{ id: 'report', agent: '生成投研报告', description: '汇总五维分析结果并生成综合投研报告' }]
+          : []),
       ],
     },
   });
 }
 
-function emitReportStep(status: 'running' | 'completed', current: number, total: number, emitEvent: (event: AgentRunEvent) => void) {
+function emitReportStep(
+  status: 'running' | 'completed',
+  current: number,
+  total: number,
+  emitEvent: (event: AgentRunEvent) => void,
+) {
   const step = { id: 'analysis-report', agent: '生成投研报告', description: '生成综合投研报告', status } as const;
-  emitEvent({ type: status === 'running' ? 'subagent_started' : 'subagent_completed', title: status === 'running' ? '子 Agent 启动' : '子 Agent 结果', message: '生成综合投研报告', step, subAgent: { name: step.agent, description: step.description, status }, progress: { current, total } });
+  emitEvent({
+    type: status === 'running' ? 'subagent_started' : 'subagent_completed',
+    title: status === 'running' ? '子 Agent 启动' : '子 Agent 结果',
+    message: '生成综合投研报告',
+    step,
+    subAgent: { name: step.agent, description: step.description, status },
+    progress: { current, total },
+  });
 }
 
 async function streamContent(content: string, hasReportStep: boolean, onToken?: TOnToken) {
@@ -189,12 +253,23 @@ function isResolvedSymbol(value: unknown): value is { symbol?: string; name?: st
 }
 
 function unsupportedMarketResponse(): ChatResponse {
-  const content = '当前版本仅接入 A 股市场数据，暂不支持港股、美股及其他海外市场标的。请输入 A 股股票名称或 6 位代码继续查询。';
-  const message: ChatResponse['message'] = { id: `assistant-${Date.now()}`, role: 'assistant', content, createdAt: new Date().toISOString() };
+  const content =
+    '当前版本仅接入 A 股市场数据，暂不支持港股、美股及其他海外市场标的。请输入 A 股股票名称或 6 位代码继续查询。';
+  const message: ChatResponse['message'] = {
+    id: `assistant-${Date.now()}`,
+    role: 'assistant',
+    content,
+    createdAt: new Date().toISOString(),
+  };
   return { events: [{ type: 'final_answer', message: content }], message };
 }
 
 function commandUsageResponse(usage: string): ChatResponse {
-  const message: ChatResponse['message'] = { id: `assistant-${Date.now()}`, role: 'assistant', content: usage, createdAt: new Date().toISOString() };
+  const message: ChatResponse['message'] = {
+    id: `assistant-${Date.now()}`,
+    role: 'assistant',
+    content: usage,
+    createdAt: new Date().toISOString(),
+  };
   return { events: [{ type: 'final_answer', message: usage }], message };
 }

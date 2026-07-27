@@ -4,8 +4,18 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import type { AppUpdater, ProgressInfo, UpdateDownloadedEvent, UpdateInfo } from 'electron-updater';
-import type { IAppUpdateProgress, IAppUpdateSettings, IAppUpdateState, TAppUpdateChannel } from '../../src/shared/types.js';
-import { clearPendingDownloadedUpdate, getConfig, getPendingDownloadedUpdate, setPendingDownloadedUpdate } from './config-store.js';
+import type {
+  IAppUpdateProgress,
+  IAppUpdateSettings,
+  IAppUpdateState,
+  TAppUpdateChannel,
+} from '../../src/shared/types.js';
+import {
+  clearPendingDownloadedUpdate,
+  getConfig,
+  getPendingDownloadedUpdate,
+  setPendingDownloadedUpdate,
+} from './config-store.js';
 
 const require = createRequire(import.meta.url);
 const { autoUpdater } = require('electron-updater') as { autoUpdater: AppUpdater };
@@ -300,7 +310,12 @@ autoUpdater.on('update-available', updateAvailableState);
 autoUpdater.on('update-not-available', updateNotAvailableState);
 
 autoUpdater.on('download-progress', (progress) => {
-  updateState({ status: 'downloading', progress: normalizeProgress(progress), error: undefined, message: '正在下载更新…' });
+  updateState({
+    status: 'downloading',
+    progress: normalizeProgress(progress),
+    error: undefined,
+    message: '正在下载更新…',
+  });
 });
 
 autoUpdater.on('update-downloaded', updateDownloadedState);
@@ -349,7 +364,11 @@ export async function downloadAppUpdate(settings?: IAppUpdateSettings) {
   downloadSettingsOverride = settings;
   applyUpdaterSettings(settings);
   if (!app.isPackaged) {
-    return updateState({ status: 'error', error: '自动升级仅在 Electron 打包应用中可用', message: '自动升级仅在 Electron 打包应用中可用' });
+    return updateState({
+      status: 'error',
+      error: '自动升级仅在 Electron 打包应用中可用',
+      message: '自动升级仅在 Electron 打包应用中可用',
+    });
   }
   if (state.status === 'downloaded') return state;
   if (downloadPromise) return downloadPromise;

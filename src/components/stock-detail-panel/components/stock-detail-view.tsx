@@ -197,6 +197,7 @@ export function StockDetailView({ returnToSurge, onReturnToSurge, onGenericBack,
               {selectedStock.name}
               <span className={styles.code}>
                 {selectedStock.code} · {selectedStock.exchange ?? 'A股'}
+                {selectedStock.industry ? ` · ${selectedStock.industry}` : ''}
               </span>
             </div>
             <div className={styles['stock-side']}>

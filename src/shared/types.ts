@@ -308,6 +308,7 @@ export interface StockDetail {
   volume?: string;
   turnover?: string;
   turnoverRate?: string | number;
+  industry?: string;
   rating?: {
     fundamental: string;
     valuation: string;
@@ -506,6 +507,7 @@ export interface MarketPageSnapshot {
   indices: MarketIndexSnapshot[];
   rows: MarketQuoteRow[];
   boards: MarketBoardRow[];
+  rowOrderSource?: 'local' | 'remote';
 }
 
 export interface HotFocusItem {

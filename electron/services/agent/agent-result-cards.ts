@@ -1,4 +1,10 @@
-import type { AgentResultCard, AnnouncementItem, HotFocusItem, MarketNewsItem, StockDetail } from '../../../src/shared/types.js';
+import type {
+  AgentResultCard,
+  AnnouncementItem,
+  HotFocusItem,
+  MarketNewsItem,
+  StockDetail,
+} from '../../../src/shared/types.js';
 import type { DailyDragonTigerItem } from '../stock/stock-client.js';
 
 export function quoteToCard(quote?: StockDetail): AgentResultCard | undefined {

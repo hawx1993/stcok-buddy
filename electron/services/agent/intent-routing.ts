@@ -18,13 +18,48 @@ const slashCommands: ISlashCommand[] = [
   { name: '/新闻公告', intent: 'news-announcements', usage: '请输入股票代码或股票名称，例如：/新闻公告 000858' },
   { name: '/题材归因', intent: 'theme-attribution', usage: '今天哪些股票走强，主要是什么题材', allowEmptyArgs: true },
   { name: '/全市场龙虎榜', intent: 'daily-lhb', usage: '今天龙虎榜哪些票净买入最多', allowEmptyArgs: true },
-  { name: '/复盘今日行情', intent: 'market-review', usage: '直接发送即可，系统将复盘最近可用交易日行情', allowEmptyArgs: true },
-  { name: '/技术面分析', intent: 'analysis', singleAgent: 'technical', usage: '请输入股票代码或股票名称，例如：/技术面分析 000858' },
-  { name: '/基本面分析', intent: 'analysis', singleAgent: 'fundamental', usage: '请输入股票代码或股票名称，例如：/基本面分析 000858' },
-  { name: '/资金面分析', intent: 'analysis', singleAgent: 'capital', usage: '请输入股票代码或股票名称，例如：/资金面分析 000858' },
-  { name: '/情绪面分析', intent: 'analysis', singleAgent: 'sentiment', usage: '请输入股票代码或股票名称，例如：/情绪面分析 000858' },
-  { name: '/筹码分布', intent: 'analysis', singleAgent: 'chip', usage: '请输入股票代码或股票名称，例如：/筹码分布 000858' },
-  { name: '/筹码分析', intent: 'analysis', singleAgent: 'chip', usage: '请输入股票代码或股票名称，例如：/筹码分析 000858' },
+  {
+    name: '/复盘今日行情',
+    intent: 'market-review',
+    usage: '直接发送即可，系统将复盘最近可用交易日行情',
+    allowEmptyArgs: true,
+  },
+  {
+    name: '/技术面分析',
+    intent: 'analysis',
+    singleAgent: 'technical',
+    usage: '请输入股票代码或股票名称，例如：/技术面分析 000858',
+  },
+  {
+    name: '/基本面分析',
+    intent: 'analysis',
+    singleAgent: 'fundamental',
+    usage: '请输入股票代码或股票名称，例如：/基本面分析 000858',
+  },
+  {
+    name: '/资金面分析',
+    intent: 'analysis',
+    singleAgent: 'capital',
+    usage: '请输入股票代码或股票名称，例如：/资金面分析 000858',
+  },
+  {
+    name: '/情绪面分析',
+    intent: 'analysis',
+    singleAgent: 'sentiment',
+    usage: '请输入股票代码或股票名称，例如：/情绪面分析 000858',
+  },
+  {
+    name: '/筹码分布',
+    intent: 'analysis',
+    singleAgent: 'chip',
+    usage: '请输入股票代码或股票名称，例如：/筹码分布 000858',
+  },
+  {
+    name: '/筹码分析',
+    intent: 'analysis',
+    singleAgent: 'chip',
+    usage: '请输入股票代码或股票名称，例如：/筹码分析 000858',
+  },
 ];
 
 export function parseSlashCommand(query: string): IParsedSlashCommand | undefined {
@@ -60,9 +95,16 @@ export function needsSymbol(intent: TAgentIntent): boolean {
 
 export function intentLabel(intent: TAgentIntent): string {
   return {
-    quote: '行情查询', technical: '技术诊股', analysis: '五维个股分析', 'news-announcements': '新闻公告',
-    'theme-attribution': '题材归因', 'daily-lhb': '全市场龙虎榜', 'market-review': '今日行情复盘',
-    board: '板块分析', portfolio: '持仓管理', chat: '普通问答',
+    quote: '行情查询',
+    technical: '技术诊股',
+    analysis: '五维个股分析',
+    'news-announcements': '新闻公告',
+    'theme-attribution': '题材归因',
+    'daily-lhb': '全市场龙虎榜',
+    'market-review': '今日行情复盘',
+    board: '板块分析',
+    portfolio: '持仓管理',
+    chat: '普通问答',
   }[intent];
 }
 

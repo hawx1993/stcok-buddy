@@ -4,7 +4,14 @@ import { inferExchange, normalizeASymbol } from '../stock/symbols.js';
 import { partitionValidDailyBars } from './quality.js';
 import { getRemoteFullQuote, remoteMarketStatus, stockSdkHistoricalProvider } from './providers.js';
 import { getLatestDailyBar, listDailyBars, upsertDailyBars } from './market-data-store.js';
-import type { AdjustType, DataResult, HistoricalBarProvider, HistoricalBarsOptions, HistoricalBarsResult, LatestQuoteResult } from './types.js';
+import type {
+  AdjustType,
+  DataResult,
+  HistoricalBarProvider,
+  HistoricalBarsOptions,
+  HistoricalBarsResult,
+  LatestQuoteResult,
+} from './types.js';
 
 let historicalProviders: HistoricalBarProvider[] = [stockSdkHistoricalProvider];
 
@@ -12,15 +19,29 @@ export function setHistoricalProvidersForTest(providers: HistoricalBarProvider[]
   historicalProviders = providers;
 }
 
-export async function queryHistoricalBars(symbolInput: string, options: HistoricalBarsOptions = {}): Promise<HistoricalBarsResult> {
+export async function queryHistoricalBars(
+  symbolInput: string,
+  options: HistoricalBarsOptions = {},
+): Promise<HistoricalBarsResult> {
   const symbol = normalizeASymbol(symbolInput);
   const adjustType = options.adjustType ?? 'qfq';
   const limit = options.limit ? Math.max(1, Math.floor(options.limit)) : undefined;
   validateOptions(options, adjustType);
 
-  let local = await listDailyBars(symbol, { startDate: options.startDate, endDate: options.endDate, limit, adjustType });
+  let local = await listDailyBars(symbol, {
+    startDate: options.startDate,
+    endDate: options.endDate,
+    limit,
+    adjustType,
+  });
   if (isComplete(local, options, limit)) {
-    captureEvent('market_cache_read', { kind: 'historical_bars', hit: true, partial: false, symbol, rows: local.length });
+    captureEvent('market_cache_read', {
+      kind: 'historical_bars',
+      hit: true,
+      partial: false,
+      symbol,
+      rows: local.length,
+    });
     return resultFromBars(local, 'duckdb:daily_bars', 'local', true, [], adjustType);
   }
 
@@ -31,7 +52,14 @@ export async function queryHistoricalBars(symbolInput: string, options: Historic
     try {
       const rows = await provider.getDailyBars(symbol, { adjustType, ...missing });
       const { valid, invalid } = partitionValidDailyBars(rows);
-      console.log('[market-data] partition', { symbol, provider: provider.name, total: rows.length, valid: valid.length, invalid: invalid.length, firstInvalid: invalid[0]?.error });
+      console.log('[market-data] partition', {
+        symbol,
+        provider: provider.name,
+        total: rows.length,
+        valid: valid.length,
+        invalid: invalid.length,
+        firstInvalid: invalid[0]?.error,
+      });
       if (invalid.length) warnings.push(`${provider.name} 返回 ${invalid.length} 条无效日线，已忽略`);
       if (valid.length) {
         await upsertDailyBars(valid);
@@ -39,19 +67,40 @@ export async function queryHistoricalBars(symbolInput: string, options: Historic
         break;
       }
     } catch (error) {
-      console.error('[market-data] provider error', { symbol, provider: provider.name, error: error instanceof Error ? error.message : String(error) });
+      console.error('[market-data] provider error', {
+        symbol,
+        provider: provider.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
       warnings.push(`${provider.name} 补齐失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   local = await listDailyBars(symbol, { startDate: options.startDate, endDate: options.endDate, limit, adjustType });
   const complete = isComplete(local, options, limit);
-  captureEvent('market_cache_read', { kind: 'historical_bars', hit: complete, partial: !complete && local.length > 0, symbol, rows: local.length, fetched_remote: fetched });
+  captureEvent('market_cache_read', {
+    kind: 'historical_bars',
+    hit: complete,
+    partial: !complete && local.length > 0,
+    symbol,
+    rows: local.length,
+    fetched_remote: fetched,
+  });
   if (!complete && !warnings.length) warnings.push('远程数据源未返回缺失区间数据');
-  return resultFromBars(local, fetched ? 'duckdb:daily_bars+remote' : 'duckdb:daily_bars', fetched ? 'mixed' : 'local', complete, warnings, adjustType);
+  return resultFromBars(
+    local,
+    fetched ? 'duckdb:daily_bars+remote' : 'duckdb:daily_bars',
+    fetched ? 'mixed' : 'local',
+    complete,
+    warnings,
+    adjustType,
+  );
 }
 
-export async function queryLatestQuote(symbolInput: string, remoteLoader = getRemoteFullQuote): Promise<LatestQuoteResult> {
+export async function queryLatestQuote(
+  symbolInput: string,
+  remoteLoader = getRemoteFullQuote,
+): Promise<LatestQuoteResult> {
   const symbol = normalizeASymbol(symbolInput);
   const status = remoteMarketStatus();
   try {
@@ -71,7 +120,12 @@ export async function queryLatestQuote(symbolInput: string, remoteLoader = getRe
     };
   } catch (error) {
     const latest = await getLatestDailyBar(symbol);
-    captureEvent('market_cache_read', { kind: 'latest_quote_fallback', hit: Boolean(latest), storage: latest ? 'local' : 'none', symbol });
+    captureEvent('market_cache_read', {
+      kind: 'latest_quote_fallback',
+      hit: Boolean(latest),
+      storage: latest ? 'local' : 'none',
+      symbol,
+    });
     if (!latest) throw error;
     return {
       data: {
@@ -80,7 +134,10 @@ export async function queryLatestQuote(symbolInput: string, remoteLoader = getRe
         exchange: inferExchange(symbol),
         price: latest.close,
         change: latest.change === undefined ? undefined : `${latest.change >= 0 ? '+' : ''}${latest.change.toFixed(2)}`,
-        changePercent: latest.changePercent === undefined ? undefined : `${latest.changePercent >= 0 ? '+' : ''}${latest.changePercent.toFixed(2)}%`,
+        changePercent:
+          latest.changePercent === undefined
+            ? undefined
+            : `${latest.changePercent >= 0 ? '+' : ''}${latest.changePercent.toFixed(2)}%`,
         open: latest.open,
         high: latest.high,
         low: latest.low,
@@ -103,11 +160,19 @@ export async function queryLatestQuote(symbolInput: string, remoteLoader = getRe
   }
 }
 
-function calculateMissingRange(local: Awaited<ReturnType<typeof listDailyBars>>, options: HistoricalBarsOptions, limit?: number) {
-  if (!local.length) return { startDate: options.startDate ?? (limit ? yearsAgoForLimit(limit) : undefined), endDate: options.endDate };
-  if (options.startDate && local[0].tradeDate > options.startDate) return { startDate: options.startDate, endDate: dayBefore(local[0].tradeDate) };
-  if (options.endDate && local.at(-1)!.tradeDate < options.endDate) return { startDate: dayAfter(local.at(-1)!.tradeDate), endDate: options.endDate };
-  if (limit && local.length < limit) return { startDate: yearsAgoForLimit(limit), endDate: dayBefore(local[0].tradeDate) };
+function calculateMissingRange(
+  local: Awaited<ReturnType<typeof listDailyBars>>,
+  options: HistoricalBarsOptions,
+  limit?: number,
+) {
+  if (!local.length)
+    return { startDate: options.startDate ?? (limit ? yearsAgoForLimit(limit) : undefined), endDate: options.endDate };
+  if (options.startDate && local[0].tradeDate > options.startDate)
+    return { startDate: options.startDate, endDate: dayBefore(local[0].tradeDate) };
+  if (options.endDate && local.at(-1)!.tradeDate < options.endDate)
+    return { startDate: dayAfter(local.at(-1)!.tradeDate), endDate: options.endDate };
+  if (limit && local.length < limit)
+    return { startDate: yearsAgoForLimit(limit), endDate: dayBefore(local[0].tradeDate) };
   return { startDate: options.startDate, endDate: options.endDate };
 }
 
@@ -119,7 +184,14 @@ function isComplete(local: Awaited<ReturnType<typeof listDailyBars>>, options: H
   return true;
 }
 
-function resultFromBars(bars: Awaited<ReturnType<typeof listDailyBars>>, source: string, storage: 'local' | 'mixed', complete: boolean, warnings: string[], adjustType: AdjustType): HistoricalBarsResult {
+function resultFromBars(
+  bars: Awaited<ReturnType<typeof listDailyBars>>,
+  source: string,
+  storage: 'local' | 'mixed',
+  complete: boolean,
+  warnings: string[],
+  adjustType: AdjustType,
+): HistoricalBarsResult {
   return {
     data: bars.map(toKlinePoint),
     meta: {
@@ -141,8 +213,15 @@ function toKlinePoint(bar: Awaited<ReturnType<typeof listDailyBars>>[number]): K
   return {
     time: bar.tradeDate,
     timestamp: toTimestamp(bar.tradeDate),
-    open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume,
-    amount: bar.amount, change: bar.change, changePercent: bar.changePercent, turnoverRate: bar.turnoverRate,
+    open: bar.open,
+    high: bar.high,
+    low: bar.low,
+    close: bar.close,
+    volume: bar.volume,
+    amount: bar.amount,
+    change: bar.change,
+    changePercent: bar.changePercent,
+    turnoverRate: bar.turnoverRate,
   };
 }
 
@@ -164,12 +243,19 @@ function toStockDetail(quote: Awaited<ReturnType<typeof getRemoteFullQuote>>, sy
     high: quote.high ?? '--',
     low: quote.low ?? '--',
     prevClose: quote.prevClose ?? '--',
-    pe: quote.pe ?? '--', pb: quote.pb ?? '--',
+    pe: quote.pe ?? '--',
+    pb: quote.pb ?? '--',
     marketCap: quote.totalMarketCap === null ? '--' : `${quote.totalMarketCap.toFixed(1)}亿`,
     volume: `${(quote.volume / 10_000).toFixed(1)}万手`,
     turnover: `${(quote.amount / 10_000).toFixed(2)}亿`,
-    turnoverRate: quote.turnoverRate === null || quote.turnoverRate === undefined ? '--' : `${quote.turnoverRate.toFixed(2)}%`,
-    rating: { fundamental: '待评估', valuation: quote.pe && quote.pe < 25 ? '相对合理' : '需核查', tech: '待分析', risk: '中性' },
+    turnoverRate:
+      quote.turnoverRate === null || quote.turnoverRate === undefined ? '--' : `${quote.turnoverRate.toFixed(2)}%`,
+    rating: {
+      fundamental: '待评估',
+      valuation: quote.pe && quote.pe < 25 ? '相对合理' : '需核查',
+      tech: '待分析',
+      risk: '中性',
+    },
     summary: `${quote.name}（${symbol}）远程行情快照，时间 ${formatQuoteTime(quote.timestamp, quote.time)}。`,
   };
 }
@@ -202,8 +288,10 @@ function parseTencentQuoteTime(value: string): Date | undefined {
 function validateOptions(options: HistoricalBarsOptions, adjustType: AdjustType) {
   if (options.period && options.period !== '1d') throw new Error('本地历史工具仅支持日线');
   if (!['qfq', 'none'].includes(adjustType)) throw new Error('不支持的复权口径');
-  for (const value of [options.startDate, options.endDate]) if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('日期必须为 YYYY-MM-DD');
-  if (options.startDate && options.endDate && options.startDate > options.endDate) throw new Error('开始日期不能晚于结束日期');
+  for (const value of [options.startDate, options.endDate])
+    if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('日期必须为 YYYY-MM-DD');
+  if (options.startDate && options.endDate && options.startDate > options.endDate)
+    throw new Error('开始日期不能晚于结束日期');
 }
 
 function yearsAgoForLimit(limit: number) {
@@ -211,8 +299,18 @@ function yearsAgoForLimit(limit: number) {
   date.setFullYear(date.getFullYear() - Math.ceil(limit / 220) - 1);
   return isoDate(date);
 }
-function dayBefore(value: string) { const date = new Date(`${value}T12:00:00+08:00`); date.setDate(date.getDate() - 1); return isoDate(date); }
-function dayAfter(value: string) { const date = new Date(`${value}T12:00:00+08:00`); date.setDate(date.getDate() + 1); return isoDate(date); }
-function isoDate(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
+function dayBefore(value: string) {
+  const date = new Date(`${value}T12:00:00+08:00`);
+  date.setDate(date.getDate() - 1);
+  return isoDate(date);
+}
+function dayAfter(value: string) {
+  const date = new Date(`${value}T12:00:00+08:00`);
+  date.setDate(date.getDate() + 1);
+  return isoDate(date);
+}
+function isoDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
 
 export type { DataResult };

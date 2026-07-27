@@ -61,11 +61,15 @@ function nowLabel() {
 }
 
 export function listConversations(): ConversationSummary[] {
-  return getDb().prepare(`
+  return getDb()
+    .prepare(
+      `
     SELECT id, title, preview, date, updated_at AS updatedAt, tab, count
     FROM conversations
     ORDER BY updated_at DESC
-  `).all() as ConversationSummary[];
+  `,
+    )
+    .all() as ConversationSummary[];
 }
 
 export function createConversation(): ConversationSummary {
@@ -79,10 +83,14 @@ export function createConversation(): ConversationSummary {
     tab: 'stock',
     count: 0,
   };
-  getDb().prepare(`
+  getDb()
+    .prepare(
+      `
     INSERT INTO conversations (id, title, preview, date, tab, count, created_at, updated_at)
     VALUES (@id, @title, @preview, @date, @tab, @count, @createdAt, @createdAt)
-  `).run({ ...conversation, createdAt });
+  `,
+    )
+    .run({ ...conversation, createdAt });
   return conversation;
 }
 
@@ -93,21 +101,31 @@ export function deleteConversation(id: string): ConversationSummary[] {
 
 export function renameConversation(id: string, title: string): ConversationSummary[] {
   const nextTitle = title.trim();
-  if (nextTitle) getDb().prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?').run(nextTitle, new Date().toISOString(), id);
+  if (nextTitle)
+    getDb()
+      .prepare('UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?')
+      .run(nextTitle, new Date().toISOString(), id);
   return listConversations();
 }
 
 export function listMessages(conversationId: string): ChatMessage[] {
-  return (getDb().prepare('SELECT payload FROM messages WHERE conversation_id = ? ORDER BY created_at ASC').all(conversationId) as MessageRow[])
-    .map((row) => JSON.parse(row.payload) as ChatMessage);
+  return (
+    getDb()
+      .prepare('SELECT payload FROM messages WHERE conversation_id = ? ORDER BY created_at ASC')
+      .all(conversationId) as MessageRow[]
+  ).map((row) => JSON.parse(row.payload) as ChatMessage);
 }
 
 export function saveMessage(conversationId: string, message: ChatMessage) {
   ensureConversation(conversationId);
-  getDb().prepare(`
+  getDb()
+    .prepare(
+      `
     INSERT OR REPLACE INTO messages (id, conversation_id, payload, created_at)
     VALUES (?, ?, ?, ?)
-  `).run(message.id, conversationId, JSON.stringify(message), message.createdAt);
+  `,
+    )
+    .run(message.id, conversationId, JSON.stringify(message), message.createdAt);
   updateConversation(conversationId, message.content.slice(0, 80));
 }
 
@@ -128,30 +146,44 @@ function ensureConversation(conversationId: string) {
   const exists = getDb().prepare('SELECT id FROM conversations WHERE id = ?').get(conversationId);
   if (exists) return;
   const createdAt = new Date().toISOString();
-  getDb().prepare(`
+  getDb()
+    .prepare(
+      `
     INSERT INTO conversations (id, title, preview, date, tab, count, created_at, updated_at)
     VALUES (?, '新建对话', '开始新的投研分析', '刚刚', 'stock', 0, ?, ?)
-  `).run(conversationId, createdAt, createdAt);
+  `,
+    )
+    .run(conversationId, createdAt, createdAt);
 }
 
 function updateConversation(conversationId: string, preview: string) {
   const store = getDb();
-  const conversation = store.prepare('SELECT id, title FROM conversations WHERE id = ?').get(conversationId) as Pick<ConversationRow, 'id' | 'title'> | undefined;
+  const conversation = store.prepare('SELECT id, title FROM conversations WHERE id = ?').get(conversationId) as
+    | Pick<ConversationRow, 'id' | 'title'>
+    | undefined;
   if (!conversation) return;
-  const count = (store.prepare('SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?').get(conversationId) as { count: number }).count;
-  store.prepare(`
+  const count = (
+    store.prepare('SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?').get(conversationId) as {
+      count: number;
+    }
+  ).count;
+  store
+    .prepare(
+      `
     UPDATE conversations
     SET title = ?, preview = ?, date = ?, tab = ?, count = ?, updated_at = ?
     WHERE id = ?
-  `).run(
-    conversation.title === '新建对话' ? preview.slice(0, 18) : conversation.title,
-    preview,
-    nowLabel(),
-    inferTab(preview),
-    count,
-    new Date().toISOString(),
-    conversationId,
-  );
+  `,
+    )
+    .run(
+      conversation.title === '新建对话' ? preview.slice(0, 18) : conversation.title,
+      preview,
+      nowLabel(),
+      inferTab(preview),
+      count,
+      new Date().toISOString(),
+      conversationId,
+    );
 }
 
 function inferTab(text: string): ConversationSummary['tab'] {
