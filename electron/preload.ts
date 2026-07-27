@@ -1,8 +1,24 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AnalyticsProperties, AppConfig, ChatMessage, ChatRequest, ChatStreamEvent, FavoriteStock, HotFocusTab, IAppUpdateSettings, IAppUpdateState, MarketDataSyncStatus, MarketIndexPeriod, MarketPageSnapshot, MarketTab, StocksenseApi } from '../src/shared/types.js';
+import type {
+  AnalyticsProperties,
+  AppConfig,
+  ChatMessage,
+  ChatRequest,
+  ChatStreamEvent,
+  FavoriteStock,
+  HotFocusTab,
+  IAppUpdateSettings,
+  IAppUpdateState,
+  MarketDataSyncStatus,
+  MarketIndexPeriod,
+  MarketPageSnapshot,
+  MarketTab,
+  StocksenseApi,
+} from '../src/shared/types.js';
 
 const api: StocksenseApi = {
-  captureAnalytics: (event: string, properties?: AnalyticsProperties) => ipcRenderer.invoke('analytics:capture', event, properties),
+  captureAnalytics: (event: string, properties?: AnalyticsProperties) =>
+    ipcRenderer.invoke('analytics:capture', event, properties),
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config: AppConfig) => ipcRenderer.invoke('config:set', config),
   testModelConfig: (config) => ipcRenderer.invoke('config:testModel', config),
@@ -17,7 +33,8 @@ const api: StocksenseApi = {
   deleteConversation: (id: string) => ipcRenderer.invoke('conversation:delete', id),
   renameConversation: (id: string, title: string) => ipcRenderer.invoke('conversation:rename', id, title),
   listMessages: (conversationId: string) => ipcRenderer.invoke('message:list', conversationId),
-  saveMessage: (conversationId: string, message: ChatMessage) => ipcRenderer.invoke('message:save', conversationId, message),
+  saveMessage: (conversationId: string, message: ChatMessage) =>
+    ipcRenderer.invoke('message:save', conversationId, message),
   sendChat: (request: ChatRequest) => ipcRenderer.invoke('chat:send', request),
   onChatToken: (handler: (event: ChatStreamEvent) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: ChatStreamEvent) => handler(payload);
@@ -26,30 +43,36 @@ const api: StocksenseApi = {
   },
   getStockDetail: (symbol: string) => ipcRenderer.invoke('stock:getDetail', symbol),
   searchStocks: (query: string) => ipcRenderer.invoke('stock:search', query),
-  getBoardDetail: (symbol: string, forceRefresh?: boolean, boardName?: string) => ipcRenderer.invoke('board:getDetail', symbol, forceRefresh, boardName),
-  getKline: (symbol: string, limit?: number, period?: string, beforeTimestamp?: number) => ipcRenderer.invoke('stock:getKline', symbol, limit, period, beforeTimestamp),
+  getBoardDetail: (symbol: string, forceRefresh?: boolean, boardName?: string) =>
+    ipcRenderer.invoke('board:getDetail', symbol, forceRefresh, boardName),
+  getKline: (symbol: string, limit?: number, period?: string, beforeTimestamp?: number) =>
+    ipcRenderer.invoke('stock:getKline', symbol, limit, period, beforeTimestamp),
   getChipDistribution: (symbol: string) => ipcRenderer.invoke('stock:getChipDistribution', symbol),
   getBatchQuotes: (codes: string[]) => ipcRenderer.invoke('stock:getBatchQuotes', codes),
-  listMarketNews: (query?: string, page?: number, pageSize?: number) => ipcRenderer.invoke('news:list', query, page, pageSize),
+  listMarketNews: (query?: string, page?: number, pageSize?: number) =>
+    ipcRenderer.invoke('news:list', query, page, pageSize),
   listStockNews: (code: string, limit?: number) => ipcRenderer.invoke('news:stockList', code, limit),
   listStockNewsFeed: () => ipcRenderer.invoke('news:stockFeed'),
   getStockNewsPreferences: () => ipcRenderer.invoke('news:stockPreferences'),
   setStockNewsFavoritesOnly: (favoritesOnly: boolean) => ipcRenderer.invoke('news:setFavoritesOnly', favoritesOnly),
-  addStockNewsSubscription: (stock: Pick<FavoriteStock, 'code' | 'name'>) => ipcRenderer.invoke('news:addStockSubscription', stock),
+  addStockNewsSubscription: (stock: Pick<FavoriteStock, 'code' | 'name'>) =>
+    ipcRenderer.invoke('news:addStockSubscription', stock),
   removeStockNewsSubscription: (code: string) => ipcRenderer.invoke('news:removeStockSubscription', code),
   getMarketNewsSummaryState: () => ipcRenderer.invoke('news:getSummary'),
   getMarketNewsItem: (item) => ipcRenderer.invoke('news:getDetail', item),
   listHotFocus: (tab: HotFocusTab) => ipcRenderer.invoke('hot:list', tab),
   getHotStockHintSource: () => ipcRenderer.invoke('hot:hintSource'),
   listSurgeHistoryDates: () => ipcRenderer.invoke('hot:historyDates'),
-  listSurgeHistory: (date: string, offset?: number, limit?: number) => ipcRenderer.invoke('hot:history', date, offset, limit),
+  listSurgeHistory: (date: string, offset?: number, limit?: number) =>
+    ipcRenderer.invoke('hot:history', date, offset, limit),
   listStockSurgeEvents: (code: string) => ipcRenderer.invoke('stock:surgeEvents', code),
   getMarketDataSyncStatus: () => ipcRenderer.invoke('marketData:getStatus'),
   startMarketDataSync: () => ipcRenderer.invoke('marketData:startSync'),
   retryMarketDataFailures: () => ipcRenderer.invoke('marketData:retryFailures'),
   cancelMarketDataSync: () => ipcRenderer.invoke('marketData:cancelSync'),
   getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
-  getMarketPageSnapshot: (tab: MarketTab, period?: MarketIndexPeriod) => ipcRenderer.invoke('market:getPageSnapshot', tab, period),
+  getMarketPageSnapshot: (tab: MarketTab, period?: MarketIndexPeriod) =>
+    ipcRenderer.invoke('market:getPageSnapshot', tab, period),
   onMarketPageSnapshotUpdated: (handler: (snapshot: MarketPageSnapshot) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: MarketPageSnapshot) => handler(snapshot);
     ipcRenderer.on('market:pageSnapshotUpdated', listener);

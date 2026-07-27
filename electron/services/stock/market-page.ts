@@ -412,7 +412,7 @@ async function getLocalMarketPageSnapshot(tab: MarketTab, period: MarketIndexPer
       : persistedRows;
   if (hasSparseQuoteRows(rows)) return getRemoteMarketPageSnapshot(tab, period);
   const indices = marketIndexCache.get(period)?.rows ?? cached?.indices ?? (await getLocalMarketIndices(period));
-  return {
+  const snapshot: MarketPageSnapshot = {
     tab,
     period,
     updatedAt: cached?.updatedAt ?? new Date().toISOString(),
@@ -421,6 +421,10 @@ async function getLocalMarketPageSnapshot(tab: MarketTab, period: MarketIndexPer
     boards: [],
     rowOrderSource: 'local',
   };
+  const key = marketPageKey(tab, period);
+  const entry = marketPageCache.get(key);
+  marketPageCache.set(key, { ...entry, snapshot });
+  return snapshot;
 }
 
 async function refreshMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod) {

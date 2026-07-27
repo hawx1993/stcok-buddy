@@ -131,24 +131,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: source.id,
         source,
         requestId,
-        previousView: state.mainView === 'news-reader' ? state.newsReader?.previousView ?? 'chat' : state.mainView,
+        previousView: state.mainView === 'news-reader' ? (state.newsReader?.previousView ?? 'chat') : state.mainView,
         loading: true,
       },
     }));
     return requestId;
   },
   setNewsReaderItem: (requestId, item) =>
-    set((state) => (
+    set((state) =>
       state.newsReader?.requestId === requestId
         ? { newsReader: { ...state.newsReader, item, loading: false, error: undefined } }
-        : state
-    )),
+        : state,
+    ),
   setNewsReaderError: (requestId, error) =>
-    set((state) => (
+    set((state) =>
       state.newsReader?.requestId === requestId
         ? { newsReader: { ...state.newsReader, loading: false, error } }
-        : state
-    )),
+        : state,
+    ),
   closeNewsReader: () =>
     set((state) => ({
       mainView: state.newsReader?.previousView ?? 'chat',

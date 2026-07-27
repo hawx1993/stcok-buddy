@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ILoadOlderKlineInput } from '../kline-chart';
 import { IndexCard } from './components/index-card';
 import { IndexKlineModal } from './components/index-kline-modal';
@@ -21,7 +21,6 @@ import { useAppStore } from '../../store/app-store';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
 
-const MARKET_PAGE_SIZE = 20;
 const MARKET_UPDATE_INTERVAL_MS = 520;
 const MARKET_SCROLL_IDLE_MS = 200;
 
@@ -55,7 +54,6 @@ export function MarketView() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [suggestions, setSuggestions] = useState<MarketSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [visibleRowCount, setVisibleRowCount] = useState(MARKET_PAGE_SIZE);
   const [sortDirection, setSortDirection] = useState<SortDirection>();
   const [expandedIndexCode, setExpandedIndexCode] = useState<string>();
   const refreshTimer = useRef<number>();
@@ -130,7 +128,7 @@ export function MarketView() {
     const hasContent = (data: MarketPageSnapshot) => data.rows.length > 0;
     const applySnapshot = (data: MarketPageSnapshot, done = true) => {
       if (!alive) return;
-      if (data.indices.length) setIndices(data.indices);
+      if (data.indices.length) setIndices((current) => mergeMarketIndexSnapshots(current, data.indices));
       queueSnapshotRows(data);
       if (data.tab === activeTab) {
         setUpdatedAt(data.updatedAt);
@@ -152,7 +150,7 @@ export function MarketView() {
     }
     const unsubscribe = api.onMarketPageSnapshotUpdated?.((data) => {
       if (!alive || (data.period ?? '1d') !== indexPeriod) return;
-      if (data.indices.length) setIndices(data.indices);
+      if (data.indices.length) setIndices((current) => mergeMarketIndexSnapshots(current, data.indices));
       queueSnapshotRows(data);
       if (data.tab === activeTab) {
         setUpdatedAt(data.updatedAt);
@@ -228,12 +226,8 @@ export function MarketView() {
         : visibleRows,
     [sortDirection, visibleRows],
   );
-  const renderedRows = useMemo(() => sortedRows.slice(0, visibleRowCount), [sortedRows, visibleRowCount]);
 
   const handleTableScroll = () => {
-    const el = tableWrapRef.current;
-    if (!el) return;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreRows();
     isScrollingRef.current = true;
     window.clearTimeout(updateTimer.current);
     window.clearTimeout(scrollIdleRefreshTimer.current);
@@ -249,21 +243,9 @@ export function MarketView() {
     activeTabRef.current = tab;
     setChangedCodes([]);
     setMovedCodes([]);
-    setVisibleRowCount(MARKET_PAGE_SIZE);
     tableWrapRef.current?.scrollTo({ top: 0 });
     schedulePendingRowUpdate();
   };
-
-  const loadMoreRows = useCallback(() => {
-    if (visibleRowCount >= sortedRows.length) return;
-    setVisibleRowCount((count) => Math.min(count + MARKET_PAGE_SIZE, sortedRows.length));
-  }, [sortedRows.length, visibleRowCount]);
-
-  useLayoutEffect(() => {
-    const el = tableWrapRef.current;
-    if (!el || loading || visibleRowCount >= sortedRows.length) return;
-    if (el.scrollHeight <= el.clientHeight + 1) loadMoreRows();
-  }, [loadMoreRows, loading, sortedRows.length, visibleRowCount]);
 
   const openStock = useCallback(
     async (row: MarketQuoteRow) => {
@@ -419,7 +401,8 @@ export function MarketView() {
       </div>
       <div ref={tableWrapRef} className={styles.tableWrap} onScroll={handleTableScroll}>
         <StockTable
-          rows={renderedRows}
+          rows={sortedRows}
+          scrollRef={tableWrapRef}
           sortDirection={sortDirection}
           updateVersion={updateVersion}
           changedCodes={changedCodes}
@@ -431,15 +414,11 @@ export function MarketView() {
             setSortDirection((direction) =>
               direction === undefined ? 'desc' : direction === 'desc' ? 'asc' : undefined,
             );
-            setVisibleRowCount(MARKET_PAGE_SIZE);
+            tableWrapRef.current?.scrollTo({ top: 0 });
           }}
           onOpen={openStock}
         />
-        {sortedRows.length ? (
-          <div className={styles.loadState}>
-            {visibleRowCount < sortedRows.length ? '向下滚动加载更多' : `已加载全部 ${sortedRows.length} 只`}
-          </div>
-        ) : null}
+        {sortedRows.length ? <div className={styles.loadState}>共 {sortedRows.length} 只</div> : null}
       </div>
       {expandedIndex ? (
         <IndexKlineModal
@@ -452,6 +431,22 @@ export function MarketView() {
       ) : null}
     </section>
   );
+}
+
+function mergeMarketIndexSnapshots(current: MarketIndexSnapshot[], next: MarketIndexSnapshot[]) {
+  if (!current.length) return next;
+  let changed = current.length !== next.length;
+  const currentByCode = new Map(current.map((item) => [item.code, item]));
+  const merged = next.map((item) => {
+    const previous = currentByCode.get(item.code);
+    if (previous?.minutes.length && !item.minutes.length) {
+      changed = true;
+      return previous;
+    }
+    if (previous !== item) changed = true;
+    return item;
+  });
+  return changed ? merged : current;
 }
 
 function toMarketIndexSymbol(code: string | undefined) {

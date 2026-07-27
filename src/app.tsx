@@ -132,8 +132,8 @@ export function App() {
         </ErrorBoundary>
         <main className={styles.main}>
           <ErrorBoundary name={mainView === 'market' ? '行情区' : mainView === 'news-reader' ? '新闻阅读区' : '聊天区'}>
-            {mainView === 'news-reader' ? <NewsReader /> : mainView === 'market' ? <MarketView /> : <ChatView />
-          }</ErrorBoundary>
+            {mainView === 'news-reader' ? <NewsReader /> : mainView === 'market' ? <MarketView /> : <ChatView />}
+          </ErrorBoundary>
         </main>
         <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)}>
           <div className={styles['right-rail']}>

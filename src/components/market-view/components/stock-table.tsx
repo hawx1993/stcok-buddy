@@ -1,11 +1,13 @@
-import gsap from 'gsap';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import type { ReactNode, RefObject } from 'react';
 import type { MarketQuoteRow } from '../../../shared/types';
 import cx from '../../../shared/cx';
 import { formatMarketCap, formatMoney, formatPercent, formatVolume, tone } from '../market-format';
 import styles from '../index.module.scss';
 
-const MARKET_ROW_ANIMATION_DURATION = 0.42;
+const MARKET_ROW_HEIGHT = 34;
+const MARKET_ROW_OVERSCAN = 32;
 const marketCellFields: TMarketCellField[] = [
   'changePercent',
   'price',
@@ -22,6 +24,7 @@ type TMarketCellSnapshot = Record<TMarketCellField, string>;
 
 export function StockTable({
   rows,
+  scrollRef,
   sortDirection,
   updateVersion,
   changedCodes,
@@ -30,6 +33,7 @@ export function StockTable({
   onOpen,
 }: {
   rows: MarketQuoteRow[];
+  scrollRef: RefObject<HTMLDivElement>;
   sortDirection: TSortDirection;
   updateVersion: number;
   changedCodes: string[];
@@ -38,32 +42,15 @@ export function StockTable({
   onOpen(row: MarketQuoteRow): void;
 }) {
   const sortMark = sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : '↕';
-  const rowElements = useRef(new Map<string, HTMLTableRowElement>());
-  const previousTops = useRef(new Map<string, number>());
   const previousCellSnapshots = useRef(new Map<string, TMarketCellSnapshot>());
-  const lastAnimatedVersion = useRef(0);
   const [cellFlashVersions, setCellFlashVersions] = useState<Record<string, number>>({});
   const [rankFlashVersions, setRankFlashVersions] = useState<Record<string, number>>({});
-  const rowKey = rows.map((row) => row.code).join('|');
-
-  useLayoutEffect(() => {
-    const nextTops = new Map<string, number>();
-    const shouldAnimate = updateVersion > 0 && updateVersion !== lastAnimatedVersion.current;
-    for (const row of rows) {
-      const element = rowElements.current.get(row.code);
-      if (!element) continue;
-      const top = element.getBoundingClientRect().top;
-      const previousTop = previousTops.current.get(row.code);
-      nextTops.set(row.code, top);
-      if (previousTop === undefined || !shouldAnimate || !movedCodes.includes(row.code)) continue;
-      const delta = previousTop - top;
-      if (Math.abs(delta) < 1) continue;
-      gsap.killTweensOf(element);
-      gsap.fromTo(element, { y: delta }, { y: 0, duration: MARKET_ROW_ANIMATION_DURATION, ease: 'power2.out' });
-    }
-    previousTops.current = nextTops;
-    if (shouldAnimate) lastAnimatedVersion.current = updateVersion;
-  }, [movedCodes, rowKey, rows, updateVersion]);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => MARKET_ROW_HEIGHT,
+    overscan: MARKET_ROW_OVERSCAN,
+  });
 
   useEffect(() => {
     const nextSnapshots = new Map<string, TMarketCellSnapshot>();
@@ -87,49 +74,45 @@ export function StockTable({
     }
   }, [changedCodes, movedCodes, rows, updateVersion]);
 
-  useEffect(() => {
-    const elements = rowElements.current;
-    return () => {
-      for (const element of elements.values()) gsap.killTweensOf(element);
-    };
-  }, []);
-
   return (
-    <table className={styles.marketTable}>
-      <thead>
-        <tr>
-          <th>序号</th>
-          <th>代码</th>
-          <th>名称</th>
-          <th>
+    <div className={styles.marketTable} role='table'>
+      <div className={styles.marketTableHead} role='rowgroup'>
+        <div className={styles.marketTableRow} role='row'>
+          <div role='columnheader'>序号</div>
+          <div role='columnheader'>代码</div>
+          <div role='columnheader'>名称</div>
+          <div role='columnheader'>
             <button className={styles.sortButton} onClick={onSortChange} type='button'>
               涨跌幅 {sortMark}
             </button>
-          </th>
-          <th>最新价</th>
-          <th>换手率</th>
-          <th>成交量</th>
-          <th>成交额</th>
-          <th>市值</th>
-          <th>所属行业</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => {
+          </div>
+          <div role='columnheader'>最新价</div>
+          <div role='columnheader'>换手率</div>
+          <div role='columnheader'>成交量</div>
+          <div role='columnheader'>成交额</div>
+          <div role='columnheader'>市值</div>
+          <div role='columnheader'>所属行业</div>
+        </div>
+      </div>
+      <div className={styles.marketTableBody} role='rowgroup' style={{ height: rowVirtualizer.getTotalSize() }}>
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          const row = rows[virtualRow.index];
+          if (!row) return null;
           const versions = getRowFlashVersions(cellFlashVersions, row.code);
           const rankVersion = rankFlashVersions[row.code] ?? 0;
           return (
-            <tr
+            <div
               key={row.code}
-              ref={(element) => {
-                if (element) rowElements.current.set(row.code, element);
-                else rowElements.current.delete(row.code);
-              }}
+              className={styles.marketTableRow}
+              role='row'
+              style={{ transform: `translateY(${virtualRow.start}px)` }}
               onClick={() => onOpen(row)}
             >
-              <td key={`rank-${rankVersion}`} className={cx(rankVersion > 0 && styles.rankUpdated)}>{index + 1}</td>
-              <td>{row.code}</td>
-              <td>{row.name}</td>
+              <div key={`rank-${rankVersion}`} className={cx(rankVersion > 0 && styles.rankUpdated)} role='cell'>
+                {virtualRow.index + 1}
+              </div>
+              <div role='cell'>{row.code}</div>
+              <div role='cell'>{row.name}</div>
               <MarketCell version={versions.changePercent} className={tone(row.changePercent)}>{formatPercent(row.changePercent)}</MarketCell>
               <MarketCell version={versions.price} className={tone(row.changePercent)}>{row.price ?? '--'}</MarketCell>
               <MarketCell version={versions.turnoverRate}>{formatPercent(row.turnoverRate)}</MarketCell>
@@ -137,16 +120,16 @@ export function StockTable({
               <MarketCell version={versions.amount}>{formatMoney(row.amount)}</MarketCell>
               <MarketCell version={versions.marketCap}>{formatMarketCap(row.marketCap)}</MarketCell>
               <MarketCell version={versions.industry}>{row.industry ?? '--'}</MarketCell>
-            </tr>
+            </div>
           );
         })}
-      </tbody>
-    </table>
+      </div>
+    </div>
   );
 }
 
-function MarketCell({ version, className, children }: { version: number; className?: string; children: React.ReactNode }) {
-  return <td key={version} className={cx(className, version > 0 && styles.cellUpdated)}>{children}</td>;
+function MarketCell({ version, className, children }: { version: number; className?: string; children: ReactNode }) {
+  return <div key={version} className={cx(className, version > 0 && styles.cellUpdated)} role='cell'>{children}</div>;
 }
 
 function getRowFlashVersions(versions: Record<string, number>, code: string): TMarketCellSnapshotVersions {

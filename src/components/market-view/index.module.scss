@@ -316,48 +316,64 @@
 }
 .marketTable {
   width: 100%;
-  border-collapse: collapse;
+  min-width: 980px;
   font-size: 13px;
 }
-.marketTable th {
+.marketTableRow {
+  display: grid;
+  grid-template-columns: 58px 96px minmax(80px, 1fr) repeat(6, minmax(86px, 1fr)) minmax(100px, 1fr);
+  align-items: center;
+}
+.marketTableHead {
   position: sticky;
   top: 0;
-  z-index: 1;
-  height: 34px;
-  color: var(--fg-secondary);
+  z-index: 2;
   background: var(--surface);
-  font-weight: 600;
-  text-align: right;
   border-bottom: 1px solid var(--border);
 }
-.marketTable td {
+.marketTableHead .marketTableRow {
   height: 34px;
-  text-align: right;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  color: var(--fg);
 }
-.marketTable th:first-child,
-.marketTable td:first-child {
-  width: 58px;
+.marketTableHead .marketTableRow > div {
+  color: var(--fg-secondary);
+  font-weight: 600;
+}
+.marketTableBody {
+  position: relative;
+}
+.marketTableBody .marketTableRow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 34px;
+  cursor: pointer;
+  contain: layout paint style;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+.marketTableRow > div {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+  text-align: right;
+  color: var(--fg);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.marketTableRow > div:first-child {
+  justify-content: center;
   text-align: center;
   color: var(--fg-secondary);
 }
-.marketTable th:nth-child(2),
-.marketTable td:nth-child(2),
-.marketTable th:nth-child(3),
-.marketTable td:nth-child(3) {
+.marketTableRow > div:nth-child(2),
+.marketTableRow > div:nth-child(3) {
+  justify-content: flex-start;
   text-align: left;
 }
-.marketTable th:nth-child(2),
-.marketTable td:nth-child(2) {
-  width: 96px;
-}
-.marketTable th:nth-child(3),
-.marketTable td:nth-child(3) {
-  min-width: 80px;
-}
-.marketTable th:last-child,
-.marketTable td:last-child {
+.marketTableRow > div:last-child {
   padding-right: 18px;
 }
 .sortButton {
@@ -373,11 +389,7 @@
 .sortButton:hover {
   color: var(--fg);
 }
-.marketTable tbody tr {
-  cursor: pointer;
-  will-change: transform;
-}
-.marketTable tbody tr:hover {
+.marketTableBody .marketTableRow:hover {
   background: var(--list-item-hover);
 }
 .cellUpdated,

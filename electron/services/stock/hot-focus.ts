@@ -1,10 +1,5 @@
 import StockSDK from 'stock-sdk';
-import type {
-  AgentResultCard,
-  HotFocusItem,
-  HotFocusTab,
-  StockSurgeEvent,
-} from '../../../src/shared/types.js';
+import type { AgentResultCard, HotFocusItem, HotFocusTab, StockSurgeEvent } from '../../../src/shared/types.js';
 import { toShanghaiMarketTime } from '../../../src/shared/market-time.js';
 import { isRemoteTradingDay } from '../market-data/providers.js';
 import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from './format.js';

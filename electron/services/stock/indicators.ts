@@ -60,7 +60,14 @@ export function analyzeIndicators(klines: unknown[]): AgentResultCard {
   const dea = Number(macd?.dea ?? macd?.DEA ?? 0);
   const prevDif = Number(prevMacd?.dif ?? prevMacd?.DIF ?? 0);
   const prevDea = Number(prevMacd?.dea ?? prevMacd?.DEA ?? 0);
-  const macdSignal = prevDif <= prevDea && dif > dea ? 'MACD 金叉' : prevDif >= prevDea && dif < dea ? 'MACD 死叉' : dif > dea ? 'DIF 位于 DEA 上方' : 'DIF 位于 DEA 下方';
+  const macdSignal =
+    prevDif <= prevDea && dif > dea
+      ? 'MACD 金叉'
+      : prevDif >= prevDea && dif < dea
+        ? 'MACD 死叉'
+        : dif > dea
+          ? 'DIF 位于 DEA 上方'
+          : 'DIF 位于 DEA 下方';
   const lastClose = closes.at(-1) ?? 0;
   const ma5 = Number(ma?.ma5 ?? ma?.MA5 ?? 0);
   const ma20 = Number(ma?.ma20 ?? ma?.MA20 ?? 0);
