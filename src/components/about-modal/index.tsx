@@ -67,6 +67,14 @@ export function AboutModal() {
         </div>
         <p className={styles.description}>
           面向 A 股投研的 Electron 桌面 AI Agent，支持实时行情、K线、资金流、筹码分布、新闻公告和多维度个股分析。
+          <a
+            href='https://github.com/hawx1993/stcok-buddy'
+            target='_blank'
+            rel='noopener noreferrer'
+            className={styles.link}
+          >
+            https://github.com/hawx1993/stcok-buddy
+          </a>
         </p>
       </div>
     </Modal>

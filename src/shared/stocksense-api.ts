@@ -36,6 +36,25 @@ const defaultConfig: AppConfig = {
   notifyOnAiResponse: true,
 };
 
+const feedbackEmailRecipient = 'trigkit@163.com';
+const feedbackEmailSubject = 'StockBuddy 问题反馈';
+const feedbackEmailBody = `请填写以下信息，方便我们定位问题：
+
+1. 问题描述：
+2. 复现步骤：
+3. 预期结果：
+4. 实际结果：
+5. 操作系统：
+6. StockBuddy 版本：
+
+请尽量附上截图/录屏或相关图片附件，帮助我们更快定位问题。`;
+
+function getFeedbackEmailUrl() {
+  const subject = encodeURIComponent(feedbackEmailSubject);
+  const body = encodeURIComponent(feedbackEmailBody);
+  return `mailto:${feedbackEmailRecipient}?subject=${subject}&body=${body}`;
+}
+
 const defaultConversations: ConversationSummary[] = [
   {
     id: 'web-conv-1',
@@ -321,6 +340,9 @@ const webFallbackApi: StocksenseApi = {
       chromeVersion: '--',
       nodeVersion: '--',
     };
+  },
+  async openFeedbackEmail() {
+    window.open(getFeedbackEmailUrl(), '_blank', 'noopener,noreferrer');
   },
   async testModelConfig() {
     throw new Error('浏览器预览模式不会连接本地大模型配置，请运行 Electron 桌面端后再测试。');

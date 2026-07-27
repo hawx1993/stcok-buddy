@@ -68,6 +68,7 @@ export function MarketView() {
   const [changedCodes, setChangedCodes] = useState<string[]>([]);
   const [movedCodes, setMovedCodes] = useState<string[]>([]);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const selectedBoard = useAppStore((state) => state.selectedBoard);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
@@ -264,6 +265,7 @@ export function MarketView() {
         marketCap: formatMarketCap(row.marketCap),
         industry: row.industry,
       };
+      setStockReturnContext(undefined);
       openRightPanel();
       setSelectedStock(rowSnapshot);
       try {
@@ -277,7 +279,7 @@ export function MarketView() {
         setSelectedStock(rowSnapshot);
       }
     },
-    [openRightPanel, setSelectedStock],
+    [openRightPanel, setSelectedStock, setStockReturnContext],
   );
 
   const openBoard = useCallback(

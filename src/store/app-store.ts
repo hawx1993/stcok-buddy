@@ -35,6 +35,11 @@ export interface SurgeStock extends StockDetail {
   reason: string;
 }
 
+interface IStockReturnContext {
+  tab: RightPanelTab;
+  code: string;
+}
+
 interface AppState {
   config?: AppConfig;
   conversations: ConversationSummary[];
@@ -52,6 +57,7 @@ interface AppState {
   favoriteStocks: FavoriteStock[];
   stockKlines: Record<string, NonNullable<AgentResultCard['chart']>['data']>;
   selectedStock?: StockDetail;
+  stockReturnContext?: IStockReturnContext;
   selectedBoard?: BoardDetail;
   isSettingsOpen: boolean;
   isAboutOpen: boolean;
@@ -85,6 +91,7 @@ interface AppState {
   applyRunEventToLastAssistant(event: AgentRunEvent): void;
   clearMessages(): void;
   setSelectedStock(stock?: StockDetail): void;
+  setStockReturnContext(context?: IStockReturnContext): void;
   setSelectedBoard(board?: BoardDetail): void;
   setSettingsOpen(open: boolean): void;
   setAboutOpen(open: boolean): void;
@@ -106,6 +113,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   favoriteStocks: [],
   stockKlines: {},
   selectedStock: undefined,
+  stockReturnContext: undefined,
   selectedBoard: undefined,
   isSettingsOpen: false,
   isAboutOpen: false,
@@ -122,6 +130,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setRightPanelTab: (tab) =>
     set((state) => ({
       rightPanelTab: tab,
+      stockReturnContext: tab === 'stock' ? undefined : state.stockReturnContext,
       isRightPanelCollapsed: state.rightPanelTab === tab ? !state.isRightPanelCollapsed : false,
     })),
   setMainView: (view) => set({ mainView: view }),
@@ -159,7 +168,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   toggleLeftSidebar: () => set((state) => ({ isLeftSidebarCollapsed: !state.isLeftSidebarCollapsed })),
   toggleRightPanel: () => set((state) => ({ isRightPanelCollapsed: !state.isRightPanelCollapsed })),
-  openRightPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'stock' }),
+  openRightPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'stock', stockReturnContext: undefined }),
   openBoardPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'board' }),
   setSearch: (search) => set({ search }),
   rememberStockKline: (code, data) => {
@@ -250,8 +259,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSelectedStock: (stock) =>
     set((state) => ({
       selectedStock: stock ? { ...stock, kline: stock.kline ?? state.stockKlines[stock.code] } : undefined,
+      stockReturnContext: stock ? state.stockReturnContext : undefined,
     })),
-  setSelectedBoard: (board) => set({ selectedBoard: board, selectedStock: undefined }),
+  setStockReturnContext: (context) => set({ stockReturnContext: context }),
+  setSelectedBoard: (board) => set({ selectedBoard: board, selectedStock: undefined, stockReturnContext: undefined }),
   setSettingsOpen: (open) => set({ isSettingsOpen: open }),
   setAboutOpen: (open) => set({ isAboutOpen: open }),
   setSending: (isSending) => set({ isSending }),

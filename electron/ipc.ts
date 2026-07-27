@@ -83,6 +83,25 @@ import {
   openAppReleaseNotes,
 } from './services/update-service.js';
 
+const feedbackEmailRecipient = 'trigkit@163.com';
+const feedbackEmailSubject = 'StockBuddy 问题反馈';
+const feedbackEmailBody = `请填写以下信息，方便我们定位问题：
+
+1. 问题描述：
+2. 复现步骤：
+3. 预期结果：
+4. 实际结果：
+5. 操作系统：
+6. StockBuddy 版本：
+
+请尽量附上截图/录屏或相关图片附件，帮助我们更快定位问题。`;
+
+function getFeedbackEmailUrl() {
+  const subject = encodeURIComponent(feedbackEmailSubject);
+  const body = encodeURIComponent(feedbackEmailBody);
+  return `mailto:${feedbackEmailRecipient}?subject=${subject}&body=${body}`;
+}
+
 export function registerIpcHandlers() {
   ipcMain.handle('analytics:capture', (_event, event: string, properties?: AnalyticsProperties) =>
     captureEvent(event, properties),
@@ -95,6 +114,7 @@ export function registerIpcHandlers() {
     chromeVersion: process.versions.chrome,
     nodeVersion: process.versions.node,
   }));
+  ipcMain.handle('app:openFeedbackEmail', () => shell.openExternal(getFeedbackEmailUrl()));
   ipcMain.handle('config:testModel', (_event, config: AppConfig) => testModelConnection(config.model));
   ipcMain.handle('notification:testAiResponse', () => notifyAiResponseTest());
   ipcMain.handle('notification:openSettings', async () => {

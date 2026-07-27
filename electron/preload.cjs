@@ -4,6 +4,7 @@ const api = {
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config) => ipcRenderer.invoke('config:set', config),
   getAppRuntimeInfo: () => ipcRenderer.invoke('app:getRuntimeInfo'),
+  openFeedbackEmail: () => ipcRenderer.invoke('app:openFeedbackEmail'),
   testModelConfig: (config) => ipcRenderer.invoke('config:testModel', config),
   testAiResponseNotification: () => ipcRenderer.invoke('notification:testAiResponse'),
   openSystemNotificationSettings: () => ipcRenderer.invoke('notification:openSettings'),

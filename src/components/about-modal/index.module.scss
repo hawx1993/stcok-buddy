@@ -87,7 +87,6 @@
   align-items: center;
   justify-content: center;
   transform-origin: 50% 70%;
-  animation: whale-swim 1.25s ease-in-out infinite;
 }
 
 .whale :global(.whale-logo) {
@@ -95,7 +94,6 @@
   height: 94px;
   display: block;
   pointer-events: none;
-  animation: whale-float 1.25s ease-in-out infinite;
 }
 
 .whale-splash {
@@ -181,29 +179,6 @@
   user-select: text;
 }
 
-@keyframes whale-swim {
-  0%,
-  100% {
-    transform: translate(0, 0) rotate(-2deg);
-  }
-  35% {
-    transform: translate(16px, -10px) rotate(3deg);
-  }
-  70% {
-    transform: translate(-6px, 6px) rotate(-1deg);
-  }
-}
-
-@keyframes whale-float {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.04);
-  }
-}
-
 @keyframes whale-droplet {
   0% {
     opacity: 0;
@@ -236,8 +211,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .whale-stage::before,
-  .whale,
-  .whale :global(.whale-logo),
   .whale-splash span {
     animation: none;
   }

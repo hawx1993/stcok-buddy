@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type { StockDetail } from '../../shared/types';
 import { Empty } from '../empty';
@@ -20,22 +19,18 @@ const BACK_LABELS: Record<RightPanelTab, string> = {
 };
 
 export function StockDetailPanel() {
-  const [surgeReturnCode, setSurgeReturnCode] = useState<string>();
-  const previousTabRef = useRef<RightPanelTab>();
   const selectedStock = useAppStore((state) => state.selectedStock);
   const selectedBoard = useAppStore((state) => state.selectedBoard);
+  const stockReturnContext = useAppStore((state) => state.stockReturnContext);
   const rightPanelTab = useAppStore((state) => state.rightPanelTab);
   const isRightPanelCollapsed = useAppStore((state) => state.isRightPanelCollapsed);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-
-  useEffect(() => {
-    if (rightPanelTab !== 'stock') previousTabRef.current = rightPanelTab;
-  }, [rightPanelTab]);
+  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
 
   const openSurgeStock = async (stock: StockDetail) => {
-    setSurgeReturnCode(stock.code);
     setRightPanelTab('stock');
+    setStockReturnContext({ tab: 'surge', code: stock.code });
     setSelectedStock(stock);
     try {
       setSelectedStock(await getStocksenseApi().getStockDetail(stock.code));
@@ -45,18 +40,24 @@ export function StockDetailPanel() {
   };
 
   const returnToSurge = () => {
-    if (!surgeReturnCode) return;
+    if (!stockReturnContext) return;
     setRightPanelTab('surge');
   };
 
-  const showSurgeBack = Boolean(selectedStock && selectedStock.code === surgeReturnCode);
+  const showSurgeBack = Boolean(
+    selectedStock && stockReturnContext?.tab === 'surge' && selectedStock.code === stockReturnContext.code,
+  );
 
-  const previousTab = previousTabRef.current;
-  const showGenericBack =
-    !showSurgeBack && Boolean(selectedStock) && Boolean(previousTab) && previousTab !== 'stock';
+  const showGenericBack = Boolean(
+    selectedStock &&
+      stockReturnContext &&
+      stockReturnContext.tab !== 'stock' &&
+      stockReturnContext.tab !== 'surge' &&
+      selectedStock.code === stockReturnContext.code,
+  );
 
   const handleGenericBack = () => {
-    if (previousTab) setRightPanelTab(previousTab);
+    if (stockReturnContext) setRightPanelTab(stockReturnContext.tab);
   };
 
   return (
@@ -79,9 +80,9 @@ export function StockDetailPanel() {
       {rightPanelTab === 'surge' ? (
         <StockSurgePanel
           isActive={!isRightPanelCollapsed}
-          returnCode={surgeReturnCode}
+          returnCode={stockReturnContext?.tab === 'surge' ? stockReturnContext.code : undefined}
           onOpenStock={(stock) => void openSurgeStock(stock)}
-          onClearReturnCode={() => setSurgeReturnCode(undefined)}
+          onClearReturnCode={() => setStockReturnContext(undefined)}
         />
       ) : null}
       {rightPanelTab === 'stock' ? (
@@ -89,7 +90,7 @@ export function StockDetailPanel() {
           returnToSurge={showSurgeBack}
           onReturnToSurge={returnToSurge}
           onGenericBack={showGenericBack ? handleGenericBack : undefined}
-          genericBackLabel={showGenericBack && previousTab ? BACK_LABELS[previousTab] : undefined}
+          genericBackLabel={showGenericBack && stockReturnContext ? BACK_LABELS[stockReturnContext.tab] : undefined}
         />
       ) : null}
     </aside>

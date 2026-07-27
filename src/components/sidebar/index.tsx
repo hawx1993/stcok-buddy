@@ -138,7 +138,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
     { key: 'settings', label: menuLabel(<Settings size={15} />, '系统设置', settingsShortcut) },
     { key: 'check-update', label: menuLabel(<RefreshCw size={15} />, '检查更新') },
     { key: 'release-notes', label: menuLabel(<FileText size={15} />, '更新日志') },
-    { key: 'feedback', label: menuLabel(<HelpCircle size={15} />, '帮助与反馈'), disabled: true },
+    { key: 'feedback', label: menuLabel(<HelpCircle size={15} />, '帮助与反馈') },
   ];
 
   const runAccountMenuAction: MenuProps['onClick'] = ({ key }) => {
@@ -154,6 +154,15 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
     if (key === 'release-notes') {
       trackButtonClick('open_release_notes');
       window.open(releaseNotesUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (key === 'feedback') {
+      trackButtonClick('open_feedback_email');
+      getStocksenseApi()
+        .openFeedbackEmail()
+        .catch((error: unknown) => {
+          antdMessage.error(error instanceof Error ? error.message : '打开邮件客户端失败');
+        });
       return;
     }
     if (key === 'about') {

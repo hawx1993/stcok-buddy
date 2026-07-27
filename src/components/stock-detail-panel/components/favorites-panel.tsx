@@ -19,6 +19,7 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   const favoriteStocks = useAppStore((state) => state.favoriteStocks);
   const setFavoriteStocks = useAppStore((state) => state.setFavoriteStocks);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
 
@@ -52,6 +53,7 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   const openStock = async (stock: StockDetail) => {
     setRightPanelTab('stock');
     openRightPanel();
+    setStockReturnContext({ tab: 'favorites', code: stock.code });
     setSelectedStock(stock);
     try {
       setSelectedStock(await getStocksenseApi().getStockDetail(stock.code));

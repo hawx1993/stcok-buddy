@@ -1,3 +1,4 @@
+import { RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import type { IHotStockHint } from './hot-stock-hints';
 import { SlashCommandMenu } from './slash-command-menu';
@@ -186,6 +187,7 @@ function HintList({
         </button>
       ))}
       <button className={styles['qe-hints-refresh']} onClick={onRefresh} type='button'>
+        <RefreshCw size={12} />
         换一组
       </button>
     </div>

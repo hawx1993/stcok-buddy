@@ -676,6 +676,7 @@ export interface StocksenseApi {
   getConfig(): Promise<AppConfig>;
   setConfig(config: AppConfig): Promise<AppConfig>;
   getAppRuntimeInfo(): Promise<IAppRuntimeInfo>;
+  openFeedbackEmail(): Promise<void>;
   testModelConfig(config: AppConfig): Promise<void>;
   testAiResponseNotification(): Promise<IDesktopNotificationResult>;
   openSystemNotificationSettings(): Promise<void>;

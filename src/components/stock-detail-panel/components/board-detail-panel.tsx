@@ -13,6 +13,7 @@ export function BoardDetailPanel() {
   const [initialLoading, setInitialLoading] = useState(true);
   const board = useAppStore((state) => state.selectedBoard);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   const loadingCodeRef = useRef<string>();
@@ -67,6 +68,7 @@ export function BoardDetailPanel() {
       summary: `${board.name}板块成分股。`,
     };
     setRightPanelTab('stock');
+    setStockReturnContext({ tab: 'board', code: stock.code });
     setSelectedStock(rowSnapshot);
     try {
       setSelectedStock({ ...rowSnapshot, ...(await getStocksenseApi().getStockDetail(stock.code)) });
