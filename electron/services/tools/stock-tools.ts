@@ -3,12 +3,20 @@ import { getMarketDataSyncStatus } from '../market-data/market-data-sync.js';
 import { queryHistoricalBars } from '../market-data/market-data-query.js';
 import { runTechnicalAnalysis } from '../agent/analysis-agent.js';
 import { listMarketNews, listStockNewsAnnouncements } from '../stock/news-client.js';
-import { getChipDistribution, getKline, getQuote, getStockFundFlowSnapshot as fetchStockFundFlowSnapshot, listDailyDragonTiger, listHotFocus, resolveASymbol } from '../stock/stock-client.js';
+import {
+  getChipDistribution,
+  getKline,
+  getQuote,
+  getStockFundFlowSnapshot as fetchStockFundFlowSnapshot,
+  listDailyDragonTiger,
+  listHotFocus,
+  resolveASymbol,
+} from '../stock/stock-client.js';
 import { getMarketReview as fetchMarketReview } from '../stock/market-review-service.js';
 import type { AgentTool } from './types.js';
 
 function asRecord(input: unknown): Record<string, unknown> {
-  return input && typeof input === 'object' ? input as Record<string, unknown> : {};
+  return input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
 }
 
 function text(input: Record<string, unknown>, key: string, fallback = '') {
@@ -37,20 +45,41 @@ export const getStockQuote: AgentTool<{ symbol: string }, Awaited<ReturnType<typ
   run: (input) => getQuote(text(asRecord(input), 'symbol')),
 };
 
-export const getStockKline: AgentTool<{ symbol: string; limit?: number; period?: string }, Awaited<ReturnType<typeof getKline>>> = {
+export const getStockKline: AgentTool<
+  { symbol: string; limit?: number; period?: string },
+  Awaited<ReturnType<typeof getKline>>
+> = {
   name: 'getStockKline',
   description: 'Fetch A-share K-line data.',
-  inputSchema: { type: 'object', properties: { symbol: { type: 'string' }, limit: { type: 'number' }, period: { type: 'string' } }, required: ['symbol'] },
+  inputSchema: {
+    type: 'object',
+    properties: { symbol: { type: 'string' }, limit: { type: 'number' }, period: { type: 'string' } },
+    required: ['symbol'],
+  },
   run: (input) => {
     const record = asRecord(input);
     return getKline(text(record, 'symbol'), num(record, 'limit', 120), text(record, 'period', '1d'));
   },
 };
 
-export const getHistoricalDailyBars: AgentTool<{ symbol: string; limit?: number; startDate?: string; endDate?: string; adjustType?: 'qfq' | 'none' }, Awaited<ReturnType<typeof queryHistoricalBars>>> = {
+export const getHistoricalDailyBars: AgentTool<
+  { symbol: string; limit?: number; startDate?: string; endDate?: string; adjustType?: 'qfq' | 'none' },
+  Awaited<ReturnType<typeof queryHistoricalBars>>
+> = {
   name: 'getHistoricalDailyBars',
-  description: 'Query A-share historical daily bars from local DuckDB first, backfilling missing ranges remotely. Not for realtime prices or minute bars.',
-  inputSchema: { type: 'object', properties: { symbol: { type: 'string' }, limit: { type: 'number' }, startDate: { type: 'string' }, endDate: { type: 'string' }, adjustType: { type: 'string', enum: ['qfq', 'none'] } }, required: ['symbol'] },
+  description:
+    'Query A-share historical daily bars from local DuckDB first, backfilling missing ranges remotely. Not for realtime prices or minute bars.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      symbol: { type: 'string' },
+      limit: { type: 'number' },
+      startDate: { type: 'string' },
+      endDate: { type: 'string' },
+      adjustType: { type: 'string', enum: ['qfq', 'none'] },
+    },
+    required: ['symbol'],
+  },
   run: (input) => {
     const record = asRecord(input);
     return queryHistoricalBars(text(record, 'symbol'), {
@@ -62,7 +91,10 @@ export const getHistoricalDailyBars: AgentTool<{ symbol: string; limit?: number;
   },
 };
 
-export const getMarketDataStatus: AgentTool<Record<string, never>, Awaited<ReturnType<typeof getMarketDataSyncStatus>>> = {
+export const getMarketDataStatus: AgentTool<
+  Record<string, never>,
+  Awaited<ReturnType<typeof getMarketDataSyncStatus>>
+> = {
   name: 'getMarketDataStatus',
   description: 'Return local A-share database synchronization status and latest available trade date.',
   inputSchema: { type: 'object', properties: {} },
@@ -76,34 +108,53 @@ export const getTechnicalIndicators: AgentTool<{ symbol: string }, Awaited<Retur
   run: (input) => runTechnicalAnalysis(text(asRecord(input), 'symbol')),
 };
 
-export const getMarketNews: AgentTool<{ query: string; page?: number; pageSize?: number }, Awaited<ReturnType<typeof listMarketNews>>['items']> = {
+export const getMarketNews: AgentTool<
+  { query: string; page?: number; pageSize?: number },
+  Awaited<ReturnType<typeof listMarketNews>>['items']
+> = {
   name: 'getMarketNews',
   description: 'Fetch market news list.',
-  inputSchema: { type: 'object', properties: { query: { type: 'string' }, page: { type: 'number' }, pageSize: { type: 'number' } } },
+  inputSchema: {
+    type: 'object',
+    properties: { query: { type: 'string' }, page: { type: 'number' }, pageSize: { type: 'number' } },
+  },
   async run(input) {
     const record = asRecord(input);
     return (await listMarketNews(text(record, 'query'), num(record, 'page', 1), num(record, 'pageSize', 10))).items;
   },
 };
 
-export const getStockNewsAnnouncements: AgentTool<{ symbol: string; limit?: number }, Awaited<ReturnType<typeof listStockNewsAnnouncements>>> = {
+export const getStockNewsAnnouncements: AgentTool<
+  { symbol: string; limit?: number },
+  Awaited<ReturnType<typeof listStockNewsAnnouncements>>
+> = {
   name: 'getStockNewsAnnouncements',
   description: 'Fetch stock news and announcements.',
-  inputSchema: { type: 'object', properties: { symbol: { type: 'string' }, limit: { type: 'number' } }, required: ['symbol'] },
+  inputSchema: {
+    type: 'object',
+    properties: { symbol: { type: 'string' }, limit: { type: 'number' } },
+    required: ['symbol'],
+  },
   run: (input) => {
     const record = asRecord(input);
     return listStockNewsAnnouncements(text(record, 'symbol'), num(record, 'limit', 10));
   },
 };
 
-export const getStockFundFlowSnapshot: AgentTool<{ symbol: string }, Awaited<ReturnType<typeof fetchStockFundFlowSnapshot>>> = {
+export const getStockFundFlowSnapshot: AgentTool<
+  { symbol: string },
+  Awaited<ReturnType<typeof fetchStockFundFlowSnapshot>>
+> = {
   name: 'getStockFundFlowSnapshot',
   description: 'Fetch individual A-share fund flow snapshot from stock-sdk.',
   inputSchema: { type: 'object', properties: { symbol: { type: 'string' } }, required: ['symbol'] },
   run: (input) => fetchStockFundFlowSnapshot(text(asRecord(input), 'symbol')),
 };
 
-export const getStockChipDistribution: AgentTool<{ symbol: string }, Awaited<ReturnType<typeof getChipDistribution>>> = {
+export const getStockChipDistribution: AgentTool<
+  { symbol: string },
+  Awaited<ReturnType<typeof getChipDistribution>>
+> = {
   name: 'getStockChipDistribution',
   description: 'Fetch A-share chip distribution data.',
   inputSchema: { type: 'object', properties: { symbol: { type: 'string' } }, required: ['symbol'] },
@@ -117,7 +168,10 @@ export const getMarketReview: AgentTool<Record<string, never>, Awaited<ReturnTyp
   run: () => fetchMarketReview(),
 };
 
-export const getDragonTiger: AgentTool<{ symbol?: string; limit?: number }, Awaited<ReturnType<typeof listDailyDragonTiger>>> = {
+export const getDragonTiger: AgentTool<
+  { symbol?: string; limit?: number },
+  Awaited<ReturnType<typeof listDailyDragonTiger>>
+> = {
   name: 'getDragonTiger',
   description: 'Fetch daily market-wide dragon tiger board records.',
   inputSchema: { type: 'object', properties: { symbol: { type: 'string' }, limit: { type: 'number' } } },

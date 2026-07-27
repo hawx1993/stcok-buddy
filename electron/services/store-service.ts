@@ -32,14 +32,23 @@ export async function listStoreItems(): Promise<StoreItem[]> {
 
 export async function runStoreCommand(query: string): Promise<ChatResponse | undefined> {
   const text = query.trim();
-  const item = (await listStoreItems()).find((candidate) => candidate.command && (text === candidate.command || text.startsWith(`${candidate.command} `)));
+  const item = (await listStoreItems()).find(
+    (candidate) => candidate.command && (text === candidate.command || text.startsWith(`${candidate.command} `)),
+  );
   if (!item?.handler) return undefined;
 
   const args = text.slice(item.command!.length).trim();
   const handlerPath = await resolveHandlerPath(item);
   const source = await readFile(handlerPath, 'utf8');
   const encoded = Buffer.from(`${source}\n//# sourceURL=${handlerPath}`).toString('base64');
-  const mod = await import(`data:text/javascript;base64,${encoded}#${Date.now()}`) as { run?: (input: { args: string; query: string; item: StoreItem; llm?: { generate: typeof generateReport } }) => Promise<StoreCommandResult> };
+  const mod = (await import(`data:text/javascript;base64,${encoded}#${Date.now()}`)) as {
+    run?: (input: {
+      args: string;
+      query: string;
+      item: StoreItem;
+      llm?: { generate: typeof generateReport };
+    }) => Promise<StoreCommandResult>;
+  };
   if (typeof mod.run !== 'function') throw new Error(`Store plugin ${item.id} missing run()`);
   const output = await mod.run({ args, query, item, llm: { generate: generateReport } });
   const planAgents = [
@@ -48,7 +57,13 @@ export async function runStoreCommand(query: string): Promise<ChatResponse | und
     { id: 'summarize', agent: '汇总', description: '整理数据并生成报告' },
   ];
   const events = [
-    { type: 'plan_created' as const, title: '分析计划', message: item.description ?? item.name, progress: { current: 0, total: 3 }, plan: { agents: planAgents } },
+    {
+      type: 'plan_created' as const,
+      title: '分析计划',
+      message: item.description ?? item.name,
+      progress: { current: 0, total: 3 },
+      plan: { agents: planAgents },
+    },
     ...(output.events ?? []),
     { type: 'final_answer' as const, message: output.content },
   ];

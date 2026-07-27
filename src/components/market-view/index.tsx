@@ -1,7 +1,10 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { StockKlineChart } from '../kline-chart';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ILoadOlderKlineInput } from '../kline-chart';
+import { IndexCard } from './components/index-card';
 import { IndexKlineModal } from './components/index-kline-modal';
+import { StockTable } from './components/stock-table';
+import { formatMarketCap, formatMoney, formatPercent, formatVolume, parsePercent } from './market-format';
+import { applyMarketRowUpdateBatch, sameMarketRows } from './market-row-updates';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type {
   BoardDetail,
@@ -18,7 +21,8 @@ import { useAppStore } from '../../store/app-store';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
 
-const MARKET_PAGE_SIZE = 20;
+const MARKET_UPDATE_INTERVAL_MS = 520;
+const MARKET_SCROLL_IDLE_MS = 200;
 
 const tabs: Array<{ id: MarketTab; label: string }> = [
   { id: 'sh-main', label: '上海主板' },
@@ -31,8 +35,9 @@ const tabs: Array<{ id: MarketTab; label: string }> = [
 const periods: Array<{ id: MarketIndexPeriod; label: string }> = [
   { id: '15m', label: '15分钟' },
   { id: '1h', label: '1小时' },
-  { id: '4h', label: '4小时' },
   { id: '1d', label: '天' },
+  { id: '1w', label: '周' },
+  { id: '1mo', label: '月' },
 ];
 
 type SortDirection = 'asc' | 'desc' | undefined;
@@ -42,63 +47,129 @@ export function MarketView() {
   const [indexPeriod, setIndexPeriod] = useState<MarketIndexPeriod>('1d');
   const [indices, setIndices] = useState<MarketIndexSnapshot[]>([]);
   const [rowsByTab, setRowsByTab] = useState<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
+  const rowsByTabRef = useRef<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
   const [updatedAt, setUpdatedAt] = useState('');
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [suggestions, setSuggestions] = useState<MarketSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [visibleRowCount, setVisibleRowCount] = useState(MARKET_PAGE_SIZE);
   const [sortDirection, setSortDirection] = useState<SortDirection>();
   const [expandedIndexCode, setExpandedIndexCode] = useState<string>();
   const refreshTimer = useRef<number>();
+  const scrollIdleRefreshTimer = useRef<number>();
+  const updateTimer = useRef<number>();
+  const isScrollingRef = useRef(false);
+  const pendingRowsByTabRef = useRef<Partial<Record<MarketTab, { rows: MarketQuoteRow[]; allowReorder: boolean }>>>({});
+  const activeTabRef = useRef(activeTab);
+  const refreshActiveTabRef = useRef<() => void>(() => undefined);
   const tableWrapRef = useRef<HTMLDivElement>(null);
+  const [updateVersion, setUpdateVersion] = useState(0);
+  const [changedCodes, setChangedCodes] = useState<string[]>([]);
+  const [movedCodes, setMovedCodes] = useState<string[]>([]);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const selectedBoard = useAppStore((state) => state.selectedBoard);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
   const openBoardPanel = useAppStore((state) => state.openBoardPanel);
 
   useEffect(() => {
+    rowsByTabRef.current = rowsByTab;
+  }, [rowsByTab]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  const schedulePendingRowUpdate = useCallback((delay = 0) => {
+    window.clearTimeout(updateTimer.current);
+    if (isScrollingRef.current) return;
+    updateTimer.current = window.setTimeout(() => {
+      if (isScrollingRef.current) return;
+      const activeTab = activeTabRef.current;
+      const pending = pendingRowsByTabRef.current[activeTab];
+      if (!pending) return;
+      const currentRows = rowsByTabRef.current[activeTab] ?? [];
+      const batch = applyMarketRowUpdateBatch(currentRows, pending.rows, undefined, pending.allowReorder);
+      if (!batch.changedCodes.length) {
+        delete pendingRowsByTabRef.current[activeTab];
+        return;
+      }
+      const nextRowsByTab = { ...rowsByTabRef.current, [activeTab]: batch.rows };
+      rowsByTabRef.current = nextRowsByTab;
+      setRowsByTab(nextRowsByTab);
+      setChangedCodes(batch.changedCodes);
+      setMovedCodes(batch.movedCodes);
+      setUpdateVersion((version) => version + 1);
+      if (batch.pending) schedulePendingRowUpdate(MARKET_UPDATE_INTERVAL_MS);
+      else delete pendingRowsByTabRef.current[activeTab];
+    }, delay);
+  }, []);
+
+  const queueSnapshotRows = useCallback(
+    (data: MarketPageSnapshot) => {
+      const currentRows = rowsByTabRef.current[data.tab] ?? [];
+      if (!currentRows.length) {
+        const nextRowsByTab = { ...rowsByTabRef.current, [data.tab]: data.rows };
+        rowsByTabRef.current = nextRowsByTab;
+        setRowsByTab(nextRowsByTab);
+        return;
+      }
+      if (sameMarketRows(currentRows, data.rows)) return;
+      pendingRowsByTabRef.current[data.tab] = { rows: data.rows, allowReorder: data.rowOrderSource === 'remote' };
+      if (data.tab === activeTabRef.current) schedulePendingRowUpdate();
+    },
+    [schedulePendingRowUpdate],
+  );
+
+  useEffect(() => {
     let alive = true;
     const api = getStocksenseApi();
-    setLoading(true);
     const hasContent = (data: MarketPageSnapshot) => data.rows.length > 0;
     const applySnapshot = (data: MarketPageSnapshot, done = true) => {
       if (!alive) return;
-      if (data.indices.length) setIndices(data.indices);
-      setRowsByTab((current) => ({ ...current, [data.tab]: data.rows }));
+      if (data.indices.length) setIndices((current) => mergeMarketIndexSnapshots(current, data.indices));
+      queueSnapshotRows(data);
       if (data.tab === activeTab) {
         setUpdatedAt(data.updatedAt);
         if (done || hasContent(data)) setLoading(false);
       }
     };
-    const load = () =>
+    setLoading(!rowsByTabRef.current[activeTab]?.length);
+    const loadTab = (tab: MarketTab, done = tab === activeTab) =>
       api
-        .getMarketPageSnapshot(activeTab, indexPeriod)
-        .then((data) => applySnapshot(data))
+        .getMarketPageSnapshot(tab, indexPeriod)
+        .then((data) => applySnapshot(data, done))
         .catch(console.error);
-    void load();
+    refreshActiveTabRef.current = () => {
+      if (alive) void loadTab(activeTab);
+    };
+    refreshActiveTabRef.current();
+    for (const tab of tabs) {
+      if (tab.id !== activeTab && !rowsByTabRef.current[tab.id]?.length) void loadTab(tab.id, false);
+    }
     const unsubscribe = api.onMarketPageSnapshotUpdated?.((data) => {
       if (!alive || (data.period ?? '1d') !== indexPeriod) return;
-      if (data.indices.length) setIndices(data.indices);
-      setRowsByTab((current) => ({ ...current, [data.tab]: data.rows }));
+      if (data.indices.length) setIndices((current) => mergeMarketIndexSnapshots(current, data.indices));
+      queueSnapshotRows(data);
       if (data.tab === activeTab) {
         setUpdatedAt(data.updatedAt);
         setLoading(false);
       }
     });
     window.clearInterval(refreshTimer.current);
-    if (isChinaMarketOpen())
-      refreshTimer.current = window.setInterval(() => {
-        if (alive) void load();
-      }, 15_000);
+    refreshTimer.current = window.setInterval(() => {
+      if (alive && isChinaMarketOpen()) refreshActiveTabRef.current();
+    }, 15_000);
     return () => {
       alive = false;
       unsubscribe?.();
       window.clearInterval(refreshTimer.current);
+      window.clearTimeout(scrollIdleRefreshTimer.current);
+      window.clearTimeout(updateTimer.current);
     };
-  }, [activeTab, indexPeriod]);
+  }, [activeTab, indexPeriod, queueSnapshotRows]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchText.trim()), 250);
@@ -145,22 +216,36 @@ export function MarketView() {
     },
     [expandedIndexCode, indexPeriod],
   );
-  const sortedRows = sortDirection
-    ? [...visibleRows].sort(
-        (a, b) => (parsePercent(a.changePercent) - parsePercent(b.changePercent)) * (sortDirection === 'asc' ? 1 : -1),
-      )
-    : visibleRows;
-  const renderedRows = sortedRows.slice(0, visibleRowCount);
+  const sortedRows = useMemo(
+    () =>
+      sortDirection
+        ? [...visibleRows].sort(
+            (a, b) =>
+              (parsePercent(a.changePercent) - parsePercent(b.changePercent)) * (sortDirection === 'asc' ? 1 : -1) ||
+              String(a.code).localeCompare(String(b.code)),
+          )
+        : visibleRows,
+    [sortDirection, visibleRows],
+  );
 
-  const changeTab = (tab: MarketTab) => {
-    setActiveTab(tab);
-    setVisibleRowCount(MARKET_PAGE_SIZE);
-    tableWrapRef.current?.scrollTo({ top: 0 });
+  const handleTableScroll = () => {
+    isScrollingRef.current = true;
+    window.clearTimeout(updateTimer.current);
+    window.clearTimeout(scrollIdleRefreshTimer.current);
+    scrollIdleRefreshTimer.current = window.setTimeout(() => {
+      isScrollingRef.current = false;
+      schedulePendingRowUpdate();
+    }, MARKET_SCROLL_IDLE_MS);
   };
 
-  const loadMoreRows = () => {
-    if (visibleRowCount >= sortedRows.length) return;
-    setVisibleRowCount((count) => Math.min(count + MARKET_PAGE_SIZE, sortedRows.length));
+  const changeTab = (tab: MarketTab) => {
+    window.clearTimeout(updateTimer.current);
+    setActiveTab(tab);
+    activeTabRef.current = tab;
+    setChangedCodes([]);
+    setMovedCodes([]);
+    tableWrapRef.current?.scrollTo({ top: 0 });
+    schedulePendingRowUpdate();
   };
 
   const openStock = useCallback(
@@ -178,7 +263,9 @@ export function MarketView() {
         turnover: formatMoney(row.amount),
         turnoverRate: formatPercent(row.turnoverRate),
         marketCap: formatMarketCap(row.marketCap),
+        industry: row.industry,
       };
+      setStockReturnContext(undefined);
       openRightPanel();
       setSelectedStock(rowSnapshot);
       try {
@@ -192,7 +279,7 @@ export function MarketView() {
         setSelectedStock(rowSnapshot);
       }
     },
-    [openRightPanel, setSelectedStock],
+    [openRightPanel, setSelectedStock, setStockReturnContext],
   );
 
   const openBoard = useCallback(
@@ -314,30 +401,26 @@ export function MarketView() {
           </button>
         ))}
       </div>
-      <div
-        ref={tableWrapRef}
-        className={styles.tableWrap}
-        onScroll={(event) => {
-          const el = event.currentTarget;
-          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) loadMoreRows();
-        }}
-      >
+      <div ref={tableWrapRef} className={styles.tableWrap} onScroll={handleTableScroll}>
         <StockTable
-          rows={renderedRows}
+          rows={sortedRows}
+          scrollRef={tableWrapRef}
           sortDirection={sortDirection}
+          updateVersion={updateVersion}
+          changedCodes={changedCodes}
+          movedCodes={movedCodes}
           onSortChange={() => {
+            window.clearTimeout(updateTimer.current);
+            setChangedCodes([]);
+            setMovedCodes([]);
             setSortDirection((direction) =>
               direction === undefined ? 'desc' : direction === 'desc' ? 'asc' : undefined,
             );
-            setVisibleRowCount(MARKET_PAGE_SIZE);
+            tableWrapRef.current?.scrollTo({ top: 0 });
           }}
           onOpen={openStock}
         />
-        {sortedRows.length ? (
-          <div className={styles.loadState}>
-            {visibleRowCount < sortedRows.length ? '向下滚动加载更多' : `已加载全部 ${sortedRows.length} 只`}
-          </div>
-        ) : null}
+        {sortedRows.length ? <div className={styles.loadState}>共 {sortedRows.length} 只</div> : null}
       </div>
       {expandedIndex ? (
         <IndexKlineModal
@@ -352,96 +435,20 @@ export function MarketView() {
   );
 }
 
-const IndexCard = memo(function IndexCard({
-  item,
-  onExpand,
-}: {
-  item: MarketIndexSnapshot;
-  onExpand(item: MarketIndexSnapshot): void;
-}) {
-  const isDown = Number(item.changePercent) < 0;
-  return (
-    <div className={styles.indexCard}>
-      <button className={styles.expandButton} onClick={() => onExpand(item)} title='放大指数图' type='button'>
-        ⛶
-      </button>
-      <div className={styles.indexTitle}>
-        <span>{item.name}</span>
-        <strong className={isDown ? 'down' : 'up'}>{item.price ?? '--'}</strong>
-        <em className={isDown ? 'down' : 'up'}>
-          {formatSigned(item.change)} {formatPercent(item.changePercent)}
-        </em>
-      </div>
-      <div className={styles.chart}>
-        {item.minutes.length ? (
-          <StockKlineChart
-            key={`${item.code}-${item.minutes[0]?.time}-${item.minutes[item.minutes.length - 1]?.time}`}
-            stock={item}
-            data={item.minutes}
-            height='100%'
-            showLegend={false}
-            staticData
-          />
-        ) : (
-          <span className={styles.noChart}>暂无数据</span>
-        )}
-      </div>
-      <div className={styles.indexMeta}>
-        <span>今开 {item.open ?? '--'}</span>
-        <span>最高 {item.high ?? '--'}</span>
-        <span>最低 {item.low ?? '--'}</span>
-        <span>成交额 {formatMoney(item.amount)}</span>
-      </div>
-    </div>
-  );
-});
-
-function StockTable({
-  rows,
-  sortDirection,
-  onSortChange,
-  onOpen,
-}: {
-  rows: MarketQuoteRow[];
-  sortDirection: SortDirection;
-  onSortChange(): void;
-  onOpen(row: MarketQuoteRow): void;
-}) {
-  const sortMark = sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : '↕';
-  return (
-    <table className={styles.marketTable}>
-      <thead>
-        <tr>
-          <th>序号</th>
-          <th>代码</th>
-          <th>名称</th>
-          <th>
-            <button className={styles.sortButton} onClick={onSortChange} type='button'>
-              涨跌幅 {sortMark}
-            </button>
-          </th>
-          <th>最新价</th>
-          <th>换手率</th>
-          <th>成交量</th>
-          <th>成交额</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr key={row.code} onClick={() => onOpen(row)}>
-            <td>{index + 1}</td>
-            <td>{row.code}</td>
-            <td>{row.name}</td>
-            <td className={tone(row.changePercent)}>{formatPercent(row.changePercent)}</td>
-            <td className={tone(row.changePercent)}>{row.price ?? '--'}</td>
-            <td>{formatPercent(row.turnoverRate)}</td>
-            <td>{formatVolume(row.volume)}</td>
-            <td>{formatMoney(row.amount)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
+function mergeMarketIndexSnapshots(current: MarketIndexSnapshot[], next: MarketIndexSnapshot[]) {
+  if (!current.length) return next;
+  let changed = current.length !== next.length;
+  const currentByCode = new Map(current.map((item) => [item.code, item]));
+  const merged = next.map((item) => {
+    const previous = currentByCode.get(item.code);
+    if (previous?.minutes.length && !item.minutes.length) {
+      changed = true;
+      return previous;
+    }
+    if (previous !== item) changed = true;
+    return item;
+  });
+  return changed ? merged : current;
 }
 
 function toMarketIndexSymbol(code: string | undefined) {
@@ -455,44 +462,4 @@ function isChinaMarketOpen(date = new Date()) {
   if (day === 0 || day === 6) return false;
   const minutes = date.getHours() * 60 + date.getMinutes();
   return (minutes >= 9 * 60 + 25 && minutes <= 11 * 60 + 30) || (minutes >= 13 * 60 && minutes <= 15 * 60);
-}
-
-function tone(value: unknown) {
-  return Number(value) < 0 || String(value).startsWith('-') ? 'down' : 'up';
-}
-function parsePercent(value: unknown) {
-  const num = Number.parseFloat(String(value ?? '').replace('%', ''));
-  return Number.isFinite(num) ? num : 0;
-}
-function formatSigned(value: unknown) {
-  const num = Number(value);
-  return Number.isFinite(num) ? `${num > 0 ? '+' : ''}${num.toFixed(2)}` : '--';
-}
-function formatPercent(value: unknown) {
-  const raw = String(value ?? '');
-  const num = Number.parseFloat(raw.replace('%', ''));
-  return Number.isFinite(num) ? `${num > 0 ? '+' : ''}${num.toFixed(2)}%` : String(value ?? '--');
-}
-function formatVolume(value: unknown) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return String(value ?? '--');
-  return num >= 100_000_000
-    ? `${(num / 100_000_000).toFixed(2)}亿手`
-    : num >= 10_000
-      ? `${(num / 10_000).toFixed(2)}万手`
-      : `${num.toFixed(0)}手`;
-}
-function formatMoney(value: unknown) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return String(value ?? '--');
-  return num >= 100_000_000
-    ? `${(num / 100_000_000).toFixed(2)}亿`
-    : num >= 10_000
-      ? `${(num / 10_000).toFixed(2)}万`
-      : `${num.toFixed(0)}`;
-}
-function formatMarketCap(value: unknown) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return String(value ?? '--');
-  return num >= 10_000 ? `${(num / 10_000).toFixed(2)}万亿` : `${num.toFixed(1)}亿`;
 }

@@ -1,8 +1,9 @@
 import { message as antdMessage } from 'antd';
 import { Pin, PinOff, Star, Trash2 } from 'lucide-react';
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
+import { isChinaMarketOpen } from '../../../shared/market-time';
 import type { StockDetail } from '../../../shared/types';
 import { useAppStore } from '../../../store/app-store';
 import { Empty } from '../../empty';
@@ -14,34 +15,45 @@ interface IFavoritesPanelProps {
 
 export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   const [quotes, setQuotes] = useState<Record<string, StockDetail>>({});
+  const quoteTimerRef = useRef<number>();
   const favoriteStocks = useAppStore((state) => state.favoriteStocks);
   const setFavoriteStocks = useAppStore((state) => state.setFavoriteStocks);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
 
   useEffect(() => {
     if (!isActive || !favoriteStocks.length) return;
     let alive = true;
-    const refreshQuotes = async () => {
-      try {
-        const rows = await getStocksenseApi().getBatchQuotes(favoriteStocks.map((item) => item.code));
-        if (alive) setQuotes(Object.fromEntries(rows.map((quote) => [quote.code, quote])));
-      } catch (error: unknown) {
-        if (alive) console.error(error);
-      }
+
+    const refreshQuotes = () => {
+      getStocksenseApi()
+        .getBatchQuotes(favoriteStocks.map((item) => item.code))
+        .then((rows) => {
+          if (alive) setQuotes(Object.fromEntries(rows.map((quote) => [quote.code, quote])));
+        })
+        .catch((error: unknown) => {
+          if (alive) console.error(error);
+        });
     };
+
     void refreshQuotes();
-    const id = window.setInterval(refreshQuotes, 30_000);
+    window.clearInterval(quoteTimerRef.current);
+    if (isChinaMarketOpen()) {
+      quoteTimerRef.current = window.setInterval(refreshQuotes, 15_000);
+    }
+
     return () => {
       alive = false;
-      window.clearInterval(id);
+      window.clearInterval(quoteTimerRef.current);
     };
   }, [favoriteStocks, isActive]);
 
   const openStock = async (stock: StockDetail) => {
     setRightPanelTab('stock');
     openRightPanel();
+    setStockReturnContext({ tab: 'favorites', code: stock.code });
     setSelectedStock(stock);
     try {
       setSelectedStock(await getStocksenseApi().getStockDetail(stock.code));

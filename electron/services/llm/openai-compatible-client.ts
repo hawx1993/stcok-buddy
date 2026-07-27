@@ -71,7 +71,10 @@ export async function chatWithOpenAICompatible(
 }
 
 function normalizeBaseUrl(baseUrl: string) {
-  return baseUrl.trim().replace(/\/$/, '').replace(/\/chat\/completions$/, '');
+  return baseUrl
+    .trim()
+    .replace(/\/$/, '')
+    .replace(/\/chat\/completions$/, '');
 }
 
 function formatLlmError(error: unknown, config: ModelProviderConfig) {
@@ -82,5 +85,9 @@ function formatLlmError(error: unknown, config: ModelProviderConfig) {
 function contentToString(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
-  return content.map((part) => (typeof part === 'string' ? part : typeof part === 'object' && part && 'text' in part ? String(part.text) : '')).join('');
+  return content
+    .map((part) =>
+      typeof part === 'string' ? part : typeof part === 'object' && part && 'text' in part ? String(part.text) : '',
+    )
+    .join('');
 }

@@ -7,7 +7,10 @@ import { config as loadDotenv } from 'dotenv';
 import { registerIpcHandlers } from './ipc.js';
 import { closeMarketDataStore, initializeMarketDataStore } from './services/market-data/market-data-store.js';
 import { stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
-import { startMarketNewsSummaryScheduler, stopMarketNewsSummaryScheduler } from './services/market-data/market-news-summary-scheduler.js';
+import {
+  startMarketNewsSummaryScheduler,
+  stopMarketNewsSummaryScheduler,
+} from './services/market-data/market-news-summary-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
 import { stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
@@ -19,7 +22,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 
 loadDotenv({ path: path.join(__dirname, '../../.env.local'), override: false });
-const appIcon = isDev ? path.join(__dirname, '../public/icons/icon.svg') : path.join(process.resourcesPath, 'icons/icon.svg');
+const appIcon = isDev
+  ? path.join(__dirname, '../public/icons/icon.svg')
+  : path.join(process.resourcesPath, 'icons/icon.svg');
 
 let mainWindow: BrowserWindow | null = null;
 let cleanupStarted = false;
@@ -40,7 +45,10 @@ function getBuildCommitHash() {
   const packagedHashFile = path.join(process.resourcesPath, 'commit-hash.txt');
   if (app.isPackaged && existsSync(packagedHashFile)) return readFileSync(packagedHashFile, 'utf8').trim();
   try {
-    return execFileSync('git', ['rev-parse', '--short=10', 'HEAD'], { encoding: 'utf8', cwd: path.join(__dirname, '..', '..') }).trim();
+    return execFileSync('git', ['rev-parse', '--short=10', 'HEAD'], {
+      encoding: 'utf8',
+      cwd: path.join(__dirname, '..', '..'),
+    }).trim();
   } catch {
     return 'unknown';
   }
@@ -107,7 +115,9 @@ app.whenReady().then(() => {
   initializeQuoteStore();
   registerIpcHandlers();
   void initializeMarketDataStore().catch((error) => console.warn('[market-data] initialization failed', error));
-  void startMarketNewsSummaryScheduler().catch((error) => console.warn('[news-summary] scheduler initialization failed', error));
+  void startMarketNewsSummaryScheduler().catch((error) =>
+    console.warn('[news-summary] scheduler initialization failed', error),
+  );
   createWindow();
   setTimeout(() => {
     void checkAppUpdate({ silent: true });

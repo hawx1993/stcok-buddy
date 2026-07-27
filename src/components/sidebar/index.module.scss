@@ -448,6 +448,116 @@
   background: var(--list-item-hover);
   color: var(--fg);
 }
+.brand-trigger {
+  min-width: 0;
+  height: 40px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 4px;
+  color: var(--fg);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.brand-trigger:hover,
+.brand-trigger:focus-visible {
+  background: var(--list-item-hover);
+  color: var(--fg);
+}
+.brand-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.brand-avatar :global(.whale-logo),
+.brand-avatar svg {
+  width: 32px;
+  height: 28px;
+  display: block;
+}
+.brand-name {
+  max-width: 118px;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-dropdown :global(.ant-dropdown-menu) {
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: var(--surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
+}
+.account-dropdown :global(.ant-dropdown-menu-item),
+.account-dropdown :global(.ant-dropdown-menu-submenu-title) {
+  border-radius: 8px;
+  color: var(--fg) !important;
+  background: transparent;
+  font-size: 13px;
+}
+.account-dropdown :global(.ant-dropdown-menu-title-content) {
+  color: inherit;
+}
+.account-dropdown :global(.ant-dropdown-menu-item:hover),
+.account-dropdown :global(.ant-dropdown-menu-submenu-title:hover),
+.account-dropdown :global(.ant-dropdown-menu-item-active),
+.account-dropdown :global(.ant-dropdown-menu-submenu-title-active) {
+  color: var(--fg) !important;
+  background: var(--surface-hover) !important;
+}
+.account-dropdown :global(.ant-dropdown-menu-item-disabled) {
+  color: var(--muted) !important;
+}
+.account-dropdown :global(.ant-dropdown-menu-item-disabled:hover) {
+  background: transparent !important;
+}
+.account-dropdown :global(.ant-dropdown-menu-item-divider) {
+  background: var(--glass-border);
+}
+.account-dropdown .about-menu-item {
+  margin-bottom: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--glass-border);
+}
+.menu-label {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+}
+.menu-label-main {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.menu-label-main svg {
+  flex-shrink: 0;
+  color: currentColor;
+  opacity: 0.78;
+}
+.menu-label kbd {
+  color: currentColor;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.62;
+}
 .user-dropdown {
   position: absolute;
   bottom: calc(100% + 6px);

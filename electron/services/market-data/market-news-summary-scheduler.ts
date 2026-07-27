@@ -9,7 +9,7 @@ let timer: NodeJS.Timeout | undefined;
 export async function startMarketNewsSummaryScheduler() {
   stopMarketNewsSummaryScheduler();
   const marketTime = toShanghaiMarketTime(new Date());
-  if (!await isRemoteTradingDay(marketTime.date)) return;
+  if (!(await isRemoteTradingDay(marketTime.date))) return;
   const state = await getMarketNewsSummaryState();
   if (state.summary) return;
   const delay = marketTime.minutes < 15 * 60 ? millisecondsUntilMarketClose(marketTime.minutes) : randomDelay();

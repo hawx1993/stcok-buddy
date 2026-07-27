@@ -1,6 +1,7 @@
-import { message as antdMessage } from 'antd';
-import { BarChart3, MessageCircle, MoreHorizontal, Pencil, Settings, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Dropdown, message as antdMessage } from 'antd';
+import type { MenuProps } from 'antd';
+import { BarChart3, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
+import { useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../store/app-store';
 import { ThemeToggle } from '../theme-toggle';
 import { createChatConversation } from './components/create-chat-conversation';
@@ -8,12 +9,40 @@ import { getStocksenseApi } from '../../shared/stocksense-api';
 import { UpdateBanner } from './components/update-banner';
 import type { ConversationSummary } from '../../shared/types';
 import { trackButtonClick, trackPageView } from '../../shared/analytics';
+import { WhaleLogo } from '../chat-view/components/whale-logo';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
 
 interface IConversationGroup {
   label: string;
   conversations: ConversationSummary[];
+}
+
+const releaseNotesUrl = 'https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd';
+
+function getUpdateCheckMessage(status: string, latestVersion?: string) {
+  if (status === 'available') return latestVersion ? `发现新版本 v${latestVersion}` : '发现新版本';
+  if (status === 'not-available') return '当前已是最新版本';
+  if (status === 'downloaded') return '新版本已下载，可安装更新';
+  if (status === 'downloading') return '更新包正在下载中';
+  if (status === 'error') return '检查更新失败';
+  return '检查更新完成';
+}
+
+function menuLabel(icon: ReactNode, label: string, shortcut?: string) {
+  return (
+    <span className={styles['menu-label']}>
+      <span className={styles['menu-label-main']}>
+        {icon}
+        <span>{label}</span>
+      </span>
+      {shortcut ? <kbd>{shortcut}</kbd> : null}
+    </span>
+  );
+}
+
+function isMacPlatform() {
+  return typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 }
 
 function calendarDateKey(date: Date) {
@@ -52,9 +81,12 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const setConversations = useAppStore((state) => state.setConversations);
   const clearMessages = useAppStore((state) => state.clearMessages);
   const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
+  const setAboutOpen = useAppStore((state) => state.setAboutOpen);
   const setMainView = useAppStore((state) => state.setMainView);
 
   const createConversation = createChatConversation;
+  const isMac = isMacPlatform();
+  const settingsShortcut = isMac ? '⌘,' : 'Ctrl,';
 
   const deleteConversation = async (id: string) => {
     trackButtonClick('delete_conversation');
@@ -85,6 +117,60 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
     antdMessage.success('修改成功');
   };
 
+  const checkUpdate = async () => {
+    trackButtonClick('sidebar_check_update');
+    const hideLoading = antdMessage.loading('正在检查更新…', 0);
+    try {
+      const state = await getStocksenseApi().checkAppUpdate();
+      hideLoading();
+      const content = getUpdateCheckMessage(state.status, state.latestVersion);
+      if (state.status === 'error') antdMessage.error(state.error ?? state.message ?? content);
+      else if (state.status === 'available' || state.status === 'downloaded') antdMessage.success(content);
+      else antdMessage.info(state.message ?? content);
+    } catch (error) {
+      hideLoading();
+      antdMessage.error(error instanceof Error ? error.message : '检查更新失败');
+    }
+  };
+
+  const menuItems: MenuProps['items'] = [
+    { key: 'about', label: menuLabel(<Info size={15} />, '关于 StockBuddy'), className: styles['about-menu-item'] },
+    { key: 'settings', label: menuLabel(<Settings size={15} />, '系统设置', settingsShortcut) },
+    { key: 'check-update', label: menuLabel(<RefreshCw size={15} />, '检查更新') },
+    { key: 'release-notes', label: menuLabel(<FileText size={15} />, '更新日志') },
+    { key: 'feedback', label: menuLabel(<HelpCircle size={15} />, '帮助与反馈') },
+  ];
+
+  const runAccountMenuAction: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'settings') {
+      trackButtonClick('open_settings');
+      setSettingsOpen(true);
+      return;
+    }
+    if (key === 'check-update') {
+      void checkUpdate();
+      return;
+    }
+    if (key === 'release-notes') {
+      trackButtonClick('open_release_notes');
+      window.open(releaseNotesUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (key === 'feedback') {
+      trackButtonClick('open_feedback_email');
+      getStocksenseApi()
+        .openFeedbackEmail()
+        .catch((error: unknown) => {
+          antdMessage.error(error instanceof Error ? error.message : '打开邮件客户端失败');
+        });
+      return;
+    }
+    if (key === 'about') {
+      trackButtonClick('open_about_stockbuddy');
+      setAboutOpen(true);
+    }
+  };
+
   const query = search.toLowerCase();
   const conversationGroups = useMemo(() => {
     const filtered = conversations.filter(
@@ -101,6 +187,18 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
   }, [searchOpen]);
+
+  useEffect(() => {
+    const openSettingsByShortcut = (event: KeyboardEvent) => {
+      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
+      if (!modifierPressed || event.key !== ',') return;
+      event.preventDefault();
+      trackButtonClick('open_settings_shortcut');
+      setSettingsOpen(true);
+    };
+    window.addEventListener('keydown', openSettingsByShortcut);
+    return () => window.removeEventListener('keydown', openSettingsByShortcut);
+  }, [isMac, setSettingsOpen]);
 
   return (
     <aside className={cx(styles.sidebar, isLeftSidebarCollapsed && styles.collapsed)} data-sidebar>
@@ -223,18 +321,19 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
       <UpdateBanner />
 
       <div className={styles['sidebar-footer']}>
-        <button
-          className={styles['footer-action']}
-          onClick={() => {
-            trackButtonClick('open_settings');
-            setSettingsOpen(true);
-          }}
-          type='button'
-          aria-label='系统设置'
+        <Dropdown
+          menu={{ items: menuItems, onClick: runAccountMenuAction }}
+          overlayClassName={styles['account-dropdown']}
+          placement='topLeft'
+          trigger={['click']}
         >
-          <Settings size={15} />
-          <span>设置</span>
-        </button>
+          <button className={styles['brand-trigger']} type='button' aria-label='打开 StockBuddy 菜单'>
+            <span className={styles['brand-avatar']}>
+              <WhaleLogo />
+            </span>
+            <span className={styles['brand-name']}>StockBuddy</span>
+          </button>
+        </Dropdown>
         <ThemeToggle compact />
       </div>
     </aside>

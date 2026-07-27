@@ -1,12 +1,30 @@
-import type { AgentResultCard, AnnouncementItem, HotFocusItem, IStockFundFlowSnapshot, MarketNewsItem, StockDetail, TMarketReviewReport } from '../../../src/shared/types.js';
+import type {
+  AgentResultCard,
+  AnnouncementItem,
+  HotFocusItem,
+  IStockFundFlowSnapshot,
+  MarketNewsItem,
+  StockDetail,
+  TMarketReviewReport,
+} from '../../../src/shared/types.js';
 import type { HistoricalBarsResult } from '../market-data/types.js';
 import type { DailyDragonTigerItem } from '../stock/stock-client.js';
 import type { DagNode } from './dag-executor.js';
 import type { IAgentContext, TOnToken } from './orchestrator-types.js';
-import { buildStockAnalysisInput, enrichTechnicalCard, filterLargeOrders, runContextTool } from './agent-tool-runtime.js';
+import { buildStockAnalysisInput, filterLargeOrders, runContextTool } from './agent-tool-runtime.js';
 import { dailyDragonTigerToCard, newsAnnouncementsToCard, themeAttributionToCard } from './agent-result-cards.js';
 import { fetchBoard } from './data-agent.js';
-import { evidenceFromAnnouncements, evidenceFromChip, evidenceFromDragonTiger, evidenceFromFundFlow, evidenceFromHistoricalBars, evidenceFromHotFocus, evidenceFromNews, evidenceFromQuote, evidenceFromTechnical } from './evidence.js';
+import {
+  evidenceFromAnnouncements,
+  evidenceFromChip,
+  evidenceFromDragonTiger,
+  evidenceFromFundFlow,
+  evidenceFromHistoricalBars,
+  evidenceFromHotFocus,
+  evidenceFromNews,
+  evidenceFromQuote,
+  evidenceFromTechnical,
+} from './evidence.js';
 import { generateReport } from '../llm/index.js';
 import { createMarketReviewMessages } from './market-review-prompt.js';
 import { runNewsAnalysisAgent } from './news-analysis-agent.js';
@@ -111,7 +129,12 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         agent: 'MarketReviewDataAgent',
         description: '采集全市场行情、板块资金流与涨跌停池真实数据',
         run: async (ctx) => {
-          ctx.marketReview = await runContextTool<TMarketReviewReport | undefined>(ctx, 'getMarketReview', {}, () => undefined);
+          ctx.marketReview = await runContextTool<TMarketReviewReport | undefined>(
+            ctx,
+            'getMarketReview',
+            {},
+            () => undefined,
+          );
         },
       },
       {
@@ -335,7 +358,10 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         description: `汇总五维分析结果并生成 ${context.symbol} 综合投研报告`,
         dependsOn: analysisAgents.map((agent) => `analysis-${agent.name}`),
         run: async (ctx) => {
-          ctx.analysisOverview = await runStockAnalysisOverview(buildStockAnalysisInput(ctx), ctx.analysisResults ?? []);
+          ctx.analysisOverview = await runStockAnalysisOverview(
+            buildStockAnalysisInput(ctx),
+            ctx.analysisResults ?? [],
+          );
         },
       });
     }
@@ -361,4 +387,3 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
 
   return nodes;
 }
-

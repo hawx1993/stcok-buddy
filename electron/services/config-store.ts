@@ -1,6 +1,13 @@
 import Store from 'electron-store';
 import { randomUUID } from 'node:crypto';
-import type { AppConfig, FavoriteStock, IMarketNewsSummaryState, IPendingDownloadedUpdate, IStockNewsPreferences, IStockNewsSubscription } from '../../src/shared/types.js';
+import type {
+  AppConfig,
+  FavoriteStock,
+  IMarketNewsSummaryState,
+  IPendingDownloadedUpdate,
+  IStockNewsPreferences,
+  IStockNewsSubscription,
+} from '../../src/shared/types.js';
 
 export interface StoreSchema {
   config: AppConfig;
@@ -37,7 +44,6 @@ function systemName() {
   return process.platform;
 }
 
-
 export const store = new Store<StoreSchema>({
   name: 'stocksense-store',
   defaults: {
@@ -55,7 +61,10 @@ export function getConfig(): AppConfig {
     ...defaultConfig,
     ...config,
     model: { ...defaultConfig.model, ...config.model },
-    appUpdate: { channel: config.appUpdate?.channel ?? defaultConfig.appUpdate?.channel ?? 'stable', downloadDirectory: config.appUpdate?.downloadDirectory ?? defaultConfig.appUpdate?.downloadDirectory ?? '' },
+    appUpdate: {
+      channel: config.appUpdate?.channel ?? defaultConfig.appUpdate?.channel ?? 'stable',
+      downloadDirectory: config.appUpdate?.downloadDirectory ?? defaultConfig.appUpdate?.downloadDirectory ?? '',
+    },
   };
 }
 
@@ -136,7 +145,9 @@ export function clearPendingDownloadedUpdate() {
 }
 
 function sortFavorites(items: FavoriteStock[]) {
-  return [...items].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.createdAt.localeCompare(a.createdAt));
+  return [...items].sort(
+    (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.createdAt.localeCompare(a.createdAt),
+  );
 }
 
 export function listFavoriteStocks(): FavoriteStock[] {
@@ -164,17 +175,26 @@ export function installStoreItem(id: string): string[] {
 }
 
 export function uninstallStoreItem(id: string): string[] {
-  store.set('installedStoreItems', store.get('installedStoreItems', []).filter((item) => item !== id));
+  store.set(
+    'installedStoreItems',
+    store.get('installedStoreItems', []).filter((item) => item !== id),
+  );
   return listInstalledStoreItems();
 }
 
 export function removeFavoriteStock(code: string): FavoriteStock[] {
-  store.set('favoriteStocks', store.get('favoriteStocks', []).filter((item) => item.code !== code));
+  store.set(
+    'favoriteStocks',
+    store.get('favoriteStocks', []).filter((item) => item.code !== code),
+  );
   return listFavoriteStocks();
 }
 
 export function toggleFavoriteStockPin(code: string): FavoriteStock[] {
-  store.set('favoriteStocks', store.get('favoriteStocks', []).map((item) => (item.code === code ? { ...item, pinned: !item.pinned } : item)));
+  store.set(
+    'favoriteStocks',
+    store.get('favoriteStocks', []).map((item) => (item.code === code ? { ...item, pinned: !item.pinned } : item)),
+  );
   return listFavoriteStocks();
 }
 

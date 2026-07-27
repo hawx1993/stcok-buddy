@@ -308,6 +308,7 @@ export interface StockDetail {
   volume?: string;
   turnover?: string;
   turnoverRate?: string | number;
+  industry?: string;
   rating?: {
     fundamental: string;
     valuation: string;
@@ -444,7 +445,7 @@ export interface IMarketNewsSummaryState {
 
 export type HotFocusTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
 export type MarketTab = 'sh-main' | 'sz-main' | 'bj' | 'gem' | 'star';
-export type MarketIndexPeriod = '15m' | '1h' | '4h' | '1d';
+export type MarketIndexPeriod = '15m' | '1h' | '4h' | '1d' | '1w' | '1mo';
 
 export interface MarketQuoteRow {
   code: string;
@@ -459,6 +460,7 @@ export interface MarketQuoteRow {
   prevClose?: number | string;
   turnoverRate?: number | string;
   marketCap?: number | string;
+  industry?: string;
 }
 
 export interface MarketBoardRow {
@@ -505,6 +507,7 @@ export interface MarketPageSnapshot {
   indices: MarketIndexSnapshot[];
   rows: MarketQuoteRow[];
   boards: MarketBoardRow[];
+  rowOrderSource?: 'local' | 'remote';
 }
 
 export interface HotFocusItem {
@@ -656,6 +659,13 @@ export interface IAppUpdateState {
   message?: string;
 }
 
+export interface IAppRuntimeInfo {
+  version: string;
+  electronVersion: string;
+  chromeVersion: string;
+  nodeVersion: string;
+}
+
 export interface IDesktopNotificationResult {
   delivered: boolean;
   reason?: string;
@@ -665,6 +675,8 @@ export interface StocksenseApi {
   captureAnalytics?(event: string, properties?: AnalyticsProperties): Promise<void>;
   getConfig(): Promise<AppConfig>;
   setConfig(config: AppConfig): Promise<AppConfig>;
+  getAppRuntimeInfo(): Promise<IAppRuntimeInfo>;
+  openFeedbackEmail(): Promise<void>;
   testModelConfig(config: AppConfig): Promise<void>;
   testAiResponseNotification(): Promise<IDesktopNotificationResult>;
   openSystemNotificationSettings(): Promise<void>;

@@ -8,6 +8,7 @@ import { MarketView } from './components/market-view';
 import { NewsReader } from './components/news-reader';
 import { StockDetailPanel } from './components/stock-detail-panel';
 import { SettingsModal } from './components/settings-modal';
+import { AboutModal } from './components/about-modal';
 import { ErrorBoundary } from './components/error-boundary';
 import { getStocksenseApi } from './shared/stocksense-api';
 import { track, trackButtonClick, trackPageView } from './shared/analytics';
@@ -132,8 +133,8 @@ export function App() {
         </ErrorBoundary>
         <main className={styles.main}>
           <ErrorBoundary name={mainView === 'market' ? '行情区' : mainView === 'news-reader' ? '新闻阅读区' : '聊天区'}>
-            {mainView === 'news-reader' ? <NewsReader /> : mainView === 'market' ? <MarketView /> : <ChatView />
-          }</ErrorBoundary>
+            {mainView === 'news-reader' ? <NewsReader /> : mainView === 'market' ? <MarketView /> : <ChatView />}
+          </ErrorBoundary>
         </main>
         <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)}>
           <div className={styles['right-rail']}>
@@ -197,6 +198,9 @@ export function App() {
         </div>
         <ErrorBoundary name='设置'>
           <SettingsModal />
+        </ErrorBoundary>
+        <ErrorBoundary name='关于 StockBuddy'>
+          <AboutModal />
         </ErrorBoundary>
       </div>
     </div>

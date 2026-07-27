@@ -1,7 +1,14 @@
 import type { ComplianceReview, EvidenceItem, StructuredAgentFinding } from '../../../src/shared/types.js';
 
 const disclaimer = '以上内容基于公开数据自动生成，仅供研究参考，不构成投资建议。';
-const forbiddenEmoji: Record<string, string> = { '🚀': '📈', '🔥': '🌡️', '💎': '优质', '🌙': '长期', '🤑': '收益', '🎉': '提示' };
+const forbiddenEmoji: Record<string, string> = {
+  '🚀': '📈',
+  '🔥': '🌡️',
+  '💎': '优质',
+  '🌙': '长期',
+  '🤑': '收益',
+  '🎉': '提示',
+};
 const advicePatterns = [
   /建议\s*(买入|卖出|加仓|清仓|满仓|重仓)/g,
   /(立即买入|立即卖出|马上买入|马上卖出|马上卖|立即买|马上买|目标买点)/g,
@@ -45,7 +52,8 @@ export function reviewComplianceStructured(input: {
     [/龙虎榜|席位/, 'dragon-tiger', '文本包含龙虎榜结论但缺少 dragon-tiger evidence。'],
   ];
   for (const [pattern, source, message] of sourceChecks) {
-    if (pattern.test(revisedText) && !sources.has(source) && !sources.has('fallback')) issues.push({ type: 'unsupported-claim', severity: 'medium', message });
+    if (pattern.test(revisedText) && !sources.has(source) && !sources.has('fallback'))
+      issues.push({ type: 'unsupported-claim', severity: 'medium', message });
   }
 
   if (!/风险|不确定|波动/.test(revisedText)) {

@@ -8,7 +8,10 @@ export type NewsAnalysisInput = {
   announcements?: AnnouncementItem[];
 };
 
-export async function runNewsAnalysisAgent(input: NewsAnalysisInput, onToken?: (token: string) => void): Promise<string> {
+export async function runNewsAnalysisAgent(
+  input: NewsAnalysisInput,
+  onToken?: (token: string) => void,
+): Promise<string> {
   const news = input.news ?? [];
   const announcements = input.announcements ?? [];
   const stockName = input.stock?.name ?? input.stock?.code ?? '新闻公告';
@@ -18,10 +21,11 @@ export async function runNewsAnalysisAgent(input: NewsAnalysisInput, onToken?: (
   }
 
   try {
-    const report = await generateReport([
-      {
-        role: 'system',
-        content: `你是一名专业A股投研分析师。你将获得股票信息、最近新闻、最近公告。
+    const report = await generateReport(
+      [
+        {
+          role: 'system',
+          content: `你是一名专业A股投研分析师。你将获得股票信息、最近新闻、最近公告。
 
 任务：
 第一部分：事件总结
@@ -62,12 +66,14 @@ export async function runNewsAnalysisAgent(input: NewsAnalysisInput, onToken?: (
 Emoji 规则：采用专业金融风格；禁止娱乐化、炒作型 Emoji（🚀🔥💎🌙🤑🎉）；每段最多1~2个 Emoji；二级内容按语义少量使用：资金流入💰、上涨📈、下跌📉、治理🏢、合作🤝、行业🌐、亏损❌、风险⚡、政策📜、公告📄、新闻📰、周期📅、长期🗓️。综合结论必须给出 🟢 偏利好 / 🟡 中性 / 🔴 偏利空 之一。
 
 禁止输出：未提供新闻内容、无法分析、缺少数据、没有结构化信息、仅包含查询意图。只基于输入数据，不要编造内容。`,
-      },
-      {
-        role: 'user',
-        content: `结构化数据：\n${JSON.stringify({ stock: input.stock, news, announcements }, null, 2)}`,
-      },
-    ], onToken);
+        },
+        {
+          role: 'user',
+          content: `结构化数据：\n${JSON.stringify({ stock: input.stock, news, announcements }, null, 2)}`,
+        },
+      ],
+      onToken,
+    );
     return ensureNewsEmoji(report, stockName, news, announcements);
   } catch (error) {
     if (isLlmRequestError(error)) throw error;
@@ -85,7 +91,11 @@ function ensureNewsEmoji(report: string, stockName: string, news: MarketNewsItem
   text = text.replace(/^##\s*(?:🚨\s*)?风险提示/gm, '## 🚨 风险提示');
   text = text.replace(/^##\s*(?:🎯\s*)?综合结论/gm, '## 🎯 综合结论');
   if (!/##\s*📰\s*核心事件/.test(text)) text = `# ${stockName} 新闻公告解读\n## 📰 核心事件\n${text}`;
-  if (!/🟢 偏利好|🟡 中性|🔴 偏利空/.test(text)) text = text.replace(/(## 🎯 综合结论\s*)/m, `$1\n${scoreConclusion(news.filter((item) => item.tagType === 'positive').length, news.filter((item) => item.tagType === 'impact').length)}：`);
+  if (!/🟢 偏利好|🟡 中性|🔴 偏利空/.test(text))
+    text = text.replace(
+      /(## 🎯 综合结论\s*)/m,
+      `$1\n${scoreConclusion(news.filter((item) => item.tagType === 'positive').length, news.filter((item) => item.tagType === 'impact').length)}：`,
+    );
   return text;
 }
 
@@ -99,14 +109,28 @@ function fallbackNewsAnalysis(stockName: string, news: MarketNewsItem[], announc
     `# ${stockName} 新闻公告解读`,
     '',
     '## 📰 核心事件',
-    ...latestNews.map((item) => `- 📰 ${item.time || '--'}｜新闻｜${item.title}${item.content ? `：${item.content}` : ''}${item.url ? ` [查看](${item.url})` : ''}`),
-    ...latestAnnouncements.map((item) => `- 📄 ${item.date || '--'}｜${item.type || '公告'}｜${item.title}${item.content && item.content !== item.title ? `：${item.content}` : ''}${item.url ? ` [查看](${item.url})` : ''}`),
+    ...latestNews.map(
+      (item) =>
+        `- 📰 ${item.time || '--'}｜新闻｜${item.title}${item.content ? `：${item.content}` : ''}${item.url ? ` [查看](${item.url})` : ''}`,
+    ),
+    ...latestAnnouncements.map(
+      (item) =>
+        `- 📄 ${item.date || '--'}｜${item.type || '公告'}｜${item.title}${item.content && item.content !== item.title ? `：${item.content}` : ''}${item.url ? ` [查看](${item.url})` : ''}`,
+    ),
     '',
     '## ✅ 利好因素',
-    positive.length ? positive.map((item) => `- 📈 ${item.title}：标题/摘要呈现偏积极信号，需结合公告正文和后续经营数据验证。`).join('\n') : '- 🟡 暂未从标题和摘要中识别到明确利好事项。',
+    positive.length
+      ? positive
+          .map((item) => `- 📈 ${item.title}：标题/摘要呈现偏积极信号，需结合公告正文和后续经营数据验证。`)
+          .join('\n')
+      : '- 🟡 暂未从标题和摘要中识别到明确利好事项。',
     '',
     '## ⚠️ 利空因素',
-    negative.length ? negative.map((item) => `- 📉 ${item.title}：标题/摘要呈现偏负面或扰动信号，需关注对订单、盈利和估值预期的影响。`).join('\n') : '- 🟡 暂未从标题和摘要中识别到明确利空事项。',
+    negative.length
+      ? negative
+          .map((item) => `- 📉 ${item.title}：标题/摘要呈现偏负面或扰动信号，需关注对订单、盈利和估值预期的影响。`)
+          .join('\n')
+      : '- 🟡 暂未从标题和摘要中识别到明确利空事项。',
     '',
     '## 📈 短期影响',
     '- 📅 1天：更可能受新闻热度、公告标题和市场风险偏好影响。\n- 📅 1周：关注事件是否被资金持续交易，以及公司是否有进一步澄清或补充公告。\n- 📅 1个月：若事件关联订单、产能、融资、监管或业绩预期，影响可能继续发酵。',

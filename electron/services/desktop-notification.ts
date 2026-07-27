@@ -2,16 +2,17 @@ import { Notification } from 'electron';
 
 const MAX_NOTIFICATION_BODY_LENGTH = 120;
 
-export type DesktopNotificationResult =
-  | { delivered: true }
-  | { delivered: false; reason: string };
+export type DesktopNotificationResult = { delivered: true } | { delivered: false; reason: string };
 
 export function notifyAiResponseCompleted(content: string) {
   return showDesktopNotification('StockBuddy', summarizeResponse(content) || 'AI 已完成回答。');
 }
 
 export function notifyAiResponseTest() {
-  return showDesktopNotification('StockBuddy 通知测试', 'AI 回答完成通知已开启。若未看到通知，请在系统通知设置中允许 StockBuddy 发送通知。');
+  return showDesktopNotification(
+    'StockBuddy 通知测试',
+    'AI 回答完成通知已开启。若未看到通知，请在系统通知设置中允许 StockBuddy 发送通知。',
+  );
 }
 
 function showDesktopNotification(title: string, body: string): DesktopNotificationResult {
