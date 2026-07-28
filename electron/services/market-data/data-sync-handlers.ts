@@ -7,13 +7,6 @@ import StockSDK from 'stock-sdk';
 const sdk = new StockSDK({
   timeout: 15_000,
   retry: { maxRetries: 2, baseDelay: 500 },
-  providerPolicies: {
-    eastmoney: {
-      timeout: 15_000,
-      rateLimit: { requestsPerSecond: 1, maxBurst: 1 },
-      circuitBreaker: { failureThreshold: 5, resetTimeout: 60_000 },
-    },
-  },
 });
 
 const INDIVIDUAL_CONCURRENCY = 2;

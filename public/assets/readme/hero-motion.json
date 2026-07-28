@@ -1,0 +1,51 @@
+{
+  "width": 960,
+  "fps": 24,
+  "duration": 5.0,
+  "colors": 192,
+  "dither": "none",
+  "clip_to_base_alpha": true,
+  "max_size_mb": 2.0,
+  "layers": [
+    {
+      "id": "title-block",
+      "enter": { "start": 0.1, "end": 0.9, "from": [0, -20] },
+      "exit":  { "start": 4.8, "end": 5.0, "to": [0, 0] }
+    },
+    {
+      "id": "market-panel",
+      "enter": { "start": 0.3, "end": 1.1, "from": [30, 0] },
+      "exit":  { "start": 4.8, "end": 5.0, "to": [0, 0] }
+    },
+    {
+      "id": "data-dots",
+      "enter": { "start": 1.2, "end": 1.5, "from": [-8, 0] },
+      "exit":  { "start": 4.8, "end": 5.0, "to": [0, 0] }
+    },
+    {
+      "id": "flash-1",
+      "enter": { "start": 1.50, "end": 1.55, "from": [0, 0] },
+      "exit":  { "start": 2.00, "end": 2.50, "to": [0, 0] }
+    },
+    {
+      "id": "flash-2",
+      "enter": { "start": 1.70, "end": 1.75, "from": [0, 0] },
+      "exit":  { "start": 2.20, "end": 2.70, "to": [0, 0] }
+    },
+    {
+      "id": "flash-3",
+      "enter": { "start": 1.90, "end": 1.95, "from": [0, 0] },
+      "exit":  { "start": 2.40, "end": 2.90, "to": [0, 0] }
+    },
+    {
+      "id": "flash-4",
+      "enter": { "start": 2.10, "end": 2.15, "from": [0, 0] },
+      "exit":  { "start": 2.60, "end": 3.10, "to": [0, 0] }
+    },
+    {
+      "id": "flash-5",
+      "enter": { "start": 2.30, "end": 2.35, "from": [0, 0] },
+      "exit":  { "start": 2.80, "end": 3.30, "to": [0, 0] }
+    }
+  ]
+}

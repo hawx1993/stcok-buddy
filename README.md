@@ -1,95 +1,95 @@
-# StockBuddy
-
-对话式 A 股投研助手，面向个人投资者与研究人员，聚合行情、K 线、板块、资金流与新闻信息，用自然语言完成股票研究、风险梳理和投研报告生成。
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/assets/readme/hero.gif">
+    <img alt="StockBuddy — 对话式 A 股投研助手" src="public/assets/readme/hero.gif" width="100%">
+  </picture>
+</p>
 
 > StockBuddy 仅用于公开数据研究与信息辅助，不构成任何投资建议。
 
+## 快速开始
+
+[下载最新版本](https://github.com/hawx1993/stcok-buddy/releases) → 安装 → 配置 API Key → 输入股票代码或问题开始对话。
+
+```bash
+# 开发环境
+pnpm install
+pnpm dev
+```
+
+## 产品展示
+
 ![StockBuddy 产品展示](public/images/preview-11.png)
-
-下载地址：[https://github.com/hawx1993/stcok-buddy/releases](https://github.com/hawx1993/stcok-buddy/releases)
-
-## 功能特性
-
-- 三栏桌面端 UI：会话列表、对话式投研、股票详情面板
-- 对话式 A 股分析：行情查询、技术指标、板块/资金流、持仓记忆预留
-- `stock-sdk` 数据接入：A 股行情、K 线、技术指标、资金流等
-- 多 Agent MVP：Orchestrator / DataAgent / AnalysisAgent / ReportAgent / RiskAgent
-- 系统设置弹窗：大模型厂商、API 地址、API Key、模型名、交易风格、风险偏好、持仓周期
-- 常用模型厂商预设：
-  - DeepSeek（含 deepseek-chat / deepseek-reasoner / 自定义 DeepSeek v4 模型名）
-  - OpenAI
-  - 通义千问 Qwen
-  - MiniMax
-  - 智谱 GLM
-  - Kimi
-  - OpenAI Compatible
-  - 自定义 API
-- 深浅色主题切换
-- PWA 支持：service worker + 离线支持
-- Electron 打包支持：macOS DMG / Windows
-
-## 产品定位
-
-StockBuddy 希望把传统投研终端里的信息检索、行情观察、指标分析和报告整理，压缩到一个更自然的对话入口中。用户可以像和研究助理沟通一样提出问题，系统会围绕股票、板块、行情和风险给出结构化分析。
-
-适合用于：
-
-- 快速了解一只股票的行情表现、技术形态与核心变化
-- 整理公开信息、新闻事件、公告与板块联动
-- 生成更易阅读的投研摘要、风险提示和综合结论
-- 记录个人偏好、交易风格与本地会话上下文
-
-## 核心能力
 
 ### 对话式投研
 
-通过自然语言提问，完成股票查询、行情解读、技术分析、风险提示和报告生成，降低传统行情软件的信息检索成本。
+用自然语言提问，系统自动采集行情、K 线、新闻和公告，生成结构化投研报告。
 
 ![对话式投研](public/images/preview-1.png)
 
-### 股票详情与行情面板
+### 行情页与个股详情
 
-在对话过程中同步展示股票详情、价格表现、图表与相关市场信息，方便边问边看。
+实时行情面板覆盖上证主板、深证主板、北交所、创业板、科创板，支持排序、筛选和个股联动。
 
 ![股票详情与行情面板](public/images/preview-2.png)
 
-### 多 Agent 分析流程
+### 多 Agent 协作分析
 
-围绕数据采集、行情分析、报告生成和风险识别进行分工，让输出更接近“研究助理”的工作流。
+Orchestrator 调度 DataAgent / AnalysisAgent / ReportAgent / RiskAgent 分工协作，从数据采集到报告生成流水线化处理。
 
-![多 Agent 分析流程](public/images/preview-10.png)
+<p align="center">
+  <img src="public/images/preview-10.png" width="48%" alt="多 Agent 分析流程"/>
+  <img src="public/images/preview-12.png" width="48%" alt="多 Agent 分析报告"/>
+</p>
 
-![多 Agent 分析流程](public/images/preview-12.png)
+### 离线数据同步
 
-### 本地配置与个性化偏好
+日K线、异动记录、个股快照同步到本地 DuckDB 数据库，断网也能查看历史行情。
 
-支持配置常用大模型服务、API Key、模型名称、交易风格、风险偏好和持仓周期。配置保存在本地，便于个人化使用。
+![数据同步](public/images/preview-7.png)
 
-![系统设置](public/images/preview-7.png)
+![数据同步](public/images/preview-16.png)
 
-### 专业化报告展示
+### 存储空间管理
 
-报告内容采用结构化 Markdown 展示，突出核心事件、利好因素、利空因素、短期影响、中长期影响、风险提示和综合结论。
+![数据同步](public/images/preview-15.png)
 
-![投研报告展示](public/images/preview-1.png)
+### 个股新闻与 AI 摘要
 
-### 个股新闻和多渠道新闻展示
+支持个股新闻推送和多渠道市场热点，AI 自动总结当日要闻。
 
-支持展示个股新闻和多渠道新闻，方便用户了解个股的最新动态和市场热点。
+![个股新闻](public/images/preview-14.png)
 
-![个股新闻和多渠道新闻展示](public/images/preview-14.png)
+## 核心能力
 
-同时支持AI总结当日市场热点新闻，方便用户了解当日市场热点和市场情绪。
+| 能力       | 说明                                                         |
+| ---------- | ------------------------------------------------------------ |
+| 对话式投研 | 自然语言查询股票、板块、行情，生成 Bloomberg 风格结构化报告  |
+| 实时行情   | 全 A 股五档盘口、分时 K 线，五大板块行情页，支持排序与筛选   |
+| 技术分析   | MA / MACD / KDJ / RSI / BOLL / SAR 等 14 类技术指标          |
+| 资金流向   | 主力净流入、板块排名、龙虎榜、个股资金流历史                 |
+| 离线缓存   | DuckDB 本地存储日 K、异动记录、个股快照，断网可用            |
+| 多模型     | DeepSeek / OpenAI / Qwen / GLM / Kimi / MiniMax / 自定义 API |
+| 多 Agent   | Orchestrator → Data → Analysis → Report → Risk 流水线        |
+| 桌面体验   | 深浅色主题、PWA 离线支持、macOS DMG / Windows 安装包         |
 
-中间栏可渲染股票代码和名称，支持与右侧栏个股详情一键联动
-![个股新闻和多渠道新闻展示](public/images/preview-13.png)
+## 技术架构
 
-### 深浅色主题与桌面体验
+```text
+┌─ Renderer (React + Vite) ─────────────────────────────┐
+│  会话面板  │  ChatView (AI 对话)  │  行情页 / 个股详情   │
+└────────────────────── IPC ─────────────────────────────┘
+┌─ Main (Electron) ──────────────────────────────────────┐
+│  Agent Orchestrator  │  stock-sdk  │  DuckDB / SQLite  │
+└────────────────────────────────────────────────────────┘
+```
 
-提供适合长时间阅读的桌面端界面，支持深浅色主题切换，兼顾行情浏览、对话分析和报告阅读。
+- **Renderer**: React 18 + Zustand + Vite + Ant Design + Recharts
+- **Main**: Electron + stock-sdk + DuckDB (node-api) + better-sqlite3
+- **AI**: 多 Agent 编排器，支持流式 SSE 响应
+- **数据**: stock-sdk → Provider → DuckDB/SQLite → Memory Cache
+- **打包**: electron-builder, macOS DMG + Windows NSIS
 
-![桌面端体验](public/images/preview-9.png)
-
-## ChangeLog 更新日志
+## 更新日志
 
 [https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd](https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd)

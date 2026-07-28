@@ -21,7 +21,18 @@ import {
 import type { MarketDataSyncStatus, SyncJobType } from './types.js';
 
 const INITIAL_YEARS = 10;
-const CONCURRENCY = 4;
+const BOARD_CONCURRENCY = 5;
+const FORCE_SYNC_COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12h
+
+type TMarketBoard = 'sh-main' | 'sz-main' | 'bj' | 'gem' | 'star';
+
+function classifyBoard(symbol: string): TMarketBoard {
+  if (symbol.startsWith('688')) return 'star';
+  if (symbol.startsWith('300') || symbol.startsWith('301')) return 'gem';
+  if (symbol.startsWith('4') || symbol.startsWith('8') || symbol.startsWith('92')) return 'bj';
+  if (symbol.startsWith('6')) return 'sh-main';
+  return 'sz-main';
+}
 let currentSync: Promise<MarketDataSyncStatus> | undefined;
 let stopRequested = false;
 let memoryStatus: MarketDataSyncStatus = idleStatus();
@@ -41,7 +52,26 @@ export async function getMarketDataSyncStatus(): Promise<MarketDataSyncStatus> {
     : { ...idleStatus(), latestLocalTradeDate };
 }
 
-export function startMarketDataSync(force = false) {
+export async function startMarketDataSync(force = false) {
+  // 手动强制同步 12h 冷却，防止频繁触发被上游限频
+  if (force) {
+    const lastJob = await getLatestSyncJob();
+    if (lastJob?.finishedAt) {
+      const elapsed = Date.now() - new Date(lastJob.finishedAt).getTime();
+      if (elapsed < FORCE_SYNC_COOLDOWN_MS) {
+        const remaining = Math.ceil((FORCE_SYNC_COOLDOWN_MS - elapsed) / 3600_000);
+        const msg = `日K线同步已完成，${remaining} 小时后可再次同步`;
+        const status: MarketDataSyncStatus = {
+          ...memoryStatus,
+          state: 'idle' as const,
+          message: msg,
+        };
+        updateMemory(status);
+        return status;
+      }
+    }
+  }
+
   // ponytail: if a sync is already running we cannot just return the old
   // promise when the user explicitly asked for a force sync — the old run
   // may have been started by the scheduler with force=false, and returning
@@ -215,7 +245,25 @@ async function runSync(force: boolean): Promise<MarketDataSyncStatus> {
   // ponytail: when force=true, ignore existing bars and always pull latest day
   // so the user sees real progress and gets guaranteed fresh data
   const forceDownload = force;
-  await runPool(symbols, CONCURRENCY, async (security) => {
+
+  // Group by exchange board for parallel sync
+  const boardGroups = new Map<TMarketBoard, typeof symbols>();
+  for (const security of symbols) {
+    const board = classifyBoard(security.symbol);
+    const list = boardGroups.get(board) ?? [];
+    list.push(security);
+    boardGroups.set(board, list);
+  }
+
+  const boardLabels: Record<TMarketBoard, string> = {
+    'sh-main': '上海主板',
+    'sz-main': '深证主板',
+    bj: '北交所',
+    gem: '创业板',
+    star: '科创板',
+  };
+
+  const worker = async (security: (typeof symbols)[number]) => {
     if (stopRequested) return;
     try {
       const existing = await listDailyBars(security.symbol, { limit: 1, adjustType: 'qfq' });
@@ -249,14 +297,6 @@ async function runSync(force: boolean): Promise<MarketDataSyncStatus> {
         failedSymbols: failed,
         checkpointSymbol: security.symbol,
       });
-      // ponytail: do NOT call getLatestTradeDate() here. It runs a full-table
-      // SELECT max(trade_date) over daily_bars and opens a brand-new DuckDB
-      // connection — once per symbol, i.e. 5000+ expensive queries + connection
-      // churn while concurrent writes are in flight. Near the end of a backfill
-      // (when daily_bars has millions of rows) this stalls the whole store and
-      // the final "completed" event never gets emitted, leaving the UI stuck at
-      // 100% "同步中". latestTradeDate (computed once before the pool) is a
-      // perfectly good value for the progress display.
       updateMemory({
         ...memoryStatus,
         processedSymbols: processed,
@@ -266,7 +306,17 @@ async function runSync(force: boolean): Promise<MarketDataSyncStatus> {
         latestLocalTradeDate: latestTradeDate,
       });
     }
-  });
+  };
+
+  // Run all 5 boards in parallel, each with its own concurrency
+  await Promise.all(
+    [...boardGroups.entries()].map(([board, boardSymbols]) =>
+      runPool(boardSymbols, BOARD_CONCURRENCY, worker).then(() => {
+        // eslint-disable-next-line no-console
+        console.log(`[market-data] board ${boardLabels[board]} done: ${boardSymbols.length} stocks`);
+      }),
+    ),
+  );
 
   if (stopRequested) {
     await updateSyncJob(jobId, {

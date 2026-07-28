@@ -145,7 +145,8 @@ export function MarketView() {
     }
 
     const remainingValuePending = valueBatch.pending;
-    const remainingOrderPending = orderBatch.pending && (isScrollingRef.current || Date.now() < orderUpdateDeadlineRef.current);
+    const remainingOrderPending =
+      orderBatch.pending && (isScrollingRef.current || Date.now() < orderUpdateDeadlineRef.current);
     const nextOrderPending = hasOrderUpdate
       ? applyMarketRowOrderUpdateBatch(nextRows, pending.rows, 3).pending &&
         (isScrollingRef.current || Date.now() < orderUpdateDeadlineRef.current)
@@ -158,15 +159,17 @@ export function MarketView() {
     }
   }, []);
 
-  const schedulePendingRowUpdate = useCallback((delay = 0) => {
-    window.clearTimeout(updateTimer.current);
-    updateTimer.current = window.setTimeout(() => runPendingUpdate(), delay);
-  }, [runPendingUpdate]);
+  const schedulePendingRowUpdate = useCallback(
+    (delay = 0) => {
+      window.clearTimeout(updateTimer.current);
+      updateTimer.current = window.setTimeout(() => runPendingUpdate(), delay);
+    },
+    [runPendingUpdate],
+  );
 
   const queueSnapshotRows = useCallback(
     (data: MarketPageSnapshot) => {
       // eslint-disable-next-line no-console
-      console.log('[market-view] queueSnapshotRows', data.tab, 'rows=', data.rows.length, 'firstCode=', data.rows[0]?.code);
       const filteredRows = data.rows.filter((row) => quoteMatchesTab(row.code, data.tab));
       const sortedRows = sortRowsByDirection(filteredRows, sortDirectionRef.current);
       const currentRows = rowsByTabRef.current[data.tab] ?? [];
@@ -263,8 +266,6 @@ export function MarketView() {
   }, [debouncedSearch]);
 
   const visibleRows = rowsByTab[activeTab] ?? [];
-  // eslint-disable-next-line no-console
-  console.log('[market-view] render', activeTab, 'visibleRows=', visibleRows.length, 'firstCode=', visibleRows[0]?.code);
   const expandedIndex = indices.find((item) => item.code === expandedIndexCode);
   const selectIndexPeriod = (period: MarketIndexPeriod) => {
     setIndexPeriod(period);

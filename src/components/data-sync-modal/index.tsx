@@ -373,6 +373,22 @@ export function DataSyncModal() {
               clearInterval(klineIntervalRef.current);
               klineIntervalRef.current = undefined;
             }
+          } else if (
+            taskType === 'kline' &&
+            result &&
+            result.state === 'idle' &&
+            result.message?.includes('小时后可再次同步')
+          ) {
+            // 12h cooldown — show as idle with hint, not error
+            updateTask(taskType, {
+              status: 'idle',
+              message: result.message,
+            });
+            runningRef.current.delete(taskType);
+            if (klineIntervalRef.current) {
+              clearInterval(klineIntervalRef.current);
+              klineIntervalRef.current = undefined;
+            }
           } else if (taskType === 'kline' && result && (result.state === 'idle' || result.state === 'failed')) {
             const errMsg = result.message || '同步未真正启动或已被取消';
             updateTask(taskType, {
@@ -451,6 +467,9 @@ export function DataSyncModal() {
                   ? `${state.processed}/${state.total}`
                   : `${pct.toFixed(1)}%`;
 
+              const isCooldown =
+                task.type === 'kline' && state.status === 'idle' && state.message?.includes('小时后可再次同步');
+
               return (
                 <div key={task.type} className={styles['task-item']}>
                   <div className={styles['task-icon']}>{task.icon}</div>
@@ -460,11 +479,14 @@ export function DataSyncModal() {
                       {state.status === 'running' && <span className={styles['task-badge-running']}>{badgeText}</span>}
                       {state.status === 'completed' && <span className={styles['task-badge-done']}>已完成</span>}
                       {state.status === 'error' && <span className={styles['task-badge-error']}>失败</span>}
+                      {isCooldown && <span className={styles['task-badge-done']}>12h冷却</span>}
                     </div>
-                    <div className={styles['task-desc']}>{state.status === 'running' ? state.message : task.desc}</div>
+                    <div className={styles['task-desc']}>
+                      {state.status === 'running' || isCooldown ? state.message : task.desc}
+                    </div>
                     {state.lastSyncTime && (
                       <div className={styles['task-meta']}>
-                        上次同步：{new Date(state.lastSyncTime).toLocaleString('zh-CN')}
+                        上次同步：{new Date(state.lastSyncTime).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
                       </div>
                     )}
                     {state.status === 'running' && (
@@ -482,11 +504,17 @@ export function DataSyncModal() {
                   </div>
                   <button
                     className={styles['task-action']}
-                    disabled={isAnyRunning}
+                    disabled={isAnyRunning || isCooldown}
                     onClick={() => startSync(task.type)}
                     type='button'
                   >
-                    {state.status === 'running' ? '同步中…' : state.status === 'completed' ? '重新同步' : '立即同步'}
+                    {state.status === 'running'
+                      ? '同步中…'
+                      : isCooldown
+                        ? '冷却中'
+                        : state.status === 'completed'
+                          ? '重新同步'
+                          : '立即同步'}
                   </button>
                 </div>
               );
