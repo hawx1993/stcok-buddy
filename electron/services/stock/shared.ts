@@ -46,22 +46,60 @@ export function aggregateKline(data: KlinePoint[], size: number): KlinePoint[] {
     const first = chunk[0];
     const last = chunk[chunk.length - 1];
     if (!first || !last) continue;
-    result.push({
-      time: last.time,
-      timestamp: last.timestamp,
-      open: first.open,
-      close: last.close,
-      high: Math.max(...chunk.map((item) => item.high)),
-      low: Math.min(...chunk.map((item) => item.low)),
-      volume: chunk.reduce((sum, item) => sum + item.volume, 0),
-      amount: chunk.reduce((sum, item) => sum + (item.amount ?? 0), 0),
-      change: last.close - first.open,
-      changePercent: first.open ? ((last.close - first.open) / first.open) * 100 : undefined,
-      turnoverRate: chunk.reduce((sum, item) => sum + (item.turnoverRate ?? 0), 0),
-      pe: last.pe,
-    });
+    result.push(aggregateKlineChunk(chunk));
   }
   return result;
+}
+
+function aggregateKlineChunk(chunk: KlinePoint[]): KlinePoint {
+  const first = chunk[0];
+  const last = chunk[chunk.length - 1];
+  return {
+    time: last.time,
+    timestamp: last.timestamp,
+    open: first.open,
+    close: last.close,
+    high: Math.max(...chunk.map((item) => item.high)),
+    low: Math.min(...chunk.map((item) => item.low)),
+    volume: chunk.reduce((sum, item) => sum + item.volume, 0),
+    amount: chunk.reduce((sum, item) => sum + (item.amount ?? 0), 0),
+    change: last.close - first.open,
+    changePercent: first.open ? ((last.close - first.open) / first.open) * 100 : undefined,
+    turnoverRate: chunk.reduce((sum, item) => sum + (item.turnoverRate ?? 0), 0),
+    pe: last.pe,
+  };
+}
+
+/** Aggregate daily bars into calendar weeks (Mon-Sun). */
+export function aggregateKlineByWeek(data: KlinePoint[]): KlinePoint[] {
+  const groups = new Map<string, KlinePoint[]>();
+  for (const point of data) {
+    const ts = point.timestamp ?? parseMarketTime(point.time);
+    if (!ts) continue;
+    const date = new Date(ts);
+    const monday = new Date(date);
+    monday.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+    const key = monday.toISOString().slice(0, 10);
+    const list = groups.get(key) ?? [];
+    list.push(point);
+    groups.set(key, list);
+  }
+  return Array.from(groups.values()).map(aggregateKlineChunk);
+}
+
+/** Aggregate daily bars into calendar months. */
+export function aggregateKlineByMonth(data: KlinePoint[]): KlinePoint[] {
+  const groups = new Map<string, KlinePoint[]>();
+  for (const point of data) {
+    const ts = point.timestamp ?? parseMarketTime(point.time);
+    if (!ts) continue;
+    const date = new Date(ts);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const list = groups.get(key) ?? [];
+    list.push(point);
+    groups.set(key, list);
+  }
+  return Array.from(groups.values()).map(aggregateKlineChunk);
 }
 
 

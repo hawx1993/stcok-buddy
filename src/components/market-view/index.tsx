@@ -455,7 +455,12 @@ export function MarketView() {
       <div className={styles.indices}>
         {(indices.length ? indices : [undefined, undefined]).map((item, index) =>
           item ? (
-            <IndexCard key={item.code} item={item} onExpand={(index) => setExpandedIndexCode(index.code)} />
+            <IndexCard
+              key={`${item.code}-${indexPeriod}`}
+              item={item}
+              period={indexPeriod}
+              onExpand={(index) => setExpandedIndexCode(index.code)}
+            />
           ) : (
             <div key={index} className={styles.indexCard}>
               <div className={styles.noChart}>指数刷新中…</div>
@@ -509,18 +514,18 @@ export function MarketView() {
 
 function mergeMarketIndexSnapshots(current: MarketIndexSnapshot[], next: MarketIndexSnapshot[]) {
   if (!current.length) return next;
-  let changed = current.length !== next.length;
+  if (current.length !== next.length) return next;
   const currentByCode = new Map(current.map((item) => [item.code, item]));
-  const merged = next.map((item) => {
+  for (const item of next) {
     const previous = currentByCode.get(item.code);
-    if (previous?.minutes.length && !item.minutes.length) {
-      changed = true;
-      return previous;
-    }
-    if (previous !== item) changed = true;
-    return item;
-  });
-  return changed ? merged : current;
+    if (!previous) return next;
+    if (previous.minutes.length !== item.minutes.length) return next;
+    if (previous.minutes[0]?.time !== item.minutes[0]?.time) return next;
+    if (previous.minutes[previous.minutes.length - 1]?.time !== item.minutes[item.minutes.length - 1]?.time)
+      return next;
+    if (previous.price !== item.price) return next;
+  }
+  return current;
 }
 
 function toMarketIndexSymbol(code: string | undefined) {

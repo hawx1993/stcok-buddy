@@ -41,7 +41,17 @@ export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
     if (tab === 'sector') return listSectorHot();
     if (tab === 'market') return listMarketHot();
     if (tab === 'surge') {
-      const items = await listSurgeHot();
+      // Local-first: today's snapshot is already persisted by saveSurgeSnapshot.
+      // Render cached data immediately and refresh from the network in the
+      // background so the panel never stalls on a slow/unavailable connection.
+      try {
+        const cached = await listSurgeHistory(toTradeDate(new Date()));
+        if (cached.length) {
+          refreshSurgeHotInBackground();
+          return cached;
+        }
+      } catch { /* DB unavailable, fall through to remote */ }
+      const items = await withTimeoutReject(listSurgeHot(), 5_000, 'surge hot timeout');
       if (items.length) return items;
     } else if (tab === 'flow') {
       return listFlowHot();
@@ -59,6 +69,11 @@ export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
     } catch { /* DB also unavailable */ }
   }
   return [];
+}
+
+function refreshSurgeHotInBackground() {
+  // Fire-and-forget refresh; listSurgeHot persists the snapshot on success.
+  listSurgeHot().catch(() => {});
 }
 
 function toTradeDate(date: Date) {

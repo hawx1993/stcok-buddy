@@ -18,8 +18,8 @@ type AnyRecord = Record<string, unknown>;
 export async function getMarketIndices(period: MarketIndexPeriod): Promise<MarketIndexSnapshot[]> {
   const result = await Promise.all(['sh000001', 'sz399001'].map((code) => fetchMarketIndex(code, period)));
   const indices = result.filter((item): item is MarketIndexSnapshot => Boolean(item));
-  // 把指数日线/周线/月线持久化到 DuckDB，支持离线访问
-  if (period === '1d' || period === '1w' || period === '1mo') {
+  // 把指数日线持久化到 DuckDB；周线/月线由本地日线聚合生成，避免不同周期数据混在一起。
+  if (period === '1d') {
     persistIndexSnapshots(indices, period).catch((err) =>
       console.warn('[market-indices] persist to DuckDB failed', err),
     );

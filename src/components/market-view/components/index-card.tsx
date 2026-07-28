@@ -1,14 +1,17 @@
 import { memo } from 'react';
-import type { MarketIndexSnapshot } from '../../../shared/types';
+import type { MarketIndexPeriod, MarketIndexSnapshot } from '../../../shared/types';
 import { StockKlineChart } from '../../kline-chart';
+import type { TimeframeId } from '../../kline-chart';
 import { formatMoney, formatPercent, formatSigned } from '../market-format';
 import styles from '../index.module.scss';
 
 export const IndexCard = memo(function IndexCard({
   item,
+  period,
   onExpand,
 }: {
   item: MarketIndexSnapshot;
+  period: MarketIndexPeriod;
   onExpand(item: MarketIndexSnapshot): void;
 }) {
   const isDown = Number(item.changePercent) < 0;
@@ -27,11 +30,12 @@ export const IndexCard = memo(function IndexCard({
       <div className={styles.chart}>
         {item.minutes.length ? (
           <StockKlineChart
-            key={`${item.code}-${item.minutes[0]?.time}-${item.minutes[item.minutes.length - 1]?.time}`}
+            key={`${item.code}-${period}-${item.minutes[0]?.time}-${item.minutes[item.minutes.length - 1]?.time}`}
             stock={item}
             data={item.minutes}
             height='100%'
             showLegend={false}
+            timeframe={period as TimeframeId}
             staticData
           />
         ) : (

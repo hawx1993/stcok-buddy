@@ -13,6 +13,8 @@ import { queryHistoricalBars, queryLatestQuote } from '../market-data/market-dat
 import { formatMoney, formatNumber, formatPercent } from './format.js';
 import {
   aggregateKline,
+  aggregateKlineByMonth,
+  aggregateKlineByWeek,
   getCachedMarketBoardRows,
   hasValue,
   marketBoardsCache,
