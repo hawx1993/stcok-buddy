@@ -248,9 +248,10 @@ function emitReportStep(
 
 async function streamContent(content: string, hasReportStep: boolean, onToken?: TOnToken) {
   if (!onToken || !content || !hasReportStep) return;
-  for (const chunk of content.match(/[\s\S]{1,8}/g) ?? [content]) {
+  // 控制最终报告流式节奏约 20ms/4字符，避免 msg-text 打字效果过快
+  for (const chunk of content.match(/[\s\S]{1,4}/g) ?? [content]) {
     onToken(chunk);
-    await new Promise((resolve) => setTimeout(resolve, 8));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
 

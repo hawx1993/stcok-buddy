@@ -704,10 +704,10 @@ function clamp(value: number, min: number, max: number) {
 
 async function streamMarkdown(markdown: string, onToken?: (token: string) => void) {
   if (!onToken) return;
-  // 单 Agent 模式才流式输出；控制单字延迟避免 UI 等待过久
-  for (const chunk of markdown.match(/[\s\S]{1,8}/g) ?? [markdown]) {
+  // 单 Agent 模式才流式输出；控制节奏约 20ms/4字符，兼顾可读性与等待感
+  for (const chunk of markdown.match(/[\s\S]{1,4}/g) ?? [markdown]) {
     onToken(chunk);
-    await new Promise((resolve) => setTimeout(resolve, 8));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
 

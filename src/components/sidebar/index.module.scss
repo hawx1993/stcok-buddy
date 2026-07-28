@@ -447,8 +447,12 @@
   color: var(--accent);
 }
 @keyframes sync-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 .sync-banner-label {
   flex-shrink: 0;
@@ -573,8 +577,8 @@
   padding: 6px;
   border-radius: 12px;
   background: linear-gradient(180deg, var(--glass-bg) 0%, var(--dropdown-bg) 100%);
-  backdrop-filter: blur(28px) saturate(160%);
   -webkit-backdrop-filter: blur(28px) saturate(160%);
+  backdrop-filter: blur(28px) saturate(160%);
   border: 1px solid var(--glass-border);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
 }
