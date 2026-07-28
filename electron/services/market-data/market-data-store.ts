@@ -20,7 +20,11 @@ const defaultPath = path.join(
   app.isPackaged ? 'stocksense-market.duckdb' : 'stocksense-market-dev.duckdb',
 );
 const dbPath = process.env.STOCKSENSE_MARKET_DB_PATH || defaultPath;
-const dbReady = DuckDBInstance.fromCache(dbPath);
+// ponytail: dbReady must be reassignable so we can close the old DuckDB
+// instance and create a fresh one after the database file is deleted by
+// the storage manager. A const here would leave the app permanently
+// pointing at a closed instance after "清空本地行情数据库".
+let dbReady = DuckDBInstance.fromCache(dbPath);
 let ready: Promise<void> | undefined;
 let writeQueue = Promise.resolve();
 let isClosing = false;
@@ -73,6 +77,14 @@ const schemaSql = `
     snapshot_key TEXT PRIMARY KEY, rows_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS stock_snapshots (
+    symbol TEXT PRIMARY KEY, name TEXT NOT NULL, price DOUBLE, change DOUBLE,
+    change_percent DOUBLE, open DOUBLE, high DOUBLE, low DOUBLE, prev_close DOUBLE,
+    volume DOUBLE, amount DOUBLE, turnover_rate DOUBLE, pe DOUBLE, pb DOUBLE,
+    total_market_cap DOUBLE, circulating_market_cap DOUBLE, amplitude DOUBLE,
+    fetched_at TIMESTAMP NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS market_board_details (
     board_code TEXT PRIMARY KEY, detail_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
   );
@@ -109,6 +121,58 @@ export function upsertSecurities(items: SecurityRecord[]) {
           isSt: item.isSt,
           source: item.source,
           updatedAt: item.updatedAt,
+        });
+        await statement.run();
+      }
+      await connection.run('COMMIT');
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
+export function upsertStockSnapshots(items: Array<{
+  symbol: string; name: string; price?: number; change?: number;
+  changePercent?: number; open?: number; high?: number; low?: number;
+  prevClose?: number; volume?: number; amount?: number; turnoverRate?: number;
+  pe?: number; pb?: number; totalMarketCap?: number; circulatingMarketCap?: number;
+  amplitude?: number;
+}>) {
+  if (!items.length) return Promise.resolve();
+  const now = new Date().toISOString();
+  return write(async (connection) => {
+    await connection.run('BEGIN TRANSACTION');
+    try {
+      const statement = await connection.prepare(`
+        INSERT OR REPLACE INTO stock_snapshots
+        (symbol, name, price, change, change_percent, open, high, low, prev_close,
+         volume, amount, turnover_rate, pe, pb, total_market_cap, circulating_market_cap,
+         amplitude, fetched_at)
+        VALUES ($symbol, $name, $price, $change, $changePercent, $open, $high, $low,
+                $prevClose, $volume, $amount, $turnoverRate, $pe, $pb, $totalMarketCap,
+                $circulatingMarketCap, $amplitude, $fetchedAt)
+      `);
+      for (const item of items) {
+        statement.bind({
+          symbol: item.symbol,
+          name: item.name,
+          price: item.price ?? null,
+          change: item.change ?? null,
+          changePercent: item.changePercent ?? null,
+          open: item.open ?? null,
+          high: item.high ?? null,
+          low: item.low ?? null,
+          prevClose: item.prevClose ?? null,
+          volume: item.volume ?? null,
+          amount: item.amount ?? null,
+          turnoverRate: item.turnoverRate ?? null,
+          pe: item.pe ?? null,
+          pb: item.pb ?? null,
+          totalMarketCap: item.totalMarketCap ?? null,
+          circulatingMarketCap: item.circulatingMarketCap ?? null,
+          amplitude: item.amplitude ?? null,
+          fetchedAt: now,
         });
         await statement.run();
       }
@@ -490,13 +554,57 @@ export function getMarketDataStats(): Promise<MarketDataStats> {
   });
 }
 
-export async function closeMarketDataStore() {
+export async function closeMarketDataStore(timeoutMs?: number) {
   isClosing = true;
   await writeQueue.catch((error) => console.warn('[market-data] close wait failed', error));
   if (activeConnections > 0)
     await new Promise<void>((resolve) => {
       closeResolve = resolve;
+      // ponytail: bound the wait so a stuck sync worker (mid network call) can't
+      // leave the database permanently closing and hang callers like the storage
+      // manager's "清空本地行情数据库". After the grace period we resolve anyway
+      // and let the caller delete + reset the database.
+      if (timeoutMs && timeoutMs > 0) setTimeout(resolve, timeoutMs);
     });
+}
+
+/**
+ * ponytail: After closeMarketDataStore() + file deletion, the module is in a
+ * permanently broken state — isClosing is true, ready/writeQueue reference
+ * the old instance, and dbReady points at a closed DuckDB instance. This
+ * function resets all module-level state and creates a brand-new DuckDB
+ * instance so the store can be used again without an app restart.
+ *
+ * Must only be called AFTER closeMarketDataStore() has completed and the
+ * database file has been deleted.
+ */
+export async function resetMarketDataStore() {
+  // Close the old DuckDB instance to release the file handle — but only if no
+  // connections are still active. If closeMarketDataStore() timed out while a
+  // sync worker was mid-flight, calling closeSync() on an instance with open
+  // connections can itself hang, so we skip it and just create a fresh
+  // instance (the database file has already been unlinked, so the new instance
+  // opens a brand-new inode).
+  if (activeConnections === 0) {
+    try {
+      const oldInstance = await dbReady;
+      oldInstance.closeSync();
+    } catch (error) {
+      console.warn('[market-data] failed to close old DuckDB instance during reset', error);
+    }
+  } else {
+    console.warn(`[market-data] skipping DuckDB closeSync during reset: ${activeConnections} connection(s) still active`);
+  }
+  // Create a fresh instance. DuckDBInstance.fromCache may return the closed
+  // instance from its singleton cache, so we use DuckDBInstance.create which
+  // always opens a new database file.
+  dbReady = DuckDBInstance.create(dbPath);
+  // Reset all module-level state so read()/write() work again
+  ready = undefined;
+  writeQueue = Promise.resolve();
+  isClosing = false;
+  activeConnections = 0;
+  closeResolve = undefined;
 }
 
 function ensureReady() {

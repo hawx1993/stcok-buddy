@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { statSync, statfsSync, unlinkSync } from 'node:fs';
+import { existsSync, statSync, statfsSync, truncateSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import type {
   AnalyticsProperties,
@@ -47,9 +47,16 @@ import {
   requestMarketDataSyncStop,
   retryMarketDataFailures,
   startMarketDataSync,
+  waitForMarketDataSync,
 } from './services/market-data/market-data-sync.js';
+import {
+  syncSurgeHistory,
+  syncStockDetails,
+  syncMarketSnapshot,
+} from './services/market-data/data-sync-handlers.js';
 import { runOrchestrator } from './services/agent/orchestrator.js';
 import {
+  clearSurgeCache,
   getBatchQuotes,
   getBoardDetail,
   getChipDistribution,
@@ -63,8 +70,8 @@ import {
 } from './services/stock/stock-client.js';
 import { listHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
-import { listSurgeDates } from './services/stock/surge-history-store.js';
-import { ensureSurgeHistoryCapture } from './services/stock/surge-history-scheduler.js';
+import { closeSurgeHistoryInstance, listSurgeDates } from './services/stock/surge-history-store.js';
+import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import {
   ensureMarketNewsSummaryState,
   getMarketNewsDetail,
@@ -78,9 +85,8 @@ import {
   listStoreItems,
   uninstallStoreItem,
 } from './services/store-service.js';
-import { closeQuoteStore, flushQuoteRows, initializeQuoteStore } from './services/stock/quote-store.js';
-import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
-import { closeMarketDataStore, getMarketDataDatabasePath, initializeMarketDataStore } from './services/market-data/market-data-store.js';
+import { closeSurgeHistoryStore, resetSurgeHistoryStore } from './services/stock/surge-history-store.js';
+import { closeMarketDataStore, getMarketDataDatabasePath, initializeMarketDataStore, resetMarketDataStore } from './services/market-data/market-data-store.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
 import { testModelConnection } from './services/llm/index.js';
 import { notifyAiResponseCompleted, notifyAiResponseTest } from './services/desktop-notification.js';
@@ -215,6 +221,22 @@ export function registerIpcHandlers() {
   ipcMain.handle('marketData:retryFailures', () => retryMarketDataFailures());
   ipcMain.handle('marketData:cancelSync', () => requestMarketDataSyncStop());
   ipcMain.handle('marketData:getStats', () => getMarketDataStats());
+  // Data sync handlers
+  ipcMain.handle('dataSync:syncKlines', async () => {
+    // ponytail: if a sync is already running (e.g. started by the scheduler),
+    // ask it to stop at its next checkpoint so the user's explicit force-sync
+    // can take over. startMarketDataSync(true) then waits for the old run to
+    // finish before kicking off a fresh force run — we no longer race a fixed
+    // 1500ms sleep that could return the stale promise and leave the UI at 0%.
+    if ((await getMarketDataSyncStatus()).state !== 'idle') {
+      requestMarketDataSyncStop();
+      await waitForMarketDataSync();
+    }
+    return startMarketDataSync(true);
+  });
+  ipcMain.handle('dataSync:syncSurgeHistory', () => syncSurgeHistory());
+  ipcMain.handle('dataSync:syncStockDetails', () => syncStockDetails());
+  ipcMain.handle('dataSync:syncSnapshot', () => syncMarketSnapshot());
   const removeMarketDataListener = onMarketDataProgress((status) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('marketData:progress', status);
   });
@@ -266,7 +288,40 @@ export function registerIpcHandlers() {
 
   // ── storage space management ──
   ipcMain.handle('storage:getStats', () => getStorageStats());
-  ipcMain.handle('storage:clear', (_event, keys: string[]) => clearStorages(keys));
+  ipcMain.handle('storage:clear', async (event, keys: string[]) => {
+    const total = keys.length;
+    let done = 0;
+    for (const key of keys) {
+      const startTime = Date.now();
+      // ponytail: start with a small non-zero fraction so the progress bar
+      // is visible immediately. Starting at fraction=0 renders a 0%-width
+      // fill that's invisible, making the user think "no progress bar".
+      event.sender.send('storage:clearProgress', { key, processed: done, total, fraction: 0.05, message: `正在清空 ${storageLabel(key)}…` });
+
+      // Pulse fraction upward while the async clear runs, so single-key clears
+      // don't sit at 0% for 30s then jump to 100%.
+      const pulseTimer = setInterval(() => {
+        const elapsed = (Date.now() - startTime) / 1000;
+        const fraction = Math.min(0.05 + elapsed / 8, 0.92); // start at 5%, reach ~92% after ~8s
+        event.sender.send('storage:clearProgress', { key, processed: done, total, fraction, message: `正在清空 ${storageLabel(key)}…` });
+      }, 500);
+
+      try {
+        await clearSingleStorage(key);
+      } finally {
+        clearInterval(pulseTimer);
+      }
+
+      done += 1;
+      // ponytail: fraction must be 0 here — the completed key is already fully
+      // counted in `processed`. Sending fraction: 1 on top of the incremented
+      // `processed` makes (processed + fraction) / total overshoot to 100% for
+      // a moment, then the next key's small fraction snaps the bar back down.
+      event.sender.send('storage:clearProgress', { key, processed: done, total, fraction: 0, message: `已清空 ${storageLabel(key)}` });
+    }
+    event.sender.send('storage:clearProgress', { key: '', processed: done, total, fraction: 0, message: '清理完成' });
+    return getStorageStats();
+  });
   ipcMain.handle('system:getDiskInfo', () => getDiskInfo());
 
   ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
@@ -318,8 +373,6 @@ function userDataDir() {
 
 function getStorageStats(): IStorageStats {
   const chatPath = path.join(userDataDir(), 'stocksense-chat.sqlite');
-  const quotesSqlite = app.isPackaged ? 'stocksense-quotes.sqlite' : 'stocksense-quotes-dev.sqlite';
-  const quotesPath = path.join(userDataDir(), quotesSqlite);
   const configPath = path.join(userDataDir(), 'stocksense-store.json');
   const surgeDb = app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb';
   const surgePath = path.join(userDataDir(), surgeDb);
@@ -328,7 +381,6 @@ function getStorageStats(): IStorageStats {
   return {
     chat:     { label: '聊天记录',    bytes: fileSize(chatPath) },
     config:   { label: '应用配置和收藏', bytes: fileSize(configPath) },
-    quotes:   { label: '最新行情缓存',  bytes: fileSize(quotesPath) },
     market:   { label: '本地行情数据库', bytes: fileSize(marketPath) },
     surge:    { label: '异动/热点历史', bytes: fileSize(surgePath) },
   };
@@ -336,7 +388,7 @@ function getStorageStats(): IStorageStats {
 
 function getDiskInfo(): IDiskInfo {
   const stats = getStorageStats();
-  const usedByAppBytes = stats.chat.bytes + stats.config.bytes + stats.quotes.bytes + stats.market.bytes + stats.surge.bytes;
+  const usedByAppBytes = stats.chat.bytes + stats.config.bytes + stats.market.bytes + stats.surge.bytes;
   let totalBytes = 0;
   let freeBytes = 0;
   try {
@@ -347,39 +399,80 @@ function getDiskInfo(): IDiskInfo {
   return { totalBytes, freeBytes, usedByAppBytes };
 }
 
-async function clearStorages(keys: string[]) {
-  for (const key of keys) {
-    switch (key) {
-      case 'chat':
-        closeConversationStore();
-        try { unlinkSync(path.join(userDataDir(), 'stocksense-chat.sqlite')); } catch { /* file may not exist */ }
-        break;
-      case 'config':
-        store.clear();
-        store.set({
-          config: defaultConfig,
-          favoriteStocks: [],
-          installedStoreItems: [],
-          stockNewsPreferences: { favoritesOnly: false, manualStocks: [] },
-          deviceId: store.get('deviceId', ''),
-        });
-        break;
-      case 'quotes':
-        flushQuoteRows();
-        closeQuoteStore();
-        const quotesName = app.isPackaged ? 'stocksense-quotes.sqlite' : 'stocksense-quotes-dev.sqlite';
-        try { unlinkSync(path.join(userDataDir(), quotesName)); } catch { /* file may not exist */ }
-        break;
-      case 'market':
-        await closeMarketDataStore();
-        try { unlinkSync(getMarketDataDatabasePath()); } catch { /* file may not exist */ }
-        break;
-      case 'surge':
-        await closeSurgeHistoryStore();
-        const surgeName = app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb';
-        try { unlinkSync(path.join(userDataDir(), surgeName)); } catch { /* file may not exist */ }
-        break;
-    }
+function storageLabel(key: string) {
+  switch (key) {
+    case 'chat': return '聊天记录';
+    case 'config': return '应用配置';
+    case 'market': return '本地行情数据库';
+    case 'surge': return '异动/热点历史';
+    default: return key;
   }
-  return getStorageStats();
+}
+
+async function clearSingleStorage(key: string) {
+  switch (key) {
+    case 'chat':
+      closeConversationStore();
+      try { unlinkSync(path.join(userDataDir(), 'stocksense-chat.sqlite')); } catch { /* file may not exist */ }
+      break;
+    case 'config':
+      store.clear();
+      store.set({
+        config: defaultConfig,
+        favoriteStocks: [],
+        installedStoreItems: [],
+        stockNewsPreferences: { favoritesOnly: false, manualStocks: [] },
+        deviceId: store.get('deviceId', ''),
+      });
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send('favorite:cleared');
+      break;
+    case 'market':
+      // ponytail: must stop any running sync before closing the store.
+      // Otherwise closeMarketDataStore() waits for activeConnections to
+      // reach 0 while sync workers are still holding DuckDB connections,
+      // causing the UI to hang indefinitely with a 0% progress bar.
+      requestMarketDataSyncStop();
+      // ponytail: a sync worker stuck mid network-call won't stop until that
+      // call returns, so waitForMarketDataSync() can hang for a very long
+      // time. Bound it with a grace period — we delete + reset the database
+      // anyway after the timeout, so the clear UI never freezes.
+      await Promise.race([
+        waitForMarketDataSync(),
+        new Promise((resolve) => setTimeout(resolve, 8000)),
+      ]);
+      await closeMarketDataStore(5000);
+      try { unlinkSync(getMarketDataDatabasePath()); } catch { /* file may not exist */ }
+      // ponytail: closeMarketDataStore sets isClosing=true permanently and
+      // dbReady still points at the old (now-closed) DuckDB instance. Without
+      // resetting, every subsequent read()/write() throws "market data store
+      // is closing" and the database is broken until app restart.
+      await resetMarketDataStore().catch((error) => console.warn('[market-data] reset after clear failed', error));
+      void initializeMarketDataStore().catch((error) => console.warn('[market-data] re-init after clear failed', error));
+      break;
+    case 'surge':
+      // ponytail: stop the background scheduler before closing the store.
+      // Otherwise the 30s capture loop calls listHotFocus('surge') and
+      // saveSurgeSnapshot() shortly after the file is deleted, recreating
+      // a non-empty database and making the clear look like it failed.
+      stopSurgeHistoryScheduler();
+      clearSurgeCache();
+      await closeSurgeHistoryStore(5000);
+      // ponytail: close the actual DuckDB instance to release its file handle
+      // before unlinking. Otherwise the OS can keep the old inode alive and
+      // subsequent reads through the old instance still see the "deleted" data.
+      await closeSurgeHistoryInstance();
+      const surgeName = app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb';
+      const surgePath = path.join(userDataDir(), surgeName);
+      try { unlinkSync(surgePath); } catch { /* file may not exist */ }
+      // ponytail: verify the file is really gone; if a dangling handle keeps it
+      // alive, fall back to SQL truncate so the next opened DB starts empty.
+      if (existsSync(surgePath)) {
+        console.warn('[storage:clear] surge db file still exists after unlink, truncating in-place');
+        try {
+          truncateSync(surgePath, 0);
+        } catch { /* ignore */ }
+      }
+      await resetSurgeHistoryStore();
+      break;
+  }
 }

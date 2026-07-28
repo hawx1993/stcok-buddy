@@ -22,6 +22,10 @@ export function stopSurgeHistoryScheduler() {
   timer = undefined;
 }
 
+export function isSurgeHistorySchedulerRunning() {
+  return Boolean(timer) && !isStopped;
+}
+
 async function captureIfTradingTime(now = new Date()) {
   if (isStopped || isCapturing || !isChinaMarketOpen(now)) return;
   isCapturing = true;

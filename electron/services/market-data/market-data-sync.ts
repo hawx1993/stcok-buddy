@@ -42,7 +42,28 @@ export async function getMarketDataSyncStatus(): Promise<MarketDataSyncStatus> {
 }
 
 export function startMarketDataSync(force = false) {
-  if (currentSync) return currentSync;
+  // ponytail: if a sync is already running we cannot just return the old
+  // promise when the user explicitly asked for a force sync — the old run
+  // may have been started by the scheduler with force=false, and returning
+  // it would silently ignore the user's "立即同步" click (the IPC would
+  // resolve to the old run's result, often a cancelled 'idle' state, while
+  // the UI sits at 0%). For force=true we wait for the current run to finish
+  // before kicking off a fresh one.
+  if (currentSync) {
+    if (!force) return currentSync;
+    const chained = currentSync
+      .catch(() => undefined)
+      .then(() => {
+        // Only start the force run if no other sync started in the meantime.
+        if (currentSync) return currentSync;
+        stopRequested = false;
+        currentSync = runSync(true).finally(() => {
+          currentSync = undefined;
+        });
+        return currentSync;
+      });
+    return chained;
+  }
   stopRequested = false;
   currentSync = runSync(force).finally(() => {
     currentSync = undefined;
@@ -83,10 +104,30 @@ export async function determineTargetTradeDate(now = new Date()) {
 }
 
 async function runSync(force: boolean): Promise<MarketDataSyncStatus> {
-  updateMemory({ ...idleStatus(), state: 'checking', message: '正在检查本地行情数据' });
+  // ponytail: emit an immediate 'checking' progress event before any await.
+  // The renderer seeds a 0/0 "正在启动同步…" state on click, but if the
+  // network-bound determineTargetTradeDate() below takes a few seconds the
+  // user sees the bar pinned at 0% with no feedback. Emitting here proves
+  // the main process has actually picked up the IPC call.
+  updateMemory({
+    ...idleStatus(),
+    state: 'checking',
+    totalSymbols: 0,
+    message: '正在确定目标交易日…',
+  });
+  // 先查询证券列表和目标日期，然后设置合理的初始进度
   const targetTradeDate = await determineTargetTradeDate();
   let securities = await listSecurities();
-  if (!securities.length || force) {
+
+  // 设置初始进度：使用已知证券数量或合理的预估值
+  updateMemory({
+    ...idleStatus(),
+    state: 'checking',
+    targetTradeDate,
+    totalSymbols: securities.length || 5000, // 如果本地没有证券，预估5000支
+    message: '正在检查本地行情数据',
+  });
+  if (!securities.length) {
     updateMemory({ ...memoryStatus, state: 'initializing', targetTradeDate, message: '正在同步 A 股证券列表' });
     const remote = await listRemoteSecurities(
       (processed, total) =>
@@ -171,12 +212,16 @@ async function runSync(force: boolean): Promise<MarketDataSyncStatus> {
     message: jobType === 'initial_backfill' ? '正在后台回填最近 10 年日线' : '正在同步最新交易日数据',
   });
 
+  // ponytail: when force=true, ignore existing bars and always pull latest day
+  // so the user sees real progress and gets guaranteed fresh data
+  const forceDownload = force;
   await runPool(symbols, CONCURRENCY, async (security) => {
     if (stopRequested) return;
     try {
       const existing = await listDailyBars(security.symbol, { limit: 1, adjustType: 'qfq' });
-      const symbolStart = existing.at(-1)?.tradeDate ? dayAfter(existing.at(-1)!.tradeDate) : startDate;
-      if (symbolStart <= targetTradeDate) {
+      const symbolStart =
+        existing.at(-1)?.tradeDate && !forceDownload ? dayAfter(existing.at(-1)!.tradeDate) : startDate;
+      if (forceDownload || symbolStart <= targetTradeDate) {
         const rows = await stockSdkHistoricalProvider.getDailyBars(security.symbol, {
           adjustType: 'qfq',
           startDate: symbolStart,
@@ -204,12 +249,21 @@ async function runSync(force: boolean): Promise<MarketDataSyncStatus> {
         failedSymbols: failed,
         checkpointSymbol: security.symbol,
       });
+      // ponytail: do NOT call getLatestTradeDate() here. It runs a full-table
+      // SELECT max(trade_date) over daily_bars and opens a brand-new DuckDB
+      // connection — once per symbol, i.e. 5000+ expensive queries + connection
+      // churn while concurrent writes are in flight. Near the end of a backfill
+      // (when daily_bars has millions of rows) this stalls the whole store and
+      // the final "completed" event never gets emitted, leaving the UI stuck at
+      // 100% "同步中". latestTradeDate (computed once before the pool) is a
+      // perfectly good value for the progress display.
       updateMemory({
         ...memoryStatus,
         processedSymbols: processed,
         succeededSymbols: succeeded,
         failedSymbols: failed,
-        latestLocalTradeDate: await getLatestTradeDate(),
+        message: `正在同步日K线（${processed}/${memoryStatus.totalSymbols}）`,
+        latestLocalTradeDate: latestTradeDate,
       });
     }
   });
@@ -230,20 +284,44 @@ async function runSync(force: boolean): Promise<MarketDataSyncStatus> {
     return cancelled;
   }
 
-  const covered = await countDailyBarsForDate(targetTradeDate);
-  const coverage = securities.length ? covered / securities.length : 0;
-  const status = coverage >= 0.99 ? 'completed' : coverage >= 0.95 ? 'partial' : failed ? 'failed' : 'partial';
+  // ponytail: wrap the finalization queries in a timeout. If DuckDB has become
+  // unresponsive (e.g. after heavy connection churn during the pool) a hanging
+  // count/update here would otherwise prevent the 'completed' event from ever
+  // being emitted, leaving the UI stuck at 100% "同步中" forever. On timeout we
+  // fall back to the in-memory counters so runSync ALWAYS returns a final state.
+  let covered = 0;
+  let coverage = 0;
+  let status: MarketDataSyncStatus['state'];
+  try {
+    covered = await withTimeout(countDailyBarsForDate(targetTradeDate), 10000);
+    coverage = securities.length ? covered / securities.length : 0;
+    status = coverage >= 0.99 ? 'completed' : coverage >= 0.95 ? 'partial' : failed ? 'failed' : 'partial';
+  } catch (error) {
+    console.warn('[market-data] finalize coverage query timed out, falling back to counters', error);
+    status = failed ? 'partial' : 'completed';
+  }
   const finishedAt = new Date().toISOString();
-  await updateSyncJob(jobId, { status, finishedAt, metadataJson: JSON.stringify({ covered, coverage }) });
+  await withTimeout(
+    updateSyncJob(jobId, { status, finishedAt, metadataJson: JSON.stringify({ covered, coverage }) }),
+    10000,
+  ).catch((error) => console.warn('[market-data] finalize updateSyncJob timed out', error));
+  const latestLocal = await withTimeout(getLatestTradeDate(), 10000).catch(() => latestTradeDate);
   const result: MarketDataSyncStatus = {
     ...memoryStatus,
     state: status,
     finishedAt,
-    latestLocalTradeDate: await getLatestTradeDate(),
+    latestLocalTradeDate: latestLocal,
     message: `同步完成，目标日覆盖 ${(coverage * 100).toFixed(1)}%`,
   };
   updateMemory(result);
   return result;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('finalize query timeout')), ms)),
+  ]);
 }
 
 async function runRepair(): Promise<MarketDataSyncStatus> {

@@ -10,13 +10,16 @@ import { StockDetailPanel } from './components/stock-detail-panel';
 import { SettingsModal } from './components/settings-modal';
 import { AboutModal } from './components/about-modal';
 import { StorageManagerModal } from './components/storage-manager-modal';
+import { DataSyncModal } from './components/data-sync-modal';
 import { ErrorBoundary } from './components/error-boundary';
 import { getStocksenseApi } from './shared/stocksense-api';
 import { track, trackButtonClick, trackPageView } from './shared/analytics';
+import { useSyncProgressPump } from './hooks/use-sync-progress-pump';
 import styles from './styles/app.module.scss';
 import cx from './shared/cx';
 
 export function App() {
+  useSyncProgressPump();
   const [searchOpen, setSearchOpen] = useState(false);
   const config = useAppStore((state) => state.config);
   const setConfig = useAppStore((state) => state.setConfig);
@@ -36,6 +39,12 @@ export function App() {
     api.getConfig().then(setConfig).catch(console.error);
     api.listConversations().then(setConversations).catch(console.error);
     api.listFavoriteStocks().then(setFavoriteStocks).catch(console.error);
+
+    const removeListener = api.onFavoritesCleared?.(() => {
+      api.listFavoriteStocks().then(setFavoriteStocks).catch(console.error);
+    });
+
+    return () => removeListener?.();
   }, [setConfig, setConversations, setFavoriteStocks]);
 
   useEffect(() => {
@@ -205,6 +214,9 @@ export function App() {
         </ErrorBoundary>
         <ErrorBoundary name='存储空间管理'>
           <StorageManagerModal />
+        </ErrorBoundary>
+        <ErrorBoundary name='数据同步'>
+          <DataSyncModal />
         </ErrorBoundary>
       </div>
     </div>

@@ -1,12 +1,13 @@
 import { Dropdown, message as antdMessage } from 'antd';
 import type { MenuProps } from 'antd';
-import { BarChart3, Database, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
+import { BarChart3, CloudDownload, Database, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
 import { useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../store/app-store';
 import { ThemeToggle } from '../theme-toggle';
 import { createChatConversation } from './components/create-chat-conversation';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { UpdateBanner } from './components/update-banner';
+import { SyncBanner } from './components/sync-banner';
 import type { ConversationSummary } from '../../shared/types';
 import { trackButtonClick, trackPageView } from '../../shared/analytics';
 import { WhaleLogo } from '../chat-view/components/whale-logo';
@@ -83,6 +84,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
   const setAboutOpen = useAppStore((state) => state.setAboutOpen);
   const setStorageManagerOpen = useAppStore((state) => state.setStorageManagerOpen);
+  const setDataSyncOpen = useAppStore((state) => state.setDataSyncOpen);
   const setMainView = useAppStore((state) => state.setMainView);
 
   const createConversation = createChatConversation;
@@ -138,6 +140,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
     { key: 'about', label: menuLabel(<Info size={15} />, '关于 StockBuddy'), className: styles['about-menu-item'] },
     { key: 'settings', label: menuLabel(<Settings size={15} />, '系统设置', settingsShortcut) },
     { key: 'storage', label: menuLabel(<Database size={15} />, '存储空间管理') },
+    { key: 'data-sync', label: menuLabel(<CloudDownload size={15} />, '数据同步') },
     { key: 'check-update', label: menuLabel(<RefreshCw size={15} />, '检查更新') },
     { key: 'release-notes', label: menuLabel(<FileText size={15} />, '更新日志') },
     { key: 'feedback', label: menuLabel(<HelpCircle size={15} />, '帮助与反馈') },
@@ -174,6 +177,11 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
     if (key === 'storage') {
       trackButtonClick('open_storage_manager');
       setStorageManagerOpen(true);
+      return;
+    }
+    if (key === 'data-sync') {
+      trackButtonClick('open_data_sync');
+      setDataSyncOpen(true);
       return;
     }
   };
@@ -326,6 +334,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
       </div>
 
       <UpdateBanner />
+      <SyncBanner />
 
       <div className={styles['sidebar-footer']}>
         <Dropdown

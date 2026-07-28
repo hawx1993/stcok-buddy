@@ -801,6 +801,7 @@ export async function analyzeTechnical(symbolInput: string): Promise<AgentResult
 }
 
 export {
+  clearSurgeCache,
   listHotFocus,
   listDailyDragonTiger,
   listStockSurgeEvents,

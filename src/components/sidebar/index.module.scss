@@ -423,6 +423,77 @@
   opacity: 0.68;
 }
 
+// ── sync banner ──
+.sync-banner {
+  padding: 0 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.sync-banner-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: var(--surface-hover);
+  font-size: 11px;
+  color: var(--fg-secondary);
+}
+.sync-banner-spin {
+  animation: sync-spin 1s linear infinite;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+@keyframes sync-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.sync-banner-label {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.sync-banner-pct {
+  font-weight: 600;
+  font-size: 10px;
+  color: var(--accent);
+  min-width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.sync-banner-bar {
+  flex: 1;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  min-width: 30px;
+}
+.sync-banner-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+.sync-banner-dismiss {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--fg);
+  }
+}
+
 .sidebar-footer {
   position: relative;
   padding: 10px 12px;

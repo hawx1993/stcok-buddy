@@ -4,7 +4,13 @@ import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/mar
 import { isRemoteTradingDay } from '../market-data/providers.js';
 import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { normalizeASymbol } from './symbols.js';
-import { listStockSurgeEvents as listLocalStockSurgeEvents, listSurgeHistory, saveSurgeSnapshot } from './surge-history-store.js';
+import {
+  isSurgeHistoryClearMarkerActive,
+  listStockSurgeEvents as listLocalStockSurgeEvents,
+  listSurgeHistory,
+  saveSurgeSnapshot,
+  setSurgeHistoryClearMarker,
+} from './surge-history-store.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 
@@ -25,6 +31,10 @@ export interface DailyDragonTigerItem {
 }
 
 export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
+  // ponytail: user explicitly cleared surge history — keep the panel empty
+  // until the marker expires so the clear action is visually effective.
+  if (tab === 'surge' && isSurgeHistoryClearMarkerActive()) return [];
+
   try {
     if (tab === 'sector') return listSectorHot();
     if (tab === 'market') return listMarketHot();
@@ -180,6 +190,14 @@ const SURGE_CACHE_TTL_MS = 30_000;
 let surgeCache: { items: HotFocusItem[]; updatedAt: number } | undefined;
 let surgeRequest: Promise<HotFocusItem[]> | undefined;
 
+export function clearSurgeCache() {
+  surgeCache = undefined;
+  surgeRequest = undefined;
+  // ponytail: delegate the clear marker to the storage layer so every read/write
+  // path (today list, historical dates, individual events) observes it.
+  setSurgeHistoryClearMarker();
+}
+
 async function listSurgeHot(): Promise<HotFocusItem[]> {
   const marketTime = toShanghaiMarketTime(new Date());
   // isRemoteTradingDay hits the network — wrap to avoid throwing SdkError offline
@@ -223,6 +241,10 @@ async function fetchSurgeHot(): Promise<HotFocusItem[]> {
 
 export async function listStockSurgeEvents(symbolInput: string): Promise<StockSurgeEvent[]> {
   const symbol = normalizeASymbol(symbolInput);
+  // ponytail: user explicitly cleared surge history — keep individual events
+  // empty until the marker expires so the clear action is visually effective.
+  if (isSurgeHistoryClearMarkerActive()) return [];
+
   const [historyResult, currentResult] = await Promise.allSettled([
     sdk.marketEvent.individualChangesHistory(symbol, { days: 7 }),
     listSurgeHot(),
@@ -250,7 +272,7 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     .sort((a, b) => b.tradeDate.localeCompare(a.tradeDate) || surgeTimeValue(b.time) - surgeTimeValue(a.time));
 }
 
-function toIndividualHistoryEvents(
+export function toIndividualHistoryEvents(
   history: Awaited<ReturnType<typeof sdk.marketEvent.individualChangesHistory>>,
   symbol: string,
 ): StockSurgeEvent[] {

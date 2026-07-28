@@ -91,6 +91,38 @@ export function StockDetailView({ returnToSurge, onReturnToSurge, onGenericBack,
     };
   }, [selectedStock?.code]);
 
+  // ponytail: when the user clears surge history from the storage manager,
+  // reload the individual surge events so stale in-memory items are replaced
+  // with the now-empty local DB contents (if remote is unavailable) or the
+  // latest remote data. Also clears the local state immediately so the UI
+  // doesn't keep showing records that were just deleted.
+  useEffect(() => {
+    const onCleared = () => {
+      setStockSurgeEvents([]);
+      if (!selectedStock?.code) return;
+      let alive = true;
+      setStockSurgeLoading(true);
+      setStockSurgeError(undefined);
+      getStocksenseApi()
+        .listStockSurgeEvents(selectedStock.code)
+        .then((items) => {
+          if (alive) setStockSurgeEvents(items);
+        })
+        .catch((error: unknown) => {
+          if (!alive) return;
+          setStockSurgeError(error instanceof Error ? error.message : '异动记录加载失败');
+        })
+        .finally(() => {
+          if (alive) setStockSurgeLoading(false);
+        });
+      return () => {
+        alive = false;
+      };
+    };
+    window.addEventListener('surge:historyCleared', onCleared);
+    return () => window.removeEventListener('surge:historyCleared', onCleared);
+  }, [selectedStock?.code]);
+
   useEffect(() => {
     if (!selectedStock?.code) return;
     let alive = true;

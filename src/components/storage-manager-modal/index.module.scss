@@ -50,6 +50,24 @@
   background: var(--surface-hover);
   color: var(--fg);
 }
+.modal-back {
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-secondary);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+.modal-back:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
 .modal-body {
   flex: 1;
   overflow-y: auto;
@@ -139,11 +157,54 @@
 .storage-item:hover {
   background: var(--surface-hover);
 }
-.storage-item :global(.ant-checkbox) {
-  margin-top: 2px;
-  flex-shrink: 0;
-  background: var(--surface-hover);
+
+// ── custom checkbox ──
+.storage-item-checkbox-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
 }
+.storage-item-checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong, var(--border));
+  background: var(--surface-active, var(--surface));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.storage-item:hover .storage-item-checkbox {
+  border-color: var(--accent);
+}
+.storage-item-checkbox-input:checked + .storage-item-checkbox {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.storage-item-checkbox-input:checked + .storage-item-checkbox svg {
+  opacity: 1;
+  transform: scale(1);
+}
+.storage-item-checkbox-input:disabled + .storage-item-checkbox,
+.storage-item-checkbox-input:disabled ~ .storage-item-body {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.storage-item-checkbox-input:focus-visible + .storage-item-checkbox {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.storage-item-checkbox svg {
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
 .storage-item-body {
   flex: 1;
   min-width: 0;
@@ -205,6 +266,58 @@
 .btn-clear:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+// ── clear progress ──
+.clear-progress {
+  flex: 1;
+  min-width: 0;
+  margin-right: 8px;
+}
+.clear-progress-text {
+  font-size: 11px;
+  color: var(--fg-secondary);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clear-progress-bar {
+  position: relative;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.clear-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Indeterminate bar shown while waiting for the first progress event */
+@keyframes storage-clear-indeterminate {
+  0% {
+    left: -40%;
+    width: 40%;
+  }
+  50% {
+    left: 30%;
+    width: 50%;
+  }
+  100% {
+    left: 100%;
+    width: 40%;
+  }
+}
+.clear-progress-fill-indeterminate {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: storage-clear-indeterminate 1.4s ease-in-out infinite;
 }
 
 // ── confirm dialog ──

@@ -124,6 +124,18 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     return () => window.clearInterval(id);
   }, [isActive, isMonitoring, selectedDate, today]);
 
+  // ponytail: when the user clears surge history from the storage manager,
+  // reload the current date so historical lists drop their stale in-memory
+  // items (today's list is live remote data and is unaffected by the clear).
+  useEffect(() => {
+    const onCleared = () => {
+      setRefreshMode('manual');
+      setRefresh((value) => value + 1);
+    };
+    window.addEventListener('surge:historyCleared', onCleared);
+    return () => window.removeEventListener('surge:historyCleared', onCleared);
+  }, []);
+
   useEffect(() => {
     if (!returnCode || !isActive) return;
     const frame = window.requestAnimationFrame(() => {
