@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import type { ReactNode, RefObject } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
 import type { MarketQuoteRow } from '../../../shared/types';
 import cx from '../../../shared/cx';
 import { formatMarketCap, formatMoney, formatPercent, formatVolume, tone } from '../market-format';
@@ -8,14 +8,15 @@ import styles from '../index.module.scss';
 
 const MARKET_ROW_HEIGHT = 34;
 const MARKET_ROW_OVERSCAN = 32;
-const marketCellFields: TMarketCellField[] = [
+const MARKET_REORDER_ANIMATION_MS = 450;
+
+const flashCellFields: TMarketCellField[] = [
   'changePercent',
   'price',
   'turnoverRate',
   'volume',
   'amount',
   'marketCap',
-  'industry',
 ];
 
 type TSortDirection = 'asc' | 'desc' | undefined;
@@ -27,6 +28,7 @@ export function StockTable({
   scrollRef,
   sortDirection,
   updateVersion,
+  reorderingVersion,
   changedCodes,
   movedCodes,
   onSortChange,
@@ -36,6 +38,7 @@ export function StockTable({
   scrollRef: RefObject<HTMLDivElement>;
   sortDirection: TSortDirection;
   updateVersion: number;
+  reorderingVersion: number;
   changedCodes: string[];
   movedCodes: string[];
   onSortChange(): void;
@@ -43,6 +46,10 @@ export function StockTable({
 }) {
   const sortMark = sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : '↕';
   const previousCellSnapshots = useRef(new Map<string, TMarketCellSnapshot>());
+  const previousRowCodesRef = useRef<string[]>([]);
+  const previousStartByCodeRef = useRef<Map<string, number>>(new Map());
+  const animationTimeoutsRef = useRef<Map<string, number>>(new Map());
+  const rowRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
   const [cellFlashVersions, setCellFlashVersions] = useState<Record<string, number>>({});
   const [rankFlashVersions, setRankFlashVersions] = useState<Record<string, number>>({});
   const rowVirtualizer = useVirtualizer({
@@ -61,7 +68,7 @@ export function StockTable({
       const previousSnapshot = previousCellSnapshots.current.get(row.code);
       nextSnapshots.set(row.code, nextSnapshot);
       if (!previousSnapshot || !changedSet.has(row.code)) continue;
-      for (const field of marketCellFields) {
+      for (const field of flashCellFields) {
         if (previousSnapshot[field] !== nextSnapshot[field]) changedCellKeys.push(getMarketCellKey(row.code, field));
       }
     }
@@ -73,6 +80,94 @@ export function StockTable({
       setRankFlashVersions((current) => incrementVersions(current, movedCodes));
     }
   }, [changedCodes, movedCodes, rows, updateVersion]);
+
+  // FLIP 动画：用 CSS 变量 --market-row-start 作为位置基准（不受滚动/布局影响）
+  useLayoutEffect(() => {
+    const currentCodes = rows.map((row) => row.code);
+    const prevCodes = previousRowCodesRef.current;
+    const codesChanged =
+      currentCodes.length !== prevCodes.length ||
+      currentCodes.some((code, index) => code !== prevCodes[index]);
+    if (!codesChanged) return;
+
+    const currentCodeSet = new Set(currentCodes);
+    const animateRefs: Array<{ el: HTMLDivElement; code: string; delta: number }> = [];
+
+    rowRefsMap.current.forEach((el, code) => {
+      if (!el || !currentCodeSet.has(code)) return;
+      const startValue = el.style.getPropertyValue('--market-row-start');
+      const newStart = Number.parseFloat(startValue);
+      if (!Number.isFinite(newStart)) return;
+      const oldStart = previousStartByCodeRef.current.get(code);
+      if (oldStart === undefined) {
+        previousStartByCodeRef.current.set(code, newStart);
+        return;
+      }
+      const delta = oldStart - newStart;
+      previousStartByCodeRef.current.set(code, newStart);
+      if (delta === 0) return;
+      animateRefs.push({ el, code, delta });
+    });
+
+    previousStartByCodeRef.current.forEach((_, code) => {
+      if (!currentCodeSet.has(code)) previousStartByCodeRef.current.delete(code);
+    });
+
+    if (animateRefs.length === 0) {
+      previousRowCodesRef.current = currentCodes;
+      return;
+    }
+
+    // 取消旧动画
+    animationTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    animationTimeoutsRef.current.clear();
+    rowRefsMap.current.forEach((el) => {
+      if (!el) return;
+      el.classList.remove(styles.marketTableRowReordering);
+      el.style.removeProperty('--market-row-delta');
+    });
+
+    // 启动新动画
+    animateRefs.forEach(({ el, delta }) => {
+      el.style.setProperty('--market-row-delta', `${delta}px`);
+      el.classList.add(styles.marketTableRowReordering);
+    });
+    void document.body.offsetHeight;
+
+    animateRefs.forEach(({ el, code }) => {
+      const timeoutId = window.setTimeout(() => {
+        el.classList.remove(styles.marketTableRowReordering);
+        el.style.removeProperty('--market-row-delta');
+        animationTimeoutsRef.current.delete(code);
+      }, MARKET_REORDER_ANIMATION_MS + 50);
+      animationTimeoutsRef.current.set(code, timeoutId);
+    });
+
+    previousRowCodesRef.current = currentCodes;
+  }, [rows, reorderingVersion]);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return undefined;
+    const handleScroll = () => {
+      animationTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      animationTimeoutsRef.current.clear();
+      rowRefsMap.current.forEach((el) => {
+        if (!el) return;
+        el.classList.remove(styles.marketTableRowReordering);
+        el.style.removeProperty('--market-row-delta');
+      });
+    };
+    element.addEventListener('scroll', handleScroll, { passive: true });
+    return () => element.removeEventListener('scroll', handleScroll);
+  }, [scrollRef]);
+
+  useEffect(() => {
+    return () => {
+      animationTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      animationTimeoutsRef.current.clear();
+    };
+  }, []);
 
   return (
     <div className={styles.marketTable} role='table'>
@@ -100,12 +195,17 @@ export function StockTable({
           if (!row) return null;
           const versions = getRowFlashVersions(cellFlashVersions, row.code);
           const rankVersion = rankFlashVersions[row.code] ?? 0;
+          const refSetter = (el: HTMLDivElement | null) => {
+            if (el) rowRefsMap.current.set(row.code, el);
+            else rowRefsMap.current.delete(row.code);
+          };
           return (
             <div
               key={row.code}
+              ref={refSetter}
               className={styles.marketTableRow}
               role='row'
-              style={{ transform: `translateY(${virtualRow.start}px)` }}
+              style={{ '--market-row-start': `${virtualRow.start}px` } as CSSProperties}
               onClick={() => onOpen(row)}
             >
               <div key={`rank-${rankVersion}`} className={cx(rankVersion > 0 && styles.rankUpdated)} role='cell'>
@@ -119,7 +219,7 @@ export function StockTable({
               <MarketCell version={versions.volume}>{formatVolume(row.volume)}</MarketCell>
               <MarketCell version={versions.amount}>{formatMoney(row.amount)}</MarketCell>
               <MarketCell version={versions.marketCap}>{formatMarketCap(row.marketCap)}</MarketCell>
-              <MarketCell version={versions.industry}>{row.industry ?? '--'}</MarketCell>
+              <div role='cell'>{row.industry ?? '--'}</div>
             </div>
           );
         })}
@@ -140,7 +240,7 @@ function getRowFlashVersions(versions: Record<string, number>, code: string): TM
     volume: getCellFlashVersion(versions, code, 'volume'),
     amount: getCellFlashVersion(versions, code, 'amount'),
     marketCap: getCellFlashVersion(versions, code, 'marketCap'),
-    industry: getCellFlashVersion(versions, code, 'industry'),
+    industry: 0,
   };
 }
 

@@ -350,6 +350,19 @@
   cursor: pointer;
   contain: layout paint style;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  transform: translateY(var(--market-row-start, 0px));
+  will-change: transform;
+}
+@keyframes marketRowReorder {
+  from {
+    transform: translateY(calc(var(--market-row-start, 0px) + var(--market-row-delta, 0px)));
+  }
+  to {
+    transform: translateY(var(--market-row-start, 0px));
+  }
+}
+.marketTableBody .marketTableRowReordering {
+  animation: marketRowReorder 0.45s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 .marketTableRow > div {
   min-width: 0;
