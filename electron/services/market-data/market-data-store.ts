@@ -77,6 +77,10 @@ const schemaSql = `
     snapshot_key TEXT PRIMARY KEY, rows_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS stock_chips (
+    symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TIMESTAMP NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS stock_snapshots (
     symbol TEXT PRIMARY KEY, name TEXT NOT NULL, price DOUBLE, change DOUBLE,
     change_percent DOUBLE, open DOUBLE, high DOUBLE, low DOUBLE, prev_close DOUBLE,
@@ -182,6 +186,32 @@ export function upsertStockSnapshots(items: Array<{
       throw error;
     }
   });
+}
+
+export function upsertStockChip(symbol: string, data: unknown) {
+  const now = new Date().toISOString();
+  return write(async (connection) => {
+    await connection.run(
+      `INSERT OR REPLACE INTO stock_chips (symbol, data_json, fetched_at) VALUES ($symbol, $data, $now)`,
+      { symbol, data: JSON.stringify(data), now },
+    );
+  });
+}
+
+export async function getStockChip(symbol: string): Promise<unknown | undefined> {
+  try {
+    await ensureReady();
+    return read(async (connection) => {
+      const reader = await connection.runAndReadAll(
+        `SELECT data_json FROM stock_chips WHERE symbol = $symbol`,
+        { symbol },
+      );
+      const rows = reader.getRowObjectsJS() as Array<{ data_json: string }>;
+      return rows.length ? JSON.parse(rows[0].data_json) : undefined;
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 export function updateSecurityIndustries(items: Array<{ symbol: string; industry: string }>) {

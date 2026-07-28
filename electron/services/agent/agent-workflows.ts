@@ -29,7 +29,11 @@ import { generateReport } from '../llm/index.js';
 import { createMarketReviewMessages } from './market-review-prompt.js';
 import { runNewsAnalysisAgent } from './news-analysis-agent.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
-import { runStockAnalysisSubAgent, stockAnalysisAgentNames } from './stock-analysis-agents.js';
+import {
+  buildStockAnalysisInputForAgent,
+  runStockAnalysisSubAgent,
+  stockAnalysisAgentNames,
+} from './stock-analysis-agents.js';
 
 export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): DagNode<IAgentContext>[] {
   const linkNodes: DagNode<IAgentContext>[] = context.urls.length
@@ -330,8 +334,18 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           const shouldStream = Boolean(context.singleAgent);
           const result = await runStockAnalysisSubAgent(
             agent.name,
-            buildStockAnalysisInput(ctx),
+            buildStockAnalysisInputForAgent(agent.name, buildStockAnalysisInput(ctx)),
             shouldStream ? onToken : undefined,
+            (message, percent) => {
+              ctx.emitEvent?.({
+                type: 'progress_updated',
+                title: `${agent.label} 进度`,
+                message,
+                progress: { current: Math.round(percent), total: 100 },
+                step: { id: `analysis-${agent.name}`, agent: agent.label, description: message, status: 'running' },
+                subAgent: { name: agent.label, description: message, status: 'running' },
+              });
+            },
           );
           ctx.analysisResults = [...(ctx.analysisResults ?? []), result];
           ctx.evidence.push(...result.output.evidence);

@@ -1,7 +1,10 @@
 import type {
   AgentResultCard,
+  ChipDistribution,
   EvidenceItem,
+  EvidenceSource,
   HotFocusItem,
+  IChipDistributionResult,
   IStockFundFlowSnapshot,
   KlinePoint,
   MarketNewsItem,
@@ -37,6 +40,67 @@ export type StockAnalysisResult = {
   output: StructuredAgentOutput;
   content: string;
 };
+
+/** 为每个子 Agent 构建只包含相关维度的输入，减少 LLM token 与响应时间 */
+export function buildStockAnalysisInputForAgent(
+  agentName: StockAnalysisAgentName,
+  input: StockAnalysisInput,
+): StockAnalysisInput {
+  const base: StockAnalysisInput = {
+    query: input.query,
+    symbol: input.symbol,
+    stockLabel: input.stockLabel,
+    quote: input.quote,
+  };
+
+  switch (agentName) {
+    case 'technical':
+      return {
+        ...base,
+        technical: input.technical,
+        kline: input.kline?.slice(-30),
+        evidence: filterEvidenceFor(input.evidence, ['quote', 'kline', 'technical']),
+      };
+    case 'fundamental':
+      return {
+        ...base,
+        evidence: filterEvidenceFor(input.evidence, [
+          'quote',
+          'kline',
+          'technical',
+          'local-market-data',
+          'remote-market-data',
+        ]),
+      };
+    case 'capital':
+      return {
+        ...base,
+        fundFlow: input.fundFlow,
+        largeOrders: input.largeOrders,
+        kline: input.kline?.slice(-5),
+        evidence: filterEvidenceFor(input.evidence, ['quote', 'fund-flow', 'hot-focus']),
+      };
+    case 'sentiment':
+      return {
+        ...base,
+        news: input.news,
+        evidence: filterEvidenceFor(input.evidence, ['quote', 'news', 'announcement']),
+      };
+    case 'chip':
+      return {
+        ...base,
+        chip: input.chip,
+        kline: input.kline?.slice(-5),
+        evidence: filterEvidenceFor(input.evidence, ['quote', 'kline', 'chip']),
+      };
+    default:
+      return input;
+  }
+}
+
+function filterEvidenceFor(evidence: EvidenceItem[] = [], sources: EvidenceSource[]): EvidenceItem[] {
+  return evidence.filter((item) => sources.includes(item.source));
+}
 
 type StockAnalysisAgentDef = {
   name: StockAnalysisAgentName;
@@ -118,10 +182,235 @@ function chipFallback(input: StockAnalysisInput) {
   return `🧩 筹码分析\n\n## 🎯 筹码集中度\n${trend}\n${trendText ? `\n${trendText}` : ''}\n\n## ⛰️ 筹码峰结构\n70%成本区间 ${latest.cost70 ?? '--'}，90%成本区间 ${latest.cost90 ?? '--'}。\n\n## 📍 平均成本\n当前平均成本 ${formatMaybeNumber(latest.avgCost)}。\n\n## 💰 获利盘\n当前获利盘 ${formatRatio(latest.profitRatio)}。\n\n## 🐳 主力控盘\n需结合价格是否站稳平均成本、筹码集中度是否收敛判断控盘强弱。\n\n## ⚠️ 套牢压力\n重点观察上方90%成本区间高位附近抛压。`;
 }
 
+/** 基于本地筹码分布数据直接生成分析结论，绕过 LLM，5s 内完成 */
+function generateChipAnalysis(input: StockAnalysisInput, evidence: EvidenceItem[]): StructuredAgentOutput | undefined {
+  const chip = input.chip as IChipDistributionResult | undefined;
+  const latest = chip?.latest;
+  if (!latest) return undefined;
+
+  const quote = input.quote;
+  const close = Number(quote?.price) ?? (input.kline?.length ? input.kline[input.kline.length - 1].close : undefined);
+  const avgCost = Number(latest.avgCost);
+  const profitRatio = Number(latest.profitRatio);
+  const cost70 = parseCostRange(latest.cost70);
+  const cost90 = parseCostRange(latest.cost90);
+  const trend = chip?.trend ?? [];
+  const byDays = new Map(trend.map((item) => [Number(item.days), item]));
+  const c5 = byDays.get(5);
+  const c20 = byDays.get(20);
+  const conc70_5 = Number(c5?.concentration70);
+  const conc70_20 = Number(c20?.concentration70);
+  const conc90_5 = Number(c5?.concentration90);
+  const conc90_20 = Number(c20?.concentration90);
+
+  // 集中度趋势：数值越小代表筹码越集中
+  const conc70Delta = Number.isFinite(conc70_5) && Number.isFinite(conc70_20) ? conc70_20 - conc70_5 : undefined;
+  const conc90Delta = Number.isFinite(conc90_5) && Number.isFinite(conc90_20) ? conc90_20 - conc90_5 : undefined;
+  const isConcentrating =
+    conc70Delta !== undefined && conc90Delta !== undefined ? conc70Delta < -0.01 && conc90Delta < -0.02 : undefined;
+  const isDispersing =
+    conc70Delta !== undefined && conc90Delta !== undefined ? conc70Delta > 0.01 && conc90Delta > 0.02 : undefined;
+
+  // 价格相对平均成本
+  const priceVsAvg =
+    Number.isFinite(close) && Number.isFinite(avgCost) ? ((close - avgCost) / avgCost) * 100 : undefined;
+  const aboveAvg = priceVsAvg !== undefined ? priceVsAvg > 1 : undefined;
+  const belowAvg = priceVsAvg !== undefined ? priceVsAvg < -1 : undefined;
+
+  // 获利盘健康度
+  const profitHealthy = Number.isFinite(profitRatio) ? profitRatio > 0.3 && profitRatio < 0.85 : undefined;
+  const highProfit = Number.isFinite(profitRatio) ? profitRatio >= 0.85 : undefined;
+  const lowProfit = Number.isFinite(profitRatio) ? profitRatio <= 0.2 : undefined;
+
+  // 峰型与控盘
+  const peakType = inferChipPeakType(cost70, cost90, isConcentrating);
+  const controlLevel = inferControlLevel(isConcentrating, isDispersing, profitRatio, aboveAvg, belowAvg);
+
+  // 综合立场
+  let stance: StructuredAgentFinding['stance'] = 'neutral';
+  let score = 50;
+  if (isConcentrating && aboveAvg && profitHealthy) {
+    stance = 'bullish';
+    score = 72;
+  } else if (isConcentrating && aboveAvg && lowProfit) {
+    stance = 'bullish';
+    score = 65;
+  } else if (isDispersing && belowAvg) {
+    stance = 'bearish';
+    score = 32;
+  } else if (isDispersing && highProfit) {
+    stance = 'bearish';
+    score = 38;
+  } else if (isConcentrating) {
+    stance = 'bullish';
+    score = 58;
+  } else if (isDispersing) {
+    stance = 'bearish';
+    score = 42;
+  }
+
+  const latestDate = latest.date ? `（${latest.date}）` : '';
+  const trendRows = [5, 10, 20]
+    .map((days) => {
+      const item = byDays.get(days);
+      return `| ${days}日 | ${formatRatio(item?.concentration70)} | ${formatRatio(item?.concentration90)} |`;
+    })
+    .join('\n');
+
+  const trendText =
+    conc70Delta !== undefined
+      ? `70%筹码集中度变化：5日 ${formatRatio(c5?.concentration70)} → 20日 ${formatRatio(c20?.concentration70)}。\n90%筹码集中度变化：5日 ${formatRatio(c5?.concentration90)} → 20日 ${formatRatio(c20?.concentration90)}。`
+      : '集中度趋势样本不足，仅展示最新筹码结构。';
+
+  const supportText =
+    cost70?.low !== undefined
+      ? `70%成本区间下沿 ${cost70.low.toFixed(2)} 元附近构成短期支撑，90%成本区间下沿 ${cost90?.low?.toFixed(2) ?? '--'} 元附近构成中期支撑。`
+      : '成本区间数据不足，支撑判断受限。';
+
+  const pressureText =
+    cost90?.high !== undefined && Number.isFinite(close)
+      ? `上方 ${cost90.high.toFixed(2)} 元附近为 90% 筹码套牢压力区，当前收盘价 ${close.toFixed(2)} 元 ${close > cost90.high * 0.98 ? '已接近或突破该压力区，需关注解套抛压' : '距离该压力区仍有空间'}。`
+      : '套牢压力数据不足。';
+
+  const outlook5 =
+    stance === 'bullish'
+      ? '筹码趋于集中且价格站稳平均成本，短期若量能配合有望延续反弹，上方关注 90% 成本区间上沿压力。'
+      : stance === 'bearish'
+        ? '筹码趋于发散或价格低于平均成本，短期套牢盘与获利兑现压力并存，易冲高回落或维持震荡偏弱。'
+        : '筹码结构变化不显著，短期大概率围绕平均成本震荡，等待方向选择。';
+
+  const outlook20 =
+    stance === 'bullish'
+      ? '中期筹码若持续集中且获利盘保持合理水平，主力锁仓意愿较强，股价有望沿成本中枢上行。'
+      : stance === 'bearish'
+        ? '中期若集中度持续发散且高位套牢盘未能消化，股价可能重回成本区间下沿甚至继续探底。'
+        : '中期维持区间震荡概率较大，需结合基本面与资金面确认突破方向。';
+
+  const risks: string[] = [];
+  if (isDispersing) risks.push('筹码趋于发散，可能存在派发迹象。');
+  if (highProfit) risks.push('获利盘比例过高，存在获利回吐抛压。');
+  if (belowAvg) risks.push('价格低于平均成本，套牢盘解套前上行阻力较大。');
+  if (controlLevel === '弱') risks.push('主力控盘度低，股价易受大盘情绪影响。');
+  if (risks.length === 0) risks.push('筹码结构总体平稳，但仍需关注突发消息与大盘波动。');
+
+  const conclusionText =
+    stance === 'bullish'
+      ? '【偏多】筹码集中度向好，主力控盘迹象明显，价格站稳平均成本，短期具备上攻基础。'
+      : stance === 'bearish'
+        ? '【偏空】筹码趋于发散或价格低于平均成本，套牢压力与派发风险并存。'
+        : '【中性】筹码结构尚未出现明确方向信号，建议继续观察量能与集中度变化。';
+
+  const markdown = `## 🎯 筹码集中度
+# 筹码集中度变化
+
+| 周期 | 70%筹码集中度 | 90%筹码集中度 |
+|---|---:|---:|
+${trendRows}
+
+${trendText}
+
+## ⛰️ 筹码峰结构
+${peakType}。70%成本区间 ${latest.cost70 ?? '--'}，90%成本区间 ${latest.cost90 ?? '--'}。
+
+## 📍 平均成本
+最新平均成本 ${formatMaybeNumber(latest.avgCost)} 元${latestDate}。当前收盘价 ${close !== undefined ? close.toFixed(2) : '--'} 元，${priceVsAvg !== undefined ? `较平均成本 ${priceVsAvg >= 0 ? '+' : ''}${priceVsAvg.toFixed(2)}%` : '相对位置待确认'}。
+
+## 💰 获利盘
+当前获利盘 ${formatRatio(latest.profitRatio)}。${profitHealthy ? '获利盘处于相对健康区间，抛压可控。' : highProfit ? '获利盘比例偏高，需警惕短线兑现。' : lowProfit ? '获利盘比例偏低，套牢盘占主导。' : '获利盘状态需结合价格位置综合判断。'}
+
+## 🐳 主力控盘
+控盘等级：${controlLevel}。${isConcentrating ? '近 20 日筹码持续集中，显示主力锁仓或吸筹迹象。' : isDispersing ? '近 20 日筹码趋于发散，需警惕派发。' : '近期筹码集中度变化不显著，控盘状态中性。'}
+
+## ⚠️ 套牢压力
+${pressureText} ${supportText}
+
+## 🧭 走势推演
+**未来 5 个交易日**：${outlook5}
+
+**未来 20 个交易日**：${outlook20}
+
+## 🚨 风险提示
+${risks.map((r) => `- ${r}`).join('\n')}
+
+## 🎯 综合结论
+${conclusionText}
+
+筹码集中度评分：${score.toFixed(0)}
+主力控盘评分：${controlLevel === '强' ? 75 : controlLevel === '中' ? 55 : 35}
+上涨潜力评分：${stance === 'bullish' ? 70 : stance === 'bearish' ? 30 : 50}
+风险评分：${risks.length > 2 ? 65 : risks.length > 0 ? 45 : 30}`;
+
+  const fallbackId = evidence[0]?.id ?? fallbackEvidence(`chip:${input.symbol}`, '筹码分布数据不足').id;
+  const finding: StructuredAgentFinding = {
+    id: 'chip-1',
+    dimension: 'chip',
+    stance,
+    score,
+    confidence: 0.72,
+    summary:
+      oneLineSummary(markdown) ??
+      `${input.stockLabel} 筹码${isConcentrating ? '趋于集中' : isDispersing ? '趋于发散' : '结构平稳'}，平均成本 ${formatMaybeNumber(latest.avgCost)}，获利盘 ${formatRatio(latest.profitRatio)}。`,
+    evidenceIds: [fallbackId],
+    risks,
+  };
+
+  return {
+    agentName: 'chip',
+    label: '🧩 筹码分析',
+    findings: [finding],
+    evidence,
+    markdown: `### 🧩 筹码分析\n\n${markdown}`,
+  };
+}
+
+function parseCostRange(range?: string) {
+  if (!range) return undefined;
+  const match = range.match(/([\d.]+)\s*[-~～]\s*([\d.]+)/);
+  if (!match) return undefined;
+  const low = Number(match[1]);
+  const high = Number(match[2]);
+  if (!Number.isFinite(low) || !Number.isFinite(high)) return undefined;
+  return { low, high, width: high - low };
+}
+
+function inferChipPeakType(
+  cost70: ReturnType<typeof parseCostRange>,
+  cost90: ReturnType<typeof parseCostRange>,
+  isConcentrating: boolean | undefined,
+) {
+  if (!cost70 || !cost90) return '成本区间数据不足，无法精确判断筹码峰型';
+  const ratio = cost90.width / Math.max(cost70.width, 0.001);
+  if (ratio < 1.6) {
+    return `筹码呈单峰密集形态，${isConcentrating === true ? '且集中度持续收敛，主力吸筹或锁仓概率较高' : isConcentrating === false ? '但集中度在发散，需警惕派发' : '峰型集中但趋势尚不明确'}`;
+  }
+  if (ratio < 2.4) {
+    return '筹码呈双峰形态，可能存在套牢峰与获利峰对峙，方向选择取决于量能突破';
+  }
+  return '筹码呈多峰发散形态，持仓成本分散，短期难以形成统一方向';
+}
+
+function inferControlLevel(
+  isConcentrating: boolean | undefined,
+  isDispersing: boolean | undefined,
+  profitRatio: number,
+  aboveAvg: boolean | undefined,
+  belowAvg: boolean | undefined,
+) {
+  if (isConcentrating === true && aboveAvg && profitRatio > 0.3 && profitRatio < 0.85) return '强';
+  if (isConcentrating === true && (aboveAvg || belowAvg) && profitRatio <= 0.85) return '中';
+  if (isDispersing === true || profitRatio >= 0.9 || belowAvg) return '弱';
+  return '中';
+}
+
 function formatRatio(value: unknown) {
   const num = Number(value);
   if (!Number.isFinite(num)) return '--';
   return `${(num * 100).toFixed(1)}%`;
+}
+
+function formatPercentNumber(value: unknown) {
+  const num = Number(value);
+  return Number.isFinite(num) ? (num * 100).toFixed(1) : '--';
 }
 
 function formatMaybeNumber(value: unknown) {
@@ -215,23 +504,44 @@ export async function runStockAnalysisSubAgent(
   name: StockAnalysisAgentName,
   input: StockAnalysisInput,
   onToken?: (token: string) => void,
+  onProgress?: (message: string, percent: number) => void,
 ): Promise<StockAnalysisResult> {
   const agent = agents.find((item) => item.name === name)!;
   const evidence = input.evidence?.length
     ? input.evidence
     : [fallbackEvidence(`${agent.name}:${input.symbol}`, `${agent.label}证据不足`)];
   try {
+    onProgress?.('准备结构化数据…', 5);
+
+    // 筹码分析走本地确定性快速路径：数据来自 DuckDB，无需等待 LLM
+    if (agent.name === 'chip') {
+      const chipOutput = generateChipAnalysis(input, evidence);
+      if (chipOutput) {
+        onProgress?.('基于本地筹码数据生成分析…', 80);
+        const normalized = { ...chipOutput, markdown: normalizeChipMarkdown(chipOutput.markdown, input) };
+        await streamMarkdown(normalized.markdown, onToken);
+        onProgress?.('完成', 100);
+        return { name: agent.name, label: agent.label, output: normalized, content: normalized.markdown };
+      }
+    }
+
     const data = JSON.stringify(compactInput({ ...input, evidence }), null, 2);
-    const raw = await generateReport([
-      {
-        role: 'system',
-        content: `${agent.prompt}\n只返回 JSON，不要输出额外解释。格式：{"findings":[{"id":"${agent.name}-1","dimension":"${agent.dimension}","stance":"bullish|neutral|bearish|unknown","score":0,"confidence":0.5,"summary":"...","evidenceIds":["..."],"risks":["..."]}],"markdown":"### ${agent.label}\\n..."}。所有 evidenceIds 必须来自输入 evidence；缺失数据必须说明不足，不得编造。markdown 控制在 300 字以内。`,
-      },
-      {
-        role: 'user',
-        content: `用户问题：${input.query}\n股票：${input.stockLabel}（${input.symbol}）\n结构化数据：\n${data}`,
-      },
-    ]);
+    onProgress?.('调用模型分析中…', 10);
+    const raw = await withProgressTicker(
+      () =>
+        generateReport([
+          {
+            role: 'system',
+            content: `${agent.prompt}\n只返回 JSON，不要输出额外解释。格式：{"findings":[{"id":"${agent.name}-1","dimension":"${agent.dimension}","stance":"bullish|neutral|bearish|unknown","score":0,"confidence":0.5,"summary":"...","evidenceIds":["..."],"risks":["..."]}],"markdown":"### ${agent.label}\\n..."}。所有 evidenceIds 必须来自输入 evidence；缺失数据必须说明不足，不得编造。markdown 控制在 300 字以内。`,
+          },
+          {
+            role: 'user',
+            content: `用户问题：${input.query}\n股票：${input.stockLabel}（${input.symbol}）\n结构化数据：\n${data}`,
+          },
+        ]),
+      (p) => onProgress?.('调用模型分析中…', p),
+    );
+    onProgress?.('解析模型结果…', 90);
     const output = parseStructuredAgentOutput(raw, agent, input, evidence);
     if (agent.name === 'chip') output.markdown = normalizeChipMarkdown(output.markdown, input);
     await streamMarkdown(output.markdown, onToken);
@@ -245,6 +555,21 @@ export async function runStockAnalysisSubAgent(
     await streamMarkdown(output.markdown, onToken);
     return { name: agent.name, label: agent.label, output, content: output.markdown };
   }
+}
+
+function withProgressTicker<T>(fn: () => Promise<T>, onProgress: (percent: number) => void): Promise<T> {
+  let done = false;
+  let percent = 15;
+  const interval = setInterval(() => {
+    if (done) return;
+    // 每 3 秒前进 5%，在 10%~85% 之间缓慢增长，避免完成前显示 100%
+    percent = Math.min(85, percent + 5);
+    onProgress(percent);
+  }, 3000);
+  return fn().finally(() => {
+    done = true;
+    clearInterval(interval);
+  });
 }
 
 export function parseStructuredAgentOutput(
@@ -379,9 +704,10 @@ function clamp(value: number, min: number, max: number) {
 
 async function streamMarkdown(markdown: string, onToken?: (token: string) => void) {
   if (!onToken) return;
-  for (const chunk of markdown.match(/[\s\S]{1,4}/g) ?? [markdown]) {
+  // 单 Agent 模式才流式输出；控制单字延迟避免 UI 等待过久
+  for (const chunk of markdown.match(/[\s\S]{1,8}/g) ?? [markdown]) {
     onToken(chunk);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 8));
   }
 }
 
@@ -457,11 +783,15 @@ function formatChipRecord<T extends Record<string, unknown>>(record: T) {
 }
 
 function compactInput(input: StockAnalysisInput) {
+  // 去掉 technical 中的 chart（避免与 kline 重复），去掉 quote 中可能附带的 kline，减少 LLM token
+  const technical = input.technical ? { ...input.technical, chart: undefined, stocks: undefined } : undefined;
+  const quote = input.quote ? { ...input.quote, kline: undefined } : undefined;
+
   return {
     symbol: input.symbol,
     stockLabel: input.stockLabel,
-    quote: input.quote,
-    technical: input.technical,
+    quote,
+    technical,
     kline: input.kline?.slice(-60),
     news: input.news
       ?.slice(0, 10)

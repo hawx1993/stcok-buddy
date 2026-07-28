@@ -75,17 +75,32 @@ export async function runOrchestrator(
 
   let completedSteps = 0;
   const totalWithReport = nodes.length + (hasReportStep && !hasDagReportStep ? 1 : 0);
-  await executeDag(nodes, context, (step) => {
-    if (step.status === 'completed' || step.status === 'error') completedSteps += 1;
-    emitEvent({
-      type: step.status === 'running' ? 'subagent_started' : 'subagent_completed',
-      title: step.status === 'running' ? '子 Agent 启动' : '子 Agent 结果',
-      message: step.description,
-      step,
-      subAgent: { name: step.agent, description: step.description, status: step.status, summary: step.detail },
-      progress: { current: completedSteps, total: totalWithReport },
-    });
-  });
+  await executeDag(
+    nodes,
+    context,
+    (step) => {
+      if (step.status === 'completed' || step.status === 'error') completedSteps += 1;
+      const elapsedText = step.elapsed ? ` · ${step.elapsed.toFixed(1)}s` : '';
+      if (step.status !== 'running') {
+        console.log(`[agent-timing] ${step.agent} (${step.id}) ${step.status} in ${step.elapsed ?? 0}s`);
+      }
+      emitEvent({
+        type: step.status === 'running' ? 'subagent_started' : 'subagent_completed',
+        title: step.status === 'running' ? '子 Agent 启动' : '子 Agent 结果',
+        message: step.description + elapsedText,
+        step,
+        subAgent: {
+          name: step.agent,
+          description: step.description,
+          status: step.status,
+          summary: step.detail,
+          elapsed: step.elapsed,
+        },
+        progress: { current: completedSteps, total: totalWithReport },
+      });
+    },
+    { concurrency: 5 },
+  );
 
   if (hasReportStep && !hasDagReportStep) emitReportStep('running', completedSteps, totalWithReport, emitEvent);
   const draft =
@@ -233,9 +248,9 @@ function emitReportStep(
 
 async function streamContent(content: string, hasReportStep: boolean, onToken?: TOnToken) {
   if (!onToken || !content || !hasReportStep) return;
-  for (const chunk of content.match(/[\s\S]{1,4}/g) ?? [content]) {
+  for (const chunk of content.match(/[\s\S]{1,8}/g) ?? [content]) {
     onToken(chunk);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 8));
   }
 }
 

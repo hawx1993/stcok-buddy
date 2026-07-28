@@ -572,9 +572,10 @@
   min-width: 210px;
   padding: 6px;
   border-radius: 12px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  background: linear-gradient(180deg, var(--glass-bg) 0%, var(--dropdown-bg) 100%);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid var(--glass-border);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
 }
 .account-dropdown :global(.ant-dropdown-menu-item),
@@ -638,9 +639,9 @@
   bottom: calc(100% + 6px);
   left: 6px;
   right: 6px;
-  background: var(--dropdown-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: linear-gradient(180deg, var(--glass-bg) 0%, var(--dropdown-bg) 100%);
+  backdrop-filter: blur(26px) saturate(150%);
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
   border: 1px solid var(--glass-border);
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);

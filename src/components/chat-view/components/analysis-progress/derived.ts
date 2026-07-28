@@ -98,17 +98,35 @@ export function deriveAgentStatuses(events: AgentRunEvent[]): IAgentStatus[] {
   if (!planAgents?.length) return [];
 
   const statusMap = new Map<string, IAgentStatus['status']>();
+  const elapsedMap = new Map<string, number>();
+  const startedAtMap = new Map<string, string>();
+  const progressMap = new Map<string, number>();
+  const progressMessageMap = new Map<string, string>();
+
   for (const agent of planAgents) statusMap.set(agent.id, 'pending');
 
   for (const event of events) {
     if (event.type === 'subagent_started' && event.subAgent) {
       const id = agentIdFromEvent(event);
-      if (id && statusMap.has(id)) statusMap.set(id, 'running');
+      if (id && statusMap.has(id)) {
+        statusMap.set(id, 'running');
+        if (event.step?.startedAt) startedAtMap.set(id, event.step.startedAt);
+      }
+    }
+    if (event.type === 'progress_updated' && event.subAgent && event.progress) {
+      const id = agentIdFromEvent(event);
+      if (id && statusMap.has(id)) {
+        progressMap.set(id, event.progress.current);
+        if (event.message) progressMessageMap.set(id, event.message);
+      }
     }
     if (event.type === 'subagent_completed' && event.subAgent) {
       const id = agentIdFromEvent(event);
       if (id && statusMap.has(id)) {
         statusMap.set(id, event.subAgent.status === 'error' ? 'error' : 'completed');
+        if (typeof event.subAgent.elapsed === 'number') elapsedMap.set(id, event.subAgent.elapsed);
+        progressMap.delete(id);
+        progressMessageMap.delete(id);
       }
     }
   }
@@ -117,6 +135,10 @@ export function deriveAgentStatuses(events: AgentRunEvent[]): IAgentStatus[] {
     id: a.id,
     label: a.agent,
     status: statusMap.get(a.id) ?? 'pending',
+    elapsed: elapsedMap.get(a.id),
+    startedAt: startedAtMap.get(a.id),
+    progress: progressMap.get(a.id),
+    progressMessage: progressMessageMap.get(a.id),
   }));
 }
 

@@ -187,6 +187,20 @@ export function ChatView() {
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    const api = getStocksenseApi();
+    const unsubscribe = api.onAiResponseNotification?.((payload) => {
+      antdMessage.info(
+        <div>
+          <strong>{payload.title}</strong>
+          <div style={{ fontSize: 12, marginTop: 4 }}>{payload.body}</div>
+        </div>,
+        payload.source === 'in-app' ? 4 : 2.5,
+      );
+    });
+    return () => unsubscribe?.();
+  }, []);
+
   const openStockDetail = async (stock: Pick<StockDetail, 'code' | 'name'>) => {
     trackButtonClick('open_stock_detail', { code: stock.code, name: stock.name });
     const kline = findMessageKline(messages, stock.code);

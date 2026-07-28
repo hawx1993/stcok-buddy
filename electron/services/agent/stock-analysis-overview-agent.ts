@@ -105,14 +105,6 @@ function formatPercentValue(value: unknown) {
   return cls ? `<span class="${cls}">${display}</span>` : display;
 }
 
-async function streamText(text: string, onToken: (token: string) => void) {
-  for (const chunk of text.match(/[\s\S]{1,4}/g) ?? [text]) {
-    onToken(chunk);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return text;
-}
-
 function ensureScoredOverview(report: string, input: StockAnalysisInput, results: StockAnalysisResult[]) {
   if (!/\|\s*维度\s*\|\s*权重\s*\|/.test(report) || !/\|[^\n]*\s--\s*\|[^\n]*\s--\s*\|/.test(report)) return report;
   const fallbackTable = fallbackOverview(input, results).match(/\|\s*维度\s*\|[\s\S]*?(?=\n\n###|$)/)?.[0];

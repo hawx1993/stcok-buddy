@@ -766,9 +766,19 @@ export async function getChipDistribution(symbolInput: string): Promise<IChipDis
   const now = Date.now();
   if (cached?.result && now - cached.updatedAt < CHIP_DISTRIBUTION_CACHE_TTL_MS) return cached.result;
   if (cached?.promise) return cached.promise;
+
+  // Try DuckDB first
+  const { getStockChip, upsertStockChip } = await import('../market-data/market-data-store.js');
+  const dbResult = await getStockChip(symbol).catch(() => undefined);
+  if (dbResult) {
+    chipDistributionCache.set(symbol, { result: dbResult as IChipDistributionResult, updatedAt: Date.now() });
+    return dbResult as IChipDistributionResult;
+  }
+
   const promise = loadChipDistribution(symbol)
-    .then((result) => {
+    .then(async (result) => {
       chipDistributionCache.set(symbol, { result, updatedAt: Date.now() });
+      void upsertStockChip(symbol, result).catch((err) => console.warn('[chip] upsert failed', err));
       return result;
     })
     .catch((error: unknown) => {
@@ -796,8 +806,8 @@ async function loadChipDistribution(symbol: string): Promise<IChipDistributionRe
 }
 
 export async function analyzeTechnical(symbolInput: string): Promise<AgentResultCard> {
-  const klines = await getKline(symbolInput, 140);
-  return analyzeIndicators(klines);
+  const result = await queryHistoricalBars(symbolInput, { limit: 140, adjustType: 'qfq' });
+  return analyzeIndicators(result.data);
 }
 
 export {
