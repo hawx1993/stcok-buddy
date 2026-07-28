@@ -115,7 +115,7 @@ export interface EvidenceItem {
   periodStart?: string;
   periodEnd?: string;
   isComplete?: boolean;
-  adjustType?: 'qfq' | 'none';
+  adjustType?: 'qfq' | 'none' | 'qfq_weekly' | 'qfq_monthly';
   raw?: unknown;
 }
 
@@ -671,7 +671,44 @@ export interface IDesktopNotificationResult {
   reason?: string;
 }
 
+export interface IStorageStats {
+  chat: { label: string; bytes: number };
+  config: { label: string; bytes: number };
+  market: { label: string; bytes: number };
+  surge: { label: string; bytes: number };
+}
+
+export interface IDiskInfo {
+  totalBytes: number;
+  freeBytes: number;
+  usedByAppBytes: number;
+}
+
+export interface IStorageClearProgress {
+  key: string;
+  processed: number;
+  total: number;
+  message: string;
+  /** 0-1 sub-progress within the current key, for smooth bar animation */
+  fraction?: number;
+}
+
+export type DataSyncTaskType = 'kline' | 'surge' | 'stockDetail' | 'marketSnapshot';
+
+export interface IDataSyncTaskProgress {
+  taskType: DataSyncTaskType;
+  status: 'running' | 'completed' | 'error';
+  processed: number;
+  total: number;
+  message: string;
+  error?: string;
+}
+
 export interface StocksenseApi {
+  getStorageStats(): Promise<IStorageStats>;
+  clearStorage(keys: string[]): Promise<IStorageStats>;
+  onStorageClearProgress?(handler: (progress: IStorageClearProgress) => void): () => void;
+  getDiskInfo(): Promise<IDiskInfo>;
   captureAnalytics?(event: string, properties?: AnalyticsProperties): Promise<void>;
   getConfig(): Promise<AppConfig>;
   setConfig(config: AppConfig): Promise<AppConfig>;
@@ -718,6 +755,11 @@ export interface StocksenseApi {
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;
+  syncKlines(): Promise<MarketDataSyncStatus>;
+  syncSurgeHistory(): Promise<void>;
+  syncStockDetails(): Promise<void>;
+  syncMarketSnapshot(): Promise<void>;
+  onDataSyncProgress?(handler: (progress: IDataSyncTaskProgress) => void): () => void;
   listStoreItems(): Promise<StoreItem[]>;
   listInstalledStoreItems(): Promise<string[]>;
   installStoreItem(id: string): Promise<string[]>;
@@ -733,6 +775,7 @@ export interface StocksenseApi {
   upsertFavoriteStock(stock: Pick<FavoriteStock, 'code' | 'name'>): Promise<FavoriteStock[]>;
   removeFavoriteStock(code: string): Promise<FavoriteStock[]>;
   toggleFavoriteStockPin(code: string): Promise<FavoriteStock[]>;
+  onFavoritesCleared?(handler: () => void): () => void;
 }
 
 declare global {

@@ -10,13 +10,6 @@ import type {
 const sdk = new StockSDK({
   timeout: 12_000,
   retry: { maxRetries: 2, baseDelay: 500 },
-  providerPolicies: {
-    eastmoney: {
-      timeout: 15_000,
-      rateLimit: { requestsPerSecond: 1, maxBurst: 1 },
-      circuitBreaker: { failureThreshold: 5, resetTimeout: 60_000 },
-    },
-  },
 });
 
 export const stockSdkHistoricalProvider: HistoricalBarProvider = {
@@ -30,17 +23,6 @@ export const stockSdkHistoricalProvider: HistoricalBarProvider = {
     });
     const fetchedAt = new Date().toISOString();
     const bars = rows.map((row) => toDailyBar(symbol, row, options.adjustType, fetchedAt));
-    // ponytail: log first/last row dates to diagnose date format issues
-    if (bars.length) {
-      console.log('[market-data] getDailyBars ok', {
-        symbol,
-        count: bars.length,
-        firstDate: bars[0].tradeDate,
-        lastDate: bars.at(-1)?.tradeDate,
-      });
-    } else {
-      console.log('[market-data] getDailyBars empty', { symbol, options });
-    }
     return bars;
   },
 };

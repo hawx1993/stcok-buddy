@@ -1,0 +1,4 @@
+interface:
+  display_name: "Beautify GitHub README"
+  short_description: "Redesign READMEs with pure SVG or hybrid visual assets"
+  default_prompt: "Use $beautify-github-readme to redesign my README or create visual assets; ask which scope I want, then explain and confirm pure SVG versus hybrid SVG composition when both fit."

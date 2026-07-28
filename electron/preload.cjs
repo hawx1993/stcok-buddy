@@ -1,81 +1,104 @@
-const { contextBridge, ipcRenderer } = require('electron');
+"use strict";
 
-const api = {
-  getConfig: () => ipcRenderer.invoke('config:get'),
-  setConfig: (config) => ipcRenderer.invoke('config:set', config),
-  getAppRuntimeInfo: () => ipcRenderer.invoke('app:getRuntimeInfo'),
-  openFeedbackEmail: () => ipcRenderer.invoke('app:openFeedbackEmail'),
-  testModelConfig: (config) => ipcRenderer.invoke('config:testModel', config),
-  testAiResponseNotification: () => ipcRenderer.invoke('notification:testAiResponse'),
-  openSystemNotificationSettings: () => ipcRenderer.invoke('notification:openSettings'),
-  listFavoriteStocks: () => ipcRenderer.invoke('favorite:list'),
-  upsertFavoriteStock: (stock) => ipcRenderer.invoke('favorite:upsert', stock),
-  removeFavoriteStock: (code) => ipcRenderer.invoke('favorite:remove', code),
-  toggleFavoriteStockPin: (code) => ipcRenderer.invoke('favorite:togglePin', code),
-  listConversations: () => ipcRenderer.invoke('conversation:list'),
-  createConversation: () => ipcRenderer.invoke('conversation:create'),
-  deleteConversation: (id) => ipcRenderer.invoke('conversation:delete', id),
-  renameConversation: (id, title) => ipcRenderer.invoke('conversation:rename', id, title),
-  listMessages: (conversationId) => ipcRenderer.invoke('message:list', conversationId),
-  saveMessage: (conversationId, message) => ipcRenderer.invoke('message:save', conversationId, message),
-  sendChat: (request) => ipcRenderer.invoke('chat:send', request),
+// electron/preload.ts
+var import_electron = require("electron");
+var api = {
+  captureAnalytics: (event, properties) => import_electron.ipcRenderer.invoke("analytics:capture", event, properties),
+  getConfig: () => import_electron.ipcRenderer.invoke("config:get"),
+  setConfig: (config) => import_electron.ipcRenderer.invoke("config:set", config),
+  getAppRuntimeInfo: () => import_electron.ipcRenderer.invoke("app:getRuntimeInfo"),
+  openFeedbackEmail: () => import_electron.ipcRenderer.invoke("app:openFeedbackEmail"),
+  testModelConfig: (config) => import_electron.ipcRenderer.invoke("config:testModel", config),
+  testAiResponseNotification: () => import_electron.ipcRenderer.invoke("notification:testAiResponse"),
+  openSystemNotificationSettings: () => import_electron.ipcRenderer.invoke("notification:openSettings"),
+  listFavoriteStocks: () => import_electron.ipcRenderer.invoke("favorite:list"),
+  upsertFavoriteStock: (stock) => import_electron.ipcRenderer.invoke("favorite:upsert", stock),
+  removeFavoriteStock: (code) => import_electron.ipcRenderer.invoke("favorite:remove", code),
+  toggleFavoriteStockPin: (code) => import_electron.ipcRenderer.invoke("favorite:togglePin", code),
+  onFavoritesCleared: (handler) => {
+    const listener = () => handler();
+    import_electron.ipcRenderer.on("favorite:cleared", listener);
+    return () => import_electron.ipcRenderer.removeListener("favorite:cleared", listener);
+  },
+  listConversations: () => import_electron.ipcRenderer.invoke("conversation:list"),
+  createConversation: () => import_electron.ipcRenderer.invoke("conversation:create"),
+  deleteConversation: (id) => import_electron.ipcRenderer.invoke("conversation:delete", id),
+  renameConversation: (id, title) => import_electron.ipcRenderer.invoke("conversation:rename", id, title),
+  listMessages: (conversationId) => import_electron.ipcRenderer.invoke("message:list", conversationId),
+  saveMessage: (conversationId, message) => import_electron.ipcRenderer.invoke("message:save", conversationId, message),
+  sendChat: (request) => import_electron.ipcRenderer.invoke("chat:send", request),
   onChatToken: (handler) => {
     const listener = (_event, payload) => handler(payload);
-    ipcRenderer.on('chat:token', listener);
-    return () => ipcRenderer.removeListener('chat:token', listener);
+    import_electron.ipcRenderer.on("chat:token", listener);
+    return () => import_electron.ipcRenderer.removeListener("chat:token", listener);
   },
-  getStockDetail: (symbol) => ipcRenderer.invoke('stock:getDetail', symbol),
-  searchStocks: (query) => ipcRenderer.invoke('stock:search', query),
-  getBoardDetail: (symbol, forceRefresh, boardName) =>
-    ipcRenderer.invoke('board:getDetail', symbol, forceRefresh, boardName),
-  getKline: (symbol, limit, period, beforeTimestamp) =>
-    ipcRenderer.invoke('stock:getKline', symbol, limit, period, beforeTimestamp),
-  getChipDistribution: (symbol) => ipcRenderer.invoke('stock:getChipDistribution', symbol),
-  getBatchQuotes: (codes) => ipcRenderer.invoke('stock:getBatchQuotes', codes),
-  listMarketNews: (query, page, pageSize) => ipcRenderer.invoke('news:list', query, page, pageSize),
-  listStockNews: (code, limit) => ipcRenderer.invoke('news:stockList', code, limit),
-  listStockNewsFeed: () => ipcRenderer.invoke('news:stockFeed'),
-  getStockNewsPreferences: () => ipcRenderer.invoke('news:stockPreferences'),
-  setStockNewsFavoritesOnly: (favoritesOnly) => ipcRenderer.invoke('news:setFavoritesOnly', favoritesOnly),
-  addStockNewsSubscription: (stock) => ipcRenderer.invoke('news:addStockSubscription', stock),
-  removeStockNewsSubscription: (code) => ipcRenderer.invoke('news:removeStockSubscription', code),
-  getMarketNewsSummaryState: () => ipcRenderer.invoke('news:getSummary'),
-  getMarketNewsItem: (item) => ipcRenderer.invoke('news:getDetail', item),
-  listHotFocus: (tab) => ipcRenderer.invoke('hot:list', tab),
-  listSurgeHistoryDates: () => ipcRenderer.invoke('hot:historyDates'),
-  listSurgeHistory: (date, offset, limit) => ipcRenderer.invoke('hot:history', date, offset, limit),
-  listStockSurgeEvents: (code) => ipcRenderer.invoke('stock:surgeEvents', code),
-  getMarketDataSyncStatus: () => ipcRenderer.invoke('marketData:getStatus'),
-  startMarketDataSync: () => ipcRenderer.invoke('marketData:startSync'),
-  retryMarketDataFailures: () => ipcRenderer.invoke('marketData:retryFailures'),
-  cancelMarketDataSync: () => ipcRenderer.invoke('marketData:cancelSync'),
-  getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
-  getMarketPageSnapshot: (tab, period) => ipcRenderer.invoke('market:getPageSnapshot', tab, period),
+  getStockDetail: (symbol) => import_electron.ipcRenderer.invoke("stock:getDetail", symbol),
+  searchStocks: (query) => import_electron.ipcRenderer.invoke("stock:search", query),
+  getBoardDetail: (symbol, forceRefresh, boardName) => import_electron.ipcRenderer.invoke("board:getDetail", symbol, forceRefresh, boardName),
+  getKline: (symbol, limit, period, beforeTimestamp) => import_electron.ipcRenderer.invoke("stock:getKline", symbol, limit, period, beforeTimestamp),
+  getChipDistribution: (symbol) => import_electron.ipcRenderer.invoke("stock:getChipDistribution", symbol),
+  getBatchQuotes: (codes) => import_electron.ipcRenderer.invoke("stock:getBatchQuotes", codes),
+  listMarketNews: (query, page, pageSize) => import_electron.ipcRenderer.invoke("news:list", query, page, pageSize),
+  listStockNews: (code, limit) => import_electron.ipcRenderer.invoke("news:stockList", code, limit),
+  listStockNewsFeed: () => import_electron.ipcRenderer.invoke("news:stockFeed"),
+  getStockNewsPreferences: () => import_electron.ipcRenderer.invoke("news:stockPreferences"),
+  setStockNewsFavoritesOnly: (favoritesOnly) => import_electron.ipcRenderer.invoke("news:setFavoritesOnly", favoritesOnly),
+  addStockNewsSubscription: (stock) => import_electron.ipcRenderer.invoke("news:addStockSubscription", stock),
+  removeStockNewsSubscription: (code) => import_electron.ipcRenderer.invoke("news:removeStockSubscription", code),
+  getMarketNewsSummaryState: () => import_electron.ipcRenderer.invoke("news:getSummary"),
+  getMarketNewsItem: (item) => import_electron.ipcRenderer.invoke("news:getDetail", item),
+  listHotFocus: (tab) => import_electron.ipcRenderer.invoke("hot:list", tab),
+  getHotStockHintSource: () => import_electron.ipcRenderer.invoke("hot:hintSource"),
+  listSurgeHistoryDates: () => import_electron.ipcRenderer.invoke("hot:historyDates"),
+  listSurgeHistory: (date, offset, limit) => import_electron.ipcRenderer.invoke("hot:history", date, offset, limit),
+  listStockSurgeEvents: (code) => import_electron.ipcRenderer.invoke("stock:surgeEvents", code),
+  getMarketDataSyncStatus: () => import_electron.ipcRenderer.invoke("marketData:getStatus"),
+  startMarketDataSync: () => import_electron.ipcRenderer.invoke("marketData:startSync"),
+  retryMarketDataFailures: () => import_electron.ipcRenderer.invoke("marketData:retryFailures"),
+  cancelMarketDataSync: () => import_electron.ipcRenderer.invoke("marketData:cancelSync"),
+  getMarketDataStats: () => import_electron.ipcRenderer.invoke("marketData:getStats"),
+  getMarketPageSnapshot: (tab, period) => import_electron.ipcRenderer.invoke("market:getPageSnapshot", tab, period),
   onMarketPageSnapshotUpdated: (handler) => {
     const listener = (_event, snapshot) => handler(snapshot);
-    ipcRenderer.on('market:pageSnapshotUpdated', listener);
-    return () => ipcRenderer.removeListener('market:pageSnapshotUpdated', listener);
+    import_electron.ipcRenderer.on("market:pageSnapshotUpdated", listener);
+    return () => import_electron.ipcRenderer.removeListener("market:pageSnapshotUpdated", listener);
   },
   onMarketDataProgress: (handler) => {
     const listener = (_event, status) => handler(status);
-    ipcRenderer.on('marketData:progress', listener);
-    return () => ipcRenderer.removeListener('marketData:progress', listener);
+    import_electron.ipcRenderer.on("marketData:progress", listener);
+    return () => import_electron.ipcRenderer.removeListener("marketData:progress", listener);
   },
-  listStoreItems: () => ipcRenderer.invoke('store:list'),
-  listInstalledStoreItems: () => ipcRenderer.invoke('store:installed'),
-  installStoreItem: (id) => ipcRenderer.invoke('store:install', id),
-  uninstallStoreItem: (id) => ipcRenderer.invoke('store:uninstall', id),
-  getAppUpdateState: () => ipcRenderer.invoke('appUpdate:getState'),
-  checkAppUpdate: (settings) => ipcRenderer.invoke('appUpdate:check', settings),
-  downloadAppUpdate: (settings) => ipcRenderer.invoke('appUpdate:download', settings),
-  installAppUpdate: () => ipcRenderer.invoke('appUpdate:install'),
-  openAppReleaseNotes: () => ipcRenderer.invoke('appUpdate:openReleaseNotes'),
-  selectAppUpdateDownloadDirectory: () => ipcRenderer.invoke('appUpdate:selectDownloadDirectory'),
+  listStoreItems: () => import_electron.ipcRenderer.invoke("store:list"),
+  listInstalledStoreItems: () => import_electron.ipcRenderer.invoke("store:installed"),
+  installStoreItem: (id) => import_electron.ipcRenderer.invoke("store:install", id),
+  uninstallStoreItem: (id) => import_electron.ipcRenderer.invoke("store:uninstall", id),
+  getAppUpdateState: () => import_electron.ipcRenderer.invoke("appUpdate:getState"),
+  checkAppUpdate: (settings) => import_electron.ipcRenderer.invoke("appUpdate:check", settings),
+  downloadAppUpdate: (settings) => import_electron.ipcRenderer.invoke("appUpdate:download", settings),
+  installAppUpdate: () => import_electron.ipcRenderer.invoke("appUpdate:install"),
+  openAppReleaseNotes: () => import_electron.ipcRenderer.invoke("appUpdate:openReleaseNotes"),
+  selectAppUpdateDownloadDirectory: () => import_electron.ipcRenderer.invoke("appUpdate:selectDownloadDirectory"),
+  getStorageStats: () => import_electron.ipcRenderer.invoke("storage:getStats"),
+  clearStorage: (keys) => import_electron.ipcRenderer.invoke("storage:clear", keys),
+  onStorageClearProgress: (handler) => {
+    const listener = (_event, progress) => handler(progress);
+    import_electron.ipcRenderer.on("storage:clearProgress", listener);
+    return () => import_electron.ipcRenderer.removeListener("storage:clearProgress", listener);
+  },
+  getDiskInfo: () => import_electron.ipcRenderer.invoke("system:getDiskInfo"),
   onAppUpdateStateChanged: (handler) => {
     const listener = (_event, state) => handler(state);
-    ipcRenderer.on('appUpdate:stateChanged', listener);
-    return () => ipcRenderer.removeListener('appUpdate:stateChanged', listener);
+    import_electron.ipcRenderer.on("appUpdate:stateChanged", listener);
+    return () => import_electron.ipcRenderer.removeListener("appUpdate:stateChanged", listener);
   },
+  syncKlines: () => import_electron.ipcRenderer.invoke("dataSync:syncKlines"),
+  syncSurgeHistory: () => import_electron.ipcRenderer.invoke("dataSync:syncSurgeHistory"),
+  syncStockDetails: () => import_electron.ipcRenderer.invoke("dataSync:syncStockDetails"),
+  syncMarketSnapshot: () => import_electron.ipcRenderer.invoke("dataSync:syncSnapshot"),
+  onDataSyncProgress: (handler) => {
+    const listener = (_event, progress) => handler(progress);
+    import_electron.ipcRenderer.on("dataSync:taskProgress", listener);
+    return () => import_electron.ipcRenderer.removeListener("dataSync:taskProgress", listener);
+  }
 };
-
-contextBridge.exposeInMainWorld('stocksense', api);
+import_electron.contextBridge.exposeInMainWorld("stocksense", api);

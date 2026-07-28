@@ -147,7 +147,7 @@ app.on('before-quit', (event) => {
     app.quit();
   }, 8000);
   void Promise.allSettled([
-    waitForMarketDataScheduler().then(closeMarketDataStore),
+    waitForMarketDataScheduler().then(() => closeMarketDataStore()),
     Promise.resolve(closeQuoteStore()),
     closeSurgeHistoryStore(),
     Promise.resolve(closeConversationStore()),

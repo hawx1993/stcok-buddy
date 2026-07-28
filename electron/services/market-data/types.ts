@@ -1,6 +1,6 @@
 import type { BoardDetail, KlinePoint, MarketBoardRow, StockDetail } from '../../../src/shared/types.js';
 
-export type AdjustType = 'qfq' | 'none';
+export type AdjustType = 'qfq' | 'none' | 'qfq_weekly' | 'qfq_monthly';
 export type DataFreshness = 'live' | 'current' | 'historical' | 'stale' | 'fallback';
 export type SyncJobType = 'initial_backfill' | 'daily_incremental' | 'repair';
 export type SyncJobStatus = 'pending' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';

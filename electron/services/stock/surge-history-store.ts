@@ -20,12 +20,49 @@ interface SurgeRow {
 }
 
 const dbPath = path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb');
-const dbReady = DuckDBInstance.fromCache(dbPath);
+// ponytail: dbReady is undefined after a storage clear so the database file is
+// NOT recreated until the next actual read/write — otherwise resetSurgeHistoryStore
+// would immediately DuckDBInstance.create() an empty ~12KB file and the storage
+// manager would show "12KB" right after clearing, looking like it never worked.
+let dbReady: Promise<DuckDBInstance> | undefined = DuckDBInstance.fromCache(dbPath);
 let ready: Promise<void> | undefined;
 let queue = Promise.resolve();
 let isClosing = false;
 let activeConnections = 0;
 let closeResolve: (() => void) | undefined;
+
+// ponytail: marker set when the user explicitly clears surge history. While
+// active, all reads return empty and all writes are dropped, so switching to
+// historical dates does not recreate the ~12KB empty DuckDB file or backfill
+// from remote. The marker expires after a grace period (or on app restart).
+const SURGE_CLEAR_MARKER_TTL_MS = 30 * 60 * 1000;
+let surgeHistoryClearMarkerAt: number | undefined;
+
+export function isSurgeHistoryClearMarkerActive() {
+  if (!surgeHistoryClearMarkerAt) return false;
+  if (Date.now() - surgeHistoryClearMarkerAt > SURGE_CLEAR_MARKER_TTL_MS) {
+    surgeHistoryClearMarkerAt = undefined;
+    return false;
+  }
+  return true;
+}
+
+export function setSurgeHistoryClearMarker() {
+  surgeHistoryClearMarkerAt = Date.now();
+}
+
+export function clearSurgeHistoryClearMarker() {
+  surgeHistoryClearMarkerAt = undefined;
+}
+
+function getDbReady(): Promise<DuckDBInstance> {
+  // Lazily (re)create the DuckDB instance. After a clear, dbReady is undefined
+  // and the file is gone; the first post-clear access recreates both. We use
+  // DuckDBInstance.create (not fromCache) so a closed/cleared instance is never
+  // returned from the singleton cache.
+  dbReady ??= DuckDBInstance.create(dbPath);
+  return dbReady;
+}
 
 function ensureReady() {
   ready ??= exec(`
@@ -53,6 +90,9 @@ function ensureReady() {
 
 export function saveSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
   if (!items.length) return Promise.resolve();
+  // ponytail: drop writes while the clear marker is active so the DB file is
+  // not recreated immediately after a clear.
+  if (isSurgeHistoryClearMarkerActive()) return Promise.resolve();
   return withDb(async () => {
     const captured = capturedAt.toISOString();
     const statements = items.flatMap((item) => [
@@ -87,6 +127,15 @@ export function clearSurgeHistoryDate(tradeDate: string) {
   });
 }
 
+export function clearAllSurgeHistory() {
+  return withDb(async () => {
+    await withConnection(async (connection) => {
+      await connection.run('DELETE FROM stock_surge_events');
+      await connection.run('CHECKPOINT');
+    });
+  });
+}
+
 export function listSurgeDates(limit = 7) {
   return readDb(async () => {
     const rows = await all<{ trade_date: string }>(`SELECT DISTINCT trade_date FROM stock_surge_events ORDER BY trade_date DESC LIMIT ${Math.max(1, limit)}`);
@@ -95,6 +144,9 @@ export function listSurgeDates(limit = 7) {
 }
 
 export function listSurgeHistory(date: string, offset = 0, limit = 20) {
+  // ponytail: while the clear marker is active, pretend the DB is empty. This
+  // avoids recreating the DuckDB file just to run an empty query.
+  if (isSurgeHistoryClearMarkerActive()) return Promise.resolve([]);
   return readDb(async () => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
     const safeOffset = Math.max(0, Math.floor(offset));
@@ -153,6 +205,46 @@ export function listStockSurgeEvents(code: string, keepDays = 7) {
   });
 }
 
+export function saveIndividualSurgeHistory(events: StockSurgeEvent[]) {
+  if (!events.length) return Promise.resolve();
+  // ponytail: drop writes while the clear marker is active.
+  if (isSurgeHistoryClearMarkerActive()) return Promise.resolve();
+  return withDb(async () => {
+    const captured = new Date().toISOString();
+    // Batch per trade_date to keep transactions manageable
+    const groups = new Map<string, StockSurgeEvent[]>();
+    for (const event of events) {
+      const list = groups.get(event.tradeDate) ?? [];
+      list.push(event);
+      groups.set(event.tradeDate, list);
+    }
+    for (const [tradeDate, group] of groups) {
+      const statements = group.flatMap((item) => [
+        `DELETE FROM stock_surge_events WHERE trade_date = ${sqlValue(tradeDate)} AND id = ${sqlValue(item.id)}`,
+        `INSERT INTO stock_surge_events
+          (trade_date, captured_at, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type)
+         VALUES (${[
+           tradeDate,
+           captured,
+           item.id,
+           item.code,
+           item.name,
+           item.title,
+           item.time,
+           stringify(item.price),
+           item.changePercent,
+           item.turnover,
+           item.amount,
+           item.description,
+           item.tag,
+           item.type,
+         ].map(sqlValue).join(', ')})`,
+      ]);
+      await run(`BEGIN TRANSACTION; ${statements.join('; ')}; COMMIT`);
+    }
+  });
+}
+
 export function pruneSurgeHistory(keepDays = 7) {
   return withDb(async () => {
     const cutoff = new Date();
@@ -161,14 +253,54 @@ export function pruneSurgeHistory(keepDays = 7) {
   });
 }
 
-export async function closeSurgeHistoryStore() {
+export async function closeSurgeHistoryStore(timeoutMs?: number) {
   isClosing = true;
   try {
     await queue;
-    if (activeConnections > 0) await new Promise<void>((resolve) => { closeResolve = resolve; });
+    if (activeConnections > 0)
+      await new Promise<void>((resolve) => {
+        closeResolve = resolve;
+        if (timeoutMs && timeoutMs > 0) setTimeout(resolve, timeoutMs);
+      });
   } catch (error) {
     console.warn('[surge-history] close failed', error);
   }
+}
+
+export async function closeSurgeHistoryInstance() {
+  // ponytail: close the actual DuckDB instance to release the file handle.
+  // closeSurgeHistoryStore only waits for connections; without closing the
+  // instance the OS may keep the old inode alive and the clear can look like
+  // it failed.
+  try {
+    if (dbReady) {
+      const instance = await dbReady;
+      instance.closeSync();
+    }
+  } catch (error) {
+    console.warn('[surge-history] failed to close DuckDB instance', error);
+  }
+}
+
+export async function resetSurgeHistoryStore() {
+  if (activeConnections === 0 && dbReady) {
+    try {
+      const oldInstance = await dbReady;
+      oldInstance.closeSync();
+    } catch (error) {
+      console.warn('[surge-history] failed to close old DuckDB instance during reset', error);
+    }
+  }
+  // ponytail: do NOT eagerly create a new instance/file here. Setting
+  // dbReady = undefined defers file creation to the next actual read/write
+  // (via getDbReady), so after "清空异动/热点历史" the storage manager shows
+  // 0 instead of a phantom ~12KB empty DuckDB file.
+  dbReady = undefined;
+  ready = undefined;
+  queue = Promise.resolve();
+  isClosing = false;
+  activeConnections = 0;
+  closeResolve = undefined;
 }
 
 function readDb<T>(work: () => Promise<T>) {
@@ -208,7 +340,7 @@ function all<T>(sql: string) {
 
 async function withConnection<T>(work: (connection: DuckDBConnection) => Promise<T>) {
   if (isClosing) throw new Error('surge history store is closing');
-  const connection = await (await dbReady).connect();
+  const connection = await (await getDbReady()).connect();
   activeConnections += 1;
   try {
     return await work(connection);

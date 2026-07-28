@@ -1,9 +1,16 @@
 import StockSDK from 'stock-sdk';
 import type { AgentResultCard, HotFocusItem, HotFocusTab, StockSurgeEvent } from '../../../src/shared/types.js';
-import { toShanghaiMarketTime } from '../../../src/shared/market-time.js';
+import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/market-time.js';
 import { isRemoteTradingDay } from '../market-data/providers.js';
 import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { normalizeASymbol } from './symbols.js';
+import {
+  isSurgeHistoryClearMarkerActive,
+  listStockSurgeEvents as listLocalStockSurgeEvents,
+  listSurgeHistory,
+  saveSurgeSnapshot,
+  setSurgeHistoryClearMarker,
+} from './surge-history-store.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 
@@ -24,15 +31,36 @@ export interface DailyDragonTigerItem {
 }
 
 export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
+  // ponytail: user explicitly cleared surge history — keep the panel empty
+  // until the marker expires so the clear action is visually effective.
+  if (tab === 'surge' && isSurgeHistoryClearMarkerActive()) return [];
+
   try {
     if (tab === 'sector') return listSectorHot();
     if (tab === 'market') return listMarketHot();
-    if (tab === 'surge') return listSurgeHot();
-    if (tab === 'flow') return listFlowHot();
-    return listStockRankHot(tab);
+    if (tab === 'surge') {
+      const items = await listSurgeHot();
+      if (items.length) return items;
+    } else if (tab === 'flow') {
+      return listFlowHot();
+    } else {
+      return listStockRankHot(tab);
+    }
   } catch {
-    return [];
+    /* remote failed entirely, try DB below */
   }
+  // Offline DB fallback for surge tab
+  if (tab === 'surge') {
+    try {
+      const cached = await listSurgeHistory(toTradeDate(new Date()));
+      if (cached.length) return cached;
+    } catch { /* DB also unavailable */ }
+  }
+  return [];
+}
+
+function toTradeDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 export async function listDailyDragonTiger(): Promise<DailyDragonTigerItem[]> {
@@ -162,14 +190,36 @@ const SURGE_CACHE_TTL_MS = 30_000;
 let surgeCache: { items: HotFocusItem[]; updatedAt: number } | undefined;
 let surgeRequest: Promise<HotFocusItem[]> | undefined;
 
+export function clearSurgeCache() {
+  surgeCache = undefined;
+  surgeRequest = undefined;
+  // ponytail: delegate the clear marker to the storage layer so every read/write
+  // path (today list, historical dates, individual events) observes it.
+  setSurgeHistoryClearMarker();
+}
+
 async function listSurgeHot(): Promise<HotFocusItem[]> {
   const marketTime = toShanghaiMarketTime(new Date());
-  if (!(await isRemoteTradingDay(marketTime.date)) || marketTime.minutes < 9 * 60 + 25) return [];
+  // isRemoteTradingDay hits the network — wrap to avoid throwing SdkError offline
+  let trading: boolean;
+  try {
+    trading = await isRemoteTradingDay(marketTime.date);
+  } catch {
+    trading = isChinaMarketOpen(new Date());
+  }
+  if (!trading || marketTime.minutes < 9 * 60 + 25) return [];
   const now = Date.now();
   if (surgeCache && now - surgeCache.updatedAt < SURGE_CACHE_TTL_MS) return surgeCache.items;
-  surgeRequest ??= fetchSurgeHot().finally(() => {
-    surgeRequest = undefined;
-  });
+  if (!surgeRequest) {
+    surgeRequest = fetchSurgeHot()
+      .catch((err) => {
+        console.warn('[hot-focus] fetchSurgeHot failed, returning empty', err instanceof Error ? err.message : String(err));
+        return [] as HotFocusItem[];
+      })
+      .finally(() => {
+        surgeRequest = undefined;
+      });
+  }
   return surgeRequest;
 }
 
@@ -185,17 +235,24 @@ async function fetchSurgeHot(): Promise<HotFocusItem[]> {
     ...pools.filter((pool) => !changes.some((change) => change.code === pool.code && change.tag === pool.tag)),
   ].sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time));
   surgeCache = { items, updatedAt: Date.now() };
+  saveSurgeSnapshot(items).catch((err) => console.warn('[hot-focus] save snapshot failed', err));
   return items;
 }
 
 export async function listStockSurgeEvents(symbolInput: string): Promise<StockSurgeEvent[]> {
   const symbol = normalizeASymbol(symbolInput);
+  // ponytail: user explicitly cleared surge history — keep individual events
+  // empty until the marker expires so the clear action is visually effective.
+  if (isSurgeHistoryClearMarkerActive()) return [];
+
   const [historyResult, currentResult] = await Promise.allSettled([
     sdk.marketEvent.individualChangesHistory(symbol, { days: 7 }),
     listSurgeHot(),
   ]);
   if (historyResult.status === 'rejected' && currentResult.status === 'rejected') {
-    throw new Error('个股异动历史与当日异动数据均加载失败');
+    // ponytail: fall back to local DB when both remotes are unavailable (offline)
+    console.warn('[surge] remotes unavailable, falling back to local db for', symbol);
+    return listLocalStockSurgeEvents(symbol);
   }
 
   const historyEvents =
@@ -215,7 +272,7 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     .sort((a, b) => b.tradeDate.localeCompare(a.tradeDate) || surgeTimeValue(b.time) - surgeTimeValue(a.time));
 }
 
-function toIndividualHistoryEvents(
+export function toIndividualHistoryEvents(
   history: Awaited<ReturnType<typeof sdk.marketEvent.individualChangesHistory>>,
   symbol: string,
 ): StockSurgeEvent[] {

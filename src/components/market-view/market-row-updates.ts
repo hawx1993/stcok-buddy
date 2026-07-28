@@ -124,3 +124,89 @@ export function sameMarketRowData(firstRow: MarketQuoteRow, secondRow: MarketQuo
     firstRow.industry === secondRow.industry
   );
 }
+
+/**
+ * 更新已有行的数值，并处理新增/删除行（保持当前显示顺序）。
+ */
+export function applyMarketRowValueUpdateBatch(
+  currentRows: MarketQuoteRow[],
+  targetRows: MarketQuoteRow[],
+  limit = MARKET_UPDATE_BATCH_SIZE,
+): IMarketRowBatch {
+  if (!currentRows.length) {
+    return { rows: targetRows, changedCodes: targetRows.map((row) => row.code), movedCodes: [], pending: false };
+  }
+  const targetByCode = new Map(targetRows.map((row) => [row.code, row]));
+  const changedIndices: number[] = [];
+  for (let index = 0; index < currentRows.length; index += 1) {
+    const row = currentRows[index];
+    const targetRow = targetByCode.get(row.code);
+    if (targetRow && !sameMarketRowData(row, targetRow)) changedIndices.push(index);
+  }
+  const indicesToUpdate = changedIndices.slice(0, limit);
+  const updateSet = new Set(indicesToUpdate);
+  let nextRows = currentRows.map((row, index) => (updateSet.has(index) ? targetByCode.get(row.code)! : row));
+
+  // 删除 currentRows 中 target 不存在的行
+  const rowsToRemove = nextRows.filter((row) => !targetByCode.has(row.code));
+  if (rowsToRemove.length) {
+    nextRows = nextRows.filter((row) => targetByCode.has(row.code));
+  }
+
+  // 新增 target 中 currentRows 没有的行，限制每次新增数量
+  const currentCodeSet = new Set(currentRows.map((row) => row.code));
+  const newRows = targetRows.filter((row) => !currentCodeSet.has(row.code));
+  const addedRows = newRows.slice(0, Math.max(0, limit - indicesToUpdate.length));
+  if (addedRows.length) {
+    nextRows = [...nextRows, ...addedRows];
+  }
+
+  const changedCodes = [
+    ...new Set([...indicesToUpdate.map((index) => currentRows[index].code), ...addedRows.map((row) => row.code)]),
+  ];
+  const pending = changedIndices.length > limit || newRows.length > addedRows.length || rowsToRemove.length > 0;
+
+  return {
+    rows: nextRows,
+    changedCodes,
+    movedCodes: [],
+    pending,
+  };
+}
+
+/**
+ * 逐步将 currentRows 调整为 targetRows 的顺序，每次最多移动 limit 只。
+ */
+export function applyMarketRowOrderUpdateBatch(
+  currentRows: MarketQuoteRow[],
+  targetRows: MarketQuoteRow[],
+  limit = 3,
+): IMarketRowBatch {
+  if (!currentRows.length) return { rows: targetRows, changedCodes: [], movedCodes: [], pending: false };
+  if (sameMarketRows(currentRows, targetRows)) return { rows: currentRows, changedCodes: [], movedCodes: [], pending: false };
+  const currentByCode = new Map(currentRows.map((row, index) => [row.code, { row, index }]));
+  const targetByCode = new Map(targetRows.map((row, index) => [row.code, { row, index }]));
+  const selectedCodes: string[] = [];
+  for (let index = 0; index < targetRows.length && selectedCodes.length < limit; index += 1) {
+    if (currentRows[index]?.code !== targetRows[index].code) selectedCodes.push(targetRows[index].code);
+  }
+  for (let index = 0; index < currentRows.length && selectedCodes.length < limit; index += 1) {
+    const code = currentRows[index].code;
+    if (!targetByCode.has(code) && !selectedCodes.includes(code)) selectedCodes.push(code);
+  }
+  if (!selectedCodes.length) return { rows: currentRows, changedCodes: [], movedCodes: [], pending: false };
+  const selected = new Set(selectedCodes);
+  const nextRows = currentRows.filter((row) => !selected.has(row.code));
+  const movedCodes: string[] = [];
+  for (const code of selectedCodes) {
+    const targetInfo = targetByCode.get(code);
+    if (targetInfo) {
+      const currentIndex = currentByCode.get(code)?.index;
+      if (currentIndex === undefined || currentIndex !== targetInfo.index) movedCodes.push(code);
+      nextRows.splice(Math.min(targetInfo.index, nextRows.length), 0, targetInfo.row);
+    } else {
+      movedCodes.push(code);
+    }
+  }
+  return { rows: nextRows, changedCodes: [], movedCodes, pending: !sameMarketRows(nextRows, targetRows) };
+}

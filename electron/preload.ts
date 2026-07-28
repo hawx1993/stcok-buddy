@@ -9,6 +9,8 @@ import type {
   HotFocusTab,
   IAppUpdateSettings,
   IAppUpdateState,
+  IDataSyncTaskProgress,
+  IStorageClearProgress,
   MarketDataSyncStatus,
   MarketIndexPeriod,
   MarketPageSnapshot,
@@ -30,6 +32,11 @@ const api: StocksenseApi = {
   upsertFavoriteStock: (stock: Pick<FavoriteStock, 'code' | 'name'>) => ipcRenderer.invoke('favorite:upsert', stock),
   removeFavoriteStock: (code: string) => ipcRenderer.invoke('favorite:remove', code),
   toggleFavoriteStockPin: (code: string) => ipcRenderer.invoke('favorite:togglePin', code),
+  onFavoritesCleared: (handler: () => void) => {
+    const listener = () => handler();
+    ipcRenderer.on('favorite:cleared', listener);
+    return () => ipcRenderer.removeListener('favorite:cleared', listener);
+  },
   listConversations: () => ipcRenderer.invoke('conversation:list'),
   createConversation: () => ipcRenderer.invoke('conversation:create'),
   deleteConversation: (id: string) => ipcRenderer.invoke('conversation:delete', id),
@@ -95,10 +102,27 @@ const api: StocksenseApi = {
   installAppUpdate: () => ipcRenderer.invoke('appUpdate:install'),
   openAppReleaseNotes: () => ipcRenderer.invoke('appUpdate:openReleaseNotes'),
   selectAppUpdateDownloadDirectory: () => ipcRenderer.invoke('appUpdate:selectDownloadDirectory'),
+  getStorageStats: () => ipcRenderer.invoke('storage:getStats'),
+  clearStorage: (keys: string[]) => ipcRenderer.invoke('storage:clear', keys),
+  onStorageClearProgress: (handler: (progress: IStorageClearProgress) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: IStorageClearProgress) => handler(progress);
+    ipcRenderer.on('storage:clearProgress', listener);
+    return () => ipcRenderer.removeListener('storage:clearProgress', listener);
+  },
+  getDiskInfo: () => ipcRenderer.invoke('system:getDiskInfo'),
   onAppUpdateStateChanged: (handler: (state: IAppUpdateState) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, state: IAppUpdateState) => handler(state);
     ipcRenderer.on('appUpdate:stateChanged', listener);
     return () => ipcRenderer.removeListener('appUpdate:stateChanged', listener);
+  },
+  syncKlines: () => ipcRenderer.invoke('dataSync:syncKlines'),
+  syncSurgeHistory: () => ipcRenderer.invoke('dataSync:syncSurgeHistory'),
+  syncStockDetails: () => ipcRenderer.invoke('dataSync:syncStockDetails'),
+  syncMarketSnapshot: () => ipcRenderer.invoke('dataSync:syncSnapshot'),
+  onDataSyncProgress: (handler: (progress: IDataSyncTaskProgress) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: IDataSyncTaskProgress) => handler(progress);
+    ipcRenderer.on('dataSync:taskProgress', listener);
+    return () => ipcRenderer.removeListener('dataSync:taskProgress', listener);
   },
 };
 

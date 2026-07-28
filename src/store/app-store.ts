@@ -10,6 +10,7 @@ import type {
   MarketNewsItem,
   ThemeMode,
   AgentRunEvent,
+  DataSyncTaskType,
 } from '../shared/types';
 
 export type SidebarTab = 'all' | 'surge' | 'stock' | 'diagnosis' | 'market';
@@ -17,6 +18,14 @@ export type SidebarMainTab = 'session' | 'hot';
 export type HotSubTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
 export type RightPanelTab = 'favorites' | 'stock' | 'board' | 'surge' | 'news';
 export type MainView = 'chat' | 'market' | 'news-reader';
+
+export interface ISyncBannerState {
+  taskType: DataSyncTaskType;
+  status: 'running' | 'completed' | 'error';
+  processed: number;
+  total: number;
+  message: string;
+}
 
 let latestNewsReaderRequestId = 0;
 
@@ -61,6 +70,8 @@ interface AppState {
   selectedBoard?: BoardDetail;
   isSettingsOpen: boolean;
   isAboutOpen: boolean;
+  isStorageManagerOpen: boolean;
+  isDataSyncOpen: boolean;
   isSending: boolean;
   surgeStocks: SurgeStock[];
   setConfig(config: AppConfig): void;
@@ -95,7 +106,11 @@ interface AppState {
   setSelectedBoard(board?: BoardDetail): void;
   setSettingsOpen(open: boolean): void;
   setAboutOpen(open: boolean): void;
+  setStorageManagerOpen(open: boolean): void;
+  setDataSyncOpen(open: boolean): void;
   setSending(isSending: boolean): void;
+  syncProgress: Record<string, ISyncBannerState>;
+  setSyncProgress(taskType: DataSyncTaskType, patch: Partial<ISyncBannerState>): void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -117,6 +132,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedBoard: undefined,
   isSettingsOpen: false,
   isAboutOpen: false,
+  isStorageManagerOpen: false,
+  isDataSyncOpen: false,
   isSending: false,
   surgeStocks: [],
   setConfig: (config) => set({ config }),
@@ -265,7 +282,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSelectedBoard: (board) => set({ selectedBoard: board, selectedStock: undefined, stockReturnContext: undefined }),
   setSettingsOpen: (open) => set({ isSettingsOpen: open }),
   setAboutOpen: (open) => set({ isAboutOpen: open }),
+  setStorageManagerOpen: (open) => set({ isStorageManagerOpen: open }),
+  setDataSyncOpen: (open) => set({ isDataSyncOpen: open }),
   setSending: (isSending) => set({ isSending }),
+  syncProgress: {},
+  setSyncProgress: (taskType, patch) =>
+    set((state) => ({
+      syncProgress: {
+        ...state.syncProgress,
+        [taskType]: { ...state.syncProgress[taskType], taskType, ...patch } as ISyncBannerState,
+      },
+    })),
 }));
 
 function collectStockKlines(messages: ChatMessage[]) {
