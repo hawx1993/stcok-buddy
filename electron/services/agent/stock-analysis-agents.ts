@@ -10,7 +10,6 @@ import type {
   StructuredAgentOutput,
 } from '../../../src/shared/types.js';
 import { generateReport } from '../llm/index.js';
-import { isLlmRequestError } from '../llm/openai-compatible-client.js';
 import { fallbackEvidence } from './evidence.js';
 
 export type StockAnalysisAgentName = 'technical' | 'fundamental' | 'capital' | 'sentiment' | 'chip';
@@ -76,11 +75,11 @@ const agents: StockAnalysisAgentDef[] = [
   {
     name: 'sentiment',
     dimension: 'sentiment',
-    label: '🌡️ 情绪面分析',
+    label: '📰 消息面分析',
     prompt:
-      '你是市场舆情与情绪分析专家。基于新闻标题、板块热度、涨跌幅和成交活跃度，判断情绪温度、催化因素和情绪风险。',
+      '你是A股消息面分析师。基于个股快讯新闻标题与摘要、公告事件、板块热度和市场舆情，分析消息面多空倾向、关键催化事件、消息驱动风险和短期情绪温度。缺失数据必须说明不可判断，不得编造新闻或事件。',
     fallback: (input) =>
-      `🌡️ 情绪面：近端新闻样本 ${input.news?.length ?? 0} 条；需结合新闻正负面和板块热度判断，避免单凭涨跌幅下结论。`,
+      `📰 消息面：近端快讯样本 ${input.news?.length ?? 0} 条；需结合新闻正负面、公告事件和板块热度判断，避免单凭涨跌幅下结论。`,
   },
   {
     name: 'chip',
@@ -238,7 +237,9 @@ export async function runStockAnalysisSubAgent(
     await streamMarkdown(output.markdown, onToken);
     return { name: agent.name, label: agent.label, output, content: output.markdown };
   } catch (error) {
-    if (isLlmRequestError(error)) throw error;
+    // ponytail: transient LLM failures (rate limit, timeout, connection) should
+    // degrade to fallback rather than killing the agent node. The fallback
+    // already produces a data-backed skeleton analysis — better than a red box.
     const output = fallbackStructuredAgentOutput(agent, input, evidence);
     if (agent.name === 'chip') output.markdown = normalizeChipMarkdown(output.markdown, input);
     await streamMarkdown(output.markdown, onToken);

@@ -86,9 +86,9 @@ const builtInSlashItems = [
   {
     id: 'sentiment-agent',
     section: 'Sub Agents',
-    label: '情绪面分析agent',
-    command: '/情绪面分析',
-    description: '仅调用情绪面Agent 分析股票',
+    label: '消息面分析agent',
+    command: '/消息面分析',
+    description: '仅调用消息面Agent 分析股票',
     argPlaceholder: '[请输入股票代码或名称]',
   },
   {

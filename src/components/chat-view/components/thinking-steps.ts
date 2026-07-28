@@ -76,8 +76,8 @@ export function createThinkingSteps(text: string): NonNullable<ChatMessage['step
       { id: 'analysis-capital', agent: '资金面分析', description: '4/7 调用资金面子Agent', status: 'pending' as const },
       {
         id: 'analysis-sentiment',
-        agent: '情绪面分析',
-        description: '5/7 调用情绪面子Agent',
+        agent: '消息面分析',
+        description: '5/7 调用消息面子Agent',
         status: 'pending' as const,
       },
       { id: 'analysis-chip', agent: '筹码分析', description: '6/7 调用筹码分析子Agent', status: 'pending' as const },

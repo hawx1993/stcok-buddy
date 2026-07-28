@@ -411,7 +411,7 @@ const webFallbackApi: StocksenseApi = {
   async sendChat(request: ChatRequest): Promise<ChatResponse> {
     const command = request.message
       .trim()
-      .match(/^\/(综合投研报告|新闻公告|技术面分析|基本面分析|资金面分析|情绪面分析|筹码分布|筹码分析)\s*(.*)$/);
+      .match(/^\/(综合投研报告|新闻公告|技术面分析|基本面分析|资金面分析|消息面分析|筹码分布|筹码分析)\s*(.*)$/);
     if (command && command[2].trim() === '')
       return webMessage(request, `请输入股票代码或股票名称，例如：/${command[1]} 中公教育`);
     return webMessage(

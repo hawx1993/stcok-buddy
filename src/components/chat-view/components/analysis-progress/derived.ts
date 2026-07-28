@@ -29,7 +29,7 @@ const STEP_LABELS: Record<string, string> = {
   'analysis-technical': '技术面分析',
   'analysis-fundamental': '基本面分析',
   'analysis-capital': '资金面分析',
-  'analysis-sentiment': '情绪面分析',
+  'analysis-sentiment': '消息面分析',
   'analysis-chip': '筹码分析',
   'analysis-report': '生成投研报告',
   'read-links': '读取链接内容',

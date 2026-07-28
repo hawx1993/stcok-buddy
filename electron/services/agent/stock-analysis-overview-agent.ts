@@ -17,7 +17,7 @@ export async function runStockAnalysisOverview(
 
 输出要求：
 1. 标题：## 📊 ${input.stockLabel}（${input.symbol}）综合投研报告
-2. 综合评分用 Markdown 表格：维度 | 权重 | 评分(0-100) | 加权得分 | 一句话总结。维度和权重固定为：📈 技术面 25%、📊 基本面 10%、💰 资金面 25%、🧩 筹码分析 25%、🌡️ 情绪面 15%、总分 100%。评分和加权得分必须用 HTML span 包裹：80-100 用 <span class="score-high">80</span>，60-79 用 <span class="score-mid">60</span>，低于60用 <span class="score-low">59</span>。
+2. 综合评分用 Markdown 表格：维度 | 权重 | 评分(0-100) | 加权得分 | 一句话总结。维度和权重固定为：📈 技术面 25%、📊 基本面 10%、💰 资金面 25%、🧩 筹码分析 25%、📰 消息面 15%、总分 100%。评分和加权得分必须用 HTML span 包裹：80-100 用 <span class="score-high">80</span>，60-79 用 <span class="score-mid">60</span>，低于60用 <span class="score-low">59</span>。
 3. 新增：### 📄 证据摘要，列出最关键 evidence。
 4. 标题使用：### 🎯 关键价位、### 💰 资金流向、### 🧭 观察框架、### 🚨 风险警示、### 🧩 各维度一句话总结。若输入中有 fundFlow 或资金流 evidence，必须输出”### 💰 资金流向”小节和超大单/大单/主力合计/中单/小单表格。资金流向正数用 <span class=”cn-up”>+X</span> 包裹，负数用 <span class=”cn-down”>-X</span> 包裹。
 5. 禁止输出建议买入、建议卖出、立即加仓、清仓、满仓、必涨、稳赚等直接投资建议。
