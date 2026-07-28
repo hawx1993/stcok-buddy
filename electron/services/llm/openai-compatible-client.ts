@@ -37,6 +37,7 @@ export async function chatWithOpenAICompatible(
       apiKey: config.apiKey,
       model: modelName,
       temperature: 0.2,
+      timeout: 45_000,
       streaming: Boolean(onToken),
       configuration: { baseURL: normalizeBaseUrl(config.baseUrl) },
       callbacks: [new PostHogCallbackHandler()],

@@ -32,6 +32,11 @@ var api = {
     import_electron.ipcRenderer.on("chat:token", listener);
     return () => import_electron.ipcRenderer.removeListener("chat:token", listener);
   },
+  onAiResponseNotification: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    import_electron.ipcRenderer.on("notification:aiResponse", listener);
+    return () => import_electron.ipcRenderer.removeListener("notification:aiResponse", listener);
+  },
   getStockDetail: (symbol) => import_electron.ipcRenderer.invoke("stock:getDetail", symbol),
   searchStocks: (query) => import_electron.ipcRenderer.invoke("stock:search", query),
   getBoardDetail: (symbol, forceRefresh, boardName) => import_electron.ipcRenderer.invoke("board:getDetail", symbol, forceRefresh, boardName),

@@ -50,6 +50,11 @@ const api: StocksenseApi = {
     ipcRenderer.on('chat:token', listener);
     return () => ipcRenderer.removeListener('chat:token', listener);
   },
+  onAiResponseNotification: (handler: (payload: { title: string; body: string; source: 'system' | 'in-app' }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { title: string; body: string; source: 'system' | 'in-app' }) => handler(payload);
+    ipcRenderer.on('notification:aiResponse', listener);
+    return () => ipcRenderer.removeListener('notification:aiResponse', listener);
+  },
   getStockDetail: (symbol: string) => ipcRenderer.invoke('stock:getDetail', symbol),
   searchStocks: (query: string) => ipcRenderer.invoke('stock:search', query),
   getBoardDetail: (symbol: string, forceRefresh?: boolean, boardName?: string) =>

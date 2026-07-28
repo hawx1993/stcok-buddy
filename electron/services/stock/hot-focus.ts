@@ -4,10 +4,12 @@ import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/mar
 import { isRemoteTradingDay } from '../market-data/providers.js';
 import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { normalizeASymbol } from './symbols.js';
+import { withTimeoutReject } from './shared.js';
 import {
   isSurgeHistoryClearMarkerActive,
   listStockSurgeEvents as listLocalStockSurgeEvents,
   listSurgeHistory,
+  saveIndividualSurgeHistory,
   saveSurgeSnapshot,
   setSurgeHistoryClearMarker,
 } from './surge-history-store.js';
@@ -39,7 +41,17 @@ export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
     if (tab === 'sector') return listSectorHot();
     if (tab === 'market') return listMarketHot();
     if (tab === 'surge') {
-      const items = await listSurgeHot();
+      // Local-first: today's snapshot is already persisted by saveSurgeSnapshot.
+      // Render cached data immediately and refresh from the network in the
+      // background so the panel never stalls on a slow/unavailable connection.
+      try {
+        const cached = await listSurgeHistory(toTradeDate(new Date()));
+        if (cached.length) {
+          refreshSurgeHotInBackground();
+          return cached;
+        }
+      } catch { /* DB unavailable, fall through to remote */ }
+      const items = await withTimeoutReject(listSurgeHot(), 5_000, 'surge hot timeout');
       if (items.length) return items;
     } else if (tab === 'flow') {
       return listFlowHot();
@@ -57,6 +69,11 @@ export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
     } catch { /* DB also unavailable */ }
   }
   return [];
+}
+
+function refreshSurgeHotInBackground() {
+  // Fire-and-forget refresh; listSurgeHot persists the snapshot on success.
+  listSurgeHot().catch(() => {});
 }
 
 function toTradeDate(date: Date) {
@@ -245,22 +262,78 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
   // empty until the marker expires so the clear action is visually effective.
   if (isSurgeHistoryClearMarkerActive()) return [];
 
+  // Local-first: if we already have cached events, render them immediately and
+  // refresh from the network in the background. This avoids keeping the
+  // skeleton spinner for several seconds when offline or on a slow connection.
+  let localEvents: StockSurgeEvent[] = [];
+  try {
+    localEvents = await listLocalStockSurgeEvents(symbol);
+  } catch (error) {
+    console.warn('[surge] local read failed', symbol, error);
+  }
+  if (localEvents.length) {
+    refreshStockSurgeEventsFromRemote(symbol);
+    return localEvents;
+  }
+
+  // No local cache yet: fetch from remote, persist, and return.
   const [historyResult, currentResult] = await Promise.allSettled([
-    sdk.marketEvent.individualChangesHistory(symbol, { days: 7 }),
-    listSurgeHot(),
+    withTimeoutReject(
+      sdk.marketEvent.individualChangesHistory(symbol, { days: 7 }),
+      6_000,
+      'individual changes timeout',
+    ),
+    withTimeoutReject(listSurgeHot(), 6_000, 'surge hot timeout'),
   ]);
   if (historyResult.status === 'rejected' && currentResult.status === 'rejected') {
-    // ponytail: fall back to local DB when both remotes are unavailable (offline)
-    console.warn('[surge] remotes unavailable, falling back to local db for', symbol);
-    return listLocalStockSurgeEvents(symbol);
+    return [];
   }
 
   const historyEvents =
     historyResult.status === 'fulfilled' ? toIndividualHistoryEvents(historyResult.value, symbol) : [];
-  const currentEvents =
-    currentResult.status === 'fulfilled'
-      ? currentResult.value.filter((item) => item.code === symbol).map((item) => toCurrentSurgeEvent(item, symbol))
-      : [];
+  if (historyEvents.length) {
+    saveIndividualSurgeHistory(historyEvents).catch((err) =>
+      console.warn('[hot-focus] save individual surge history failed', err),
+    );
+  }
+
+  return mergeSurgeEvents(
+    symbol,
+    historyEvents,
+    currentResult.status === 'fulfilled' ? currentResult.value : [],
+  );
+}
+
+function refreshStockSurgeEventsFromRemote(symbol: string) {
+  // Fire-and-forget refresh so the next open (online or offline) sees fresh data.
+  Promise.allSettled([
+    withTimeoutReject(
+      sdk.marketEvent.individualChangesHistory(symbol, { days: 7 }),
+      10_000,
+      'background individual changes timeout',
+    ),
+    withTimeoutReject(listSurgeHot(), 10_000, 'background surge hot timeout'),
+  ])
+    .then(([historyResult, currentResult]) => {
+      if (historyResult.status === 'rejected' && currentResult.status === 'rejected') return;
+      const historyEvents =
+        historyResult.status === 'fulfilled' ? toIndividualHistoryEvents(historyResult.value, symbol) : [];
+      if (historyEvents.length) {
+        saveIndividualSurgeHistory(historyEvents).catch(() => {});
+      }
+      // current events are already persisted by listSurgeHot via saveSurgeSnapshot.
+    })
+    .catch(() => {});
+}
+
+function mergeSurgeEvents(
+  symbol: string,
+  historyEvents: StockSurgeEvent[],
+  currentItems: HotFocusItem[],
+): StockSurgeEvent[] {
+  const currentEvents = currentItems
+    .filter((item) => item.code === symbol)
+    .map((item) => toCurrentSurgeEvent(item, symbol));
   const seen = new Set<string>();
   return [...currentEvents, ...historyEvents]
     .filter((item) => {

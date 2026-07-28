@@ -43,10 +43,10 @@ const slashCommands: ISlashCommand[] = [
     usage: '请输入股票代码或股票名称，例如：/资金面分析 000858',
   },
   {
-    name: '/情绪面分析',
+    name: '/消息面分析',
     intent: 'analysis',
     singleAgent: 'sentiment',
-    usage: '请输入股票代码或股票名称，例如：/情绪面分析 000858',
+    usage: '请输入股票代码或股票名称，例如：/消息面分析 000858',
   },
   {
     name: '/筹码分布',

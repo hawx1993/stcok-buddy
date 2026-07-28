@@ -64,7 +64,18 @@ export function AnalysisProgress({ events, toolCalls }: { events: AgentRunEvent[
       {open ? (
         <div className={styles['ap-body']}>
           {preparing ? (
-            <div className={styles['preparing']}>🔄 模型思考中，分析即将开始…</div>
+            <div className={styles['preparing']}>
+              <div className={styles['preparing-ring']}>
+                <span className={styles['preparing-dot']} />
+                <span className={styles['preparing-dot']} />
+                <span className={styles['preparing-dot']} />
+              </div>
+              <div className={styles['preparing-title']}>模型思考中</div>
+              <div className={styles['preparing-subtitle']}>分析即将开始…</div>
+              <div className={styles['preparing-shimmer']}>
+                <div className={styles['preparing-shimmer-bar']} />
+              </div>
+            </div>
           ) : (
             <>
               <ProgressBar stockName={stockName} steps={steps} />

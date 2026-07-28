@@ -198,6 +198,12 @@ export interface AgentStep {
   description: string;
   status: 'pending' | 'running' | 'completed' | 'error';
   detail?: string;
+  /** 节点已运行或完成的耗时（秒） */
+  elapsed?: number;
+  /** 节点开始时间戳 */
+  startedAt?: string;
+  /** 节点结束时间戳 */
+  endedAt?: string;
 }
 
 export type AgentRunEventType =
@@ -242,6 +248,8 @@ export interface AgentRunEvent {
     description?: string;
     status?: 'pending' | 'running' | 'completed' | 'error';
     summary?: string;
+    /** 子 Agent 已运行或完成的耗时（秒） */
+    elapsed?: number;
   };
   command?: {
     name: string;
@@ -725,6 +733,7 @@ export interface StocksenseApi {
   saveMessage(conversationId: string, message: ChatMessage): Promise<void>;
   sendChat(request: ChatRequest): Promise<ChatResponse>;
   onChatToken?(handler: (event: ChatStreamEvent) => void): () => void;
+  onAiResponseNotification?(handler: (payload: { title: string; body: string; source: 'system' | 'in-app' }) => void): () => void;
   getStockDetail(symbol: string): Promise<StockDetail>;
   searchStocks(query: string): Promise<MarketSearchResult[]>;
   getBoardDetail(symbol: string, forceRefresh?: boolean, boardName?: string): Promise<BoardDetail>;

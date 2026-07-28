@@ -29,7 +29,11 @@ import { generateReport } from '../llm/index.js';
 import { createMarketReviewMessages } from './market-review-prompt.js';
 import { runNewsAnalysisAgent } from './news-analysis-agent.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
-import { runStockAnalysisSubAgent, stockAnalysisAgentNames } from './stock-analysis-agents.js';
+import {
+  buildStockAnalysisInputForAgent,
+  runStockAnalysisSubAgent,
+  stockAnalysisAgentNames,
+} from './stock-analysis-agents.js';
 
 export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): DagNode<IAgentContext>[] {
   const linkNodes: DagNode<IAgentContext>[] = context.urls.length
@@ -256,7 +260,7 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         description: `拉取 ${context.symbol} K线、指标与新闻样本`,
         dependsOn: ['quote'],
         run: async (ctx) => {
-          const [historical, technical, news, largeOrders, chip, fundFlow] = await Promise.all([
+          const [historical, technical, stockNewsResult, largeOrders, chip, fundFlow] = await Promise.all([
             runContextTool<HistoricalBarsResult>(
               ctx,
               'getHistoricalDailyBars',
@@ -279,11 +283,11 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
               { symbol: ctx.symbol! },
               () => undefined,
             ),
-            runContextTool<MarketNewsItem[]>(
+            runContextTool<{ news: MarketNewsItem[]; announcements: AnnouncementItem[] }>(
               ctx,
-              'getMarketNews',
-              { query: ctx.quote?.name ?? ctx.symbol, page: 1, pageSize: 10 },
-              () => [],
+              'getStockNewsAnnouncements',
+              { symbol: ctx.symbol!, limit: 10 },
+              () => ({ news: [], announcements: [] }),
             ),
             needsLargeOrders
               ? runContextTool<HotFocusItem[]>(ctx, 'getHotFocus', { tab: 'surge' }, () => [])
@@ -307,14 +311,14 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
             : technical
               ? { ...technical, chart: { type: 'kline', data: kline } }
               : undefined;
-          ctx.news = news;
+          ctx.news = stockNewsResult.news;
           ctx.chip = chip;
           ctx.fundFlow = fundFlow;
           ctx.largeOrders = filterLargeOrders(largeOrders, ctx.symbol!);
           ctx.evidence.push(
             ...evidenceFromHistoricalBars(ctx.symbol!, historical),
             ...evidenceFromTechnical(ctx.symbol!, ctx.technical),
-            ...evidenceFromNews(news),
+            ...evidenceFromNews(stockNewsResult.news),
             ...evidenceFromHotFocus(ctx.largeOrders),
             ...evidenceFromFundFlow(ctx.symbol!, fundFlow),
           );
@@ -330,8 +334,18 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           const shouldStream = Boolean(context.singleAgent);
           const result = await runStockAnalysisSubAgent(
             agent.name,
-            buildStockAnalysisInput(ctx),
+            buildStockAnalysisInputForAgent(agent.name, buildStockAnalysisInput(ctx)),
             shouldStream ? onToken : undefined,
+            (message, percent) => {
+              ctx.emitEvent?.({
+                type: 'progress_updated',
+                title: `${agent.label} 进度`,
+                message,
+                progress: { current: Math.round(percent), total: 100 },
+                step: { id: `analysis-${agent.name}`, agent: agent.label, description: message, status: 'running' },
+                subAgent: { name: agent.label, description: message, status: 'running' },
+              });
+            },
           );
           ctx.analysisResults = [...(ctx.analysisResults ?? []), result];
           ctx.evidence.push(...result.output.evidence);

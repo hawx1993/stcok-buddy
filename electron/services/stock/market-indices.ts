@@ -10,12 +10,21 @@ import {
   parseMarketTime,
 } from './shared.js';
 import { marketIndexCache } from './market-state.js';
+import { upsertDailyBars } from '../market-data/market-data-store.js';
+import type { DailyBarRecord } from '../market-data/types.js';
 
 type AnyRecord = Record<string, unknown>;
 
 export async function getMarketIndices(period: MarketIndexPeriod): Promise<MarketIndexSnapshot[]> {
   const result = await Promise.all(['sh000001', 'sz399001'].map((code) => fetchMarketIndex(code, period)));
-  return result.filter((item): item is MarketIndexSnapshot => Boolean(item));
+  const indices = result.filter((item): item is MarketIndexSnapshot => Boolean(item));
+  // 把指数日线持久化到 DuckDB；周线/月线由本地日线聚合生成，避免不同周期数据混在一起。
+  if (period === '1d') {
+    persistIndexSnapshots(indices, period).catch((err) =>
+      console.warn('[market-indices] persist to DuckDB failed', err),
+    );
+  }
+  return indices;
 }
 
 export function normalizeIndexSymbol(input: string): 'sh000001' | 'sz399001' | undefined {
@@ -48,6 +57,45 @@ export async function getCachedMarketIndices(period: MarketIndexPeriod) {
     }) as Promise<MarketIndexSnapshot[]>;
   marketIndexCache.set(period, { ...entry, refreshing });
   return refreshing;
+}
+
+/** Normalize Tencent compact dates ("20240722") to ISO ("2024-07-22") for DuckDB DATE columns. */
+export function normalizeIndexDate(time: string): string {
+  const compact = time.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(time)) return time;
+  return time.slice(0, 10);
+}
+
+/** 将指数 K 线写入 daily_bars，离线时 getLocalMarketIndices / getCachedIndexKline 可直接读取 */
+async function persistIndexSnapshots(indices: MarketIndexSnapshot[], period: MarketIndexPeriod) {
+  const fetchedAt = new Date().toISOString();
+  const bars: DailyBarRecord[] = [];
+  for (const index of indices) {
+    const symbol = index.code;
+    if (!symbol || !index.minutes?.length) continue;
+    for (const point of index.minutes) {
+      if (!point.time) continue;
+      const tradeDate = normalizeIndexDate(point.time);
+      bars.push({
+        symbol,
+        tradeDate,
+        open: point.open,
+        high: point.high,
+        low: point.low,
+        close: point.close,
+        volume: point.volume,
+        amount: point.amount,
+        change: point.change,
+        changePercent: point.changePercent,
+        turnoverRate: point.turnoverRate,
+        adjustType: 'qfq',
+        source: `stock-sdk:tencent-index:${period}`,
+        fetchedAt,
+      });
+    }
+  }
+  if (bars.length) await upsertDailyBars(bars);
 }
 
 export async function fetchMarketIndex(

@@ -13,6 +13,8 @@ import { queryHistoricalBars, queryLatestQuote } from '../market-data/market-dat
 import { formatMoney, formatNumber, formatPercent } from './format.js';
 import {
   aggregateKline,
+  aggregateKlineByMonth,
+  aggregateKlineByWeek,
   getCachedMarketBoardRows,
   hasValue,
   marketBoardsCache,
@@ -43,6 +45,7 @@ import {
   normalizeIndexSymbol,
   isIndexKlinePeriod,
   formatTencentMinuteTimestamp,
+  normalizeIndexDate,
 } from './market-indices.js';
 
 const chipDistributionCache = new Map<
@@ -111,7 +114,25 @@ export async function getKline(
 
   const symbol = normalizeASymbol(symbolInput);
   if (period === '1d') {
-    // Remote-first (fastest path), fallback to DuckDB, persist remote data for offline
+    // Local-first for offline support: if DuckDB has bars, return them immediately
+    // and refresh from remote in the background when possible.
+    try {
+      const local = await queryHistoricalBars(symbol, {
+        limit,
+        period: '1d',
+        adjustType: 'qfq',
+        ...(beforeTimestamp ? { endDate: timestampToDate(beforeTimestamp) } : {}),
+      });
+      if (local.data.length) {
+        // Fire-and-forget remote refresh so next time the data is fresher
+        refreshDailyKlineFromRemote(symbol, limit, beforeTimestamp);
+        return local.data;
+      }
+    } catch {
+      /* local DB failed, fall through to remote */
+    }
+
+    // Remote-first when local empty, fallback to DuckDB, persist remote data for offline
     let data = await fetchDailyKlineDirect(symbol, limit, beforeTimestamp);
     if (!data.length) {
       try {
@@ -237,6 +258,17 @@ function persistDailyKlineToDb(symbol: string, points: KlinePoint[]): void {
   if (bars.length) upsertDailyBars(bars).catch((err) => console.warn('[stock-client] daily kline persist failed', err));
 }
 
+/** 本地有数据时后台刷新远程，避免离线时挂起，同时让在线数据逐渐变新 */
+function refreshDailyKlineFromRemote(symbol: string, limit: number, beforeTimestamp?: number): void {
+  fetchDailyKlineDirect(symbol, limit, beforeTimestamp)
+    .then((data) => {
+      if (data.length) persistDailyKlineToDb(symbol, data);
+    })
+    .catch(() => {
+      /* ignore background refresh errors */
+    });
+}
+
 function dailyBarToKline(bar: DailyBarRecord): KlinePoint {
   return {
     time: bar.tradeDate,
@@ -354,13 +386,6 @@ async function getCachedIndexKline(
   }
 }
 
-/** Normalize Tencent compact dates ("20240722") to ISO ("2024-07-22") for DuckDB DATE columns. */
-function normalizeIndexDate(time: string): string {
-  const compact = time.match(/^(\d{4})(\d{2})(\d{2})/);
-  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(time)) return time;
-  return time.slice(0, 10);
-}
 
 function toSdkKlinePeriod(period: string): 'daily' | 'weekly' | 'monthly' {
   return period === '1w' ? 'weekly' : period === '1mo' ? 'monthly' : 'daily';
@@ -389,6 +414,7 @@ async function getEastmoneyKline(symbol: string, limit: number, klt = '101'): Pr
   }).toString();
   try {
     const response = await fetch(url, {
+      signal: AbortSignal.timeout(5_000),
       headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://quote.eastmoney.com/' },
     });
     if (!response.ok) return [];
@@ -413,6 +439,7 @@ async function getTencentHistoryKline(
   url.search = new URLSearchParams({ param: `${quoteSymbol},${type},,${endDate},${limit},qfq` }).toString();
   try {
     const response = await fetch(url, {
+      signal: AbortSignal.timeout(5_000),
       headers: { 'User-Agent': 'Mozilla/5.0', Referer: `https://gu.qq.com/${quoteSymbol}/gp` },
     });
     if (!response.ok) return [];
@@ -440,6 +467,7 @@ async function getTencentMinuteKline(
   url.search = new URLSearchParams({ param: `${quoteSymbol},m${period},${before},${limit}` }).toString();
   try {
     const response = await fetch(url, {
+      signal: AbortSignal.timeout(5_000),
       headers: { 'User-Agent': 'Mozilla/5.0', Referer: `https://gu.qq.com/${quoteSymbol}/gp` },
     });
     if (!response.ok) return [];
@@ -766,9 +794,19 @@ export async function getChipDistribution(symbolInput: string): Promise<IChipDis
   const now = Date.now();
   if (cached?.result && now - cached.updatedAt < CHIP_DISTRIBUTION_CACHE_TTL_MS) return cached.result;
   if (cached?.promise) return cached.promise;
+
+  // Try DuckDB first
+  const { getStockChip, upsertStockChip } = await import('../market-data/market-data-store.js');
+  const dbResult = await getStockChip(symbol).catch(() => undefined);
+  if (dbResult) {
+    chipDistributionCache.set(symbol, { result: dbResult as IChipDistributionResult, updatedAt: Date.now() });
+    return dbResult as IChipDistributionResult;
+  }
+
   const promise = loadChipDistribution(symbol)
-    .then((result) => {
+    .then(async (result) => {
       chipDistributionCache.set(symbol, { result, updatedAt: Date.now() });
+      void upsertStockChip(symbol, result).catch((err) => console.warn('[chip] upsert failed', err));
       return result;
     })
     .catch((error: unknown) => {
@@ -796,8 +834,8 @@ async function loadChipDistribution(symbol: string): Promise<IChipDistributionRe
 }
 
 export async function analyzeTechnical(symbolInput: string): Promise<AgentResultCard> {
-  const klines = await getKline(symbolInput, 140);
-  return analyzeIndicators(klines);
+  const result = await queryHistoricalBars(symbolInput, { limit: 140, adjustType: 'qfq' });
+  return analyzeIndicators(result.data);
 }
 
 export {

@@ -86,9 +86,9 @@ const builtInSlashItems = [
   {
     id: 'sentiment-agent',
     section: 'Sub Agents',
-    label: '情绪面分析agent',
-    command: '/情绪面分析',
-    description: '仅调用情绪面Agent 分析股票',
+    label: '消息面分析agent',
+    command: '/消息面分析',
+    description: '仅调用消息面Agent 分析股票',
     argPlaceholder: '[请输入股票代码或名称]',
   },
   {
@@ -185,6 +185,20 @@ export function ChatView() {
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const api = getStocksenseApi();
+    const unsubscribe = api.onAiResponseNotification?.((payload) => {
+      antdMessage.info(
+        <div>
+          <strong>{payload.title}</strong>
+          <div style={{ fontSize: 12, marginTop: 4 }}>{payload.body}</div>
+        </div>,
+        payload.source === 'in-app' ? 4 : 2.5,
+      );
+    });
+    return () => unsubscribe?.();
   }, []);
 
   const openStockDetail = async (stock: Pick<StockDetail, 'code' | 'name'>) => {

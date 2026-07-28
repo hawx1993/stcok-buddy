@@ -15,6 +15,8 @@ import {
 } from '../market-data/market-data-store.js';
 import { pickString } from './format.js';
 import {
+  aggregateKlineByMonth,
+  aggregateKlineByWeek,
   fetchEastmoneyClist,
   fetchEastmoneyQuoteRowsByCodes,
   hasValue,
@@ -342,10 +344,16 @@ async function getLocalMarketIndices(period: MarketIndexPeriod): Promise<MarketI
   ];
   const rows = await Promise.all(
     symbols.map(async (item) => {
-      const bars = await listDailyBars(item.db, { limit: period === '1d' ? 120 : 60, adjustType: 'qfq' }).catch(
-        () => [],
+      // We only persist daily index bars locally; derive week/month from them.
+      const dailyLimit = period === '1d' ? 120 : period === '1w' ? 300 : period === '1mo' ? 1500 : 0;
+      const bars = dailyLimit
+        ? await listDailyBars(item.db, { limit: dailyLimit, adjustType: 'qfq' }).catch(() => [])
+        : [];
+      // Filter out any accidentally-persisted weekly/monthly rows from older builds.
+      const dailyBars = bars.filter(
+        (bar) => bar.source.endsWith(':1d') || bar.source === 'stock-sdk:tencent-index:1d',
       );
-      const minutes = bars.map((bar) => ({
+      const dailyMinutes = dailyBars.map((bar) => ({
         time: bar.tradeDate,
         timestamp: parseMarketTime(bar.tradeDate),
         open: bar.open,
@@ -358,7 +366,13 @@ async function getLocalMarketIndices(period: MarketIndexPeriod): Promise<MarketI
         changePercent: bar.changePercent,
         turnoverRate: bar.turnoverRate,
       }));
-      const latest = bars.at(-1);
+      const minutes =
+        period === '1w'
+          ? aggregateKlineByWeek(dailyMinutes)
+          : period === '1mo'
+            ? aggregateKlineByMonth(dailyMinutes)
+            : dailyMinutes;
+      const latest = minutes.at(-1);
       return latest
         ? {
             code: item.code,

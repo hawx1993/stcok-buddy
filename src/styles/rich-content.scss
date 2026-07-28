@@ -112,6 +112,11 @@
 .msg-text p {
   margin: 0 0 6px;
 }
+.msg-text hr {
+  border: 0;
+  border-top: 0.5px solid var(--border);
+  margin: 12px 0;
+}
 .msg-text p:last-child {
   margin-bottom: 0;
 }

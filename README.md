@@ -62,24 +62,24 @@ Orchestrator 调度 DataAgent / AnalysisAgent / ReportAgent / RiskAgent 分工�
 
 ## 核心能力
 
-| 能力       | 说明                                                         |
-| ---------- | ------------------------------------------------------------ |
-| 对话式投研 | 自然语言查询股票、板块、行情，生成 Bloomberg 风格结构化报告  |
-| 实时行情   | 全 A 股五档盘口、分时 K 线，五大板块行情页，支持排序与筛选   |
-| 技术分析   | MA / MACD / KDJ / RSI / BOLL / SAR 等 14 类技术指标          |
-| 资金流向   | 主力净流入、板块排名、龙虎榜、个股资金流历史                 |
-| 离线缓存   | DuckDB 本地存储日 K、异动记录、个股快照，断网可用            |
-| 多模型     | DeepSeek / OpenAI / Qwen / GLM / Kimi / MiniMax / 自定义 API |
-| 多 Agent   | Orchestrator → Data → Analysis → Report → Risk 流水线        |
-| 桌面体验   | 深浅色主题、PWA 离线支持、macOS DMG / Windows 安装包         |
+| 能力       | 说明                                                               |
+| ---------- | ------------------------------------------------------------------ |
+| 对话式投研 | 自然语言查询股票、板块、行情，生成 Bloomberg 风格结构化报告        |
+| 实时行情   | 全 A 股五档盘口、分时 K 线，五大板块行情页，支持排序与筛选         |
+| 技术分析   | MA / MACD / KDJ / RSI / BOLL / SAR 等 14 类技术指标                |
+| 资金流向   | 主力净流入、板块排名、龙虎榜、个股资金流历史                       |
+| 离线缓存   | DuckDB 本地存储日 K、异动记录、个股快照，断网可用                  |
+| 多模型     | DeepSeek / OpenAI / Qwen / GLM / Kimi / MiniMax / 自定义 API       |
+| 多 Agent   | Orchestrator → Data → Analysis → Report → Risk 流水线              |
+| 桌面体验   | 深浅色主题、桌面消息通知、PWA 离线支持、macOS DMG / Windows 安装包 |
 
 ## 技术架构
 
 ```text
 ┌─ Renderer (React + Vite) ─────────────────────────────┐
-│  会话面板  │  ChatView (AI 对话)  │  行情页 / 个股详情   │
-└────────────────────── IPC ─────────────────────────────┘
-┌─ Main (Electron) ──────────────────────────────────────┐
+│  会话面板   │  ChatView (AI 对话)  │  行情页 / 个股详情   │
+└────────────────────── IPC ────────────────────────────┘
+┌───────────── Main (Electron) ──────────────────────────┐
 │  Agent Orchestrator  │  stock-sdk  │  DuckDB / SQLite  │
 └────────────────────────────────────────────────────────┘
 ```

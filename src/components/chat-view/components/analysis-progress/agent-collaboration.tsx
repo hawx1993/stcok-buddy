@@ -32,12 +32,12 @@ export function AgentCollaboration({
     }
   };
 
-  const statusText = (status: IAgentStatus['status']) => {
-    switch (status) {
+  const statusText = (agent: IAgentStatus) => {
+    switch (agent.status) {
       case 'completed':
-        return '已完成';
+        return agent.elapsed ? `已完成，耗时 ${agent.elapsed.toFixed(1)}s` : '已完成';
       case 'running':
-        return '分析中…';
+        return '调用模型分析中...';
       case 'error':
         return '失败';
       default:
@@ -76,7 +76,7 @@ export function AgentCollaboration({
               />
               <span className={styles['agent-name']}>{agent.label}</span>
               <span className={styles['agent-status']}>
-                {statusIcon(agent.status)} {statusText(agent.status)}
+                {statusIcon(agent.status)} {statusText(agent)}
               </span>
               {canExpand ? <span className={styles['agent-expand-icon']}>{isExpanded ? '▾' : '▸'}</span> : null}
             </button>
