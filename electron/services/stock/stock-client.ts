@@ -89,12 +89,47 @@ export async function getQuote(symbolInput: string): Promise<StockDetail> {
 }
 
 export async function getBatchQuotes(codes: string[]): Promise<StockDetail[]> {
-  // ponytail: lightweight batch — no DuckDB, no kline, just real-time quotes
-  const results = await Promise.all(codes.map((code) => getQuote(code).catch(() => undefined)));
+  // ponytail: lightweight batch — no DuckDB, no kline, just real-time quotes.
+  // Prefer a single batched SDK call (handles hundreds of codes in one HTTP
+  // request) and fall back to per-code lookups for robustness.
+  const unique = [...new Set(codes.map((code) => normalizeASymbol(code)).filter(Boolean))];
+  if (!unique.length) return [];
+
+  try {
+    const rows = await sdk.quotes.cn(unique);
+    if (rows?.length) {
+      return rows
+        .map((row) => toStockDetail(row, normalizeASymbol(row.code ?? '')))
+        .filter((r): r is StockDetail => Boolean(r?.code));
+    }
+  } catch (error) {
+    console.warn('[market] batched quotes failed, falling back to per-code', error);
+  }
+
+  const results = await Promise.all(unique.map((code) => getQuote(code).catch(() => undefined)));
   return results.filter((r): r is StockDetail => Boolean(r));
 }
 
+/** 相同参数的并发 K 线请求共享同一个 Promise，避免图表与详情页同时发起重复远程拉取 */
+const klineInFlight = new Map<string, Promise<KlinePoint[]>>();
+
 export async function getKline(
+  symbolInput: string,
+  limit = 120,
+  period = '1d',
+  beforeTimestamp?: number,
+): Promise<KlinePoint[]> {
+  const key = `${symbolInput.trim().toLowerCase()}|${period}|${limit}|${beforeTimestamp ?? ''}`;
+  const pending = klineInFlight.get(key);
+  if (pending) return pending;
+  const promise = getKlineUncached(symbolInput, limit, period, beforeTimestamp).finally(() => {
+    if (klineInFlight.get(key) === promise) klineInFlight.delete(key);
+  });
+  klineInFlight.set(key, promise);
+  return promise;
+}
+
+async function getKlineUncached(
   symbolInput: string,
   limit = 120,
   period = '1d',
@@ -114,19 +149,27 @@ export async function getKline(
 
   const symbol = normalizeASymbol(symbolInput);
   if (period === '1d') {
-    // Local-first for offline support: if DuckDB has bars, return them immediately
-    // and refresh from remote in the background when possible.
+    // Local-first: 直接读 DuckDB，有数据立即返回（不做同步远程补齐），
+    // 后台 fire-and-forget 刷新远程数据，保证下次更新鲜；远程拉取成功也会回写本地库。
     try {
-      const local = await queryHistoricalBars(symbol, {
-        limit,
-        period: '1d',
-        adjustType: 'qfq',
-        ...(beforeTimestamp ? { endDate: timestampToDate(beforeTimestamp) } : {}),
-      });
-      if (local.data.length) {
-        // Fire-and-forget remote refresh so next time the data is fresher
-        refreshDailyKlineFromRemote(symbol, limit, beforeTimestamp);
-        return local.data;
+      if (!beforeTimestamp) {
+        const localBars = await listDailyBars(symbol, { limit, adjustType: 'qfq' });
+        if (localBars.length) {
+          refreshDailyKlineFromRemote(symbol, limit);
+          return localBars.map(dailyBarToKline);
+        }
+      } else {
+        // 拖拽加载更早历史：保留 queryHistoricalBars 的缺失区间智能补齐
+        const local = await queryHistoricalBars(symbol, {
+          limit,
+          period: '1d',
+          adjustType: 'qfq',
+          endDate: timestampToDate(beforeTimestamp),
+        });
+        if (local.data.length) {
+          refreshDailyKlineFromRemote(symbol, limit, beforeTimestamp);
+          return local.data;
+        }
       }
     } catch {
       /* local DB failed, fall through to remote */
@@ -308,56 +351,54 @@ async function getCachedIndexKline(
   beforeTimestamp?: number,
 ): Promise<KlinePoint[]> {
   const dbSymbol = indexCode.replace(/^(sh|sz)/, '');
+  const endDate = beforeTimestamp ? timestampToDate(beforeTimestamp) : undefined;
 
-  // Try local DB first
+  // 本地优先：1d 直接读日线；1w/1mo 由本地日线聚合（daily_bars 只存日线粒度）
   try {
-    const local = await listDailyBars(dbSymbol, { limit, adjustType: 'qfq' });
-    if (local.length >= limit) {
-      return local.map((bar) => ({
-        time: bar.tradeDate,
-        timestamp: parseMarketTime(bar.tradeDate),
-        open: bar.open,
-        close: bar.close,
-        high: bar.high,
-        low: bar.low,
-        volume: bar.volume,
-        amount: bar.amount,
-        change: bar.change,
-        changePercent: bar.changePercent,
-        turnoverRate: bar.turnoverRate,
-      }));
+    const dailyLimit = period === '1d' ? limit : period === '1w' ? limit * 5 : limit * 21;
+    const local = await listDailyBars(dbSymbol, {
+      limit: dailyLimit,
+      adjustType: 'qfq',
+      ...(endDate ? { endDate } : {}),
+    });
+    if (period === '1d' && local.length >= limit) return local.map(dailyBarToKline);
+    if (period !== '1d' && local.length >= Math.floor(dailyLimit * 0.8)) {
+      const points = local.map(dailyBarToKline);
+      const aggregated = period === '1w' ? aggregateKlineByWeek(points) : aggregateKlineByMonth(points);
+      if (aggregated.length) return aggregated.slice(-limit);
     }
   } catch {
     // DB read failed, continue to remote fetch
   }
 
-  // Fetch from remote and persist
+  // Fetch from remote and persist（仅日线粒度落库；周/月粒度写入会污染 daily_bars）
   try {
     const snapshot = await fetchMarketIndex(indexCode, period, limit, beforeTimestamp);
     if (snapshot?.minutes?.length) {
-      // Persist to local DB for offline access (fire-and-forget, don't block UI)
-      const bars: DailyBarRecord[] = snapshot.minutes
-        .filter((p) => p.time && /^\d{4}-?\d{2}-?\d{2}/.test(p.time))
-        .map((p) => ({
-          symbol: dbSymbol,
-          tradeDate: normalizeIndexDate(p.time),
-          open: p.open,
-          high: p.high,
-          low: p.low,
-          close: p.close,
-          volume: p.volume,
-          amount: p.amount,
-          change: p.change,
-          changePercent: p.changePercent,
-          turnoverRate: p.turnoverRate,
-          adjustType: 'qfq' as const,
-          source: 'stock-sdk:tencent-index',
-          fetchedAt: new Date().toISOString(),
-        }));
-      if (bars.length) {
-        upsertDailyBars(bars).catch((err) =>
-          console.warn('[market-data] index kline persist failed', err),
-        );
+      if (period === '1d') {
+        const bars: DailyBarRecord[] = snapshot.minutes
+          .filter((p) => p.time && /^\d{4}-?\d{2}-?\d{2}/.test(p.time))
+          .map((p) => ({
+            symbol: dbSymbol,
+            tradeDate: normalizeIndexDate(p.time),
+            open: p.open,
+            high: p.high,
+            low: p.low,
+            close: p.close,
+            volume: p.volume,
+            amount: p.amount,
+            change: p.change,
+            changePercent: p.changePercent,
+            turnoverRate: p.turnoverRate,
+            adjustType: 'qfq' as const,
+            source: 'stock-sdk:tencent-index',
+            fetchedAt: new Date().toISOString(),
+          }));
+        if (bars.length) {
+          upsertDailyBars(bars).catch((err) =>
+            console.warn('[market-data] index kline persist failed', err),
+          );
+        }
       }
       return snapshot.minutes.slice(-limit);
     }
@@ -365,22 +406,16 @@ async function getCachedIndexKline(
     console.warn('[market-data] index kline remote fetch failed', err);
   }
 
-  // Last resort: return whatever partial data is in local DB
+  // Last resort: 本地日线（1d 直接返回；1w/1mo 由日线聚合）
   try {
-    const local = await listDailyBars(dbSymbol, { limit, adjustType: 'qfq' });
-    return local.map((bar) => ({
-      time: bar.tradeDate,
-      timestamp: parseMarketTime(bar.tradeDate),
-      open: bar.open,
-      close: bar.close,
-      high: bar.high,
-      low: bar.low,
-      volume: bar.volume,
-      amount: bar.amount,
-      change: bar.change,
-      changePercent: bar.changePercent,
-      turnoverRate: bar.turnoverRate,
-    }));
+    const local = await listDailyBars(dbSymbol, {
+      limit: period === '1d' ? limit : limit * 21,
+      adjustType: 'qfq',
+    });
+    const points = local.map(dailyBarToKline);
+    if (period === '1w') return aggregateKlineByWeek(points).slice(-limit);
+    if (period === '1mo') return aggregateKlineByMonth(points).slice(-limit);
+    return points;
   } catch {
     return [];
   }
@@ -694,10 +729,12 @@ export async function getStockDetail(symbolInput: string): Promise<StockDetail> 
       summary: `暂时无法从 stock-sdk 获取 ${code} 的实时详情：${error instanceof Error ? error.message : '未知错误'}`,
     };
   });
-  // ponytail: always include kline data even from remote path
+  // K 线不阻塞详情返回：仅附带本地库已有数据（毫秒级）；
+  // 本地没有时由渲染层 K 线组件自行走「本地优先 + 远程回写」链路加载
   if (!remote.kline?.length) {
     try {
-      remote.kline = await getKline(symbolInput, 140);
+      const localBars = await listDailyBars(normalizeASymbol(symbolInput), { limit: 140, adjustType: 'qfq' });
+      if (localBars.length) remote.kline = localBars.map(dailyBarToKline);
     } catch {
       /* keep existing */
     }

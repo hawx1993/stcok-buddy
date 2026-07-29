@@ -4,9 +4,11 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type {
   AdjustType,
+  BoardConstituentRecord,
   BoardDetailCacheRecord,
   BoardSnapshotRecord,
   DailyBarRecord,
+  MarketBoardRecord,
   MarketDataStats,
   SecurityRecord,
   SyncJobRecord,
@@ -92,6 +94,26 @@ const schemaSql = `
   CREATE TABLE IF NOT EXISTS market_board_details (
     board_code TEXT PRIMARY KEY, detail_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS market_boards (
+    board_code TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT,
+    change_percent DOUBLE,
+    source TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_market_boards_name ON market_boards(name);
+
+  CREATE TABLE IF NOT EXISTS board_constituents (
+    board_code TEXT NOT NULL,
+    stock_code TEXT NOT NULL,
+    stock_name TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (board_code, stock_code)
+  );
+  CREATE INDEX IF NOT EXISTS idx_board_constituents_stock ON board_constituents(stock_code);
 `;
 
 export function initializeMarketDataStore() {
@@ -418,6 +440,100 @@ export function writeBoardDetail(record: BoardDetailCacheRecord) {
       )
       .then(() => undefined),
   );
+}
+
+export function upsertMarketBoards(items: MarketBoardRecord[]) {
+  if (!items.length) return Promise.resolve();
+  return write(async (connection) => {
+    await connection.run('BEGIN TRANSACTION');
+    try {
+      const statement = await connection.prepare(`
+        INSERT OR REPLACE INTO market_boards
+        (board_code, name, kind, change_percent, source, updated_at)
+        VALUES ($code, $name, $kind, $changePercent, $source, $updatedAt)
+      `);
+      for (const item of items) {
+        statement.bind({
+          code: item.code,
+          name: item.name,
+          kind: item.kind ?? null,
+          changePercent: item.changePercent ?? null,
+          source: item.source,
+          updatedAt: item.updatedAt,
+        });
+        await statement.run();
+      }
+      await connection.run('COMMIT');
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
+export function replaceBoardConstituents(boardCode: string, items: BoardConstituentRecord[]) {
+  if (!boardCode) return Promise.resolve();
+  return write(async (connection) => {
+    await connection.run('BEGIN TRANSACTION');
+    try {
+      await connection.run('DELETE FROM board_constituents WHERE board_code = $boardCode', { boardCode });
+      if (items.length) {
+        const statement = await connection.prepare(`
+          INSERT INTO board_constituents
+          (board_code, stock_code, stock_name, position, updated_at)
+          VALUES ($boardCode, $stockCode, $stockName, $position, $updatedAt)
+        `);
+        for (const item of items) {
+          statement.bind({
+            boardCode: item.boardCode,
+            stockCode: item.stockCode,
+            stockName: item.stockName,
+            position: item.position,
+            updatedAt: item.updatedAt,
+          });
+          await statement.run();
+        }
+      }
+      await connection.run('COMMIT');
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
+export async function listMarketBoards(): Promise<MarketBoardRecord[]> {
+  return read(async (connection) => {
+    const rows = await all<Record<string, unknown>>(
+      connection,
+      'SELECT board_code, name, kind, change_percent, source, updated_at FROM market_boards ORDER BY name',
+    );
+    return rows.map((row) => ({
+      code: String(row.board_code),
+      name: String(row.name),
+      kind: optionalString(row.kind),
+      changePercent: optionalNumber(row.change_percent),
+      source: String(row.source),
+      updatedAt: String(row.updated_at),
+    }));
+  });
+}
+
+export async function listBoardConstituents(boardCode: string): Promise<BoardConstituentRecord[]> {
+  return read(async (connection) => {
+    const rows = await all<Record<string, unknown>>(
+      connection,
+      'SELECT board_code, stock_code, stock_name, position, updated_at FROM board_constituents WHERE board_code = $boardCode ORDER BY position',
+      { boardCode },
+    );
+    return rows.map((row) => ({
+      boardCode: String(row.board_code),
+      stockCode: String(row.stock_code),
+      stockName: String(row.stock_name),
+      position: Number(row.position),
+      updatedAt: String(row.updated_at),
+    }));
+  });
 }
 
 export function getLatestTradeDate() {

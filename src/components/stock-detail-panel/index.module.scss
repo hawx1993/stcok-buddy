@@ -1229,10 +1229,31 @@
   display: flex;
   flex-direction: column;
 }
+.board-header {
+  align-items: center;
+}
+.board-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.board-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-header-side {
+  flex-shrink: 0;
+}
 .board-change {
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
+}
+.board-change.na,
+.board-stock-side em.na {
+  color: var(--muted);
 }
 .board-header-side {
   display: flex;

@@ -3,6 +3,7 @@ import type { MenuProps } from 'antd';
 import { BarChart3, CloudDownload, Database, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
 import { useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../store/app-store';
+import { usePanelResize } from '../../hooks/use-panel-resize';
 import { ThemeToggle } from '../theme-toggle';
 import { createChatConversation } from './components/create-chat-conversation';
 import { getStocksenseApi } from '../../shared/stocksense-api';
@@ -215,6 +216,8 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
     return () => window.removeEventListener('keydown', openSettingsByShortcut);
   }, [isMac, setSettingsOpen]);
 
+  const leftResize = usePanelResize('--sidebar-width', 200, 450);
+
   return (
     <aside className={cx(styles.sidebar, isLeftSidebarCollapsed && styles.collapsed)} data-sidebar>
       <div className={styles['sidebar-header']}>
@@ -352,6 +355,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
         </Dropdown>
         <ThemeToggle compact />
       </div>
+      <div className={styles['sidebar-resize-handle']} onMouseDown={leftResize.onMouseDown} />
     </aside>
   );
 }

@@ -109,7 +109,10 @@ export async function fetchMarketIndex(
       fetchIndexQuote(code),
       fetchIndexSeries(code, period, limit, beforeTimestamp),
     ]);
-    return quote ? { ...quote, minutes: patchLatestIndexBar(series, quote) } : undefined;
+    if (!quote) return undefined;
+    // 仅最新序列用实时报价修补最后一根 bar；历史序列（beforeTimestamp）保持原样，避免污染历史 K 线
+    const minutes = beforeTimestamp === undefined ? patchLatestIndexBar(series, quote) : series;
+    return { ...quote, minutes };
   } catch {
     return undefined;
   }

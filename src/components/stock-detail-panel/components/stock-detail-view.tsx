@@ -52,8 +52,10 @@ export function StockDetailView({ returnToSurge, onReturnToSurge, onGenericBack,
   useEffect(() => {
     if (!selectedStock?.code || selectedStock.kline?.length) return;
     let alive = true;
+    // limit 与 K 线组件 1d 周期默认 frame.limit(360) 保持一致，
+    // 主进程会对相同参数的并发请求去重，首次打开只触发一次远程拉取
     getStocksenseApi()
-      .getKline(selectedStock.code, 120, '1d')
+      .getKline(selectedStock.code, 360, '1d')
       .then((kline) => {
         if (alive && kline.length) useAppStore.getState().setSelectedStock({ ...selectedStock, kline });
       })

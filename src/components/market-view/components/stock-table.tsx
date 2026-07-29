@@ -10,48 +10,49 @@ const MARKET_ROW_HEIGHT = 34;
 const MARKET_ROW_OVERSCAN = 32;
 const MARKET_REORDER_ANIMATION_MS = 450;
 
+// 仅第 4-9 列（最新价/涨跌幅/换手率/成交量/成交额/市值）在数据变化时闪烁高亮
 const flashCellFields: TMarketCellField[] = [
-  'changePercent',
   'price',
+  'changePercent',
   'turnoverRate',
   'volume',
   'amount',
   'marketCap',
 ];
 
-type TSortDirection = 'asc' | 'desc' | undefined;
-type TMarketCellField = 'changePercent' | 'price' | 'turnoverRate' | 'volume' | 'amount' | 'marketCap' | 'industry';
+export type TSortDirection = 'asc' | 'desc' | undefined;
+export type TMarketCellField = 'changePercent' | 'price' | 'turnoverRate' | 'volume' | 'amount' | 'marketCap' | 'industry';
 type TMarketCellSnapshot = Record<TMarketCellField, string>;
 
 export function StockTable({
   rows,
   scrollRef,
+  sortField,
   sortDirection,
   updateVersion,
   reorderingVersion,
   changedCodes,
-  movedCodes,
   onSortChange,
   onOpen,
 }: {
   rows: MarketQuoteRow[];
   scrollRef: RefObject<HTMLDivElement>;
+  sortField: TMarketCellField | undefined;
   sortDirection: TSortDirection;
   updateVersion: number;
   reorderingVersion: number;
   changedCodes: string[];
-  movedCodes: string[];
-  onSortChange(): void;
+  onSortChange(field: TMarketCellField): void;
   onOpen(row: MarketQuoteRow): void;
 }) {
-  const sortMark = sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : '↕';
+  const sortMark = (field: TMarketCellField) =>
+    field === sortField && sortDirection ? (sortDirection === 'asc' ? '↑' : '↓') : '↕';
   const previousCellSnapshots = useRef(new Map<string, TMarketCellSnapshot>());
   const previousRowCodesRef = useRef<string[]>([]);
   const previousStartByCodeRef = useRef<Map<string, number>>(new Map());
   const animationTimeoutsRef = useRef<Map<string, number>>(new Map());
   const rowRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
   const [cellFlashVersions, setCellFlashVersions] = useState<Record<string, number>>({});
-  const [rankFlashVersions, setRankFlashVersions] = useState<Record<string, number>>({});
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -76,10 +77,7 @@ export function StockTable({
     if (changedCellKeys.length) {
       setCellFlashVersions((current) => incrementVersions(current, changedCellKeys));
     }
-    if (movedCodes.length) {
-      setRankFlashVersions((current) => incrementVersions(current, movedCodes));
-    }
-  }, [changedCodes, movedCodes, rows, updateVersion]);
+  }, [changedCodes, rows, updateVersion]);
 
   // FLIP 动画：用 CSS 变量 --market-row-start 作为位置基准（不受滚动/布局影响）
   useLayoutEffect(() => {
@@ -176,16 +174,32 @@ export function StockTable({
           <div role='columnheader'>序号</div>
           <div role='columnheader'>代码</div>
           <div role='columnheader'>名称</div>
+          <div role='columnheader'>最新价</div>
           <div role='columnheader'>
-            <button className={styles.sortButton} onClick={onSortChange} type='button'>
-              涨跌幅 {sortMark}
+            <button className={styles.sortButton} onClick={() => onSortChange('changePercent')} type='button'>
+              涨跌幅 {sortMark('changePercent')}
             </button>
           </div>
-          <div role='columnheader'>最新价</div>
-          <div role='columnheader'>换手率</div>
-          <div role='columnheader'>成交量</div>
-          <div role='columnheader'>成交额</div>
-          <div role='columnheader'>市值</div>
+          <div role='columnheader'>
+            <button className={styles.sortButton} onClick={() => onSortChange('turnoverRate')} type='button'>
+              换手率 {sortMark('turnoverRate')}
+            </button>
+          </div>
+          <div role='columnheader'>
+            <button className={styles.sortButton} onClick={() => onSortChange('volume')} type='button'>
+              成交量 {sortMark('volume')}
+            </button>
+          </div>
+          <div role='columnheader'>
+            <button className={styles.sortButton} onClick={() => onSortChange('amount')} type='button'>
+              成交额 {sortMark('amount')}
+            </button>
+          </div>
+          <div role='columnheader'>
+            <button className={styles.sortButton} onClick={() => onSortChange('marketCap')} type='button'>
+              市值 {sortMark('marketCap')}
+            </button>
+          </div>
           <div role='columnheader'>所属行业</div>
         </div>
       </div>
@@ -194,7 +208,6 @@ export function StockTable({
           const row = rows[virtualRow.index];
           if (!row) return null;
           const versions = getRowFlashVersions(cellFlashVersions, row.code);
-          const rankVersion = rankFlashVersions[row.code] ?? 0;
           const refSetter = (el: HTMLDivElement | null) => {
             if (el) rowRefsMap.current.set(row.code, el);
             else rowRefsMap.current.delete(row.code);
@@ -208,13 +221,11 @@ export function StockTable({
               style={{ '--market-row-start': `${virtualRow.start}px` } as CSSProperties}
               onClick={() => onOpen(row)}
             >
-              <div key={`rank-${rankVersion}`} className={cx(rankVersion > 0 && styles.rankUpdated)} role='cell'>
-                {virtualRow.index + 1}
-              </div>
+              <div role='cell'>{virtualRow.index + 1}</div>
               <div role='cell'>{row.code}</div>
               <div role='cell'>{row.name}</div>
-              <MarketCell version={versions.changePercent} className={tone(row.changePercent)}>{formatPercent(row.changePercent)}</MarketCell>
               <MarketCell version={versions.price} className={tone(row.changePercent)}>{row.price ?? '--'}</MarketCell>
+              <MarketCell version={versions.changePercent} className={tone(row.changePercent)}>{formatPercent(row.changePercent)}</MarketCell>
               <MarketCell version={versions.turnoverRate}>{formatPercent(row.turnoverRate)}</MarketCell>
               <MarketCell version={versions.volume}>{formatVolume(row.volume)}</MarketCell>
               <MarketCell version={versions.amount}>{formatMoney(row.amount)}</MarketCell>

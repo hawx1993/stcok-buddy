@@ -6,7 +6,7 @@ import type {
   MarketQuoteRow,
   MarketTab,
 } from '../../../src/shared/types.js';
-import { readBoardSnapshot, writeBoardSnapshot } from '../market-data/market-data-store.js';
+import { readBoardSnapshot, upsertMarketBoards, writeBoardSnapshot } from '../market-data/market-data-store.js';
 import { remoteMarketStatus } from '../market-data/providers.js';
 import { normalizeMarketCap, pickNumber, pickString } from './format.js';
 
@@ -223,9 +223,28 @@ export async function refreshMarketBoardRows(): Promise<MarketBoardRow[]> {
 
 export async function persistMarketBoardRows(rows: MarketBoardRow[]) {
   marketBoardsLastPersistedAt = Date.now();
-  await writeBoardSnapshot({ rows, updatedAt: new Date().toISOString() }).catch((error) =>
-    console.warn('[market] persist board snapshot failed', error),
-  );
+  const updatedAt = new Date().toISOString();
+  await Promise.all([
+    writeBoardSnapshot({ rows, updatedAt }).catch((error) =>
+      console.warn('[market] persist board snapshot failed', error),
+    ),
+    upsertMarketBoards(
+      rows.map((row) => ({
+        code: row.code,
+        name: row.name,
+        kind: boardKindCache.get(row.code),
+        changePercent: parseBoardChangePercent(row.changePercent),
+        source: 'stock-sdk',
+        updatedAt,
+      })),
+    ).catch((error) => console.warn('[market] persist board rows failed', error)),
+  ]);
+}
+
+function parseBoardChangePercent(value?: string | number): number | undefined {
+  if (value === undefined || value === null || value === '' || value === '--') return undefined;
+  const num = Number.parseFloat(String(value));
+  return Number.isFinite(num) ? num : undefined;
 }
 
 
