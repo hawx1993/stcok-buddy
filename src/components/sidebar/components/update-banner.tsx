@@ -42,6 +42,7 @@ export function UpdateBanner() {
   const content = useMemo(() => getUpdateContent(state, progressPercent), [progressPercent, state]);
 
   if (!state || dismissed || !visibleStatuses.has(state.status)) return null;
+  if (state.status === 'error' && !navigator.onLine) return null;
 
   const runPrimaryAction = async () => {
     const api = getStocksenseApi();

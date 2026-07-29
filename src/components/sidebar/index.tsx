@@ -9,6 +9,7 @@ import { createChatConversation } from './components/create-chat-conversation';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { UpdateBanner } from './components/update-banner';
 import { SyncBanner } from './components/sync-banner';
+import { OfflineIndicator } from './components/offline-indicator';
 import type { ConversationSummary } from '../../shared/types';
 import { trackButtonClick, trackPageView } from '../../shared/analytics';
 import { WhaleLogo } from '../chat-view/components/whale-logo';
@@ -123,6 +124,10 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
 
   const checkUpdate = async () => {
     trackButtonClick('sidebar_check_update');
+    if (!navigator.onLine) {
+      antdMessage.info('网络已断开，无法检查更新');
+      return;
+    }
     const hideLoading = antdMessage.loading('正在检查更新…', 0);
     try {
       const state = await getStocksenseApi().checkAppUpdate();
@@ -339,6 +344,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
       <UpdateBanner />
       <SyncBanner />
 
+      <OfflineIndicator />
       <div className={styles['sidebar-footer']}>
         <Dropdown
           menu={{ items: menuItems, onClick: runAccountMenuAction }}

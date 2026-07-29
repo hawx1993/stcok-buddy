@@ -272,35 +272,51 @@ async function getMarketPageSnapshotCore(
   tab: MarketTab,
   period: MarketIndexPeriod = '1d',
 ): Promise<MarketPageSnapshot> {
+  const key = marketPageKey(tab, period);
+  const cached = getCachedMarketPageSnapshot(tab, period);
+  const local = await getLocalMarketPageSnapshot(tab, period).catch((error) => {
+    console.warn('[market] local snapshot failed', error);
+    return undefined;
+  });
+  const fallback = local?.rows.length ? local : cached;
+
   if (!shouldUseRemoteMarketData()) {
-    const snapshot = getCachedMarketPageSnapshot(tab, period);
-    if (!snapshot.rows.length || hasSparseQuoteRows(snapshot.rows))
-      return getRemoteMarketPageSnapshot(tab, period)
+    // Non-trading hours: show whatever we have locally, and try a remote refresh
+    // in the background only if the local data is sparse.
+    if (!fallback.rows.length || hasSparseQuoteRows(fallback.rows)) {
+      getRemoteMarketPageSnapshot(tab, period)
         .then((remote) => {
           const remoteSnapshot = { ...remote, rowOrderSource: 'remote' as const };
-          marketPageCache.set(marketPageKey(tab, period), { snapshot: remoteSnapshot });
-          return remoteSnapshot.rows.length ? remoteSnapshot : snapshot;
+          marketPageCache.set(key, { snapshot: remoteSnapshot });
+          marketPageEvents.emit('updated', remoteSnapshot);
+          return remoteSnapshot;
         })
         .catch(() => {
-          setTimeout(() => void hydrateLocalMarketPageSnapshot(tab, period), 0);
-          return snapshot;
+          /* offline — keep the local fallback */
         });
-    setTimeout(() => void hydrateLocalMarketPageSnapshot(tab, period), 0);
-    return snapshot;
+    }
+    return fallback;
   }
-  const snapshot = await getLocalMarketPageSnapshot(tab, period);
-  if (!snapshot.rows.length || hasSparseQuoteRows(snapshot.rows))
-    return getRemoteMarketPageSnapshot(tab, period)
-      .then((remote) => {
-        const remoteSnapshot = { ...remote, rowOrderSource: 'remote' as const };
-        if (remoteSnapshot.rows.length) marketPageCache.set(marketPageKey(tab, period), { snapshot: remoteSnapshot });
-        return remoteSnapshot.rows.length ? remoteSnapshot : snapshot;
-      })
-      .catch(() => snapshot);
-  void refreshMarketPageSnapshot(tab, period).catch((error) =>
-    console.warn('[market] background refresh failed', error),
-  );
-  return snapshot;
+
+  // Trading hours: good local data is enough; refresh in the background.
+  if (local?.rows.length && !hasSparseQuoteRows(local.rows)) {
+    void refreshMarketPageSnapshot(tab, period).catch((error) =>
+      console.warn('[market] background refresh failed', error),
+    );
+    return local;
+  }
+
+  // Local data is empty or sparse — try remote. If that fails, still return
+  // the local fallback (even name-only rows) so the table isn't blank offline.
+  try {
+    const remote = await getRemoteMarketPageSnapshot(tab, period);
+    const remoteSnapshot = { ...remote, rowOrderSource: 'remote' as const };
+    if (remoteSnapshot.rows.length) marketPageCache.set(key, { snapshot: remoteSnapshot });
+    return remoteSnapshot;
+  } catch (error) {
+    console.warn('[market] remote snapshot failed, using local fallback', error);
+    return fallback;
+  }
 }
 
 export async function getMarketPageSnapshot(
@@ -446,12 +462,14 @@ async function getLocalMarketPageSnapshot(tab: MarketTab, period: MarketIndexPer
         Number(b.changePercent ?? 0) - Number(a.changePercent ?? 0) || String(a.code).localeCompare(String(b.code)),
     );
   const persistedRows = cachedQuoteRows(tab);
-  const rows = localRows.length
-    ? mergeQuoteRows(localRows, quoteCache.rows.length ? quoteCache.rows : getStoredQuoteRows())
+  // Merge daily-bar rows with the last cached/stored live quotes so offline users
+  // still see prices even when remote is unreachable.
+  const mergedRows = mergeQuoteRows(localRows, persistedRows);
+  const rows = mergedRows.length
+    ? mergedRows
     : cached?.rows?.length
       ? cached.rows
-      : persistedRows;
-  if (hasSparseQuoteRows(rows)) return getRemoteMarketPageSnapshot(tab, period);
+      : await buildRowsFromSecurities(tab);
   const indices = marketIndexCache.get(period)?.rows ?? cached?.indices ?? (await getLocalMarketIndices(period));
   const snapshot: MarketPageSnapshot = {
     tab,
@@ -466,6 +484,30 @@ async function getLocalMarketPageSnapshot(tab: MarketTab, period: MarketIndexPer
   const entry = marketPageCache.get(key);
   marketPageCache.set(key, { ...entry, snapshot });
   return snapshot;
+}
+
+async function buildRowsFromSecurities(tab: MarketTab): Promise<MarketQuoteRow[]> {
+  const securities = await listSecurities().catch(() => []);
+  return securities
+    .filter((row) => quoteMatchesTab(row.symbol, tab))
+    .map(
+      (row): MarketQuoteRow => ({
+        code: row.symbol,
+        name: row.name,
+        price: undefined,
+        changePercent: undefined,
+        volume: undefined,
+        amount: undefined,
+        open: undefined,
+        high: undefined,
+        low: undefined,
+        prevClose: undefined,
+        turnoverRate: undefined,
+        marketCap: undefined,
+        industry: normalizeIndustryName(row.industry),
+      }),
+    )
+    .sort((a, b) => String(a.code).localeCompare(String(b.code)));
 }
 
 async function refreshMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod) {
