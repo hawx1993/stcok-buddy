@@ -394,6 +394,42 @@ export interface IChipDistributionResult {
   warnings?: string[];
 }
 
+export type TMonitorCategory =
+  | 'large-order'
+  | 'chip'
+  | 'technical'
+  | 'dragon-tiger'
+  | 'news'
+  | 'risk'
+  | 'ai-opportunity'
+  | 'ai-warning';
+
+export interface IMonitorEvent {
+  id: string;
+  category: TMonitorCategory;
+  timestamp: string;
+  code: string;
+  name: string;
+  price?: number | string;
+  changePercent?: number | string;
+  title: string;
+  badge?: string;
+  details: string[];
+  aiAnalysis: string;
+  star?: boolean;
+  chart?: {
+    type: 'line' | 'bar' | 'radar';
+    data: number[];
+    labels?: string[];
+  };
+  score?: number;
+}
+
+export interface IMonitorFeed {
+  updatedAt: string;
+  events: IMonitorEvent[];
+}
+
 export interface IStockNewsSubscription {
   code: string;
   name: string;
@@ -762,6 +798,8 @@ export interface StocksenseApi {
   cancelMarketDataSync(): Promise<MarketDataSyncStatus>;
   getMarketDataStats(): Promise<MarketDataStats>;
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
+  getDiscoverySnapshot(): Promise<Record<string, unknown>>;
+  getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number }): Promise<IMonitorFeed>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;
   syncKlines(): Promise<MarketDataSyncStatus>;

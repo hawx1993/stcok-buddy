@@ -1,4 +1,4 @@
-import { Activity, Layers, LineChart, MessageSquarePlus, Newspaper, Search, Star } from 'lucide-react';
+import { Activity, Bot, Layers, LineChart, MessageSquarePlus, Newspaper, Search, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAppStore } from './store/app-store';
 import { usePanelResize } from './hooks/use-panel-resize';
@@ -6,6 +6,7 @@ import { Sidebar } from './components/sidebar';
 import { createChatConversation } from './components/sidebar/components/create-chat-conversation';
 import { ChatView } from './components/chat-view';
 import { MarketView } from './components/market-view';
+import { DiscoveryView } from './components/discovery-view';
 import { NewsReader } from './components/news-reader';
 import { StockDetailPanel } from './components/stock-detail-panel';
 import { SettingsModal } from './components/settings-modal';
@@ -144,8 +145,8 @@ export function App() {
           <Sidebar searchOpen={searchOpen} />
         </ErrorBoundary>
         <main className={styles.main}>
-          <ErrorBoundary name={mainView === 'market' ? '行情区' : mainView === 'news-reader' ? '新闻阅读区' : '聊天区'}>
-            {mainView === 'news-reader' ? <NewsReader /> : mainView === 'market' ? <MarketView /> : <ChatView />}
+          <ErrorBoundary name={mainView === 'market' ? '行情区' : mainView === 'news-reader' ? '新闻阅读区' : mainView === 'discovery' ? '探索区' : '聊天区'}>
+            {mainView === 'news-reader' ? <NewsReader /> : mainView === 'market' ? <MarketView /> : mainView === 'discovery' ? <DiscoveryView /> : <ChatView />}
           </ErrorBoundary>
         </main>
         <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)} data-right-wrapper>
@@ -203,6 +204,19 @@ export function App() {
               aria-label='热点新闻'
             >
               <Newspaper size={18} />
+            </button>
+            <button
+              className={cx(
+                styles['rail-btn'],
+                rightPanelTab === 'ai-monitor' && !isRightPanelCollapsed && styles.active,
+              )}
+              onClick={() => openRightRail('ai-monitor')}
+              type='button'
+              title='AI监控'
+              data-label='AI监控'
+              aria-label='AI监控'
+            >
+              <Bot size={18} />
             </button>
           </div>
           <ErrorBoundary name='右侧栏'>

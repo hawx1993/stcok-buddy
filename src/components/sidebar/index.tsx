@@ -1,6 +1,6 @@
 import { Dropdown, message as antdMessage } from 'antd';
 import type { MenuProps } from 'antd';
-import { BarChart3, CloudDownload, Database, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
+import { BarChart3, CloudDownload, Compass, Database, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
 import { useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../store/app-store';
 import { usePanelResize } from '../../hooks/use-panel-resize';
@@ -247,6 +247,20 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
         >
           <BarChart3 size={17} />
           行情
+        </button>
+        <button
+          className={cx(styles['market-entry'], mainView === 'discovery' && styles.active)}
+          onMouseMove={moveGlow}
+          onClick={() => {
+            trackButtonClick('open_discovery');
+            trackPageView('discovery');
+            setConversationMenuId(undefined);
+            setMainView('discovery');
+          }}
+          type='button'
+        >
+          <Compass size={17} />
+          探索
         </button>
         {searchOpen ? (
           <input

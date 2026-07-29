@@ -8,6 +8,7 @@ import { FavoritesPanel } from './components/favorites-panel';
 import { MarketNewsPanel } from './components/market-news-panel';
 import { StockDetailView } from './components/stock-detail-view';
 import { StockSurgePanel } from './components/stock-surge-panel';
+import { AiMonitorPanel } from './components/ai-monitor-panel';
 import styles from './index.module.scss';
 
 const BACK_LABELS: Record<RightPanelTab, string> = {
@@ -16,6 +17,7 @@ const BACK_LABELS: Record<RightPanelTab, string> = {
   surge: '异动',
   news: '新闻',
   stock: '返回',
+  'ai-monitor': 'AI监控',
 };
 
 export function StockDetailPanel() {
@@ -93,6 +95,7 @@ export function StockDetailPanel() {
           genericBackLabel={showGenericBack && stockReturnContext ? BACK_LABELS[stockReturnContext.tab] : undefined}
         />
       ) : null}
+      {rightPanelTab === 'ai-monitor' ? <AiMonitorPanel isActive={!isRightPanelCollapsed} /> : null}
     </aside>
   );
 }
