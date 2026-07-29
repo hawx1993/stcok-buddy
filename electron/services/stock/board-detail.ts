@@ -11,6 +11,8 @@ import {
   listLatestMarketRows,
   listSecurities,
   readBoardDetail,
+  replaceBoardConstituents,
+  upsertMarketBoards,
   writeBoardDetail,
 } from '../market-data/market-data-store.js';
 import { formatMoney, formatNumber, formatPercent } from './format.js';
@@ -50,8 +52,11 @@ export async function getBoardDetail(symbol: string, forceRefresh = false, board
   const cacheKey = normalizeBoardCode(symbol);
   const refreshRemote = async (localFallback?: BoardDetail) => {
     const detail = await getRemoteBoardDetail(symbol, !localFallback, boardName, localFallback);
-    if (detail.kline?.length || detail.constituents?.length)
-      void writeBoardDetail({ detail, updatedAt: new Date().toISOString() });
+    if (detail.kline?.length || detail.constituents?.length) {
+      const updatedAt = new Date().toISOString();
+      void writeBoardDetail({ detail, updatedAt });
+      void persistBoardDetail(detail, updatedAt);
+    }
     return detail;
   };
 
@@ -226,6 +231,35 @@ function getBoardDetailTargets(
 function normalizeBoardCode(value: string) {
   const code = value.trim().toUpperCase();
   return /^\d{4}$/.test(code) ? `BK${code}` : code;
+}
+
+function persistBoardDetail(detail: BoardDetail, updatedAt: string) {
+  const changePercent =
+    detail.changePercent === undefined || detail.changePercent === '--'
+      ? undefined
+      : Number.parseFloat(detail.changePercent);
+  void upsertMarketBoards([
+    {
+      code: detail.code,
+      name: detail.name,
+      kind: boardKindCache.get(detail.code),
+      changePercent: Number.isFinite(changePercent as number) ? (changePercent as number) : undefined,
+      source: 'stock-sdk',
+      updatedAt,
+    },
+  ]);
+  if (detail.constituents?.length) {
+    void replaceBoardConstituents(
+      detail.code,
+      detail.constituents.map((row, index) => ({
+        boardCode: detail.code,
+        stockCode: row.code,
+        stockName: row.name,
+        position: index,
+        updatedAt,
+      })),
+    );
+  }
 }
 
 async function firstBoardConstituentsFromTargets(targets: string[]): Promise<NonNullable<BoardDetail['constituents']>> {

@@ -405,12 +405,8 @@
 .marketTableBody .marketTableRow:hover {
   background: var(--list-item-hover);
 }
-.cellUpdated,
-.rankUpdated {
+.cellUpdated {
   animation: market-cell-updated 1s ease-out;
-}
-.rankUpdated {
-  font-weight: 700;
 }
 @keyframes market-cell-updated {
   0% {
@@ -440,8 +436,7 @@
   .marketTable tbody tr {
     will-change: auto;
   }
-  .cellUpdated,
-  .rankUpdated {
+  .cellUpdated {
     animation-duration: 0.2s;
   }
 }

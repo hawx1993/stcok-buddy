@@ -1,7 +1,7 @@
 :root {
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
-  --sidebar-width: 250px;
-  --right-width: 380px;
+  --sidebar-width: 260px;
+  --right-width: 428px;
   --titlebar-height: 38px;
 }
 
@@ -114,6 +114,12 @@
   --market-down-bg: rgba(239, 68, 68, 0.12);
   --market-up-soft: rgba(34, 197, 94, 0.2);
   --market-down-soft: rgba(239, 68, 68, 0.15);
+}
+
+/* Disable transitions on panel resize handles during drag */
+html[data-resizing] [data-sidebar],
+html[data-resizing] [data-right-wrapper] {
+  transition: none !important;
 }
 
 :root[data-theme='light'][data-market-color='green-up-red-down'] {

@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ILoadOlderKlineInput } from '../kline-chart';
 import { IndexCard } from './components/index-card';
 import { IndexKlineModal } from './components/index-kline-modal';
 import { StockTable } from './components/stock-table';
+import type { TMarketCellField, TSortDirection } from './components/stock-table';
 import { formatMarketCap, formatMoney, formatPercent, formatVolume, parsePercent } from './market-format';
-import {
-  applyMarketRowOrderUpdateBatch,
-  applyMarketRowValueUpdateBatch,
-  MARKET_UPDATE_BATCH_SIZE,
-  sameMarketRows,
-} from './market-row-updates';
+import { applyMarketRowValueUpdate, sameMarketRows } from './market-row-updates';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type {
   BoardDetail,
@@ -26,8 +21,7 @@ import { useAppStore } from '../../store/app-store';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
 
-const MARKET_UPDATE_INTERVAL_MS = 520;
-const MARKET_ORDER_UPDATE_DELAY_MS = 60_000;
+const MARKET_ORDER_CHECK_INTERVAL_MS = 60_000;
 const MARKET_SCROLL_IDLE_MS = 200;
 
 const tabs: Array<{ id: MarketTab; label: string }> = [
@@ -46,7 +40,7 @@ const periods: Array<{ id: MarketIndexPeriod; label: string }> = [
   { id: '1mo', label: '月' },
 ];
 
-type SortDirection = 'asc' | 'desc' | undefined;
+type SortDirection = TSortDirection;
 
 export function MarketView() {
   const [activeTab, setActiveTab] = useState<MarketTab>('sh-main');
@@ -60,22 +54,22 @@ export function MarketView() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [suggestions, setSuggestions] = useState<MarketSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [sortField, setSortField] = useState<TMarketCellField | undefined>('changePercent');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [expandedIndexCode, setExpandedIndexCode] = useState<string>();
   const refreshTimer = useRef<number>();
   const scrollIdleRefreshTimer = useRef<number>();
   const updateTimer = useRef<number>();
   const isScrollingRef = useRef(false);
-  const pendingRowsByTabRef = useRef<Partial<Record<MarketTab, { rows: MarketQuoteRow[]; allowReorder: boolean }>>>({});
+  const pendingRowsByTabRef = useRef<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
   const activeTabRef = useRef(activeTab);
   const sortDirectionRef = useRef(sortDirection);
-  const orderUpdateDeadlineRef = useRef<number>(0);
+  const sortFieldRef = useRef(sortField);
   const refreshActiveTabRef = useRef<() => void>(() => undefined);
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const [updateVersion, setUpdateVersion] = useState(0);
   const [reorderingVersion, setReorderingVersion] = useState(0);
   const [changedCodes, setChangedCodes] = useState<string[]>([]);
-  const [movedCodes, setMovedCodes] = useState<string[]>([]);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
@@ -93,71 +87,71 @@ export function MarketView() {
 
   useEffect(() => {
     sortDirectionRef.current = sortDirection;
-  }, [sortDirection]);
+    sortFieldRef.current = sortField;
+  }, [sortDirection, sortField]);
 
-  const sortRowsByDirection = useCallback((rows: MarketQuoteRow[], direction: SortDirection) => {
-    if (!direction) return rows;
-    return [...rows].sort(
-      (a, b) =>
-        (parsePercent(a.changePercent) - parsePercent(b.changePercent)) * (direction === 'asc' ? 1 : -1) ||
-        String(a.code).localeCompare(String(b.code)),
-    );
-  }, []);
+  const sortRowsByDirection = useCallback(
+    (rows: MarketQuoteRow[], field: TMarketCellField | undefined, direction: SortDirection) => {
+      if (!direction || !field) return rows;
+      const getValue = (row: MarketQuoteRow): number => {
+        switch (field) {
+          case 'changePercent':
+            return parsePercent(row.changePercent);
+          case 'turnoverRate':
+            return parsePercent(row.turnoverRate);
+          case 'volume':
+            return Number(row.volume) || 0;
+          case 'amount':
+            return Number(row.amount) || 0;
+          case 'marketCap':
+            return Number(row.marketCap) || 0;
+          default:
+            return 0;
+        }
+      };
+      return [...rows].sort(
+        (a, b) =>
+          (getValue(a) - getValue(b)) * (direction === 'asc' ? 1 : -1) ||
+          String(a.code).localeCompare(String(b.code)),
+      );
+    },
+    [],
+  );
 
+  // 数值更新：一次性全量应用（保持当前显示顺序），所有变化单元格在同一帧同时闪烁高亮
   const runPendingUpdate = useCallback(() => {
     const activeTab = activeTabRef.current;
-    const pending = pendingRowsByTabRef.current[activeTab];
-    if (!pending) return;
+    const pendingRows = pendingRowsByTabRef.current[activeTab];
+    if (!pendingRows) return;
+    delete pendingRowsByTabRef.current[activeTab];
     const currentRows = rowsByTabRef.current[activeTab] ?? [];
-
-    // 1. 数值更新：立即，保持顺序
-    const valueBatch = applyMarketRowValueUpdateBatch(currentRows, pending.rows, MARKET_UPDATE_BATCH_SIZE);
-    let nextRows = valueBatch.rows;
-    const changedCodes = valueBatch.changedCodes;
-    let movedCodes: string[] = [];
-    let hasOrderUpdate = false;
-
-    // 2. 排序更新：延迟 1 分钟，每次最多 3 只；滚动时暂停
-    const orderBatch = applyMarketRowOrderUpdateBatch(nextRows, pending.rows, 3);
-    if (orderBatch.pending) {
-      if (orderUpdateDeadlineRef.current === 0) {
-        orderUpdateDeadlineRef.current = Date.now() + MARKET_ORDER_UPDATE_DELAY_MS;
-      }
-      if (!isScrollingRef.current && Date.now() >= orderUpdateDeadlineRef.current) {
-        nextRows = orderBatch.rows;
-        movedCodes = orderBatch.movedCodes;
-        hasOrderUpdate = true;
-        orderUpdateDeadlineRef.current = Date.now() + MARKET_ORDER_UPDATE_DELAY_MS;
-      }
-    } else {
-      orderUpdateDeadlineRef.current = 0;
-    }
-
-    const hasChange = changedCodes.length > 0 || movedCodes.length > 0;
-    if (hasChange) {
-      const nextRowsByTab = { ...rowsByTabRef.current, [activeTab]: nextRows };
-      rowsByTabRef.current = nextRowsByTab;
-      setRowsByTab(nextRowsByTab);
-      setChangedCodes(changedCodes);
-      setMovedCodes(movedCodes);
-      setUpdateVersion((version) => version + 1);
-      if (hasOrderUpdate) setReorderingVersion((version) => version + 1);
-    }
-
-    const remainingValuePending = valueBatch.pending;
-    const remainingOrderPending =
-      orderBatch.pending && (isScrollingRef.current || Date.now() < orderUpdateDeadlineRef.current);
-    const nextOrderPending = hasOrderUpdate
-      ? applyMarketRowOrderUpdateBatch(nextRows, pending.rows, 3).pending &&
-        (isScrollingRef.current || Date.now() < orderUpdateDeadlineRef.current)
-      : remainingOrderPending;
-
-    if (remainingValuePending || nextOrderPending) {
-      updateTimer.current = window.setTimeout(() => runPendingUpdate(), MARKET_UPDATE_INTERVAL_MS);
-    } else {
-      delete pendingRowsByTabRef.current[activeTab];
-    }
+    const { rows: nextRows, changedCodes } = applyMarketRowValueUpdate(currentRows, pendingRows);
+    if (!changedCodes.length) return;
+    const nextRowsByTab = { ...rowsByTabRef.current, [activeTab]: nextRows };
+    rowsByTabRef.current = nextRowsByTab;
+    setRowsByTab(nextRowsByTab);
+    setChangedCodes(changedCodes);
+    setUpdateVersion((version) => version + 1);
   }, []);
+
+  // 排序检查：每隔 1 分钟校验当前行顺序是否与表格指定的涨跌幅排序一致，
+  // 不一致则一次性整体重排（由 StockTable 的 FLIP 拖拽动画完成位置过渡）；滚动时跳过本次检查
+  const runSortOrderCheck = useCallback(() => {
+    if (isScrollingRef.current) return;
+    const direction = sortDirectionRef.current;
+    if (!direction) return;
+    const activeTab = activeTabRef.current;
+    const currentRows = rowsByTabRef.current[activeTab] ?? [];
+    if (currentRows.length < 2) return;
+    const sortedRows = sortRowsByDirection(currentRows, sortFieldRef.current, direction);
+    const orderChanged = sortedRows.some((row, index) => row.code !== currentRows[index]?.code);
+    if (!orderChanged) return;
+    const nextRowsByTab = { ...rowsByTabRef.current, [activeTab]: sortedRows };
+    rowsByTabRef.current = nextRowsByTab;
+    setRowsByTab(nextRowsByTab);
+    setChangedCodes([]);
+    setReorderingVersion((version) => version + 1);
+  }, [sortRowsByDirection]);
 
   const schedulePendingRowUpdate = useCallback(
     (delay = 0) => {
@@ -171,7 +165,7 @@ export function MarketView() {
     (data: MarketPageSnapshot) => {
       // eslint-disable-next-line no-console
       const filteredRows = data.rows.filter((row) => quoteMatchesTab(row.code, data.tab));
-      const sortedRows = sortRowsByDirection(filteredRows, sortDirectionRef.current);
+      const sortedRows = sortRowsByDirection(filteredRows, sortFieldRef.current, sortDirectionRef.current);
       const currentRows = rowsByTabRef.current[data.tab] ?? [];
       if (!currentRows.length) {
         const nextRowsByTab = { ...rowsByTabRef.current, [data.tab]: sortedRows };
@@ -180,11 +174,16 @@ export function MarketView() {
         return;
       }
       if (sameMarketRows(currentRows, sortedRows)) return;
-      pendingRowsByTabRef.current[data.tab] = { rows: sortedRows, allowReorder: data.rowOrderSource === 'remote' };
+      pendingRowsByTabRef.current[data.tab] = sortedRows;
       if (data.tab === activeTabRef.current) schedulePendingRowUpdate();
     },
     [schedulePendingRowUpdate, sortRowsByDirection],
   );
+
+  useEffect(() => {
+    const timer = window.setInterval(runSortOrderCheck, MARKET_ORDER_CHECK_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [runSortOrderCheck]);
 
   useEffect(() => {
     let alive = true;
@@ -271,32 +270,33 @@ export function MarketView() {
     setIndexPeriod(period);
     setLoading(true);
   };
-  const loadOlderIndexKline = useCallback(
-    async ({ timeframe, limit, beforeTimestamp }: ILoadOlderKlineInput) => {
-      const symbol = toMarketIndexSymbol(expandedIndexCode);
-      if (!symbol || timeframe !== indexPeriod) return [];
-      return getStocksenseApi().getKline(symbol, limit, timeframe, beforeTimestamp);
-    },
-    [expandedIndexCode, indexPeriod],
-  );
   const sortedRows = useMemo(() => visibleRows, [visibleRows]);
 
   const changeSortDirection = useCallback(
-    (nextDirection: SortDirection) => {
+    (field: TMarketCellField) => {
       window.clearTimeout(updateTimer.current);
+      // Same field: cycle desc → asc → undefined (no sort); different field: start desc
+      const isSameField = field === sortFieldRef.current;
+      const nextDirection: SortDirection = isSameField
+        ? sortDirectionRef.current === 'desc'
+          ? 'asc'
+          : sortDirectionRef.current === 'asc'
+            ? undefined
+            : 'desc'
+        : 'desc';
+      const nextField: TMarketCellField | undefined = nextDirection ? field : undefined;
+      setSortField(nextField);
       setSortDirection(nextDirection);
       setChangedCodes([]);
-      setMovedCodes([]);
       tableWrapRef.current?.scrollTo({ top: 0 });
       const currentRows = rowsByTabRef.current[activeTabRef.current] ?? [];
       if (!currentRows.length) return;
-      const nextRows = sortRowsByDirection(currentRows, nextDirection);
+      const nextRows = sortRowsByDirection(currentRows, nextField, nextDirection);
       const nextRowsByTab = { ...rowsByTabRef.current, [activeTabRef.current]: nextRows };
       rowsByTabRef.current = nextRowsByTab;
       setRowsByTab(nextRowsByTab);
       setUpdateVersion((version) => version + 1);
       setReorderingVersion((version) => version + 1);
-      orderUpdateDeadlineRef.current = 0;
     },
     [sortRowsByDirection],
   );
@@ -315,10 +315,19 @@ export function MarketView() {
     setActiveTab(tab);
     activeTabRef.current = tab;
     setChangedCodes([]);
-    setMovedCodes([]);
     setReorderingVersion(0);
-    orderUpdateDeadlineRef.current = 0;
     tableWrapRef.current?.scrollTo({ top: 0 });
+    // 切 tab 时立即把该 tab 的行整理为当前排序方向（表格整体重挂载，无需动画）
+    const direction = sortDirectionRef.current;
+    const currentRows = rowsByTabRef.current[tab] ?? [];
+    if (direction && currentRows.length > 1) {
+      const sortedRows = sortRowsByDirection(currentRows, sortFieldRef.current, direction);
+      if (sortedRows.some((row, index) => row.code !== currentRows[index]?.code)) {
+        const nextRowsByTab = { ...rowsByTabRef.current, [tab]: sortedRows };
+        rowsByTabRef.current = nextRowsByTab;
+        setRowsByTab(nextRowsByTab);
+      }
+    }
     schedulePendingRowUpdate();
   };
 
@@ -485,16 +494,12 @@ export function MarketView() {
           key={activeTab}
           rows={sortedRows}
           scrollRef={tableWrapRef}
+          sortField={sortField}
           sortDirection={sortDirection}
           updateVersion={updateVersion}
           reorderingVersion={reorderingVersion}
           changedCodes={changedCodes}
-          movedCodes={movedCodes}
-          onSortChange={() => {
-            const nextDirection: SortDirection =
-              sortDirection === 'desc' ? 'asc' : sortDirection === 'asc' ? undefined : 'desc';
-            changeSortDirection(nextDirection);
-          }}
+          onSortChange={changeSortDirection}
           onOpen={openStock}
         />
         {sortedRows.length ? <div className={styles.loadState}>共 {sortedRows.length} 只</div> : null}
@@ -502,9 +507,7 @@ export function MarketView() {
       {expandedIndex ? (
         <IndexKlineModal
           index={expandedIndex}
-          period={indexPeriod}
-          loadOlderKline={loadOlderIndexKline}
-          onPeriodChange={selectIndexPeriod}
+          initialPeriod={indexPeriod}
           onClose={() => setExpandedIndexCode(undefined)}
         />
       ) : null}

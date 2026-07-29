@@ -116,5 +116,22 @@ export interface BoardDetailCacheRecord {
   updatedAt: string;
 }
 
+export interface MarketBoardRecord {
+  code: string;
+  name: string;
+  kind?: string;
+  changePercent?: number;
+  source: string;
+  updatedAt: string;
+}
+
+export interface BoardConstituentRecord {
+  boardCode: string;
+  stockCode: string;
+  stockName: string;
+  position: number;
+  updatedAt: string;
+}
+
 export type HistoricalBarsResult = DataResult<KlinePoint[]>;
 export type LatestQuoteResult = DataResult<StockDetail>;

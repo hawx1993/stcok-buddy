@@ -1,6 +1,7 @@
 import { Activity, Layers, LineChart, MessageSquarePlus, Newspaper, Search, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAppStore } from './store/app-store';
+import { usePanelResize } from './hooks/use-panel-resize';
 import { Sidebar } from './components/sidebar';
 import { createChatConversation } from './components/sidebar/components/create-chat-conversation';
 import { ChatView } from './components/chat-view';
@@ -94,6 +95,7 @@ export function App() {
     trackPageView(`right_panel_${tab}`);
     setRightPanelTab(tab);
   };
+  const rightResize = usePanelResize('--right-width', 348, 500, 'w');
 
   return (
     <div className={styles.app}>
@@ -146,7 +148,8 @@ export function App() {
             {mainView === 'news-reader' ? <NewsReader /> : mainView === 'market' ? <MarketView /> : <ChatView />}
           </ErrorBoundary>
         </main>
-        <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)}>
+        <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)} data-right-wrapper>
+          <div className={styles['right-resize-handle']} onMouseDown={rightResize.onMouseDown} />
           <div className={styles['right-rail']}>
             <button
               className={cx(

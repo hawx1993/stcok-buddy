@@ -3,6 +3,7 @@ import { Layers, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
+import { isChinaMarketOpen } from '../../../shared/market-time';
 import type { BoardConstituent, StockDetail } from '../../../shared/types';
 import { useAppStore } from '../../../store/app-store';
 import { StockKlineChart } from '../../kline-chart';
@@ -17,6 +18,7 @@ export function BoardDetailPanel() {
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
   const loadingCodeRef = useRef<string>();
+  const quoteTimerRef = useRef<number>();
 
   useEffect(() => {
     if (board?.kline?.length || board?.constituents?.length) {
@@ -37,6 +39,68 @@ export function BoardDetailPanel() {
     const id = window.setTimeout(() => setInitialLoading(false), 20_000);
     return () => window.clearTimeout(id);
   }, [initialLoading, board?.code]);
+
+  // ponytail: keep constituent prices / change-percent fresh during market hours.
+  // We poll every 15s like the individual stock detail view, and also fetch once
+  // immediately so the "--" placeholders are filled even when the original board
+  // API response lacked price fields.
+  useEffect(() => {
+    const codes = (board?.constituents ?? [])
+      .map((row) => row.code)
+      .filter((code): code is string => Boolean(code))
+      .slice(0, 150);
+    if (!board?.code || !codes.length) return;
+    let alive = true;
+    const boardCode = board.code;
+
+    const refreshQuotes = () => {
+      getStocksenseApi()
+        .getBatchQuotes(codes)
+        .then((quotes) => {
+          if (!alive || !quotes.length) return;
+          const byCode = new Map(
+            quotes
+              .filter((quote) => quote.code)
+              .map((quote) => [quote.code.replace(/^(sh|sz|bj)/i, ''), quote]),
+          );
+          const current = useAppStore.getState().selectedBoard;
+          if (!current || current.code !== boardCode || !current.constituents?.length) return;
+          let changed = false;
+          const next = current.constituents.map((row) => {
+            const quote = byCode.get(row.code);
+            if (!quote) return row;
+            const price = quote.price === undefined || quote.price === '--' ? row.price : quote.price;
+            const changePercent =
+              !quote.changePercent || quote.changePercent === '--' ? row.changePercent : quote.changePercent;
+            const amount = !quote.turnover || quote.turnover === '--' ? row.amount : quote.turnover;
+            const turnover =
+              !quote.turnoverRate || quote.turnoverRate === '--' ? row.turnover : String(quote.turnoverRate);
+            if (
+              price === row.price &&
+              changePercent === row.changePercent &&
+              amount === row.amount &&
+              turnover === row.turnover
+            )
+              return row;
+            changed = true;
+            return { ...row, price, changePercent, amount, turnover };
+          });
+          if (changed) setSelectedBoard({ ...current, constituents: next });
+        })
+        .catch((error: unknown) => console.error('[board] refresh quotes failed', error));
+    };
+
+    refreshQuotes();
+    window.clearInterval(quoteTimerRef.current);
+    if (isChinaMarketOpen()) {
+      quoteTimerRef.current = window.setInterval(refreshQuotes, 15_000);
+    }
+
+    return () => {
+      alive = false;
+      window.clearInterval(quoteTimerRef.current);
+    };
+  }, [board?.code, board?.constituents?.length, setSelectedBoard]);
 
   if (!board) return null;
   const stocks = board.constituents ?? [];
@@ -79,10 +143,10 @@ export function BoardDetailPanel() {
 
   return (
     <div className={styles['board-detail']}>
-      <div className={styles['stock-header']}>
-        <div className={styles['stock-name']}>
+      <div className={cx(styles['stock-header'], styles['board-header'])}>
+        <div className={cx(styles['stock-name'], styles['board-title'])}>
           <Layers className={styles['panel-title-icon']} size={16} />
-          {board.name}
+          <span className={styles['board-title-text']}>{board.name}</span>
           <span className={styles.code}>{board.code} · 板块</span>
         </div>
         <div className={styles['board-header-side']}>
@@ -96,7 +160,12 @@ export function BoardDetailPanel() {
           >
             <RefreshCw size={14} />
           </button>
-          <div className={cx(styles['board-change'], String(board.changePercent).startsWith('-') ? 'down' : 'up')}>
+          <div
+            className={cx(
+              styles['board-change'],
+              trendClass(board.changePercent) ?? styles['na'],
+            )}
+          >
             {board.changePercent ?? '--'}
           </div>
         </div>
@@ -142,6 +211,7 @@ interface IBoardStockItemProps {
 }
 
 function BoardStockItem({ stock, onClick }: IBoardStockItemProps) {
+  const trend = trendClass(stock.changePercent);
   return (
     <button className={styles['board-stock-item']} onClick={onClick} type='button'>
       <span>
@@ -150,10 +220,15 @@ function BoardStockItem({ stock, onClick }: IBoardStockItemProps) {
       </span>
       <span className={styles['board-stock-side']}>
         <strong>{stock.price ?? '--'}</strong>
-        <em className={String(stock.changePercent).startsWith('-') ? 'down' : 'up'}>{stock.changePercent ?? '--'}</em>
+        <em className={cx(trend ?? styles['na'])}>{stock.changePercent ?? '--'}</em>
       </span>
     </button>
   );
+}
+
+function trendClass(value?: string | number) {
+  if (value === undefined || value === null || value === '' || value === '--') return undefined;
+  return String(value).startsWith('-') ? 'down' : 'up';
 }
 
 function BoardStockSkeleton() {
