@@ -145,8 +145,26 @@ export function App() {
           <Sidebar searchOpen={searchOpen} />
         </ErrorBoundary>
         <main className={styles.main}>
-          <ErrorBoundary name={mainView === 'market' ? '行情区' : mainView === 'news-reader' ? '新闻阅读区' : mainView === 'discovery' ? '探索区' : '聊天区'}>
-            {mainView === 'news-reader' ? <NewsReader /> : mainView === 'market' ? <MarketView /> : mainView === 'discovery' ? <DiscoveryView /> : <ChatView />}
+          <ErrorBoundary
+            name={
+              mainView === 'market'
+                ? '行情区'
+                : mainView === 'news-reader'
+                  ? '新闻阅读区'
+                  : mainView === 'discovery'
+                    ? '探索区'
+                    : '聊天区'
+            }
+          >
+            {mainView === 'news-reader' ? (
+              <NewsReader />
+            ) : mainView === 'market' ? (
+              <MarketView />
+            ) : mainView === 'discovery' ? (
+              <DiscoveryView />
+            ) : (
+              <ChatView />
+            )}
           </ErrorBoundary>
         </main>
         <div className={cx(styles['right-wrapper'], isRightPanelCollapsed && styles.collapsed)} data-right-wrapper>
@@ -196,16 +214,6 @@ export function App() {
               <Activity size={18} />
             </button>
             <button
-              className={cx(styles['rail-btn'], rightPanelTab === 'news' && !isRightPanelCollapsed && styles.active)}
-              onClick={() => openRightRail('news')}
-              type='button'
-              title='热点新闻'
-              data-label='热点新闻'
-              aria-label='热点新闻'
-            >
-              <Newspaper size={18} />
-            </button>
-            <button
               className={cx(
                 styles['rail-btn'],
                 rightPanelTab === 'ai-monitor' && !isRightPanelCollapsed && styles.active,
@@ -217,6 +225,16 @@ export function App() {
               aria-label='AI监控'
             >
               <Bot size={18} />
+            </button>
+            <button
+              className={cx(styles['rail-btn'], rightPanelTab === 'news' && !isRightPanelCollapsed && styles.active)}
+              onClick={() => openRightRail('news')}
+              type='button'
+              title='热点新闻'
+              data-label='热点新闻'
+              aria-label='热点新闻'
+            >
+              <Newspaper size={18} />
             </button>
           </div>
           <ErrorBoundary name='右侧栏'>

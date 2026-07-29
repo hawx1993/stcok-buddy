@@ -748,6 +748,26 @@ export interface IDataSyncTaskProgress {
   error?: string;
 }
 
+export interface ITradingAdviceSector {
+  name: string;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  leaderCode: string;
+  leaderName: string;
+}
+
+export interface ITradingAdvice {
+  starRating: number;
+  starLabel: string;
+  suggestedPosition: number;
+  positionReason: string;
+  suitableStrategies: string[];
+  unsuitableStrategies: string[];
+  keySectors: ITradingAdviceSector[];
+  marketSummary: string;
+  riskReminder: string;
+}
+
 export interface StocksenseApi {
   getStorageStats(): Promise<IStorageStats>;
   clearStorage(keys: string[]): Promise<IStorageStats>;
@@ -800,6 +820,7 @@ export interface StocksenseApi {
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
   getDiscoverySnapshot(): Promise<Record<string, unknown>>;
   getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number }): Promise<IMonitorFeed>;
+  getTradingAdvice(): Promise<ITradingAdvice>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;
   syncKlines(): Promise<MarketDataSyncStatus>;

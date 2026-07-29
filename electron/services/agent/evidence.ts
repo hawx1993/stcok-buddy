@@ -11,6 +11,21 @@ import type {
 import type { HistoricalBarsResult } from '../market-data/types.js';
 import type { DailyDragonTigerItem } from '../stock/stock-client.js';
 
+export function evidenceFromBoardCard(card?: AgentResultCard): EvidenceItem[] {
+  if (!card) return [fallbackEvidence('board', '板块资金流数据不足')];
+  const hasRows = Boolean(card.rows?.length);
+  return [
+    {
+      id: `board:${card.title}`,
+      source: hasRows ? 'fund-flow' : 'fallback',
+      title: card.title,
+      summary: card.narrative ?? card.subtitle ?? '板块数据暂不可用',
+      dataSource: hasRows ? 'stock-sdk' : undefined,
+      raw: { metrics: card.metrics, rows: card.rows },
+    },
+  ];
+}
+
 export function fallbackEvidence(
   id: string,
   title: string,

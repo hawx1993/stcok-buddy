@@ -1,4 +1,17 @@
-import { ArrowLeft, Compass } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BarChart3,
+  CalendarClock,
+  Compass,
+  Eye,
+  Flame,
+  Newspaper,
+  Target,
+  Thermometer,
+  TrendingUp,
+  Trophy,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { useAppStore } from '../../store/app-store';
@@ -11,8 +24,57 @@ import { DragonTiger } from './components/dragon-tiger';
 import { HotRotation } from './components/hot-rotation';
 import { LimitUpReview } from './components/limit-up-review';
 import { TomorrowPreview } from './components/tomorrow-preview';
+import { TradingAdvice } from './components/trading-advice';
 import { SubscribeFooter } from './components/subscribe-footer';
 import styles from './index.module.scss';
+
+type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
+
+interface ISectorSummary {
+  code: string;
+  name: string;
+  changePercent: number;
+  mainNetInflow: number;
+}
+
+interface IOpportunityRadarItem {
+  code: string;
+  name: string;
+  ratio: number;
+  changePercent: number;
+  mainNetInflow: number;
+}
+
+interface IMonthlyThemeItem {
+  week: string;
+  theme: string;
+  leader: { code: string; name: string } | null;
+}
+
+interface INextWeekSector {
+  name: string;
+  score: number;
+  reasoning: {
+    fundFlow: string;
+    news: string;
+    policy: string;
+    technical: string;
+    rotation: string;
+  };
+}
+
+interface IMarketSummary {
+  indices: Array<{ code: string; name: string; price: number; changePercent: number }>;
+  mainFundFlow: number | null;
+  northFundFlow: number | null;
+  limitUp: number;
+  limitDown: number;
+  sentimentBar: number;
+  sectors: ISectorSummary[];
+  opportunityRadar: IOpportunityRadarItem[];
+  monthlyThemes: IMonthlyThemeItem[];
+  nextWeekSectors: INextWeekSector[];
+}
 
 interface IDiscoverySnapshot {
   tradeDate: string;
@@ -24,6 +86,7 @@ interface IDiscoverySnapshot {
   indices?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
   bullets?: string[];
   wealthMetrics?: Array<{ label: string; value: number | null; unit: string }>;
+  marketSummary?: IMarketSummary;
   sentimentScore?: number | null;
   sentimentFactors?: Array<{ label: string; value: string | number }>;
   sentimentStocks?: { zt: TStockItem[]; dt: TStockItem[]; zb: TStockItem[] };
@@ -42,8 +105,6 @@ interface IDiscoverySnapshot {
   watchlistQuotes?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
 }
 
-type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
-
 const PILLS = [
   { id: 'hero', label: '机会分' },
   { id: 'sec-summary', label: '市场总结' },
@@ -53,6 +114,7 @@ const PILLS = [
   { id: 'sec-hotrotation', label: '热点轮动' },
   { id: 'sec-limitup', label: '涨停复盘' },
   { id: 'sec-tomorrow', label: '明日预判' },
+  { id: 'sec-trading-advice', label: '交易建议' },
 ];
 
 function formatDate(date: Date) {
@@ -61,6 +123,45 @@ function formatDate(date: Date) {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d} ${weekdays[date.getDay()]}`;
+}
+
+const SECTION_ICONS: Record<string, typeof Newspaper> = {
+  'sec-summary': Newspaper,
+  'sec-watchlist': Eye,
+  'sec-sentiment': Thermometer,
+  'sec-dragontiger': Trophy,
+  'sec-hotrotation': Flame,
+  'sec-limitup': TrendingUp,
+  'sec-tomorrow': CalendarClock,
+  'sec-trading-advice': Target,
+};
+
+function toDiscoverySnapshot(input: Record<string, unknown>): IDiscoverySnapshot {
+  return {
+    ...input,
+    tradeDate: typeof input.tradeDate === 'string' ? input.tradeDate : '',
+    generatedAt: typeof input.generatedAt === 'string' ? input.generatedAt : new Date().toISOString(),
+  } as IDiscoverySnapshot;
+}
+
+function SectionTitle({ id, title }: { id: string; title: string }) {
+  const Icon = SECTION_ICONS[id] ?? BarChart3;
+  return (
+    <div className={styles.sectionHead}>
+      <Icon className={styles.sectionIcon} size={16} />
+      <h2 className={styles.sectionTitle}>{title}</h2>
+    </div>
+  );
+}
+
+function SectionSkeleton() {
+  return (
+    <div className={styles.localSkeleton}>
+      <div className={styles.skeletonLine} />
+      <div className={styles.skeletonLine} />
+      <div className={styles.skeletonLine} />
+    </div>
+  );
 }
 
 export function DiscoveryView() {
@@ -77,7 +178,7 @@ export function DiscoveryView() {
     try {
       const api = getStocksenseApi();
       const data = await api.getDiscoverySnapshot();
-      setSnapshot(data as unknown as IDiscoverySnapshot);
+      setSnapshot(toDiscoverySnapshot(data));
     } catch (err) {
       setError(err instanceof Error ? err.message : '数据加载失败');
     } finally {
@@ -152,128 +253,118 @@ export function DiscoveryView() {
       {/* ── Content ── */}
       <div className={styles.scroll} ref={scrollRef}>
         <div className={styles.inner}>
-          {loading ? (
-            <div className={styles.loadingState}>
-              <div className={styles.skeletonHero} />
-              <div className={styles.skeletonLine} />
-              <div className={styles.skeletonLine} />
-              <div className={styles.skeletonLine} />
-            </div>
-          ) : error ? (
-            <div className={styles.errorState}>
-              <span className={styles.errorIcon}>⚠️</span>
+          {error && !snapshot ? (
+            <div className={styles.inlineErrorState}>
+              <AlertTriangle size={16} />
               <p>{error}</p>
               <button className={styles.retryBtn} onClick={load} type="button">重试</button>
             </div>
-          ) : !snapshot ? (
-            <div className={styles.emptyState}>
-              <span className={styles.emptyIcon}>📊</span>
-              <p>暂无今日机会数据</p>
+          ) : null}
+
+          {/* Hero Gauge */}
+          <div data-discovery-section="hero" id="hero" className={styles.section}>
+            <div className={styles.heroCard}>
+              <HeroGauge
+                score={snapshot?.score}
+                scoreLabel={snapshot?.scoreLabel}
+                scoreVerdict={snapshot?.scoreVerdict}
+                scoreTrend={snapshot?.scoreTrend}
+              />
             </div>
-          ) : (
-            <>
-              {/* Hero Gauge */}
-              <div data-discovery-section="hero" id="hero" className={styles.section}>
-                <div className={styles.heroCard}>
-                  <HeroGauge
-                    score={snapshot.score}
-                    scoreLabel={snapshot.scoreLabel}
-                    scoreVerdict={snapshot.scoreVerdict}
-                    scoreTrend={snapshot.scoreTrend}
-                  />
-                </div>
-              </div>
+          </div>
 
-              {/* Market Summary */}
-              <div data-discovery-section="sec-summary" id="sec-summary" className={styles.section}>
-                <div className={styles.sectionHead}>
-                  <span className={styles.sectionIcon}>📰</span>
-                  <h2 className={styles.sectionTitle}>AI 今日市场总结</h2>
-                </div>
-                <div className={styles.card}>
-                  <MarketSummary indices={snapshot.indices} bullets={snapshot.bullets} wealthMetrics={snapshot.wealthMetrics} />
-                </div>
-              </div>
+          {/* Market Summary */}
+          <div data-discovery-section="sec-summary" id="sec-summary" className={styles.section}>
+            <SectionTitle id="sec-summary" title="AI 今日市场总结" />
+            <div className={styles.card}>
+              {loading && !snapshot ? (
+                <SectionSkeleton />
+              ) : (
+                <MarketSummary
+                  indices={snapshot?.indices}
+                  bullets={snapshot?.bullets}
+                  wealthMetrics={snapshot?.wealthMetrics}
+                  marketSummary={snapshot?.marketSummary}
+                />
+              )}
+            </div>
+          </div>
 
-              {/* AI Monitor Center */}
-              <div data-discovery-section="sec-watchlist" id="sec-watchlist" className={styles.section}>
-                <div className={styles.sectionHead}>
-                  <span className={styles.sectionIcon}>👁️</span>
-                  <h2 className={styles.sectionTitle}>AI 监控中心</h2>
-                </div>
-                <div className={styles.card}>
-                  <MonitoringCenter />
-                </div>
-              </div>
+          {/* AI Monitor Center */}
+          <div data-discovery-section="sec-watchlist" id="sec-watchlist" className={styles.section}>
+            <SectionTitle id="sec-watchlist" title="AI 监控中心" />
+            <div className={styles.card}>
+              <MonitoringCenter />
+            </div>
+          </div>
 
-              {/* Sentiment Index */}
-              <div data-discovery-section="sec-sentiment" id="sec-sentiment" className={styles.section}>
-                <div className={styles.sectionHead}>
-                  <span className={styles.sectionIcon}>🌡️</span>
-                  <h2 className={styles.sectionTitle}>AI 情绪指数</h2>
-                </div>
-                <div className={styles.card}>
-                  <SentimentIndex
-                    score={snapshot.sentimentScore}
-                    factors={snapshot.sentimentFactors}
-                    stocks={snapshot.sentimentStocks}
-                    consecutiveStocks={snapshot.consecutiveStocks}
-                    yesterdayZt={snapshot.yesterdayZt}
-                    yesterdayLb={snapshot.yesterdayLb}
-                    leaders={snapshot.leaders}
-                  />
-                </div>
-              </div>
+          {/* Sentiment Index */}
+          <div data-discovery-section="sec-sentiment" id="sec-sentiment" className={styles.section}>
+            <SectionTitle id="sec-sentiment" title="AI 情绪指数" />
+            <div className={styles.card}>
+              {loading && !snapshot ? (
+                <SectionSkeleton />
+              ) : (
+                <SentimentIndex
+                  score={snapshot?.sentimentScore}
+                  factors={snapshot?.sentimentFactors}
+                  stocks={snapshot?.sentimentStocks}
+                  consecutiveStocks={snapshot?.consecutiveStocks}
+                  yesterdayZt={snapshot?.yesterdayZt}
+                  yesterdayLb={snapshot?.yesterdayLb}
+                  leaders={snapshot?.leaders}
+                />
+              )}
+            </div>
+          </div>
 
-              {/* Dragon Tiger */}
-              <div data-discovery-section="sec-dragontiger" id="sec-dragontiger" className={styles.section}>
-                <div className={styles.sectionHead}>
-                  <span className={styles.sectionIcon}>🐉</span>
-                  <h2 className={styles.sectionTitle}>AI 今日龙虎榜</h2>
-                </div>
-                <div className={styles.card}>
-                  <DragonTiger
-                    inst={snapshot.dragonTiger?.inst ?? []}
-                    hot={snapshot.dragonTiger?.hot ?? []}
-                    north={snapshot.dragonTiger?.north ?? []}
-                  />
-                </div>
-              </div>
+          {/* Dragon Tiger */}
+          <div data-discovery-section="sec-dragontiger" id="sec-dragontiger" className={styles.section}>
+            <SectionTitle id="sec-dragontiger" title="AI 今日龙虎榜" />
+            <div className={styles.card}>
+              {loading && !snapshot ? (
+                <SectionSkeleton />
+              ) : (
+                <DragonTiger
+                  inst={snapshot?.dragonTiger?.inst ?? []}
+                  hot={snapshot?.dragonTiger?.hot ?? []}
+                  north={snapshot?.dragonTiger?.north ?? []}
+                />
+              )}
+            </div>
+          </div>
 
-              {/* Hot Rotation */}
-              <div data-discovery-section="sec-hotrotation" id="sec-hotrotation" className={styles.section}>
-                <div className={styles.sectionHead}>
-                  <span className={styles.sectionIcon}>🔥</span>
-                  <h2 className={styles.sectionTitle}>AI 热点轮动</h2>
-                </div>
-                <div className={styles.card}>
-                  <HotRotation themes={snapshot.hotThemes} />
-                </div>
-              </div>
+          {/* Hot Rotation */}
+          <div data-discovery-section="sec-hotrotation" id="sec-hotrotation" className={styles.section}>
+            <SectionTitle id="sec-hotrotation" title="AI 热点轮动" />
+            <div className={styles.card}>
+              {loading && !snapshot ? <SectionSkeleton /> : <HotRotation themes={snapshot?.hotThemes} />}
+            </div>
+          </div>
 
-              {/* Limit Up Review */}
-              <div data-discovery-section="sec-limitup" id="sec-limitup" className={styles.section}>
-                <div className={styles.sectionHead}>
-                  <span className={styles.sectionIcon}>📈</span>
-                  <h2 className={styles.sectionTitle}>AI 涨停复盘</h2>
-                </div>
-                <div className={styles.card}>
-                  <LimitUpReview items={snapshot.limitUps} />
-                </div>
-              </div>
+          {/* Limit Up Review */}
+          <div data-discovery-section="sec-limitup" id="sec-limitup" className={styles.section}>
+            <SectionTitle id="sec-limitup" title="AI 涨停复盘" />
+            <div className={styles.card}>
+              {loading && !snapshot ? <SectionSkeleton /> : <LimitUpReview items={snapshot?.limitUps} />}
+            </div>
+          </div>
 
-              {/* Tomorrow Preview */}
-              <div data-discovery-section="sec-tomorrow" id="sec-tomorrow" className={styles.section}>
-                <div className={styles.sectionHead}>
-                  <span className={styles.sectionIcon}>🔮</span>
-                  <h2 className={styles.sectionTitle}>AI 明日预判</h2>
-                </div>
-                <div className={styles.card}>
-                  <TomorrowPreview items={snapshot.nextDayFocus} />
-                </div>
-              </div>
-            </>
-          )}
+          {/* Tomorrow Preview */}
+          <div data-discovery-section="sec-tomorrow" id="sec-tomorrow" className={styles.section}>
+            <SectionTitle id="sec-tomorrow" title="AI 明日预判" />
+            <div className={styles.card}>
+              {loading && !snapshot ? <SectionSkeleton /> : <TomorrowPreview items={snapshot?.nextDayFocus} />}
+            </div>
+          </div>
+
+          {/* Trading Advice */}
+          <div data-discovery-section="sec-trading-advice" id="sec-trading-advice" className={styles.section}>
+            <SectionTitle id="sec-trading-advice" title="AI 交易建议" />
+            <div className={styles.card}>
+              <TradingAdvice />
+            </div>
+          </div>
           <SubscribeFooter />
         </div>
       </div>

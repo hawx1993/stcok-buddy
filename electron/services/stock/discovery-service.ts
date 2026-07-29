@@ -1,8 +1,10 @@
-import { getMarketReview } from './market-review-service.js';
+import StockSDK from 'stock-sdk';
+import { getMarketReview, scoreSentiment } from './market-review-service.js';
 import { getBatchQuotes, getMarketPageSnapshot, listDailyDragonTiger, listEastmoneySurgeByDate } from './stock-client.js';
 import { listFavoriteStocks, getConfig } from '../config-store.js';
 import { chatWithOpenAICompatible } from '../llm/openai-compatible-client.js';
 import { listSurgeDates, listSurgeHistory } from './surge-history-store.js';
+import { fetchMarketIndex } from './market-indices.js';
 import type {
   HotFocusItem,
   IMarketReviewHotTheme,
@@ -10,6 +12,8 @@ import type {
   IMarketReviewMetric,
   IMarketReviewWatchItem,
 } from '../../../src/shared/types.js';
+
+const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 
 type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
 
@@ -21,7 +25,7 @@ export interface IDiscoverySnapshot {
   scoreLabel?: string;
   scoreVerdict?: string;
   scoreTrend?: number[];
-  // market summary
+  // legacy market summary (kept for backward compatibility)
   indices?: Array<{
     code: string;
     name: string;
@@ -30,6 +34,8 @@ export interface IDiscoverySnapshot {
   }>;
   bullets?: string[];
   wealthMetrics?: Array<{ label: string; value: number | null; unit: string }>;
+  // new AI market summary
+  marketSummary?: IMarketSummary;
   // sentiment
   sentimentScore?: number | null;
   sentimentFactors?: Array<{ label: string; value: string | number }>;
@@ -48,6 +54,7 @@ export interface IDiscoverySnapshot {
   }>;
   // hot themes (rotation)
   hotThemes?: Array<{
+    code?: string | null;
     name: string;
     score?: number | null;
     changePercent?: number | null;
@@ -80,6 +87,52 @@ export interface IDiscoverySnapshot {
   watchlistQuotes?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
 }
 
+export interface IMarketSummary {
+  indices: Array<{ code: string; name: string; price: number; changePercent: number }>;
+  mainFundFlow: number | null;
+  northFundFlow: number | null;
+  limitUp: number;
+  limitDown: number;
+  sentimentBar: number;
+  sectors: ISectorSummary[];
+  opportunityRadar: IOpportunityRadarItem[];
+  monthlyThemes: IMonthlyThemeItem[];
+  nextWeekSectors: INextWeekSector[];
+}
+
+export interface ISectorSummary {
+  code: string;
+  name: string;
+  changePercent: number;
+  mainNetInflow: number;
+}
+
+export interface IOpportunityRadarItem {
+  code: string;
+  name: string;
+  ratio: number;
+  changePercent: number;
+  mainNetInflow: number;
+}
+
+export interface IMonthlyThemeItem {
+  week: string;
+  theme: string;
+  leader: { code: string; name: string } | null;
+}
+
+export interface INextWeekSector {
+  name: string;
+  score: number;
+  reasoning: {
+    fundFlow: string;
+    news: string;
+    policy: string;
+    technical: string;
+    rotation: string;
+  };
+}
+
 function mapMetricToFactor(m: IMarketReviewMetric): { label: string; value: string | number } {
   if (m.value === null || m.value === undefined) return { label: m.label, value: '--' };
   return { label: m.label, value: `${m.value}${m.unit ?? ''}` };
@@ -91,6 +144,7 @@ function mapLeader(l: IMarketReviewLeader): NonNullable<IDiscoverySnapshot['lead
 
 function mapTheme(t: IMarketReviewHotTheme): NonNullable<IDiscoverySnapshot['hotThemes']>[number] {
   return {
+    code: t.boardCode,
     name: t.name,
     score: t.score,
     changePercent: t.changePercent,
@@ -104,6 +158,30 @@ function mapTheme(t: IMarketReviewHotTheme): NonNullable<IDiscoverySnapshot['hot
 
 function mapFocusItem(item: IMarketReviewWatchItem): NonNullable<IDiscoverySnapshot['nextDayFocus']>[number] {
   return { category: item.category, condition: item.condition, baseline: item.baseline };
+}
+
+type TMonthlyThemeCandidate = { week?: string; theme?: string; leaderName?: string; leaderCode?: string };
+type TNextWeekSectorCandidate = { name?: string; score?: number; reasoning?: Partial<INextWeekSector['reasoning']> };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseJsonArray<T>(text: string, isItem: (value: unknown) => value is T): T[] {
+  const parsed: unknown = JSON.parse(text);
+  return Array.isArray(parsed) ? parsed.filter(isItem) : [];
+}
+
+function isMonthlyThemeCandidate(value: unknown): value is TMonthlyThemeCandidate {
+  return isRecord(value);
+}
+
+function isNextWeekSectorCandidate(value: unknown): value is TNextWeekSectorCandidate {
+  return isRecord(value);
+}
+
+function sdkErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function toStockItem(item: HotFocusItem): TStockItem {
@@ -147,11 +225,6 @@ function scoreLabel(s: number): string {
   if (s >= 40) return '中性 · 观望为主';
   if (s >= 20) return '偏谨慎 · 控制仓位';
   return '谨慎 · 风险较高';
-}
-
-function scoreSentiment(up: number, down: number, zt: number, dt: number, broken: number) {
-  if (!up && !down && !zt && !dt && !broken) return null;
-  return Math.max(0, Math.min(100, Math.round(50 + (up - down) / Math.max(up + down, 1) * 30 + zt - dt * 2 - broken / 2)));
 }
 
 async function buildScoreTrend(currentTradeDate: string, currentScore: number): Promise<number[]> {
@@ -237,6 +310,336 @@ async function generateOneSentenceVerdict(
     console.warn('[discovery] generate one-sentence verdict failed', error);
     return scoreLabel(score);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Market Summary — real data + AI analysis
+// ═══════════════════════════════════════════════════════════════
+
+function indexCodeToName(code: string): string {
+  if (code === 'sh000001') return '上证指数';
+  if (code === 'sz399001') return '深证成指';
+  if (code === 'sz399006') return '创业板指';
+  if (code === 'bj899050') return '北证50';
+  return code;
+}
+
+async function fetchAllIndices(): Promise<Array<{ code: string; name: string; price: number; changePercent: number }>> {
+  const codes = ['sh000001', 'sz399001', 'sz399006', 'bj899050'];
+  const results = await Promise.all(
+    codes.map(async (code) => {
+      try {
+        const snapshot = await fetchMarketIndex(code, '1d', 1);
+        if (!snapshot || typeof snapshot.price !== 'number') return undefined;
+        return {
+          code,
+          name: indexCodeToName(code),
+          price: Number(snapshot.price),
+          changePercent: Number(snapshot.changePercent ?? 0),
+        };
+      } catch (err) {
+        console.warn(`[discovery] failed to fetch index ${code}`, err);
+        return undefined;
+      }
+    }),
+  );
+  return results.filter((item): item is NonNullable<typeof item> => Boolean(item));
+}
+
+async function fetchMainFundFlow(): Promise<number | null> {
+  try {
+    const rows = await sdk.fundFlow.market();
+    const latest = rows
+      .filter((r) => r.mainNetInflow !== null && r.mainNetInflow !== undefined)
+      .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))[0];
+    return latest ? Number(latest.mainNetInflow) / 100_000_000 : null;
+  } catch (err) {
+    console.warn('[discovery] main fund flow fetch failed', err);
+    return null;
+  }
+}
+
+async function fetchNorthFundFlow(): Promise<number | null> {
+  try {
+    const rows = await sdk.northbound.summary();
+    const north = rows.find((r) => r.direction?.includes('北向') || r.direction?.includes('North'));
+    return north?.netInflow !== null && north?.netInflow !== undefined ? Number(north.netInflow) / 100_000_000 : null;
+  } catch (err) {
+    console.warn('[discovery] north fund flow fetch failed', err);
+    return null;
+  }
+}
+
+async function fetchSectorFlowRank(indicator: 'today' | '10day' = 'today'): Promise<ISectorSummary[]> {
+  try {
+    const rows = await sdk.fundFlow.sectorRank({ indicator });
+    return rows
+      .filter((r) => r.changePercent !== null && r.changePercent !== undefined)
+      .map((r) => ({
+        code: r.code ?? '',
+        name: r.name ?? '',
+        changePercent: Number(r.changePercent ?? 0),
+        mainNetInflow: r.mainNetInflow !== null && r.mainNetInflow !== undefined ? Number(r.mainNetInflow) / 100_000_000 : 0,
+      }))
+      .filter((r) => r.code && r.name)
+      .slice(0, 30);
+  } catch (err) {
+    console.warn(`[discovery] sector flow ${indicator} rank unavailable: ${sdkErrorMessage(err)}`);
+    return [];
+  }
+}
+
+function buildOpportunityRadar(sectors: ISectorSummary[]): IOpportunityRadarItem[] {
+  return sectors
+    .map((s) => {
+      const absChg = Math.abs(s.changePercent) || 0.01;
+      const ratio = s.mainNetInflow / absChg;
+      return {
+        code: s.code,
+        name: s.name,
+        ratio,
+        changePercent: s.changePercent,
+        mainNetInflow: s.mainNetInflow,
+      };
+    })
+    .filter((s) => s.mainNetInflow > 0 && s.changePercent > -5 && s.changePercent < 10)
+    .sort((a, b) => b.ratio - a.ratio)
+    .slice(0, 5);
+}
+
+async function generateMonthlyThemes(
+  hotThemes: IMarketReviewHotTheme[],
+  sectorFlows10d: ISectorSummary[],
+): Promise<IMonthlyThemeItem[]> {
+  try {
+    const cfg = getConfig();
+    const hotThemesText = hotThemes
+      .slice(0, 8)
+      .map((t) => `${t.name}(涨停${t.limitUpCount ?? 0}家，龙头${t.leaderName ?? '--'})`)
+      .join('、');
+    const flowText = sectorFlows10d
+      .slice(0, 10)
+      .map((s) => `${s.name}(10日资金${s.mainNetInflow >= 0 ? '+' : ''}${s.mainNetInflow.toFixed(1)}亿，涨幅${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%)`)
+      .join('、');
+
+    const messages = [
+      {
+        role: 'system' as const,
+        content:
+          '你是 A 股题材轮动分析师。仅使用用户提供的真实数据，严禁编造股票或数值。请根据近 10 日资金流向和当前热点，推断出近 4 周每周的主流热点主题及代表性龙头。输出严格的 JSON 数组，每个元素包含 week（第1周~第4周，本周为第4周）、theme（主题名称）、leaderName（龙头名称）、leaderCode（龙头代码，如 300308，没有则空字符串）。主题应从数据中归纳，不能脱离数据。',
+      },
+      {
+        role: 'user' as const,
+        content: `当前热点板块：${hotThemesText}\n近10日板块资金流向：${flowText}\n\n请输出 JSON：`,
+      },
+    ];
+
+    const raw = await chatWithOpenAICompatible(cfg.model, messages);
+    const jsonText = raw.match(/\[[\s\S]*\]/)?.[0] ?? raw;
+    const parsed = parseJsonArray<TMonthlyThemeCandidate>(jsonText, isMonthlyThemeCandidate);
+    return parsed
+      .filter((p) => p.week && p.theme)
+      .map((p) => ({
+        week: p.week!,
+        theme: p.theme!,
+        leader: p.leaderName ? { code: p.leaderCode ?? '', name: p.leaderName } : null,
+      }))
+      .slice(0, 4);
+  } catch (err) {
+    console.warn('[discovery] generate monthly themes failed', err);
+    // fallback: derive from hot themes
+    return hotThemes.slice(0, 4).map((t, i) => ({
+      week: `第${i + 1}周`,
+      theme: t.name,
+      leader: t.leaderName && t.leaderCode ? { code: t.leaderCode, name: t.leaderName } : null,
+    }));
+  }
+}
+
+async function generateNextWeekSectors(
+  sectors: ISectorSummary[],
+  hotThemes: IMarketReviewHotTheme[],
+  mainFundFlow: number | null,
+  northFundFlow: number | null,
+): Promise<INextWeekSector[]> {
+  try {
+    const cfg = getConfig();
+    const sectorText = sectors
+      .slice(0, 15)
+      .map((s) => `${s.name}(涨幅${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%，资金${s.mainNetInflow >= 0 ? '+' : ''}${s.mainNetInflow.toFixed(1)}亿)`)
+      .join('、');
+    const hotText = hotThemes
+      .slice(0, 8)
+      .map((t) => `${t.name}(涨停${t.limitUpCount ?? 0}家，龙头${t.leaderName ?? '--'})`)
+      .join('、');
+
+    const messages = [
+      {
+        role: 'system' as const,
+        content:
+          '你是 A 股策略分析师。仅使用用户提供的真实数据，从资金面、消息面/政策、技术面、板块轮动四个维度，挑选下周最可能强势的 4 个板块。输出严格 JSON 数组，每个元素包含 name（板块名）、score（0-100 整数）、reasoning（对象：fundFlow/news/policy/technical/rotation，每个字段 30-60 字）。严禁编造具体数值，可从数据中归纳趋势。',
+      },
+      {
+        role: 'user' as const,
+        content: `今日主力资金净流入：${mainFundFlow !== null ? `${mainFundFlow >= 0 ? '+' : ''}${mainFundFlow.toFixed(1)}亿` : '暂无'}
+今日北向资金净流入：${northFundFlow !== null ? `${northFundFlow >= 0 ? '+' : ''}${northFundFlow.toFixed(1)}亿` : '暂无'}
+今日板块表现：${sectorText}
+当前热点：${hotText}
+
+请输出 JSON：`,
+      },
+    ];
+
+    const raw = await chatWithOpenAICompatible(cfg.model, messages);
+    const jsonText = raw.match(/\[[\s\S]*\]/)?.[0] ?? raw;
+    const parsed = parseJsonArray<TNextWeekSectorCandidate>(jsonText, isNextWeekSectorCandidate);
+    return parsed
+      .filter((p) => p.name)
+      .map((p) => ({
+        name: p.name!,
+        score: Math.max(0, Math.min(100, Math.round(p.score ?? 70))),
+        reasoning: {
+          fundFlow: p.reasoning?.fundFlow ?? '资金关注度一般，需持续跟踪。',
+          news: p.reasoning?.news ?? '消息面暂无重大催化。',
+          policy: p.reasoning?.policy ?? '政策面无明确边际变化。',
+          technical: p.reasoning?.technical ?? '技术面处于震荡整理阶段。',
+          rotation: p.reasoning?.rotation ?? '板块轮动中尚未形成明确主线。',
+        },
+      }))
+      .slice(0, 4);
+  } catch (err) {
+    console.warn('[discovery] generate next-week sectors failed', err);
+    // fallback: top sectors by inflow
+    return sectors
+      .filter((s) => s.mainNetInflow > 0)
+      .sort((a, b) => b.mainNetInflow - a.mainNetInflow)
+      .slice(0, 4)
+      .map((s) => ({
+        name: s.name,
+        score: 70,
+        reasoning: {
+          fundFlow: `今日主力净流入 ${s.mainNetInflow.toFixed(1)} 亿，资金活跃度较高。`,
+          news: '建议结合最新新闻公告进一步验证催化。',
+          policy: '关注相关政策面是否持续发酵。',
+          technical: `板块涨跌幅 ${s.changePercent.toFixed(2)}%，技术形态需结合量能观察。`,
+          rotation: '当前市场轮动较快，需观察持续性。',
+        },
+      }));
+  }
+}
+
+async function fetchSectorLeaders(code: string): Promise<Array<{ code: string; name: string; height?: number | null }> | undefined> {
+  const loaders = [
+    () => sdk.board.concept.constituents(code),
+    () => sdk.board.industry.constituents(code),
+  ];
+  for (const load of loaders) {
+    try {
+      const items = await load();
+      const leaders = items
+        .slice(0, 3)
+        .map((item) => ({ code: item.code ?? '', name: item.name ?? '' }))
+        .filter((item) => item.code && item.name);
+      if (leaders.length) return leaders;
+    } catch {
+      // Try the next real board constituent source.
+    }
+  }
+  return undefined;
+}
+
+function buildHotThemesFromPools(poolItems: HotFocusItem[]): NonNullable<IDiscoverySnapshot['hotThemes']> {
+  const groups = new Map<string, HotFocusItem[]>();
+  for (const item of poolItems) {
+    const boardName = item.description?.split('·')[0]?.trim();
+    if (!boardName || boardName.includes('换手') || boardName.includes('封单') || boardName.includes('成交额')) continue;
+    const rows = groups.get(boardName) ?? [];
+    rows.push(item);
+    groups.set(boardName, rows);
+  }
+
+  return Array.from(groups.entries())
+    .map(([name, items]) => {
+      const limitUpItems = items.filter((item) => item.tag === '封涨停板');
+      const changeValues = items
+        .map((item) => parseChgPct(item.changePercent))
+        .filter((value): value is number => value !== undefined);
+      const avgChange = changeValues.length
+        ? changeValues.reduce((sum, value) => sum + value, 0) / changeValues.length
+        : null;
+      const leaders = limitUpItems
+        .slice(0, 3)
+        .map((item) => ({ code: item.code ?? '', name: item.name ?? item.title, height: parseHeight(item.description) }))
+        .filter((item) => item.code && item.name);
+      return {
+        code: null,
+        name,
+        score: limitUpItems.length * 2 + Math.max(0, Math.round(avgChange ?? 0)),
+        changePercent: avgChange,
+        limitUpCount: limitUpItems.length,
+        reason: `${name}板块今日${limitUpItems.length}只涨停${avgChange !== null ? `，样本平均涨跌幅 ${avgChange >= 0 ? '+' : ''}${avgChange.toFixed(2)}%` : ''}。`,
+        leaderName: leaders[0]?.name ?? null,
+        leaderCode: leaders[0]?.code ?? null,
+        leaders: leaders.length ? leaders : undefined,
+      };
+    })
+    .filter((theme) => theme.limitUpCount > 0)
+    .sort((a, b) => (b.limitUpCount ?? 0) - (a.limitUpCount ?? 0) || (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 8);
+}
+
+async function buildHotThemesFromSectors(sectors: ISectorSummary[]): Promise<NonNullable<IDiscoverySnapshot['hotThemes']>> {
+  const rows = sectors.slice(0, 8);
+  const leaders = await Promise.all(rows.map((sector) => fetchSectorLeaders(sector.code)));
+  return rows.map((sector, index) => ({
+    code: sector.code,
+    name: sector.name,
+    score: Math.max(1, 5 - index),
+    changePercent: sector.changePercent,
+    limitUpCount: null,
+    reason: `板块涨跌幅 ${sector.changePercent >= 0 ? '+' : ''}${sector.changePercent.toFixed(2)}%，主力净流入 ${sector.mainNetInflow >= 0 ? '+' : ''}${sector.mainNetInflow.toFixed(1)} 亿。`,
+    leaderName: leaders[index]?.[0]?.name ?? null,
+    leaderCode: leaders[index]?.[0]?.code ?? null,
+    leaders: leaders[index],
+  }));
+}
+
+async function buildMarketSummary(
+  reviewData: Awaited<ReturnType<typeof getMarketReview>> | undefined,
+  pools: HotFocusItem[],
+): Promise<IMarketSummary | undefined> {
+  const [sectors, sectorFlows10d] = await Promise.all([fetchSectorFlowRank(), fetchSectorFlowRank('10day')]);
+
+  const [indices, mainFundFlow, northFundFlow] = await Promise.all([
+    fetchAllIndices(),
+    fetchMainFundFlow(),
+    fetchNorthFundFlow(),
+  ]);
+
+  if (!indices.length && !sectors.length) return undefined;
+
+  const limitUp = pools.filter((item) => item.tag === '封涨停板').length;
+  const limitDown = pools.filter((item) => item.tag === '封跌停板').length;
+  const sentimentBar = reviewData?.sentimentScore ?? 50;
+  const opportunityRadar = buildOpportunityRadar(sectors);
+
+  const [monthlyThemes, nextWeekSectors] = await Promise.all([
+    generateMonthlyThemes(reviewData?.hotThemes ?? [], sectorFlows10d),
+    generateNextWeekSectors(sectors, reviewData?.hotThemes ?? [], mainFundFlow, northFundFlow),
+  ]);
+
+  return {
+    indices,
+    mainFundFlow,
+    northFundFlow,
+    limitUp,
+    limitDown,
+    sentimentBar,
+    sectors,
+    opportunityRadar,
+    monthlyThemes,
+    nextWeekSectors,
+  };
 }
 
 export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
@@ -385,6 +788,22 @@ export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
     });
   }
 
+  // Build new AI market summary.
+  let marketSummary: IMarketSummary | undefined;
+  try {
+    marketSummary = await buildMarketSummary(reviewData, poolItems);
+  } catch (err) {
+    console.warn('[discovery] build market summary failed', err);
+  }
+
+  const sectorThemes = await buildHotThemesFromSectors(marketSummary?.sectors ?? []);
+  const poolThemes = buildHotThemesFromPools(poolItems);
+  const hotThemes = reviewData?.hotThemes?.length
+    ? reviewData.hotThemes.map(mapTheme)
+    : sectorThemes.length
+      ? sectorThemes
+      : poolThemes;
+
   return {
     tradeDate,
     generatedAt: new Date().toISOString(),
@@ -395,6 +814,7 @@ export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
     indices: indices.length ? indices : undefined,
     bullets: bullets.length ? bullets : undefined,
     wealthMetrics: wealthMetrics.length ? wealthMetrics : undefined,
+    marketSummary,
     sentimentScore: reviewData?.sentimentScore ?? null,
     sentimentFactors: reviewData?.sentiment
       ? reviewData.sentiment.map((m) => {
@@ -409,7 +829,7 @@ export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
     yesterdayZt: yesterdayZt?.length ? yesterdayZt : undefined,
     yesterdayLb: yesterdayLb?.length ? yesterdayLb : undefined,
     leaders: reviewData?.leaders?.map(mapLeader),
-    hotThemes: reviewData?.hotThemes?.map(mapTheme),
+    hotThemes: hotThemes.length ? hotThemes : undefined,
     limitUps: limitUps?.length ? limitUps : undefined,
     dragonTiger: { inst: dtInst.length ? dtInst : dtFill.slice(0, 3), hot: dtHot.length ? dtHot : dtFill.slice(3, 5), north: dtNorth.length ? dtNorth : [] },
     nextDayFocus: reviewData?.nextDayFocus?.map(mapFocusItem),

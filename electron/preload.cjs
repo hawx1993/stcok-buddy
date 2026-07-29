@@ -65,6 +65,7 @@ var api = {
   getMarketPageSnapshot: (tab, period) => import_electron.ipcRenderer.invoke("market:getPageSnapshot", tab, period),
   getDiscoverySnapshot: () => import_electron.ipcRenderer.invoke("discovery:getSnapshot"),
   getMonitorFeed: (options) => import_electron.ipcRenderer.invoke("monitor:getFeed", options),
+  getTradingAdvice: () => import_electron.ipcRenderer.invoke("trading-advice:get"),
   onMarketPageSnapshotUpdated: (handler) => {
     const listener = (_event, snapshot) => handler(snapshot);
     import_electron.ipcRenderer.on("market:pageSnapshotUpdated", listener);

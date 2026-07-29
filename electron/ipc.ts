@@ -66,6 +66,7 @@ import {
 } from './services/stock/stock-client.js';
 import { getDiscoverySnapshot } from './services/stock/discovery-service.js';
 import { getMonitorFeed } from './services/stock/monitor-service.js';
+import { getTradingAdvice } from './services/stock/trading-advice-service.js';
 import { listHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { closeSurgeHistoryInstance, listSurgeDates } from './services/stock/surge-history-store.js';
@@ -206,6 +207,7 @@ export function registerIpcHandlers() {
   );
   ipcMain.handle('discovery:getSnapshot', () => getDiscoverySnapshot());
   ipcMain.handle('monitor:getFeed', (_event, options?: Parameters<typeof getMonitorFeed>[0]) => getMonitorFeed(options));
+  ipcMain.handle('trading-advice:get', () => getTradingAdvice());
   const removeMarketPageListener = onMarketPageSnapshotUpdated((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('market:pageSnapshotUpdated', snapshot);
   });

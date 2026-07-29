@@ -24,6 +24,7 @@ import {
   evidenceFromNews,
   evidenceFromQuote,
   evidenceFromTechnical,
+  evidenceFromBoardCard,
 } from './evidence.js';
 import { generateReport } from '../llm/index.js';
 import { createMarketReviewMessages } from './market-review-prompt.js';
@@ -80,6 +81,8 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         description: `拉取 ${context.boardKeyword ?? '相关'} 板块与资金流数据`,
         run: async (ctx) => {
           ctx.board = await fetchBoard(ctx.boardKeyword ?? '资金');
+          ctx.analysisOverview = ctx.board.narrative ?? '';
+          ctx.evidence.push(...evidenceFromBoardCard(ctx.board));
         },
       },
     ];

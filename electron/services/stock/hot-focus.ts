@@ -1,8 +1,18 @@
 import StockSDK from 'stock-sdk';
-import type { AgentResultCard, HotFocusItem, HotFocusTab, StockSurgeEvent } from '../../../src/shared/types.js';
+import type {
+  AgentResultCard,
+  BoardDetail,
+  HotFocusItem,
+  HotFocusTab,
+  MarketQuoteRow,
+  StockSurgeEvent,
+} from '../../../src/shared/types.js';
 import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/market-time.js';
 import { isRemoteTradingDay } from '../market-data/providers.js';
+import { listBoardConstituents, listLatestMarketRows, listMarketBoards } from '../market-data/market-data-store.js';
+import type { MarketBoardRecord } from '../market-data/types.js';
 import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from './format.js';
+import { getBoardDetail } from './board-detail.js';
 import { normalizeASymbol } from './symbols.js';
 import { withTimeoutReject } from './shared.js';
 import {
@@ -604,29 +614,316 @@ async function listStockRankHot(tab: HotFocusTab): Promise<HotFocusItem[]> {
 }
 
 export async function getBoardSnapshot(keyword: string): Promise<AgentResultCard> {
-  const [industries, concepts, sectorRank] = await Promise.allSettled([
+  const normalizedKeyword = normalizeBoardKeyword(keyword);
+  const [localBoards, latestMarketRows, sectorRank, stockFlowRank, industries, concepts] = await Promise.allSettled([
+    listMarketBoards(),
+    listLatestMarketRows(),
+    sdk.fundFlow.sectorRank({ indicator: 'today' }),
+    sdk.fundFlow.rank({ indicator: 'today' }),
     sdk.board.industry.list(),
     sdk.board.concept.list(),
-    sdk.fundFlow.sectorRank({ indicator: 'today' }),
   ]);
 
-  const boards = [
-    ...(industries.status === 'fulfilled' ? (industries.value as unknown as AnyRecord[]) : []),
-    ...(concepts.status === 'fulfilled' ? (concepts.value as unknown as AnyRecord[]) : []),
-  ];
-  const matched = boards.find((board) =>
-    String(board.name ?? board.boardName ?? '').includes(keyword.replace(/板块|行业/g, '')),
+  const localBoardRows = settledLocalBoards(localBoards);
+  const remoteBoards = [...settledRows(industries), ...settledRows(concepts)];
+  const flows = settledRows(sectorRank);
+  const latestRows = latestMarketRows.status === 'fulfilled' ? latestMarketRows.value : [];
+  const matched = findMatchedBoard(normalizedKeyword, localBoardRows, [...remoteBoards, ...flows]);
+  const matchedCode = readCode(matched);
+  const matchedName = readName(matched);
+  const matchedFlow = matched ? findMatchedFlow(matched, flows) : undefined;
+  const detail = matchedCode
+    ? await buildLocalBoardDetail(matchedCode, matchedName ?? normalizedKeyword, latestRows).then((localDetail) =>
+        localDetail.constituents?.length ? localDetail : getBoardDetail(matchedCode, false, matchedName).catch(() => localDetail),
+      )
+    : undefined;
+  const stockFlowByCode = new Map(
+    settledRows(stockFlowRank)
+      .map((row) => [normalizeASymbol(readCode(row) ?? ''), row] as const)
+      .filter(([code]) => /^\d{6}$/.test(code)),
   );
-  const flows = sectorRank.status === 'fulfilled' ? (sectorRank.value as unknown as AnyRecord[]).slice(0, 6) : [];
+  const leaders = pickLeaderStocks(detail, stockFlowByCode);
+  const localAmount = sumLeaderAmount(leaders);
+  const mainFlow = readMainNetInflow(matchedFlow);
+  const displayFlow = mainFlow === undefined && localAmount !== undefined ? localAmount : mainFlow;
+  const rank = matchedFlow ? flows.findIndex((row) => row === matchedFlow) + 1 : 0;
+  const narrative = buildBoardNarrative({
+    keyword: normalizedKeyword,
+    matched,
+    matchedFlow,
+    detail,
+    leaders,
+    rank,
+    localAmount,
+  });
+  const rows = leaders.length
+    ? leaders.map((leader) => ({
+        股票: leader.name,
+        代码: leader.code,
+        涨跌幅: leader.changePercent,
+        成交额: leader.amount,
+        换手率: leader.turnover,
+        资金特征: leader.flowFeature,
+      }))
+    : flows.slice(0, 6).map((flow) => ({
+        板块: readName(flow) ?? '--',
+        主力净流入: formatMoney(readMainNetInflow(flow)),
+        涨跌幅: formatPercent(readChangePercent(flow)),
+        龙头股: pickString(flow, ['topStockName', 'leaderName']) ?? '--',
+      }));
 
   return {
-    title: `${keyword}板块速览`,
-    subtitle: matched ? `匹配板块：${String(matched.name ?? matched.boardName)}` : '未精确匹配板块，展示资金流排名参考',
-    rows: flows.map((flow) => ({
-      板块: String(flow.name ?? flow.boardName ?? flow.sectorName ?? '--'),
-      净流入: String(flow.netInflow ?? flow.mainNetInflow ?? flow.today ?? '--'),
-      涨跌幅: String(flow.changePercent ?? flow.pctChg ?? '--'),
-    })),
-    narrative: '板块数据来自 stock-sdk 行业/概念与资金流接口。若上游数据源限流或字段变动，结果会自动降级展示。',
+    title: `${normalizedKeyword}板块资金流向与龙头股表现`,
+    subtitle: matched ? `匹配板块：${matchedName ?? normalizedKeyword}` : '未精确匹配板块，展示资金流排名参考',
+    metrics: [
+      {
+        label: mainFlow === undefined && localAmount !== undefined ? '龙头成交额' : '主力净流入',
+        value: mainFlow === undefined && localAmount !== undefined ? formatMoney(localAmount) : formatMoney(mainFlow),
+        tone: toneByNumber(displayFlow),
+      },
+      {
+        label: '板块涨跌幅',
+        value: formatPercent(readChangePercent(matchedFlow ?? matched)),
+        tone: toneByNumber(readChangePercent(matchedFlow ?? matched)),
+      },
+      { label: '资金流排名', value: rank > 0 ? `第 ${rank} 名` : '暂无数据', tone: 'neutral' },
+    ],
+    rows,
+    narrative,
   };
+}
+
+function settledRows(result: PromiseSettledResult<unknown>): AnyRecord[] {
+  return result.status === 'fulfilled' && Array.isArray(result.value)
+    ? result.value.filter(isRecord)
+    : [];
+}
+
+function settledLocalBoards(result: PromiseSettledResult<MarketBoardRecord[]>): AnyRecord[] {
+  return result.status === 'fulfilled'
+    ? result.value.map((row) => ({
+        code: row.code,
+        name: row.name,
+        changePercent: row.changePercent,
+        source: row.source,
+      }))
+    : [];
+}
+
+async function buildLocalBoardDetail(
+  boardCode: string,
+  boardName: string,
+  latestRows: MarketQuoteRow[],
+): Promise<BoardDetail> {
+  const constituents = await listBoardConstituents(boardCode).catch(() => []);
+  const latestByCode = new Map(latestRows.map((row) => [row.code, row]));
+  return {
+    code: boardCode,
+    name: boardName,
+    constituents: constituents
+      .map((item) => {
+        const latest = latestByCode.get(item.stockCode);
+        return {
+          code: item.stockCode,
+          name: item.stockName,
+          price: latest?.price ?? '--',
+          changePercent: latest?.changePercent === undefined ? '--' : formatPercent(latest.changePercent),
+          amount: latest?.amount === undefined ? '--' : formatMoney(latest.amount),
+          turnover: latest?.turnoverRate === undefined ? '--' : `${formatNumber(latest.turnoverRate)}%`,
+        };
+      })
+      .sort((left, right) => Number(parseDisplayNumber(right.changePercent) ?? -100) - Number(parseDisplayNumber(left.changePercent) ?? -100)),
+  };
+}
+
+function sumLeaderAmount(leaders: IBoardLeaderStock[]): number | undefined {
+  const values = leaders.map((leader) => leader.amountValue).filter((value): value is number => value !== undefined);
+  return values.length ? values.reduce((total, value) => total + value, 0) : undefined;
+}
+
+function isRecord(value: unknown): value is AnyRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeBoardKeyword(value: string): string {
+  return value.replace(/板块|行业/g, '').trim() || '热点';
+}
+
+function findMatchedBoard(keyword: string, boards: AnyRecord[], flows: AnyRecord[]): AnyRecord | undefined {
+  const normalized = normalizeBoardName(keyword);
+  return [...boards, ...flows].find((row) => {
+    const name = readName(row);
+    return name ? normalizeBoardName(name) === normalized || normalizeBoardName(name).includes(normalized) : false;
+  });
+}
+
+function findMatchedFlow(board: AnyRecord, flows: AnyRecord[]): AnyRecord | undefined {
+  const boardCode = readCode(board);
+  const boardName = readName(board);
+  const normalizedName = normalizeBoardName(boardName ?? '');
+  return flows.find((row) => {
+    const code = readCode(row);
+    const name = readName(row);
+    return (boardCode && code === boardCode) || (name ? normalizeBoardName(name) === normalizedName : false);
+  });
+}
+
+function readCode(row?: AnyRecord): string | undefined {
+  return pickString(row ?? {}, ['code', 'boardCode', 'sectorCode'])?.toUpperCase();
+}
+
+function readName(row?: AnyRecord): string | undefined {
+  return pickString(row ?? {}, ['name', 'boardName', 'sectorName']);
+}
+
+function readMainNetInflow(row?: AnyRecord): number | undefined {
+  return row ? pickNumber(row, ['mainNetInflow', 'netInflow', 'today', 'mainNetAmount']) : undefined;
+}
+
+function readChangePercent(row?: AnyRecord): number | undefined {
+  return row ? pickNumber(row, ['changePercent', 'pctChg', 'changeRate']) : undefined;
+}
+
+function normalizeBoardName(value: string): string {
+  return value.replace(/板块|行业|概念/g, '').trim();
+}
+
+interface IBoardLeaderStock {
+  code: string;
+  name: string;
+  changePercent: string;
+  amount: string;
+  amountValue?: number;
+  turnover: string;
+  flowFeature: string;
+  score: number;
+}
+
+function pickLeaderStocks(detail: BoardDetail | undefined, stockFlowByCode: Map<string, AnyRecord>): IBoardLeaderStock[] {
+  return (detail?.constituents ?? [])
+    .map((row): IBoardLeaderStock => {
+      const code = normalizeASymbol(row.code);
+      const flow = stockFlowByCode.get(code);
+      const changeValue = parseDisplayNumber(row.changePercent);
+      const amountValue = parseMoneyValue(row.amount);
+      const flowValue = readMainNetInflow(flow);
+      return {
+        code,
+        name: row.name,
+        changePercent: formatDisplayPercent(row.changePercent),
+        amount: formatDisplayMoney(row.amount),
+        amountValue,
+        turnover: formatDisplayTurnover(row.turnover),
+        flowFeature: flowValue === undefined ? '资金数据暂无' : `主力净流入 ${formatMoney(flowValue)}`,
+        score: (changeValue ?? -100) * 10 + (flowValue === undefined ? 0 : flowValue / 100000000),
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 5);
+}
+
+function parseDisplayNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return undefined;
+  const parsed = Number.parseFloat(value.replace('%', '').replace(/[,+]/g, ''));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseMoneyValue(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return undefined;
+  const parsed = Number.parseFloat(value.replace(/[,+]/g, ''));
+  if (!Number.isFinite(parsed)) return undefined;
+  if (value.includes('亿')) return parsed * 100000000;
+  if (value.includes('万')) return parsed * 10000;
+  return parsed;
+}
+
+function formatDisplayPercent(value: unknown): string {
+  const num = parseDisplayNumber(value);
+  return num === undefined ? '--' : `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
+}
+
+function formatDisplayMoney(value: unknown): string {
+  if (typeof value === 'string' && value.trim() && value !== '--') return value;
+  return formatMoney(value);
+}
+
+function formatDisplayTurnover(value: unknown): string {
+  if (typeof value === 'string' && value.trim()) return value;
+  const num = Number(value);
+  return Number.isFinite(num) ? `${formatNumber(num)}%` : '--';
+}
+
+function toneByNumber(value: number | undefined): 'up' | 'down' | 'neutral' {
+  if (value === undefined || value === 0) return 'neutral';
+  return value > 0 ? 'up' : 'down';
+}
+
+function buildBoardNarrative(input: {
+  keyword: string;
+  matched?: AnyRecord;
+  matchedFlow?: AnyRecord;
+  detail?: BoardDetail;
+  leaders: IBoardLeaderStock[];
+  rank: number;
+  localAmount?: number;
+}): string {
+  const boardName = readName(input.matched) ?? input.detail?.name ?? input.keyword;
+  const boardCode = readCode(input.matched) ?? input.detail?.code ?? '未精确匹配';
+  const mainFlow = readMainNetInflow(input.matchedFlow);
+  const flowText = mainFlow === undefined && input.localAmount !== undefined
+    ? `暂无板块主力净流入；前五龙头成交额合计 ${formatMoney(input.localAmount)}`
+    : formatMoney(mainFlow);
+  const changePercent = readChangePercent(input.matchedFlow ?? input.matched);
+  const leaderTable = input.leaders.length
+    ? input.leaders
+        .map(
+          (leader) =>
+            `| ${leader.name} | ${leader.code} | ${leader.changePercent} | ${leader.amount} | ${leader.turnover} | ${leader.flowFeature} |`,
+        )
+        .join('\n')
+    : '| 暂无数据 | -- | -- | -- | -- | 成分股或资金流数据暂不可用 |';
+  const negativeText = buildNegativeText(mainFlow, changePercent, input.leaders.length);
+  const rating = rateBoard(mainFlow, changePercent, input.leaders.length);
+
+  return `## 📰 核心事件
+- 分析对象：${boardName}（${boardCode}）
+- 数据口径：stock-sdk 行业/概念板块、今日板块资金流、成分股实时行情。
+
+## 💰 资金流向
+- 主力净流入：${flowText}
+- 板块涨跌幅：${formatPercent(changePercent)}
+- 市场排名：${input.rank > 0 ? `资金流排名第 ${input.rank} 名` : '暂无数据'}
+
+## 📈 龙头股表现
+| 股票 | 代码 | 涨跌幅 | 成交额 | 换手率 | 资金特征 |
+| --- | --- | --- | --- | --- | --- |
+${leaderTable}
+
+## ⚠️ 利空因素
+- ${negativeText}
+
+## 🏛️ 中长期影响
+- 银行板块通常受利率环境、资产质量、信贷投放与宏观预期影响；若资金持续流入并由多只龙头扩散，后续可继续观察板块持续性与成交额配合。
+
+## 🚨 风险提示
+- 数据源可能存在延迟、缺失或字段变动；盘中资金流与涨跌幅波动较大，板块成分股口径也可能随上游数据调整。
+
+## 🎯 综合结论
+- ${rating}：结论仅基于当前可用的真实资金流、板块涨跌幅与龙头股表现生成。`;
+}
+
+function buildNegativeText(mainFlow: number | undefined, changePercent: number | undefined, leaderCount: number): string {
+  if (mainFlow === undefined && changePercent === undefined) return '板块资金流与涨跌幅暂无数据，暂无法识别明确利空因素。';
+  if ((mainFlow ?? 0) < 0) return '板块主力资金呈净流出，短期需观察资金承接力度。';
+  if ((changePercent ?? 0) < 0) return '板块涨跌幅为负，说明价格表现尚未与资金面形成一致共振。';
+  if (!leaderCount) return '龙头股样本暂不可用，无法确认板块内部扩散强度。';
+  return '暂无明确利空数据，仍需关注资金持续性与大盘环境变化。';
+}
+
+function rateBoard(mainFlow: number | undefined, changePercent: number | undefined, leaderCount: number): string {
+  if ((mainFlow ?? 0) > 0 && (changePercent ?? 0) >= 0 && leaderCount >= 3) return '🟢 偏利好';
+  if ((mainFlow ?? 0) < 0 || (changePercent ?? 0) < 0) return '🔴 偏利空';
+  return '🟡 中性';
 }

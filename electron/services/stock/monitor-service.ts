@@ -1,6 +1,17 @@
 import { listFavoriteStocks } from '../config-store.js';
-import { getBatchQuotes } from './stock-client.js';
-import type { IMonitorEvent, IMonitorFeed, TMonitorCategory, FavoriteStock } from '../../../src/shared/types.js';
+import { getBatchQuotes, getChipDistribution, listHotFocus } from './stock-client.js';
+import { listStockNewsAnnouncements } from './news-client.js';
+import type {
+  AnnouncementItem,
+  FavoriteStock,
+  HotFocusItem,
+  IChipDistributionResult,
+  IMonitorEvent,
+  IMonitorFeed,
+  MarketNewsItem,
+  StockDetail,
+  TMonitorCategory,
+} from '../../../src/shared/types.js';
 
 const CATEGORIES: TMonitorCategory[] = [
   'large-order',
@@ -14,7 +25,7 @@ const CATEGORIES: TMonitorCategory[] = [
 ];
 
 // Default market universe monitored even when the user has no favorites.
-// These are representative active stocks used for demonstration / fallback feed generation.
+// Events are still generated only from real quote values returned by getBatchQuotes.
 const DEFAULT_MONITOR_UNIVERSE: FavoriteStock[] = [
   { code: '300476', name: '胜宏科技', createdAt: new Date().toISOString() },
   { code: '300308', name: '中际旭创', createdAt: new Date().toISOString() },
@@ -49,190 +60,269 @@ const CATEGORY_META: Record<TMonitorCategory, { label: string; icon: string; ton
   'ai-warning': { label: 'AI预警', icon: '🔴', tone: 'danger' },
 };
 
-function hashString(str: string) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i += 1) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
+const DETAIL_STOCK_LIMIT = 8;
+
+function numericValue(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return undefined;
+  const parsed = Number(value.replaceAll(',', '').replace('%', '').replace('+', '').trim());
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function quoteChangePercent(quote: StockDetail) {
+  const price = numericValue(quote.price);
+  const prevClose = numericValue(quote.prevClose);
+  if (price !== undefined && prevClose !== undefined && prevClose > 0) {
+    return ((price - prevClose) / prevClose) * 100;
   }
-  return Math.abs(hash);
+  return numericValue(quote.changePercent);
 }
 
-function pseudoRandom(seed: number) {
-  const x = Math.sin(seed) * 10000;
-  return x - Math.floor(x);
+function quotePrice(quote: StockDetail | HotFocusItem | undefined) {
+  return numericValue(quote?.price);
 }
 
-function todayMinutes(): number {
-  const now = new Date();
-  return now.getHours() * 60 + now.getMinutes();
+function quoteName(stock: Pick<FavoriteStock, 'code' | 'name'>, quote: StockDetail | HotFocusItem | undefined) {
+  return quote?.name && quote.name !== stock.code ? quote.name : stock.name;
 }
 
-function formatTime(date: Date): string {
-  const h = String(date.getHours()).padStart(2, '0');
-  const m = String(date.getMinutes()).padStart(2, '0');
-  const s = String(date.getSeconds()).padStart(2, '0');
-  return `${h}:${m}:${s}`;
-}
-
-function generateEventForStock(
-  stock: FavoriteStock,
-  quote: { price?: number | string; changePercent?: string } | undefined,
+function makeEventBase(
+  stock: Pick<FavoriteStock, 'code' | 'name'>,
+  quote: StockDetail | undefined,
   category: TMonitorCategory,
-  seed: number,
-  minutesAgo: number,
-): IMonitorEvent | undefined {
-  const baseSeed = hashString(stock.code) + seed;
-  const r = pseudoRandom(baseSeed);
-  const price = quote?.price !== undefined ? Number(quote.price) : undefined;
-  const changePercent = quote?.changePercent !== undefined ? Number(quote.changePercent) : undefined;
+  timestamp: string,
+) {
+  return {
+    category,
+    timestamp,
+    code: stock.code,
+    name: quoteName(stock, quote),
+    price: quotePrice(quote),
+    changePercent: quote ? quoteChangePercent(quote) : undefined,
+  };
+}
 
-  const eventTime = new Date(Date.now() - minutesAgo * 60 * 1000);
+function createQuoteEvents(
+  stock: FavoriteStock,
+  quote: StockDetail | undefined,
+  enabledCategories: TMonitorCategory[],
+  timestamp: string,
+): IMonitorEvent[] {
+  if (!quote) return [];
 
-  switch (category) {
-    case 'large-order': {
-      const count = Math.floor(r * 5) + 2;
-      const amount = (Math.floor(r * 8) + 3) * 100;
-      const netInflow = ((r * 2 + 0.5) * 10000).toFixed(0);
-      return {
-        id: `mo-large-${stock.code}-${eventTime.toISOString()}`,
-        category,
-        timestamp: eventTime.toISOString(),
-        code: stock.code,
-        name: stock.name,
-        price,
-        changePercent,
-        title: `连续出现${count}笔大额买入`,
-        badge: '主力抢筹',
-        details: [`${count}笔大单金额均 > ${amount}万`, `近5分钟主力净流入 +${Number(netInflow) / 10000}亿`],
-        aiAnalysis: '主力资金连续介入，买入意愿强烈，疑似机构开始吸筹。',
-        chart: { type: 'line', data: Array.from({ length: 20 }, (_, i) => 88 + Math.sin(i * 0.5 + r * 10) * 3 + i * 0.3) },
-      };
-    }
-    case 'chip': {
-      const concentration = Math.floor(70 + r * 25);
-      const prevConcentration = Math.max(50, concentration - Math.floor(r * 15));
-      return {
-        id: `mo-chip-${stock.code}-${eventTime.toISOString()}`,
-        category,
-        timestamp: eventTime.toISOString(),
-        code: stock.code,
-        name: stock.name,
-        price,
-        changePercent,
-        title: `筹码集中度突破${concentration}%`,
-        badge: concentration >= 85 ? '高度控盘' : '筹码集中',
-        details: [`当前集中度 ${concentration}%（↑${concentration - prevConcentration}%）`, '突破历史90分位'],
-        aiAnalysis: '筹码高度集中，主力控盘程度增强，上涨空间打开。',
-        chart: { type: 'bar', data: Array.from({ length: 24 }, (_, i) => Math.exp(-Math.pow(i - 12, 2) / 20) * (20 + r * 10) + r * 3) },
-      };
-    }
-    case 'technical': {
-      const isTop = r > 0.5;
-      const rsi = isTop ? Math.floor(68 + r * 12) : Math.floor(25 + r * 15);
-      return {
-        id: `mo-tech-${stock.code}-${eventTime.toISOString()}`,
-        category,
-        timestamp: eventTime.toISOString(),
-        code: stock.code,
-        name: stock.name,
-        price,
-        changePercent,
-        title: isTop ? 'RSI顶背离信号' : 'RSI底背离信号',
-        badge: isTop ? '上涨动能减弱' : '反弹概率增加',
-        details: [`RSI(14) 出现${isTop ? '顶' : '底'}背离`, `当前值 ${rsi}（${isTop ? '超买区' : '超卖区'}）`],
-        aiAnalysis: isTop
-          ? '股价创新高，RSI未创新高，顶背离成立，注意回调风险。'
-          : '股价创新低，RSI未创新低，底背离成立，反弹概率增加。',
-        chart: { type: 'line', data: Array.from({ length: 20 }, (_, i) => 40 + Math.sin(i * 0.4 + (isTop ? 0 : Math.PI)) * 15 + r * 5) },
-      };
-    }
-    case 'dragon-tiger': {
-      const netBuy = ((r * 3 + 0.8) * 10000).toFixed(0);
-      return {
-        id: `mo-dt-${stock.code}-${eventTime.toISOString()}`,
-        category,
-        timestamp: eventTime.toISOString(),
-        code: stock.code,
-        name: stock.name,
-        price,
-        changePercent,
-        title: '今日登上龙虎榜',
-        badge: '机构净买入',
-        details: [`机构专用席位净买入 +${Number(netBuy) / 10000}亿`, '游资席位出现分歧'],
-        aiAnalysis: '龙虎榜显示机构资金积极做多，短期关注度提升。',
-      };
-    }
-    case 'news': {
-      const titles = ['重要公告', '业绩预告', '战略合作协议', '回购股份', '产品突破'];
-      const title = titles[Math.floor(r * titles.length)];
-      return {
-        id: `mo-news-${stock.code}-${eventTime.toISOString()}`,
-        category,
-        timestamp: eventTime.toISOString(),
-        code: stock.code,
-        name: stock.name,
-        price,
-        changePercent,
-        title,
-        badge: '公告',
-        details: ['公司发布最新公告，内容涉及经营或资本运作', '市场关注度明显提升'],
-        aiAnalysis: '公告内容偏积极，建议结合盘面和基本面进一步跟踪。',
-      };
-    }
-    case 'risk': {
-      const risks = ['股东减持计划', '解禁提示', '业绩预减', '监管问询', '质押风险'];
-      const risk = risks[Math.floor(r * risks.length)];
-      return {
-        id: `mo-risk-${stock.code}-${eventTime.toISOString()}`,
-        category,
-        timestamp: eventTime.toISOString(),
-        code: stock.code,
-        name: stock.name,
-        price,
-        changePercent,
-        title: risk,
-        badge: '注意风险',
-        details: ['相关风险事件可能对股价造成短期扰动', '建议控制仓位并持续跟踪'],
-        aiAnalysis: '风险事件短期偏空，建议谨慎观望，等待情绪释放。',
-      };
-    }
-    case 'ai-opportunity': {
-      const score = Math.floor(75 + r * 20);
-      return {
-        id: `mo-opp-${stock.code}-${eventTime.toISOString()}`,
-        category,
-        timestamp: eventTime.toISOString(),
-        code: stock.code,
-        name: stock.name,
-        price,
-        changePercent,
-        title: '多因子共振',
-        badge: `${score}分`,
-        details: ['✅ 主力净流入', '✅ 突破前高', '✅ MACD金叉', '✅ 筹码集中度提升'],
-        aiAnalysis: '多维度信号共振，短期机会窗口打开，建议重点关注。',
-        chart: { type: 'radar', data: [r * 40 + 60, r * 30 + 50, r * 35 + 55, r * 25 + 65, r * 30 + 60], labels: ['资金', '技术', '筹码', '情绪', '消息'] },
-        score,
-      };
-    }
-    case 'ai-warning': {
-      return {
-        id: `mo-warn-${stock.code}-${eventTime.toISOString()}`,
-        category,
-        timestamp: eventTime.toISOString(),
-        code: stock.code,
-        name: stock.name,
-        price,
-        changePercent,
-        title: '短期回调风险升高',
-        badge: 'AI预警',
-        details: ['⚠️ 量价背离', '⚠️ 上方抛压增加', '⚠️ 板块情绪转弱'],
-        aiAnalysis: '多项指标提示短期回调概率增加，建议控制仓位或减仓观望。',
-      };
-    }
-    default:
-      return undefined;
+  const price = quotePrice(quote);
+  const changePercent = quoteChangePercent(quote);
+  const open = numericValue(quote.open);
+  const high = numericValue(quote.high);
+  const low = numericValue(quote.low);
+  const turnoverRate = numericValue(quote.turnoverRate);
+  if (price === undefined || changePercent === undefined) return [];
+
+  const events: IMonitorEvent[] = [];
+  const base = (category: TMonitorCategory) => makeEventBase(stock, quote, category, timestamp);
+  const add = (event: IMonitorEvent) => {
+    if (enabledCategories.includes(event.category)) events.push(event);
+  };
+
+  const intradayPosition = high !== undefined && low !== undefined && high > low
+    ? ((price - low) / (high - low)) * 100
+    : undefined;
+
+  if (changePercent >= 2 || (intradayPosition !== undefined && intradayPosition >= 82 && changePercent > 0)) {
+    add({
+      ...base('technical'),
+      id: `mo-tech-quote-${stock.code}-${timestamp}`,
+      title: changePercent >= 2 ? '日内涨幅走强' : '接近日内高位',
+      badge: '实时行情',
+      details: [
+        `当前涨跌幅 ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
+        high !== undefined && low !== undefined ? `日内区间 ${low.toFixed(2)} - ${high.toFixed(2)}` : '行情区间数据暂缺',
+      ],
+      aiAnalysis: '该信号仅基于实时行情与日内价格区间生成，不包含未经验证的突破前高或背离判断。',
+    });
   }
+
+  if (changePercent >= 1.5 && open !== undefined && price >= open) {
+    add({
+      ...base('ai-opportunity'),
+      id: `mo-opp-quote-${stock.code}-${timestamp}`,
+      title: '日内量价走强',
+      badge: '行情信号',
+      details: [
+        `当前价 ${price.toFixed(2)}，较昨收 ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
+        `当前价${price >= open ? '高于或等于' : '低于'}开盘价 ${open.toFixed(2)}`,
+      ],
+      aiAnalysis: '实时涨跌幅与开盘价关系偏强，建议继续结合K线、成交量和板块表现核对。',
+    });
+  }
+
+  if (changePercent <= -2) {
+    add({
+      ...base('ai-warning'),
+      id: `mo-warn-quote-${stock.code}-${timestamp}`,
+      title: '日内回撤风险',
+      badge: '行情预警',
+      details: [
+        `当前涨跌幅 ${changePercent.toFixed(2)}%`,
+        low !== undefined ? `日内低点 ${low.toFixed(2)}` : '日内低点数据暂缺',
+      ],
+      aiAnalysis: '实时跌幅较大，短线波动风险上升。',
+    });
+  }
+
+  if (turnoverRate !== undefined && turnoverRate >= 8) {
+    add({
+      ...base('risk'),
+      id: `mo-risk-turnover-${stock.code}-${timestamp}`,
+      title: '换手率偏高',
+      badge: '波动提示',
+      details: [`当前换手率 ${turnoverRate.toFixed(2)}%`, `当前涨跌幅 ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`],
+      aiAnalysis: '高换手通常意味着分歧加大，需结合成交额和K线位置判断。',
+    });
+  }
+
+  return events;
+}
+
+function createLargeOrderEvents(
+  surgeItems: HotFocusItem[],
+  quoteByCode: Map<string, StockDetail>,
+  enabledCategories: TMonitorCategory[],
+  timestamp: string,
+): IMonitorEvent[] {
+  if (!enabledCategories.includes('large-order')) return [];
+  return surgeItems
+    .filter((item) => item.code && isLargeOrderItem(item))
+    .slice(0, 30)
+    .map((item) => {
+      const code = item.code ?? '';
+      const quote = quoteByCode.get(code);
+      const eventTime = item.time ? mergeTodayTime(timestamp, item.time) : timestamp;
+      const stock = { code, name: item.name ?? item.title };
+      const amountText = [item.amount, item.description].filter(Boolean).join(' · ');
+      return {
+        ...makeEventBase(stock, quote, 'large-order', eventTime),
+        id: `mo-large-${item.id}`,
+        title: item.tag ?? item.description ?? '大单异动',
+        badge: /卖出/.test(`${item.tag ?? ''}${item.description ?? ''}${item.title}`) ? '大单卖出' : '大单买入',
+        details: [item.title, amountText].filter(Boolean),
+        aiAnalysis: '该事件来自实时盘口异动数据，需结合成交额、换手率和后续盘口持续性判断。',
+        price: quotePrice(quote) ?? quotePrice(item),
+        changePercent: quote ? quoteChangePercent(quote) : numericValue(item.changePercent),
+      } satisfies IMonitorEvent;
+    });
+}
+
+function isLargeOrderItem(item: HotFocusItem) {
+  const text = `${item.title} ${item.description ?? ''} ${item.tag ?? ''}`;
+  return /特大单买入|特大单卖出|大笔买入|大笔卖出/.test(text);
+}
+
+function createChipEvent(
+  stock: FavoriteStock,
+  quote: StockDetail | undefined,
+  chip: IChipDistributionResult,
+  timestamp: string,
+): IMonitorEvent | undefined {
+  const latest = chip.latest;
+  if (!latest) return undefined;
+
+  const trendDetails = chip.trend
+    .filter((item) => item.days === 5 || item.days === 10 || item.days === 20)
+    .map((item) => {
+      const parts = [
+        item.concentration70 === undefined ? '' : `70%集中度 ${formatRatio(item.concentration70)}`,
+        item.concentration90 === undefined ? '' : `90%集中度 ${formatRatio(item.concentration90)}`,
+      ].filter(Boolean);
+      return parts.length ? `${item.days}日：${parts.join('，')}` : '';
+    })
+    .filter(Boolean);
+  const details = [
+    latest.avgCost === undefined ? '' : `平均成本 ${latest.avgCost.toFixed(2)}`,
+    latest.profitRatio === undefined ? '' : `获利盘 ${formatRatio(latest.profitRatio)}`,
+    latest.cost70 ? `70%成本区间 ${latest.cost70}` : '',
+    ...trendDetails.slice(0, 2),
+  ].filter(Boolean);
+
+  return {
+    ...makeEventBase(stock, quote, 'chip', timestamp),
+    id: `mo-chip-${stock.code}-${latest.date ?? timestamp}`,
+    title: chipTrendTitle(chip),
+    badge: chip.source === 'stock-sdk' ? 'stock-sdk' : '筹码计算',
+    details,
+    aiAnalysis: '该事件基于真实筹码分布数据生成，需结合价格是否站稳平均成本与量能变化继续验证。',
+    chart: trendDetails.length
+      ? { type: 'line', data: chip.trend.map((item) => item.concentration70).filter((value): value is number => typeof value === 'number') }
+      : undefined,
+  };
+}
+
+function chipTrendTitle(chip: IChipDistributionResult) {
+  const five = chip.trend.find((item) => item.days === 5)?.concentration70;
+  const twenty = chip.trend.find((item) => item.days === 20)?.concentration70;
+  if (five !== undefined && twenty !== undefined) {
+    if (five < twenty) return '筹码集中度收敛';
+    if (five > twenty) return '筹码集中度发散';
+  }
+  return '筹码结构更新';
+}
+
+function isString(value: string | undefined): value is string {
+  return Boolean(value);
+}
+
+function createNewsEvents(
+  stock: FavoriteStock,
+  quote: StockDetail | undefined,
+  result: { news: MarketNewsItem[]; announcements: AnnouncementItem[] },
+  timestamp: string,
+): IMonitorEvent[] {
+  const newsEvents = result.news.slice(0, 2).map((item) => ({
+    ...makeEventBase(stock, quote, 'news', parseNewsTime(item.time, timestamp)),
+    id: `mo-news-${stock.code}-${item.id}`,
+    title: item.title,
+    badge: item.source ?? '新闻',
+    details: [item.content, item.url ? '可查看原文' : ''].filter(isString),
+    aiAnalysis: '该事件来自个股新闻源，需结合公告正文、行情反应与资金面确认影响方向。',
+  } satisfies IMonitorEvent));
+
+  const announcementEvents = result.announcements.slice(0, 2).map((item, index) => ({
+    ...makeEventBase(stock, quote, 'news', parseNewsTime(item.date, timestamp)),
+    id: `mo-announcement-${stock.code}-${item.date}-${index}-${item.title}`,
+    title: item.title,
+    badge: item.type || '公告',
+    details: [item.date, item.content].filter(isString),
+    aiAnalysis: '该事件来自公司公告列表，需结合公告正文和后续经营数据验证实际影响。',
+  } satisfies IMonitorEvent));
+
+  return [...newsEvents, ...announcementEvents];
+}
+
+function mergeTodayTime(timestamp: string, time: string) {
+  const date = new Date(timestamp);
+  const [hour, minute, second = '0'] = time.split(':');
+  date.setHours(Number(hour) || 0, Number(minute) || 0, Number(second) || 0, 0);
+  return date.toISOString();
+}
+
+function parseNewsTime(value: string, fallback: string) {
+  const text = value.trim();
+  if (!text) return fallback;
+  const normalized = text.includes('T') ? text : text.replace(' ', 'T');
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed.toISOString();
+}
+
+function formatRatio(value: number) {
+  const normalized = value <= 1 ? value * 100 : value;
+  return `${normalized.toFixed(2)}%`;
+}
+
+function warnSettledErrors(label: string, results: PromiseSettledResult<unknown>[]) {
+  const messages = results
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result) => (result.reason instanceof Error ? result.reason.message : String(result.reason)));
+  if (messages.length) console.warn(`[monitor] ${label} partial failures`, messages.slice(0, 3));
 }
 
 export async function getMonitorFeed(options?: {
@@ -244,8 +334,6 @@ export async function getMonitorFeed(options?: {
   const limit = options?.limit ?? 50;
   const favorites = await listFavoriteStocks();
 
-  // Build the monitored universe: favorites first, then a default active-stock universe
-  // so the AI monitor center always has something to display even without favorites.
   const monitorUniverse: FavoriteStock[] = [
     ...favorites,
     ...DEFAULT_MONITOR_UNIVERSE.filter((u) => !favorites.some((f) => f.code === u.code)),
@@ -261,42 +349,54 @@ export async function getMonitorFeed(options?: {
   }
   const quoteByCode = new Map(quotes.map((q) => [q.code, q]));
 
-  const events: IMonitorEvent[] = [];
-  const sinceTime = options?.since ? new Date(options.since).getTime() : Date.now() - 24 * 60 * 60 * 1000;
+  const timestamp = new Date().toISOString();
+  const sinceTime = options?.since ? new Date(options.since).getTime() : 0;
+  const detailStocks = monitorUniverse.slice(0, DETAIL_STOCK_LIMIT);
+  const events = monitorUniverse.flatMap((stock) =>
+    createQuoteEvents(stock, quoteByCode.get(stock.code), enabledCategories, timestamp),
+  );
 
-  // Generate a feed of events across the monitored universe and categories.
-  // Distribution: newer events first, spread over the last ~4 hours.
-  const nowMinutes = todayMinutes();
-  for (const stock of monitorUniverse) {
-    for (const category of enabledCategories) {
-      const seed = hashString(stock.code + category);
-      const r = pseudoRandom(seed + nowMinutes);
-      // Not every stock produces every category every time.
-      if (r < 0.35) continue;
-
-      const eventCount = Math.floor(pseudoRandom(seed) * 2) + 1;
-      for (let i = 0; i < eventCount; i += 1) {
-        const minutesAgo = Math.floor(pseudoRandom(seed + i) * 240) + i * 30;
-        const event = generateEventForStock(
-          stock,
-          quoteByCode.get(stock.code),
-          category,
-          seed + i,
-          minutesAgo,
-        );
-        if (event && new Date(event.timestamp).getTime() > sinceTime) {
-          events.push(event);
-        }
-      }
+  if (enabledCategories.includes('large-order')) {
+    try {
+      const surgeItems = await listHotFocus('surge');
+      events.push(...createLargeOrderEvents(surgeItems, quoteByCode, enabledCategories, timestamp));
+    } catch (error) {
+      console.warn('[monitor] failed to fetch large order events', error);
     }
   }
 
-  // Sort by timestamp descending and cap at limit.
-  events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  if (enabledCategories.includes('chip')) {
+    const chipResults = await Promise.allSettled(detailStocks.map((stock) => getChipDistribution(stock.code)));
+    warnSettledErrors('chip', chipResults);
+    chipResults.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return;
+      const stock = detailStocks[index];
+      const event = createChipEvent(stock, quoteByCode.get(stock.code), result.value, timestamp);
+      if (event) events.push(event);
+    });
+  }
+
+  if (enabledCategories.includes('news')) {
+    const newsResults = await Promise.allSettled(detailStocks.map((stock) => listStockNewsAnnouncements(stock.code, 4)));
+    warnSettledErrors('news', newsResults);
+    newsResults.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return;
+      const stock = detailStocks[index];
+      events.push(...createNewsEvents(stock, quoteByCode.get(stock.code), result.value, timestamp));
+    });
+  }
+
+  events.sort((a, b) => {
+    const timeDelta = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    if (timeDelta !== 0) return timeDelta;
+    const changeA = Math.abs(numericValue(a.changePercent) ?? 0);
+    const changeB = Math.abs(numericValue(b.changePercent) ?? 0);
+    return changeB - changeA;
+  });
 
   return {
-    updatedAt: new Date().toISOString(),
-    events: events.slice(0, limit),
+    updatedAt: timestamp,
+    events: events.filter((event) => new Date(event.timestamp).getTime() >= sinceTime).slice(0, limit),
   };
 }
 

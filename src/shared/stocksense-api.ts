@@ -101,6 +101,11 @@ export function getStocksenseApi(): StocksenseApi {
         return window.stocksense!.getMonitorFeed(options);
       return Promise.reject(new Error('AI 监控中心不可用，请重启客户端'));
     },
+    getTradingAdvice: () => {
+      if (typeof window.stocksense!.getTradingAdvice === 'function')
+        return window.stocksense!.getTradingAdvice();
+      return Promise.reject(new Error('AI 交易建议不可用，请重启客户端'));
+    },
   };
 }
 
@@ -540,6 +545,9 @@ const webFallbackApi: StocksenseApi = {
   },
   async getMonitorFeed() {
     throw new Error('AI 监控中心仅在 Electron 桌面端可用');
+  },
+  async getTradingAdvice() {
+    throw new Error('AI 交易建议仅在 Electron 桌面端可用');
   },
   async listStoreItems() {
     return readStoreItems();

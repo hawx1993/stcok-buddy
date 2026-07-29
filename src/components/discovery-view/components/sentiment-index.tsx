@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { useAppStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
@@ -112,7 +113,9 @@ export function SentimentIndex({ score, factors, stocks, consecutiveStocks, yest
                 >
                   <span>{f.label}</span>
                   <b>{f.value}</b>
-                  <span className="factor-arrow">{isOpen ? '▴' : '▾'}</span>
+                  <span className="factor-arrow" aria-hidden="true">
+                    {isOpen ? <ChevronUp size={18} strokeWidth={2} /> : <ChevronDown size={18} strokeWidth={2} />}
+                  </span>
                 </button>
                 {isOpen ? (
                   <div className="sent-stock-list">

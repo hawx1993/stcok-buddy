@@ -1,3 +1,5 @@
+import { BarChart3 } from 'lucide-react';
+
 interface IHeroGaugeProps {
   score?: number;
   scoreLabel?: string;
@@ -35,7 +37,7 @@ export function HeroGauge({ score, scoreLabel, scoreVerdict, scoreTrend }: IHero
   if (score === undefined || score === null) {
     return (
       <div className="hero-gauge-wrap" style={{ textAlign: 'center', padding: '40px', color: 'var(--muted)' }}>
-        <span style={{ fontSize: 32 }}>📊</span>
+        <BarChart3 size={32} />
         <p style={{ marginTop: 12, fontSize: 13 }}>暂无机会评分</p>
       </div>
     );
