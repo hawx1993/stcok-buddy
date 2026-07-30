@@ -38,6 +38,21 @@ export function formatMoney(value: unknown): string {
   return `${sign}${abs.toFixed(0)}`;
 }
 
+export function formatMoneyFromWan(value: unknown): string {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  const sign = num > 0 ? '+' : num < 0 ? '-' : '';
+  const abs = Math.abs(num);
+  if (abs >= 10000) return `${sign}${(abs / 10000).toFixed(2)}亿`;
+  return `${sign}${abs.toFixed(2)}万`;
+}
+
+export function formatPercentPoints(value: unknown): string {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
+}
+
 export function normalizeMarketCap(value?: number): number | undefined {
   return value !== undefined && value < 100_000 ? value * 100_000_000 : value;
 }
