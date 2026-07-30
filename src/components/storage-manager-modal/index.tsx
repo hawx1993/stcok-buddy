@@ -6,8 +6,8 @@ import { useAppStore } from '../../store/app-store';
 import type { IDiskInfo, IStorageClearProgress, IStorageStats } from '../../shared/types';
 import styles from './index.module.scss';
 
-const HIGH_RISK_KEYS = ['chat', 'config', 'market'];
-const STORAGE_KEYS = ['chat', 'config', 'market', 'surge'] as const;
+const HIGH_RISK_KEYS = ['chat', 'config', 'market', 'monitor'];
+const STORAGE_KEYS = ['chat', 'config', 'market', 'surge', 'monitor'] as const;
 
 function formatBytes(bytes: number) {
   if (!bytes) return '0 B';
@@ -38,6 +38,11 @@ const storageItems = [
     key: 'surge',
     title: '清空个股异动历史',
     desc: '清空右侧栏个股异动记录和个股详情最近一周异动记录，可在数据同步弹窗中重新同步',
+  },
+  {
+    key: 'monitor',
+    title: '清空AI监控历史记录',
+    desc: '清空右侧栏AI监控历史记录，无法恢复。',
   },
 ] as const;
 
@@ -150,6 +155,9 @@ export function StorageManagerModal() {
       // until it reloads. Today's list is live (remote) and unaffected.
       if (keys.includes('surge')) {
         window.dispatchEvent(new CustomEvent('surge:historyCleared'));
+      }
+      if (keys.includes('monitor')) {
+        window.dispatchEvent(new CustomEvent('monitor:historyCleared'));
       }
     } catch (error) {
       antdMessage.error(error instanceof Error ? error.message : '清空数据失败');

@@ -248,6 +248,21 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
     return () => clearInterval(id);
   }, [activeTab, autoRefresh, currentPage, isActive, isTradingTime, loadFeed, mode, selectedDate]);
 
+  useEffect(() => {
+    const handleMonitorHistoryCleared = () => {
+      setEvents([]);
+      setTotalCount(0);
+      setCategoryTotals({});
+      setCurrentPage(1);
+      setLastUpdated(undefined);
+      if (!isActive) return;
+      setLoading(true);
+      void loadFeed('history', selectedDateRef.current, 1, activeTab);
+    };
+    window.addEventListener('monitor:historyCleared', handleMonitorHistoryCleared);
+    return () => window.removeEventListener('monitor:historyCleared', handleMonitorHistoryCleared);
+  }, [activeTab, isActive, loadFeed]);
+
   const filteredEvents = events.filter(isVisibleMonitorEvent);
 
   const counts = useMemo(() => {

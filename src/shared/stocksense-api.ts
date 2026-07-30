@@ -582,7 +582,7 @@ const webFallbackApi: StocksenseApi = {
   },
   onStorageClearProgress: undefined,
   async getStorageStats() {
-    return { chat: { label: '聊天记录', bytes: 0 }, config: { label: '应用配置和收藏', bytes: 0 }, market: { label: '本地行情数据库', bytes: 0 }, surge: { label: '异动/热点历史', bytes: 0 } };
+    return { chat: { label: '聊天记录', bytes: 0 }, config: { label: '应用配置和收藏', bytes: 0 }, market: { label: '本地行情数据库', bytes: 0 }, surge: { label: '异动/热点历史', bytes: 0 }, monitor: { label: 'AI监控历史', bytes: 0 } };
   },
   async clearStorage(_keys: string[]) {
     throw new Error('存储空间管理仅在 Electron 桌面端可用');

@@ -728,6 +728,7 @@ export interface IStorageStats {
   config: { label: string; bytes: number };
   market: { label: string; bytes: number };
   surge: { label: string; bytes: number };
+  monitor: { label: string; bytes: number };
 }
 
 export interface IDiskInfo {
