@@ -6,8 +6,8 @@ import {
   isRecentLimitUpEvent,
   parseMarketCapYi,
   ratioPercent,
-} from './monitor-service.js';
-import type { HotFocusItem, StockSurgeEvent } from '../../../src/shared/types.js';
+} from '../services/stock/monitor-service.js';
+import type { HotFocusItem, StockSurgeEvent } from '../../src/shared/types.js';
 
 const baseItem: HotFocusItem = {
   id: 'large-order-selfcheck',

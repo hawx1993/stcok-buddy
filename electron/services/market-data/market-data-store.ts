@@ -8,6 +8,7 @@ import type {
   BoardDetailCacheRecord,
   BoardSnapshotRecord,
   DailyBarRecord,
+  DiscoverySnapshotCacheRecord,
   MarketBoardRecord,
   MarketDataStats,
   SecurityRecord,
@@ -77,6 +78,10 @@ const schemaSql = `
 
   CREATE TABLE IF NOT EXISTS market_board_snapshots (
     snapshot_key TEXT PRIMARY KEY, rows_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS discovery_snapshots (
+    snapshot_key TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS stock_chips (
@@ -384,6 +389,34 @@ export async function listDailyBars(
 
 export async function getLatestDailyBar(symbol: string, adjustType: AdjustType = 'qfq') {
   return (await listDailyBars(symbol, { limit: 1, adjustType }))[0];
+}
+
+export async function readDiscoverySnapshot(snapshotKey = 'default'): Promise<DiscoverySnapshotCacheRecord | undefined> {
+  return read(async (connection) => {
+    const row = (
+      await all<{ snapshot_json?: string; updated_at?: string }>(
+        connection,
+        'SELECT snapshot_json, updated_at FROM discovery_snapshots WHERE snapshot_key = $snapshotKey',
+        { snapshotKey },
+      )
+    )[0];
+    if (!row?.snapshot_json) return undefined;
+    return { snapshot: JSON.parse(row.snapshot_json), updatedAt: String(row.updated_at ?? '') };
+  });
+}
+
+export function writeDiscoverySnapshot(record: DiscoverySnapshotCacheRecord, snapshotKey = 'default') {
+  return write((connection) =>
+    connection
+      .run(
+        `
+    INSERT OR REPLACE INTO discovery_snapshots (snapshot_key, snapshot_json, updated_at)
+    VALUES ($snapshotKey, $snapshotJson, $updatedAt)
+  `,
+        { snapshotKey, snapshotJson: JSON.stringify(record.snapshot), updatedAt: record.updatedAt },
+      )
+      .then(() => undefined),
+  );
 }
 
 export async function readBoardSnapshot(snapshotKey = 'all'): Promise<BoardSnapshotRecord | undefined> {

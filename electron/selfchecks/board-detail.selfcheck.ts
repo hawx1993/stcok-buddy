@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getBoardDetail } from './stock-client.js';
+import { getBoardDetail } from '../services/stock/stock-client.js';
 
 for (const board of [
   { code: '0473', name: '证券II' },

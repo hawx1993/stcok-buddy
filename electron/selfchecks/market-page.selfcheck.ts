@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import type { MarketQuoteRow } from '../../../src/shared/types.js';
-import { applyMarketRowValueUpdate, sameMarketRows } from '../../../src/components/market-view/market-row-updates.js';
-import { findShenwanLevelTwoNodes } from './industry-provider.js';
+import type { MarketQuoteRow } from '../../src/shared/types.js';
+import { applyMarketRowValueUpdate, sameMarketRows } from '../../src/components/market-view/market-row-updates.js';
+import { findShenwanLevelTwoNodes } from '../services/stock/industry-provider.js';
 
 const currentRows: MarketQuoteRow[] = Array.from({ length: 8 }, (_, index) => ({
   code: String(index + 1).padStart(6, '0'),

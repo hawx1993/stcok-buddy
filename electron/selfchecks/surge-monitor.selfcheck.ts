@@ -3,8 +3,8 @@ import { rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { app } from 'electron';
-import { isChinaMarketOpen } from '../../../src/shared/market-time.js';
-import type { HotFocusItem } from '../../../src/shared/types.js';
+import { isChinaMarketOpen } from '../../src/shared/market-time.js';
+import type { HotFocusItem } from '../../src/shared/types.js';
 
 const dbPath = path.join(os.tmpdir(), `stocksense-surge-selfcheck-${process.pid}.duckdb`);
 process.env.STOCKSENSE_SURGE_DB_PATH = dbPath;
@@ -17,8 +17,8 @@ assert.equal(isChinaMarketOpen(new Date('2026-07-23T04:30:00.000Z')), false);
 assert.equal(isChinaMarketOpen(new Date('2026-07-23T07:01:00.000Z')), false);
 assert.equal(isChinaMarketOpen(new Date('2026-07-25T01:30:00.000Z')), false);
 
-const store = await import('./surge-history-store.js');
-const scheduler = await import('./surge-history-scheduler.js');
+const store = await import('../services/stock/surge-history-store.js');
+const scheduler = await import('../services/stock/surge-history-scheduler.js');
 
 const item: HotFocusItem = {
   id: 'surge-selfcheck-1',

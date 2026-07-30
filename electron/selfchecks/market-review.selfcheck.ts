@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
-import { uniqueRowsByCode } from './market-review-data.js';
-import { scoreSentiment } from './market-review-service.js';
+import { uniqueRowsByCode } from '../services/stock/market-review-data.js';
+import { scoreSentiment } from '../services/stock/market-review-service.js';
 
 interface IQuoteRow {
   code: string;

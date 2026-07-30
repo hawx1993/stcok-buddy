@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
+import { app } from 'electron';
+import { rmSync } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 
-import { mergeHotThemeLeaders } from './discovery-hot-themes.js';
-import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from './discovery-market-summary.js';
-import { buildMonthlyThemesFromHistoricalPools } from './discovery-monthly-themes.js';
-import type { HotFocusItem } from '../../../src/shared/types.js';
+const dbPath = path.join(os.tmpdir(), `stocksense-discovery-selfcheck-${process.pid}.duckdb`);
+process.env.STOCKSENSE_MARKET_DB_PATH = dbPath;
+
+import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from '../services/stock/discovery-hot-themes.js';
+import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from '../services/stock/discovery-market-summary.js';
+import { buildMonthlyThemesFromHistoricalPools } from '../services/stock/discovery-monthly-themes.js';
+import type { HotFocusItem } from '../../src/shared/types.js';
 import type { MarketFundFlow, NorthboundFlowSummary } from 'stock-sdk';
 
 function poolItem(date: string, code: string, name: string, industry: string, amount: string): HotFocusItem {
@@ -196,4 +203,45 @@ assert.deepEqual(themeWithFallbackLeaders.leaders, [
 const themeWithoutLeaders = mergeHotThemeLeaders({ name: '未知板块' }, undefined, []);
 assert.deepEqual(themeWithoutLeaders, { name: '未知板块' });
 
+const localTheme = reconcileHotThemeWithLocalBoard(
+  { name: '医药生物', changePercent: 95, reason: '远端异常涨幅' },
+  { code: 'BK1044', name: '生物医药', changePercent: 1.23 },
+  { mainNetInflow: 2.5 },
+);
+assert.deepEqual(localTheme, {
+  name: '生物医药',
+  code: 'BK1044',
+  changePercent: 1.23,
+  reason: '板块涨跌幅 +1.23%，主力净流入 +2.5 亿。',
+});
+assert.equal(reconcileHotThemeWithLocalBoard({ name: '未知板块', changePercent: 88 }, undefined, undefined), undefined);
+
+const marketStore = await import('../services/market-data/market-data-store.js');
+await marketStore.initializeMarketDataStore();
+const updatedAt = '2026-07-30T09:30:00.000Z';
+await marketStore.writeDiscoverySnapshot({
+  updatedAt,
+  snapshot: {
+    tradeDate: '2026-07-30',
+    generatedAt: updatedAt,
+    indices: [{ code: 'sh000001', name: '上证指数', price: 3200, changePercent: 0.5 }],
+  },
+});
+const cachedSnapshot = await marketStore.readDiscoverySnapshot();
+assert.equal(cachedSnapshot?.updatedAt ? new Date(cachedSnapshot.updatedAt).toISOString() : undefined, updatedAt);
+assert.deepEqual(cachedSnapshot?.snapshot, {
+  tradeDate: '2026-07-30',
+  generatedAt: updatedAt,
+  indices: [{ code: 'sh000001', name: '上证指数', price: 3200, changePercent: 0.5 }],
+});
+await marketStore.closeMarketDataStore();
+for (const suffix of ['', '.wal']) {
+  try {
+    rmSync(`${dbPath}${suffix}`);
+  } catch {
+    /* already removed */
+  }
+}
+
 console.log('discovery-service selfcheck passed');
+app.quit();

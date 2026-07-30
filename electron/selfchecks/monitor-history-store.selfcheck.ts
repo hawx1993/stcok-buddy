@@ -3,12 +3,12 @@ import { rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { app } from 'electron';
-import type { IMonitorEvent } from '../../../src/shared/types.js';
+import type { IMonitorEvent } from '../../src/shared/types.js';
 
 const dbPath = path.join(os.tmpdir(), `stocksense-monitor-selfcheck-${process.pid}.duckdb`);
 process.env.STOCKSENSE_MONITOR_DB_PATH = dbPath;
 
-const store = await import('./monitor-history-store.js');
+const store = await import('../services/stock/monitor-history-store.js');
 
 const baseEvent: IMonitorEvent = {
   id: 'selfcheck-1',

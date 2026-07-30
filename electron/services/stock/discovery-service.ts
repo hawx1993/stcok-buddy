@@ -1,13 +1,23 @@
 import StockSDK from 'stock-sdk';
 import { getMarketReview, scoreSentiment } from './market-review-service.js';
-import { getBatchQuotes, getMarketPageSnapshot, listDailyDragonTiger, listEastmoneySurgeByDate } from './stock-client.js';
+import {
+  getBatchQuotes,
+  getMarketPageSnapshot,
+  listDailyDragonTiger,
+  listEastmoneySurgeByDate,
+} from './stock-client.js';
 import { listFavoriteStocks, getConfig } from '../config-store.js';
 import { chatWithOpenAICompatible } from '../llm/openai-compatible-client.js';
 import { listSurgeDates, listSurgeHistory } from './surge-history-store.js';
-import { listMarketBoards } from '../market-data/market-data-store.js';
+import {
+  listBoardConstituents,
+  listMarketBoards,
+  readDiscoverySnapshot,
+  writeDiscoverySnapshot,
+} from '../market-data/market-data-store.js';
 import { fetchMarketIndex } from './market-indices.js';
 import { buildMonthlyThemesFromHistoricalPools } from './discovery-monthly-themes.js';
-import { mergeHotThemeLeaders } from './discovery-hot-themes.js';
+import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from './discovery-hot-themes.js';
 import type { IHotThemeLeader } from './discovery-hot-themes.js';
 import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from './discovery-market-summary.js';
 import type {
@@ -19,8 +29,14 @@ import type {
 } from '../../../src/shared/types.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
+export const DISCOVERY_CACHE_TTL_MS = 60_000;
+const DISCOVERY_SNAPSHOT_KEY = 'default';
+let discoveryRefreshPromise: Promise<IDiscoverySnapshot> | undefined;
+let discoveryRefreshTimer: NodeJS.Timeout | undefined;
+let lastDiscoveryRefreshStartedAt = 0;
 
 type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
+type TRealtimeQuote = Awaited<ReturnType<typeof getBatchQuotes>>[number];
 
 export interface IDiscoverySnapshot {
   tradeDate: string;
@@ -141,7 +157,14 @@ export interface INextWeekSector {
 }
 
 type TSectorFlowIndicator = 'today';
-export type TLocalBoardSummary = { code: string; name: string; changePercent: number; mainNetInflow: number; topStockName?: string; topStockCode?: string };
+export type TLocalBoardSummary = {
+  code: string;
+  name: string;
+  changePercent: number;
+  mainNetInflow: number;
+  topStockName?: string;
+  topStockCode?: string;
+};
 
 type TLocalBoardCatalog = {
   rows: TLocalBoardSummary[];
@@ -161,7 +184,14 @@ function mapMetricToFactor(m: IMarketReviewMetric): { label: string; value: stri
 }
 
 function mapLeader(l: IMarketReviewLeader): NonNullable<IDiscoverySnapshot['leaders']>[number] {
-  return { code: l.code, name: l.name, height: l.height, amount: l.amount, concepts: l.concepts, changePercent: l.changePercent };
+  return {
+    code: l.code,
+    name: l.name,
+    height: l.height,
+    amount: l.amount,
+    concepts: l.concepts,
+    changePercent: l.changePercent,
+  };
 }
 
 function mapTheme(t: IMarketReviewHotTheme): NonNullable<IDiscoverySnapshot['hotThemes']>[number] {
@@ -188,6 +218,167 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function isDiscoverySnapshot(value: unknown): value is IDiscoverySnapshot {
+  if (!isRecord(value)) return false;
+  return typeof value.tradeDate === 'string' && typeof value.generatedAt === 'string';
+}
+
+function toCachedDiscoverySnapshot(value: unknown): IDiscoverySnapshot | undefined {
+  return isDiscoverySnapshot(value) ? value : undefined;
+}
+
+function shouldRefreshDiscoverySnapshot(updatedAt?: string): boolean {
+  if (!updatedAt) return true;
+  const updatedAtMs = new Date(updatedAt).getTime();
+  return !Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs >= DISCOVERY_CACHE_TTL_MS;
+}
+
+function addQuoteCode(codes: Set<string>, code?: string) {
+  if (code && /^\d{6}$/.test(code)) codes.add(code);
+}
+
+function collectRealtimeQuoteCodes(snapshot: IDiscoverySnapshot): string[] {
+  const codes = new Set<string>();
+  snapshot.watchlistQuotes?.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.limitUps?.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.sentimentStocks?.zt.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.sentimentStocks?.dt.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.sentimentStocks?.zb.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.consecutiveStocks?.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.yesterdayZt?.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.yesterdayLb?.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.leaders?.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.dragonTiger?.inst.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.dragonTiger?.hot.forEach((item) => addQuoteCode(codes, item.code));
+  snapshot.dragonTiger?.north.forEach((item) => addQuoteCode(codes, item.code));
+  return Array.from(codes);
+}
+
+function patchStockItemQuote<T extends { code: string; price?: number | string; changePercent?: number | string | null }>(
+  item: T,
+  quoteByCode: Map<string, TRealtimeQuote>,
+): T {
+  const quote = quoteByCode.get(item.code);
+  if (!quote) return item;
+  const changePercent = parseChgPct(quote.changePercent);
+  return {
+    ...item,
+    price: quote.price ?? item.price,
+    changePercent: changePercent ?? item.changePercent,
+  };
+}
+
+async function withRealtimeQuoteFields(snapshot: IDiscoverySnapshot): Promise<IDiscoverySnapshot> {
+  const [indicesResult, stockQuotesResult] = await Promise.allSettled([
+    fetchAllIndices(),
+    (async () => {
+      const codes = collectRealtimeQuoteCodes(snapshot);
+      return codes.length ? getBatchQuotes(codes) : [];
+    })(),
+  ]);
+
+  const realtimeIndices = indicesResult.status === 'fulfilled' ? indicesResult.value : undefined;
+  if (indicesResult.status === 'rejected') console.warn('[discovery] failed to refresh cached index quotes', indicesResult.reason);
+  if (stockQuotesResult.status === 'rejected') console.warn('[discovery] failed to refresh cached stock quotes', stockQuotesResult.reason);
+
+  const quoteByCode = new Map(
+    (stockQuotesResult.status === 'fulfilled' ? stockQuotesResult.value : []).map((quote) => [quote.code, quote]),
+  );
+
+  const next: IDiscoverySnapshot = {
+    ...snapshot,
+    indices: snapshot.indices,
+    marketSummary: snapshot.marketSummary,
+  };
+
+  if (realtimeIndices?.length) {
+    const indexByCode = new Map(realtimeIndices.map((item) => [item.code, item]));
+    next.indices = snapshot.indices?.map((item) => {
+      const realtime = indexByCode.get(item.code);
+      return realtime ? { ...item, price: realtime.price, changePercent: realtime.changePercent } : item;
+    });
+    if (snapshot.marketSummary) {
+      next.marketSummary = {
+        ...snapshot.marketSummary,
+        indices: snapshot.marketSummary.indices.map((item) => {
+          const realtime = indexByCode.get(item.code);
+          return realtime ? { ...item, price: realtime.price, changePercent: realtime.changePercent } : item;
+        }),
+      };
+    }
+  }
+
+  if (quoteByCode.size) {
+    next.watchlistQuotes = snapshot.watchlistQuotes?.map((item) => patchStockItemQuote(item, quoteByCode));
+    next.limitUps = snapshot.limitUps?.map((item) => patchStockItemQuote(item, quoteByCode));
+    next.sentimentStocks = snapshot.sentimentStocks
+      ? {
+          zt: snapshot.sentimentStocks.zt.map((item) => patchStockItemQuote(item, quoteByCode)),
+          dt: snapshot.sentimentStocks.dt.map((item) => patchStockItemQuote(item, quoteByCode)),
+          zb: snapshot.sentimentStocks.zb.map((item) => patchStockItemQuote(item, quoteByCode)),
+        }
+      : undefined;
+    next.consecutiveStocks = snapshot.consecutiveStocks?.map((item) => patchStockItemQuote(item, quoteByCode));
+    next.yesterdayZt = snapshot.yesterdayZt?.map((item) => patchStockItemQuote(item, quoteByCode));
+    next.yesterdayLb = snapshot.yesterdayLb?.map((item) => patchStockItemQuote(item, quoteByCode));
+    next.leaders = snapshot.leaders?.map((item) => patchStockItemQuote(item, quoteByCode));
+    next.dragonTiger = snapshot.dragonTiger
+      ? {
+          inst: snapshot.dragonTiger.inst.map((item) => patchStockItemQuote(item, quoteByCode)),
+          hot: snapshot.dragonTiger.hot.map((item) => patchStockItemQuote(item, quoteByCode)),
+          north: snapshot.dragonTiger.north.map((item) => patchStockItemQuote(item, quoteByCode)),
+        }
+      : undefined;
+  }
+
+  return next;
+}
+
+function refreshDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
+  if (discoveryRefreshPromise) return discoveryRefreshPromise;
+  lastDiscoveryRefreshStartedAt = Date.now();
+  discoveryRefreshPromise = buildDiscoverySnapshotFresh()
+    .then(async (snapshot) => {
+      await writeDiscoverySnapshot({ snapshot: { ...snapshot }, updatedAt: snapshot.generatedAt }, DISCOVERY_SNAPSHOT_KEY);
+      return snapshot;
+    })
+    .finally(() => {
+      discoveryRefreshPromise = undefined;
+    });
+  return discoveryRefreshPromise;
+}
+
+function triggerDiscoveryRefresh() {
+  void refreshDiscoverySnapshot().catch((error) => console.warn('[discovery] background refresh failed', error));
+}
+
+function ensureDiscoveryRefreshLoop() {
+  if (discoveryRefreshTimer) return;
+  discoveryRefreshTimer = setInterval(() => {
+    if (Date.now() - lastDiscoveryRefreshStartedAt >= DISCOVERY_CACHE_TTL_MS) triggerDiscoveryRefresh();
+  }, DISCOVERY_CACHE_TTL_MS);
+}
+
+export function stopDiscoveryRefreshLoop() {
+  if (!discoveryRefreshTimer) return;
+  clearInterval(discoveryRefreshTimer);
+  discoveryRefreshTimer = undefined;
+}
+
+export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
+  ensureDiscoveryRefreshLoop();
+  const cached = await readDiscoverySnapshot(DISCOVERY_SNAPSHOT_KEY);
+  const cachedSnapshot = cached ? toCachedDiscoverySnapshot(cached.snapshot) : undefined;
+
+  if (cachedSnapshot && cached) {
+    if (shouldRefreshDiscoverySnapshot(cached.updatedAt) && !discoveryRefreshPromise) triggerDiscoveryRefresh();
+    return withRealtimeQuoteFields(cachedSnapshot);
+  }
+
+  const snapshot = await refreshDiscoverySnapshot();
+  return withRealtimeQuoteFields(snapshot);
+}
+
 function parseJsonArray<T>(text: string, isItem: (value: unknown) => value is T): T[] {
   const parsed: unknown = JSON.parse(text);
   return Array.isArray(parsed) ? parsed.filter(isItem) : [];
@@ -212,7 +403,22 @@ export function buildLocalBoardCatalog(rows: TLocalBoardSummary[]): TLocalBoardC
   return { rows, byCode, byName };
 }
 
-function findLocalBoard(catalog: TLocalBoardCatalog, input: { code?: string; name?: string }) {
+function boardNameOverlap(left: string, right: string): number {
+  const leftName = normalizeBoardLookupName(left);
+  const rightName = normalizeBoardLookupName(right);
+  if (leftName.length < 2 || rightName.length < 2) return 0;
+  const grams = new Set<string>();
+  for (let index = 0; index < leftName.length - 1; index += 1) {
+    grams.add(leftName.slice(index, index + 2));
+  }
+  let overlap = 0;
+  for (let index = 0; index < rightName.length - 1; index += 1) {
+    if (grams.has(rightName.slice(index, index + 2))) overlap += 1;
+  }
+  return overlap;
+}
+
+export function findLocalBoard(catalog: TLocalBoardCatalog, input: { code?: string; name?: string }) {
   if (input.code) {
     const byCode = catalog.byCode.get(input.code);
     if (byCode) return byCode;
@@ -220,12 +426,20 @@ function findLocalBoard(catalog: TLocalBoardCatalog, input: { code?: string; nam
   const name = input.name?.trim();
   if (!name) return undefined;
   const normalized = normalizeBoardLookupName(name);
-  return catalog.byName.get(name)
-    ?? catalog.byName.get(normalized)
-    ?? catalog.rows.find((row) => {
+  const direct =
+    catalog.byName.get(name) ??
+    catalog.byName.get(normalized) ??
+    catalog.rows.find((row) => {
       const rowName = normalizeBoardLookupName(row.name);
       return rowName.includes(normalized) || normalized.includes(rowName);
     });
+  if (direct) return direct;
+
+  const fuzzy = catalog.rows
+    .map((row) => ({ row, overlap: boardNameOverlap(row.name, name) }))
+    .filter((item) => item.overlap >= 2)
+    .sort((a, b) => b.overlap - a.overlap)[0];
+  return fuzzy?.row;
 }
 
 function formatMonthlyWeekLabel(index: number): string {
@@ -294,10 +508,12 @@ async function fetchCompletedMonthWeekPools(
   const weeks = buildCompletedMonthWeeks(now);
   if (!weeks.length) return [];
 
-  const rows = await Promise.all(weeks.map(async (week) => {
-    const items = (await Promise.all(week.dates.map((date) => listEastmoneySurgeByDate(date)))).flat();
-    return { ...week, items };
-  }));
+  const rows = await Promise.all(
+    weeks.map(async (week) => {
+      const items = (await Promise.all(week.dates.map((date) => listEastmoneySurgeByDate(date)))).flat();
+      return { ...week, items };
+    }),
+  );
 
   return buildMonthlyThemesFromHistoricalPools(rows, boardCatalog.rows);
 }
@@ -307,7 +523,14 @@ function reconcileSectorsWithLocalBoards(sectors: ISectorSummary[], catalog: TLo
   const matched = sectors
     .map((sector) => {
       const local = findLocalBoard(catalog, sector);
-      return local ? { ...sector, code: local.code, name: local.name } : undefined;
+      return local
+        ? {
+            ...sector,
+            code: local.code,
+            name: local.name,
+            changePercent: local.changePercent,
+          }
+        : undefined;
     })
     .filter((sector): sector is ISectorSummary => Boolean(sector));
   if (matched.length) return matched;
@@ -441,16 +664,23 @@ async function generateOneSentenceVerdict(
 ): Promise<string> {
   try {
     const cfg = getConfig();
-    const sentimentLines = reviewData.sentiment
-      ?.map((m) => `${m.label}：${m.value === null || m.value === undefined ? '暂无数据' : `${m.value}${m.unit ?? ''}`}`)
-      .join('\n') ?? '暂无数据';
-    const wealthLines = reviewData.wealthEffect
-      ?.map((m) => `${m.label}：${m.value === null || m.value === undefined ? '暂无数据' : `${m.value}${m.unit ?? ''}`}`)
-      .join('\n') ?? '暂无数据';
-    const hotThemes = reviewData.hotThemes
-      ?.slice(0, 5)
-      .map((t) => `${t.name}（涨停${t.limitUpCount ?? '--'}家${t.leaderName ? `，龙头${t.leaderName}` : ''}）`)
-      .join('、') ?? '暂无数据';
+    const sentimentLines =
+      reviewData.sentiment
+        ?.map(
+          (m) => `${m.label}：${m.value === null || m.value === undefined ? '暂无数据' : `${m.value}${m.unit ?? ''}`}`,
+        )
+        .join('\n') ?? '暂无数据';
+    const wealthLines =
+      reviewData.wealthEffect
+        ?.map(
+          (m) => `${m.label}：${m.value === null || m.value === undefined ? '暂无数据' : `${m.value}${m.unit ?? ''}`}`,
+        )
+        .join('\n') ?? '暂无数据';
+    const hotThemes =
+      reviewData.hotThemes
+        ?.slice(0, 5)
+        .map((t) => `${t.name}（涨停${t.limitUpCount ?? '--'}家${t.leaderName ? `，龙头${t.leaderName}` : ''}）`)
+        .join('、') ?? '暂无数据';
 
     const messages = [
       {
@@ -577,7 +807,8 @@ async function loadSectorFlowRank(indicator: TSectorFlowIndicator): Promise<ISec
       code: r.code ?? '',
       name: r.name ?? '',
       changePercent: Number(r.changePercent ?? 0),
-      mainNetInflow: r.mainNetInflow !== null && r.mainNetInflow !== undefined ? Number(r.mainNetInflow) / 100_000_000 : 0,
+      mainNetInflow:
+        r.mainNetInflow !== null && r.mainNetInflow !== undefined ? Number(r.mainNetInflow) / 100_000_000 : 0,
       topStockName: r.topStockName,
       topStockCode: r.topStockCode,
     }))
@@ -614,7 +845,10 @@ async function generateNextWeekSectors(
     const cfg = getConfig();
     const sectorText = sectors
       .slice(0, 15)
-      .map((s) => `${s.name}(涨幅${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%，资金${s.mainNetInflow >= 0 ? '+' : ''}${s.mainNetInflow.toFixed(1)}亿)`)
+      .map(
+        (s) =>
+          `${s.name}(涨幅${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%，资金${s.mainNetInflow >= 0 ? '+' : ''}${s.mainNetInflow.toFixed(1)}亿)`,
+      )
       .join('、');
     const hotText = hotThemes
       .slice(0, 8)
@@ -683,11 +917,21 @@ async function generateNextWeekSectors(
   }
 }
 
-async function fetchSectorLeaders(code: string): Promise<Array<{ code: string; name: string; height?: number | null }> | undefined> {
-  const loaders = [
-    () => sdk.board.concept.constituents(code),
-    () => sdk.board.industry.constituents(code),
-  ];
+async function fetchSectorLeaders(
+  code: string,
+): Promise<Array<{ code: string; name: string; height?: number | null }> | undefined> {
+  try {
+    const localItems = await listBoardConstituents(code);
+    const localLeaders = localItems
+      .slice(0, 3)
+      .map((item) => ({ code: item.stockCode, name: item.stockName }))
+      .filter((item) => item.code && item.name);
+    if (localLeaders.length) return localLeaders;
+  } catch {
+    // Fall through to remote real board constituent providers.
+  }
+
+  const loaders = [() => sdk.board.concept.constituents(code), () => sdk.board.industry.constituents(code)];
   for (const load of loaders) {
     try {
       const items = await load();
@@ -708,7 +952,8 @@ function buildHotThemesFromPools(poolItems: HotFocusItem[]): NonNullable<IDiscov
   const groups = new Map<string, HotFocusItem[]>();
   for (const item of poolItems) {
     const boardName = item.description?.split('·')[0]?.trim();
-    if (!boardName || boardName.includes('换手') || boardName.includes('封单') || boardName.includes('成交额')) continue;
+    if (!boardName || boardName.includes('换手') || boardName.includes('封单') || boardName.includes('成交额'))
+      continue;
     const rows = groups.get(boardName) ?? [];
     rows.push(item);
     groups.set(boardName, rows);
@@ -725,7 +970,11 @@ function buildHotThemesFromPools(poolItems: HotFocusItem[]): NonNullable<IDiscov
         : null;
       const leaders = limitUpItems
         .slice(0, 3)
-        .map((item) => ({ code: item.code ?? '', name: item.name ?? item.title, height: parseHeight(item.description) }))
+        .map((item) => ({
+          code: item.code ?? '',
+          name: item.name ?? item.title,
+          height: parseHeight(item.description),
+        }))
         .filter((item) => item.code && item.name);
       return {
         code: null,
@@ -744,7 +993,9 @@ function buildHotThemesFromPools(poolItems: HotFocusItem[]): NonNullable<IDiscov
     .slice(0, 8);
 }
 
-async function buildHotThemesFromSectors(sectors: ISectorSummary[]): Promise<NonNullable<IDiscoverySnapshot['hotThemes']>> {
+async function buildHotThemesFromSectors(
+  sectors: ISectorSummary[],
+): Promise<NonNullable<IDiscoverySnapshot['hotThemes']>> {
   const rows = sectors.slice(0, 8);
   const leaders = await Promise.all(rows.map((sector) => fetchSectorLeaders(sector.code)));
   return rows.map((sector, index) => ({
@@ -766,37 +1017,43 @@ async function enrichHotThemesWithLeaders(
   boardCatalog: TLocalBoardCatalog,
   poolItems: HotFocusItem[],
 ): Promise<NonNullable<IDiscoverySnapshot['hotThemes']>> {
-  const enriched = await Promise.all(themes.map(async (theme) => {
-    if (theme.leaders?.length) return theme;
+  const enriched = await Promise.all(
+    themes.map(async (theme) => {
+      const board = findLocalBoard(boardCatalog, { code: theme.code ?? undefined, name: theme.name });
+      const sector = sectors.find(
+        (item) =>
+          item.code === theme.code ||
+          item.code === board?.code ||
+          normalizeBoardLookupName(item.name) === normalizeBoardLookupName(theme.name),
+      );
+      const localTheme = reconcileHotThemeWithLocalBoard(theme, board, sector);
+      if (!localTheme) return undefined;
 
-    const board = findLocalBoard(boardCatalog, { code: theme.code ?? undefined, name: theme.name });
-    const sector = sectors.find((item) => item.code === theme.code || item.code === board?.code || normalizeBoardLookupName(item.name) === normalizeBoardLookupName(theme.name));
+      const poolLeaders = findLeadersFromPool(localTheme.name, poolItems);
+      if (poolLeaders.length) {
+        return {
+          ...localTheme,
+          leaders: poolLeaders,
+          leaderName: poolLeaders[0].name,
+          leaderCode: poolLeaders[0].code,
+        };
+      }
 
-    // 1) 用当日涨停池按题材名匹配真正的龙头股（含连板高度）
-    const poolLeaders = findLeadersFromPool(theme.name, poolItems);
-    if (poolLeaders.length) {
-      return { ...theme, leaders: poolLeaders, leaderName: poolLeaders[0].name, leaderCode: poolLeaders[0].code };
-    }
-
-    // 2) 用 stock-sdk 板块成分股 fallback
-    let fallbackLeaders: IHotThemeLeader[] = [];
-    const boardCode = theme.code ?? board?.code;
-    if (boardCode) {
-      fallbackLeaders = await fetchSectorLeaders(boardCode) ?? [];
-    }
-    return mergeHotThemeLeaders(theme, sector, fallbackLeaders);
-  }));
-  return enriched;
+      let fallbackLeaders: IHotThemeLeader[] = [];
+      if (localTheme.code) {
+        fallbackLeaders = (await fetchSectorLeaders(localTheme.code)) ?? [];
+      }
+      return mergeHotThemeLeaders(localTheme, sector, fallbackLeaders);
+    }),
+  );
+  return enriched.filter((theme): theme is NonNullable<IDiscoverySnapshot['hotThemes']>[number] => Boolean(theme));
 }
 
 async function buildMarketSummary(
   reviewData: Awaited<ReturnType<typeof getMarketReview>> | undefined,
   pools: HotFocusItem[],
 ): Promise<IMarketSummary | undefined> {
-  const [boardCatalog, remoteSectors] = await Promise.all([
-    fetchLocalBoardCatalog(),
-    fetchSectorFlowRank(),
-  ]);
+  const [boardCatalog, remoteSectors] = await Promise.all([fetchLocalBoardCatalog(), fetchSectorFlowRank()]);
   const sectors = reconcileSectorsWithLocalBoards(remoteSectors, boardCatalog);
 
   const [indices, mainFundFlow, northFundFlow] = await Promise.all([
@@ -831,7 +1088,7 @@ async function buildMarketSummary(
   };
 }
 
-export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
+async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
   const favStocks = await listFavoriteStocks();
   const favCodes = favStocks.map((f) => f.code);
 
@@ -862,7 +1119,12 @@ export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
   if (reviewData?.wealthEffect) {
     for (const m of reviewData.wealthEffect) {
       if (m.value !== null && m.value !== undefined) {
-        const displayValue = typeof m.value === 'number' ? (Number.isInteger(m.value) ? String(m.value) : m.value.toFixed(2)) : String(m.value);
+        const displayValue =
+          typeof m.value === 'number'
+            ? Number.isInteger(m.value)
+              ? String(m.value)
+              : m.value.toFixed(2)
+            : String(m.value);
         bullets.push(`${m.label}：${displayValue}${m.unit ?? ''}`);
       }
       wealthMetrics.push({ label: m.label, value: m.value, unit: m.unit ?? '' });
@@ -900,9 +1162,7 @@ export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
   const yesterday = yyyymmdd(offsetDate(-1));
   try {
     const ydayPool = await listEastmoneySurgeByDate(yesterday);
-    yesterdayZt = ydayPool
-      .filter((item) => item.tag === '封涨停板')
-      .map(toStockItem);
+    yesterdayZt = ydayPool.filter((item) => item.tag === '封涨停板').map(toStockItem);
     yesterdayLb = ydayPool
       .filter((item) => item.tag === '封涨停板' && parseHeight(item.description) >= 2)
       .map(toStockItem);
@@ -912,10 +1172,51 @@ export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
 
   // ── Dragon tiger ──
   const dtItems = dragonTiger.status === 'fulfilled' ? dragonTiger.value : [];
-  const dtInst = dtItems.filter((item) => /机构|专用|基金|券商|保险|QFII/.test(item.reason)).slice(0, 5).map((item) => ({ code: item.code, name: item.name, changePercent: item.changePercent, netBuy: item.netBuy, reason: item.reason }));
-  const dtHot = dtItems.filter((item) => /游资|营业部|席位|大户/.test(item.reason)).slice(0, 5).map((item) => ({ code: item.code, name: item.name, changePercent: item.changePercent, netBuy: item.netBuy, reason: item.reason }));
-  const dtNorth = dtItems.filter((item) => /北向|深股通|沪股通|深港通|沪港通/.test(item.reason)).slice(0, 5).map((item) => ({ code: item.code, name: item.name, changePercent: item.changePercent, netBuy: item.netBuy, reason: item.reason }));
-  const dtFill = dtItems.filter((item) => !dtInst.some((d) => d.code === item.code) && !dtHot.some((d) => d.code === item.code) && !dtNorth.some((d) => d.code === item.code)).slice(0, 5).map((item) => ({ code: item.code, name: item.name, changePercent: item.changePercent, netBuy: item.netBuy, reason: item.reason }));
+  const dtInst = dtItems
+    .filter((item) => /机构|专用|基金|券商|保险|QFII/.test(item.reason))
+    .slice(0, 5)
+    .map((item) => ({
+      code: item.code,
+      name: item.name,
+      changePercent: item.changePercent,
+      netBuy: item.netBuy,
+      reason: item.reason,
+    }));
+  const dtHot = dtItems
+    .filter((item) => /游资|营业部|席位|大户/.test(item.reason))
+    .slice(0, 5)
+    .map((item) => ({
+      code: item.code,
+      name: item.name,
+      changePercent: item.changePercent,
+      netBuy: item.netBuy,
+      reason: item.reason,
+    }));
+  const dtNorth = dtItems
+    .filter((item) => /北向|深股通|沪股通|深港通|沪港通/.test(item.reason))
+    .slice(0, 5)
+    .map((item) => ({
+      code: item.code,
+      name: item.name,
+      changePercent: item.changePercent,
+      netBuy: item.netBuy,
+      reason: item.reason,
+    }));
+  const dtFill = dtItems
+    .filter(
+      (item) =>
+        !dtInst.some((d) => d.code === item.code) &&
+        !dtHot.some((d) => d.code === item.code) &&
+        !dtNorth.some((d) => d.code === item.code),
+    )
+    .slice(0, 5)
+    .map((item) => ({
+      code: item.code,
+      name: item.name,
+      changePercent: item.changePercent,
+      netBuy: item.netBuy,
+      reason: item.reason,
+    }));
 
   // ── Watchlist quotes ──
   let watchlistQuotes: IDiscoverySnapshot['watchlistQuotes'];
@@ -971,7 +1272,8 @@ export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
         height: l.height ? `${l.height}板` : '首板',
         reason: l.concepts?.join(' + ') ?? '题材催化',
         price: quote?.price,
-        changePercent: l.changePercent ?? (quote?.changePercent !== undefined ? Number(quote.changePercent) : undefined),
+        changePercent:
+          l.changePercent ?? (quote?.changePercent !== undefined ? Number(quote.changePercent) : undefined),
         turnoverRate: l.turnoverRate ?? (quote?.turnoverRate !== undefined ? Number(quote.turnoverRate) : undefined),
       };
     });
@@ -1019,14 +1321,19 @@ export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
           return mapMetricToFactor(m);
         })
       : undefined,
-    sentimentStocks: (sentimentStocks.zt.length || sentimentStocks.dt.length || sentimentStocks.zb.length) ? sentimentStocks : undefined,
+    sentimentStocks:
+      sentimentStocks.zt.length || sentimentStocks.dt.length || sentimentStocks.zb.length ? sentimentStocks : undefined,
     consecutiveStocks: consecutiveStocks.length ? consecutiveStocks : undefined,
     yesterdayZt: yesterdayZt?.length ? yesterdayZt : undefined,
     yesterdayLb: yesterdayLb?.length ? yesterdayLb : undefined,
     leaders: reviewData?.leaders?.map(mapLeader),
     hotThemes: hotThemes.length ? hotThemes : undefined,
     limitUps: limitUps?.length ? limitUps : undefined,
-    dragonTiger: { inst: dtInst.length ? dtInst : dtFill.slice(0, 3), hot: dtHot.length ? dtHot : dtFill.slice(3, 5), north: dtNorth.length ? dtNorth : [] },
+    dragonTiger: {
+      inst: dtInst.length ? dtInst : dtFill.slice(0, 3),
+      hot: dtHot.length ? dtHot : dtFill.slice(3, 5),
+      north: dtNorth.length ? dtNorth : [],
+    },
     nextDayFocus: reviewData?.nextDayFocus?.map(mapFocusItem),
     watchlist: favStocks.map((f) => ({ code: f.code, name: f.name })),
     watchlistQuotes,

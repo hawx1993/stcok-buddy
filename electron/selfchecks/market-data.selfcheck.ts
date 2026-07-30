@@ -6,10 +6,10 @@ import os from 'node:os';
 const dbPath = path.join(os.tmpdir(), `stocksense-market-selfcheck-${process.pid}.duckdb`);
 process.env.STOCKSENSE_MARKET_DB_PATH = dbPath;
 
-const store = await import('./market-data-store.js');
-const query = await import('./market-data-query.js');
-const quality = await import('./quality.js');
-const sync = await import('./market-data-sync.js');
+const store = await import('../services/market-data/market-data-store.js');
+const query = await import('../services/market-data/market-data-query.js');
+const quality = await import('../services/market-data/quality.js');
+const sync = await import('../services/market-data/market-data-sync.js');
 
 await store.initializeMarketDataStore();
 await store.initializeMarketDataStore();

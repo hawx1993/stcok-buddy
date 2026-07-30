@@ -13,6 +13,7 @@ import {
 } from './services/market-data/market-news-summary-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
 import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler, waitForSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
+import { stopDiscoveryRefreshLoop } from './services/stock/discovery-service.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
 import { startMonitorHistoryScheduler, stopMonitorHistoryScheduler, waitForMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
@@ -72,6 +73,7 @@ function prepareForUpdateInstall() {
   if (forceExitTimer) clearTimeout(forceExitTimer);
   stopMarketDataScheduler();
   stopMarketNewsSummaryScheduler();
+  stopDiscoveryRefreshLoop();
   stopSurgeHistoryScheduler();
   stopMonitorHistoryScheduler();
 }
@@ -142,6 +144,7 @@ app.on('before-quit', (event) => {
   if (installingUpdate) return;
   stopMarketDataScheduler();
   stopMarketNewsSummaryScheduler();
+  stopDiscoveryRefreshLoop();
   stopSurgeHistoryScheduler();
   stopMonitorHistoryScheduler();
   if (cleanupDone || cleanupStarted) return;
