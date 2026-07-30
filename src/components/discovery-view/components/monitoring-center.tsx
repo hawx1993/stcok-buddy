@@ -50,6 +50,8 @@ export function MonitoringCenter() {
   const [events, setEvents] = useState<IMonitorEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isTradingTime, setTradingTime] = useState(false);
+  const [mode, setMode] = useState<'realtime' | 'history'>('history');
 
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
@@ -61,6 +63,8 @@ export function MonitoringCenter() {
       setError('');
       const api = getStocksenseApi();
       const feed = await api.getMonitorFeed({ categories: ALL_CATEGORIES, limit: 8 });
+      setTradingTime(feed.isTradingTime);
+      setMode(feed.mode);
       setEvents(
         feed.events.slice(0, 8).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
       );
@@ -77,9 +81,10 @@ export function MonitoringCenter() {
   }, []);
 
   useEffect(() => {
+    if (!isTradingTime || mode !== 'realtime') return;
     const id = setInterval(loadFeed, 30_000);
     return () => clearInterval(id);
-  }, []);
+  }, [isTradingTime, mode]);
 
   const previewEvents = useMemo(() => events.slice(0, 8), [events]);
 
@@ -103,6 +108,7 @@ export function MonitoringCenter() {
   return (
     <div className='monitor-center compact'>
       <div className='monitor-feed compact-feed'>
+        {!isTradingTime || mode === 'history' ? <div className='empty-block'>休市 · 展示最近交易日记录</div> : null}
         {loading && !events.length ? (
           <div className='monitor-skeleton-grid'>
             {Array.from({ length: 6 }).map((_, index) => (

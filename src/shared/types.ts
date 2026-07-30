@@ -404,6 +404,8 @@ export type TMonitorCategory =
   | 'ai-opportunity'
   | 'ai-warning';
 
+export type TMonitorMode = 'realtime' | 'history';
+
 export interface IMonitorEvent {
   id: string;
   category: TMonitorCategory;
@@ -428,6 +430,11 @@ export interface IMonitorEvent {
 export interface IMonitorFeed {
   updatedAt: string;
   events: IMonitorEvent[];
+  mode: TMonitorMode;
+  isTradingTime: boolean;
+  availableDates: string[];
+  selectedDate?: string;
+  total?: number;
 }
 
 export interface IStockNewsSubscription {
@@ -819,7 +826,7 @@ export interface StocksenseApi {
   getMarketDataStats(): Promise<MarketDataStats>;
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
   getDiscoverySnapshot(): Promise<Record<string, unknown>>;
-  getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number }): Promise<IMonitorFeed>;
+  getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number; date?: string; mode?: TMonitorMode }): Promise<IMonitorFeed>;
   getTradingAdvice(): Promise<ITradingAdvice>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;

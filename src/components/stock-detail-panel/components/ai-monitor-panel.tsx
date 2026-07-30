@@ -1,3 +1,4 @@
+import { ConfigProvider, Select } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
@@ -12,20 +13,15 @@ import {
   RefreshCw,
   Star,
   Sparkles,
-  CircleDot,
-  Pause,
   LayoutGrid,
 } from 'lucide-react';
 import { useAppStore } from '../../../store/app-store';
 import styles from '../index.module.scss';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
-import type { IMonitorEvent, TMonitorCategory, StockDetail } from '../../../shared/types';
+import type { IMonitorEvent, TMonitorCategory, TMonitorMode, StockDetail } from '../../../shared/types';
 import type { LucideIcon } from 'lucide-react';
 
-const CATEGORY_CONFIG: Record<
-  TMonitorCategory,
-  { label: string; Icon: LucideIcon; color: string; glow: string }
-> = {
+const CATEGORY_CONFIG: Record<TMonitorCategory, { label: string; Icon: LucideIcon; color: string; glow: string }> = {
   'large-order': {
     label: '大单异动',
     Icon: Banknote,
@@ -87,18 +83,21 @@ const ALL_CATEGORIES: TMonitorCategory[] = [
   'ai-warning',
 ];
 
-const categoryStyle = (color: string, glow?: string): CSSProperties => ({
-  '--cat-color': color,
-  '--cat-glow': glow ?? color,
-} as CSSProperties);
+const categoryStyle = (color: string, glow?: string): CSSProperties =>
+  ({
+    '--cat-color': color,
+    '--cat-glow': glow ?? color,
+  }) as CSSProperties;
 
-const cardAccentStyle = (color: string): CSSProperties => ({
-  '--card-accent': color,
-} as CSSProperties);
+const cardAccentStyle = (color: string): CSSProperties =>
+  ({
+    '--card-accent': color,
+  }) as CSSProperties;
 
 const classNames = (...classes: Array<string | false | undefined>) => classes.filter(Boolean).join(' ');
 
 const PAGE_SIZE = 20;
+const AI_MONITOR_FETCH_LIMIT = 1000;
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -139,20 +138,13 @@ function SparkLine({ data, color }: { data: number[]; color: string }) {
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className={styles['monitor-sparkline']}>
       <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.32" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        <linearGradient id={gradId} x1='0' y1='0' x2='0' y2='1'>
+          <stop offset='0%' stopColor={color} stopOpacity='0.32' />
+          <stop offset='100%' stopColor={color} stopOpacity='0' />
         </linearGradient>
       </defs>
       <path d={areaD} fill={`url(#${gradId})`} />
-      <path
-        d={d}
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d={d} fill='none' stroke={color} strokeWidth='2' strokeLinecap='round' strokeLinejoin='round' />
     </svg>
   );
 }
@@ -162,6 +154,10 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TMonitorCategory | 'all'>('all');
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [mode, setMode] = useState<TMonitorMode>('history');
+  const [isTradingTime, setTradingTime] = useState(false);
+  const [dateOptions] = useState(() => makeMonitorDateOptions());
+  const [selectedDate, setSelectedDate] = useState(() => makeMonitorDateOptions()[0]);
   const [lastUpdated, setLastUpdated] = useState<string>();
   const [error, setError] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -171,12 +167,23 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
   const openRightPanel = useAppStore((state) => state.openRightPanel);
   const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
 
-  const loadFeed = async () => {
+  const loadFeed = async (nextMode: TMonitorMode = mode, nextDate = selectedDate) => {
     try {
       setError('');
       const api = getStocksenseApi();
-      const feed = await api.getMonitorFeed({ categories: ALL_CATEGORIES, limit: 200 });
+      const feed = await api.getMonitorFeed({
+        categories: ALL_CATEGORIES,
+        limit: AI_MONITOR_FETCH_LIMIT,
+        mode: nextMode,
+        date: nextMode === 'history' ? nextDate : undefined,
+      });
+      setMode(feed.mode);
+      setTradingTime(feed.isTradingTime);
+      setSelectedDate(feed.selectedDate ?? nextDate);
       setEvents((prev) => {
+        if (feed.mode === 'history') {
+          return feed.events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        }
         const map = new Map<string, IMonitorEvent>();
         for (const e of prev) map.set(e.id, e);
         for (const e of feed.events) map.set(e.id, e);
@@ -196,14 +203,14 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
     if (!isActive) return;
     setLoading(true);
     setCurrentPage(1);
-    loadFeed();
+    loadFeed('realtime');
   }, [isActive]);
 
   useEffect(() => {
-    if (!isActive || !autoRefresh) return;
-    const id = setInterval(loadFeed, 30_000);
+    if (!isActive || !autoRefresh || !isTradingTime || mode !== 'realtime') return;
+    const id = setInterval(() => void loadFeed('realtime'), 30_000);
     return () => clearInterval(id);
-  }, [autoRefresh, isActive]);
+  }, [autoRefresh, isActive, isTradingTime, mode]);
 
   const filteredEvents = useMemo(() => {
     if (activeTab === 'all') return events;
@@ -258,6 +265,55 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
     });
   };
 
+  const getMonitorDateSelectPopupContainer = (trigger: HTMLElement) => trigger.parentElement ?? document.body;
+  const monitorDateSelectClassNames = {
+    popup: {
+      root: styles['surge-date-select-popup'],
+      listItem: styles['surge-date-select-option'],
+    },
+  };
+  const monitorDateSelectTheme = {
+    token: {
+      colorBgContainer: 'var(--input-bg)',
+      colorBgElevated: 'var(--surface)',
+      colorBorder: 'var(--border)',
+      colorText: 'var(--fg)',
+      colorTextPlaceholder: 'var(--fg-secondary)',
+      colorTextQuaternary: 'var(--fg-secondary)',
+      colorIcon: 'var(--fg-secondary)',
+    },
+    components: {
+      Select: {
+        selectorBg: 'var(--input-bg)',
+        optionActiveBg: 'var(--surface-hover)',
+        optionSelectedBg: 'var(--surface-active)',
+        optionSelectedColor: 'var(--fg)',
+        hoverBorderColor: 'var(--accent)',
+        activeBorderColor: 'var(--accent)',
+        activeOutlineColor: 'transparent',
+      },
+    },
+  };
+
+  const handleRealtimeClick = () => {
+    if (!isTradingTime) return;
+    setLoading(true);
+    void loadFeed('realtime');
+  };
+
+  const handleHistoryDateClick = (date: string) => {
+    setLoading(true);
+    setCurrentPage(1);
+    void loadFeed('history', date);
+  };
+
+  const handleRefresh = () => {
+    setLoading(true);
+    void loadFeed(mode === 'realtime' && isTradingTime ? 'realtime' : 'history', selectedDate);
+  };
+
+  const emptyText = mode === 'history' ? '该交易日暂无此分类监控事件' : '暂无监控事件';
+
   return (
     <div className={styles['ai-monitor-panel']}>
       <div className={styles['ai-monitor-panel-head']}>
@@ -267,36 +323,51 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
           </span>
           <span>AI监控</span>
         </span>
-        <div className={styles['ai-monitor-panel-controls']}>
-          <button
-            className={classNames(styles['monitor-refresh-btn'], autoRefresh && styles.active)}
-            onClick={() => setAutoRefresh((v) => !v)}
-            type="button"
-          >
-            {autoRefresh ? (
-              <>
-                <CircleDot size={12} />
-                <span>实时</span>
-              </>
-            ) : (
-              <>
-                <Pause size={12} />
-                <span>暂停</span>
-              </>
-            )}
-          </button>
-          <button className={styles['monitor-refresh-btn']} onClick={loadFeed} type="button">
-            <RefreshCw size={12} />
-            <span>刷新</span>
-          </button>
-        </div>
+      </div>
+
+      <div className={styles['surge-date-row']}>
+        <ConfigProvider theme={monitorDateSelectTheme}>
+          <Select
+            aria-label='筛选 AI 监控日期'
+            className={styles['surge-date-select']}
+            classNames={monitorDateSelectClassNames}
+            getPopupContainer={getMonitorDateSelectPopupContainer}
+            value={selectedDate}
+            options={dateOptions.map((date, index) => ({
+              value: date,
+              label: index === 0 ? `今天 ${date.slice(5)}` : date,
+            }))}
+            onChange={(date: string) => handleHistoryDateClick(date)}
+          />
+        </ConfigProvider>
+        <button className={styles['surge-date-button']} onClick={handleRefresh} type='button'>
+          <RefreshCw size={12} />
+          <span style={{ paddingLeft: '2px' }}> 刷新</span>
+        </button>
+        <button
+          className={classNames(styles['surge-monitor-button'], autoRefresh && mode === 'realtime' && styles.active)}
+          onClick={() => {
+            if (!isTradingTime) return;
+            if (mode !== 'realtime') {
+              handleRealtimeClick();
+              return;
+            }
+            setAutoRefresh((value) => !value);
+          }}
+          disabled={!isTradingTime}
+          title={isTradingTime ? (autoRefresh && mode === 'realtime' ? '关闭实时监控' : '开启实时监控') : '非交易时段不可开启实时监控'}
+          aria-label={isTradingTime ? (autoRefresh && mode === 'realtime' ? '关闭实时监控' : '开启实时监控') : '非交易时段不可开启实时监控'}
+          type='button'
+        >
+          <span />
+        </button>
       </div>
 
       <div className={styles['ai-monitor-panel-tabs']}>
         <button
           className={classNames(styles['monitor-tab'], activeTab === 'all' && styles.active)}
           onClick={() => setActiveTab('all')}
-          type="button"
+          type='button'
           style={categoryStyle('#a855f7', 'rgba(168, 85, 247, 0.45)')}
         >
           <span className={styles['monitor-tab-indicator']} />
@@ -312,7 +383,7 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
               key={cat}
               className={classNames(styles['monitor-tab'], activeTab === cat && styles.active)}
               onClick={() => setActiveTab(cat)}
-              type="button"
+              type='button'
               style={categoryStyle(cfg.color, cfg.glow)}
             >
               <span className={styles['monitor-tab-indicator']} />
@@ -330,17 +401,13 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
         ) : error ? (
           <div className={styles['empty-block']}>{error}</div>
         ) : filteredEvents.length === 0 ? (
-          <div className={styles['empty-block']}>暂无监控事件</div>
+          <div className={styles['empty-block']}>{emptyText}</div>
         ) : (
           pageEvents.map((event) => {
             const cfg = CATEGORY_CONFIG[event.category];
             const Icon = cfg.Icon;
             return (
-              <div
-                key={event.id}
-                className={styles['monitor-card']}
-                style={cardAccentStyle(cfg.color)}
-              >
+              <div key={event.id} className={styles['monitor-card']} style={cardAccentStyle(cfg.color)}>
                 {/* 左侧类别色条 + 图标 */}
                 <div className={styles['monitor-card-rail']}>
                   <Icon size={13} strokeWidth={2} />
@@ -355,20 +422,14 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
                       <span className={styles['monitor-card-time']}>{formatTime(event.timestamp)}</span>
                     </div>
                     <div className={styles['monitor-card-right']}>
-                      {event.badge ? (
-                        <span className={styles['monitor-card-badge']}>{event.badge}</span>
-                      ) : null}
+                      {event.badge ? <span className={styles['monitor-card-badge']}>{event.badge}</span> : null}
                       <button
                         className={classNames(styles['monitor-star-btn'], event.star && styles.active)}
                         onClick={() => toggleStar(event.id)}
-                        type="button"
+                        type='button'
                         aria-label={event.star ? '取消收藏' : '收藏'}
                       >
-                        <Star
-                          size={13}
-                          strokeWidth={2}
-                          fill={event.star ? 'currentColor' : 'none'}
-                        />
+                        <Star size={13} strokeWidth={2} fill={event.star ? 'currentColor' : 'none'} />
                       </button>
                     </div>
                   </div>
@@ -378,7 +439,7 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
                     <button
                       className={styles['monitor-stock-btn']}
                       onClick={() => handleStockClick(event.code, event.name)}
-                      type="button"
+                      type='button'
                     >
                       <span className={styles['monitor-stock-name']}>{event.name}</span>
                       <span className={styles['monitor-stock-code']}>{event.code}</span>
@@ -417,22 +478,18 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
 
                   {/* 底部行: sparkline + action */}
                   <div className={styles['monitor-card-foot']}>
-                    {event.chart ? (
-                      <SparkLine data={event.chart.data} color={cfg.color} />
-                    ) : (
-                      <span />
-                    )}
+                    {event.chart ? <SparkLine data={event.chart.data} color={cfg.color} /> : <span />}
                     <button
                       className={styles['monitor-action-btn']}
                       onClick={() => handleStockClick(event.code, event.name)}
-                      type="button"
+                      type='button'
                     >
                       查看
                     </button>
                   </div>
                 </div>
               </div>
-            )
+            );
           })
         )}
       </div>
@@ -441,7 +498,7 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
         <div className={styles['monitor-pagination']}>
           <button
             className={styles['monitor-page-btn']}
-            type="button"
+            type='button'
             disabled={currentPage <= 1}
             onClick={() => goPage(currentPage - 1)}
           >
@@ -454,7 +511,7 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
           </div>
           <button
             className={styles['monitor-page-btn']}
-            type="button"
+            type='button'
             disabled={currentPage >= totalPages}
             onClick={() => goPage(currentPage + 1)}
           >
@@ -465,9 +522,19 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
 
       {lastUpdated ? (
         <div className={styles['monitor-footer']}>
-          更新于 {new Date(lastUpdated).toLocaleTimeString('zh-CN')}
+          {mode === 'realtime' && isTradingTime
+            ? `实时更新于 ${new Date(lastUpdated).toLocaleTimeString('zh-CN')}`
+            : `历史数据更新于 ${new Date(lastUpdated).toLocaleTimeString('zh-CN')}`}
         </div>
       ) : null}
     </div>
   );
+}
+
+function makeMonitorDateOptions() {
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - index);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
 }

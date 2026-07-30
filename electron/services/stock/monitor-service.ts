@@ -1,4 +1,6 @@
+import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/market-time.js';
 import { listFavoriteStocks } from '../config-store.js';
+import { countMonitorHistory, enqueueMonitorEvents, flushMonitorEventQueue, listMonitorDates, listMonitorHistory, pruneMonitorHistory } from './monitor-history-store.js';
 import { getBatchQuotes, getChipDistribution, listHotFocus } from './stock-client.js';
 import { listStockNewsAnnouncements } from './news-client.js';
 import type {
@@ -61,6 +63,7 @@ const CATEGORY_META: Record<TMonitorCategory, { label: string; icon: string; ton
 };
 
 const DETAIL_STOCK_LIMIT = 8;
+let lastPrunedDate = '';
 
 function numericValue(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -325,13 +328,25 @@ function warnSettledErrors(label: string, results: PromiseSettledResult<unknown>
   if (messages.length) console.warn(`[monitor] ${label} partial failures`, messages.slice(0, 3));
 }
 
-export async function getMonitorFeed(options?: {
-  categories?: TMonitorCategory[];
-  since?: string;
-  limit?: number;
-}): Promise<IMonitorFeed> {
-  const enabledCategories = options?.categories?.length ? options.categories : CATEGORIES;
-  const limit = options?.limit ?? 50;
+function sortMonitorEvents(events: IMonitorEvent[]) {
+  return events.sort((a, b) => {
+    const timeDelta = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    if (timeDelta !== 0) return timeDelta;
+    const changeA = Math.abs(numericValue(a.changePercent) ?? 0);
+    const changeB = Math.abs(numericValue(b.changePercent) ?? 0);
+    return changeB - changeA;
+  });
+}
+
+function mergeMonitorEvents(local: IMonitorEvent[], realtime: IMonitorEvent[]) {
+  const map = new Map<string, IMonitorEvent>();
+  for (const event of local) map.set(event.id, event);
+  for (const event of realtime) map.set(event.id, event);
+  return sortMonitorEvents(Array.from(map.values()));
+}
+
+export async function captureMonitorEvents(now = new Date(), categories: TMonitorCategory[] = CATEGORIES) {
+  const timestamp = now.toISOString();
   const favorites = await listFavoriteStocks();
 
   const monitorUniverse: FavoriteStock[] = [
@@ -349,23 +364,21 @@ export async function getMonitorFeed(options?: {
   }
   const quoteByCode = new Map(quotes.map((q) => [q.code, q]));
 
-  const timestamp = new Date().toISOString();
-  const sinceTime = options?.since ? new Date(options.since).getTime() : 0;
   const detailStocks = monitorUniverse.slice(0, DETAIL_STOCK_LIMIT);
   const events = monitorUniverse.flatMap((stock) =>
-    createQuoteEvents(stock, quoteByCode.get(stock.code), enabledCategories, timestamp),
+    createQuoteEvents(stock, quoteByCode.get(stock.code), categories, timestamp),
   );
 
-  if (enabledCategories.includes('large-order')) {
+  if (categories.includes('large-order')) {
     try {
       const surgeItems = await listHotFocus('surge');
-      events.push(...createLargeOrderEvents(surgeItems, quoteByCode, enabledCategories, timestamp));
+      events.push(...createLargeOrderEvents(surgeItems, quoteByCode, categories, timestamp));
     } catch (error) {
       console.warn('[monitor] failed to fetch large order events', error);
     }
   }
 
-  if (enabledCategories.includes('chip')) {
+  if (categories.includes('chip')) {
     const chipResults = await Promise.allSettled(detailStocks.map((stock) => getChipDistribution(stock.code)));
     warnSettledErrors('chip', chipResults);
     chipResults.forEach((result, index) => {
@@ -376,7 +389,7 @@ export async function getMonitorFeed(options?: {
     });
   }
 
-  if (enabledCategories.includes('news')) {
+  if (categories.includes('news')) {
     const newsResults = await Promise.allSettled(detailStocks.map((stock) => listStockNewsAnnouncements(stock.code, 4)));
     warnSettledErrors('news', newsResults);
     newsResults.forEach((result, index) => {
@@ -386,17 +399,83 @@ export async function getMonitorFeed(options?: {
     });
   }
 
-  events.sort((a, b) => {
-    const timeDelta = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-    if (timeDelta !== 0) return timeDelta;
-    const changeA = Math.abs(numericValue(a.changePercent) ?? 0);
-    const changeB = Math.abs(numericValue(b.changePercent) ?? 0);
-    return changeB - changeA;
-  });
+  return sortMonitorEvents(events);
+}
+
+export async function persistMonitorCapture(events: IMonitorEvent[], now = new Date()) {
+  const tradeDate = toShanghaiMarketTime(now).date;
+  if (events.length) enqueueMonitorEvents(events, now, tradeDate);
+  if (lastPrunedDate !== tradeDate) {
+    await pruneMonitorHistory(7);
+    lastPrunedDate = tradeDate;
+  }
+  return tradeDate;
+}
+
+export async function getMonitorFeed(options?: {
+  categories?: TMonitorCategory[];
+  since?: string;
+  limit?: number;
+  date?: string;
+  mode?: 'realtime' | 'history';
+}): Promise<IMonitorFeed> {
+  const enabledCategories = options?.categories?.length ? options.categories : CATEGORIES;
+  const limit = options?.limit ?? 50;
+  const now = new Date();
+  const timestamp = now.toISOString();
+  const isTradingTime = isChinaMarketOpen(now);
+  const requestedHistory = options?.mode === 'history' || Boolean(options?.date);
+
+  await flushMonitorEventQueue();
+
+  if (requestedHistory || !isTradingTime) {
+    const availableDates = await listMonitorDates(7);
+    const selectedDate = options?.date && /^\d{4}-\d{2}-\d{2}$/.test(options.date) ? options.date : availableDates[0];
+    const events = selectedDate
+      ? await listMonitorHistory({ date: selectedDate, categories: enabledCategories, limit })
+      : [];
+    const total = selectedDate ? await countMonitorHistory({ date: selectedDate, categories: enabledCategories }) : 0;
+    const sinceTime = options?.since ? new Date(options.since).getTime() : 0;
+    return {
+      updatedAt: timestamp,
+      events: events.filter((event) => new Date(event.timestamp).getTime() >= sinceTime).slice(0, limit),
+      mode: 'history',
+      isTradingTime,
+      availableDates,
+      selectedDate,
+      total,
+    };
+  }
+
+  const tradeDate = toShanghaiMarketTime(now).date;
+  const sinceTime = options?.since ? new Date(options.since).getTime() : 0;
+  let localEvents: IMonitorEvent[] = [];
+  let localTotal = 0;
+  try {
+    localEvents = await listMonitorHistory({ date: tradeDate, categories: enabledCategories, limit });
+    localTotal = await countMonitorHistory({ date: tradeDate, categories: enabledCategories });
+  } catch (error) {
+    console.warn('[monitor] failed to read local realtime history', error);
+  }
+
+  let realtimeEvents: IMonitorEvent[] = [];
+  try {
+    realtimeEvents = await captureMonitorEvents(now, enabledCategories);
+    await persistMonitorCapture(realtimeEvents, now);
+  } catch (error) {
+    console.warn('[monitor] realtime capture failed', error);
+  }
+  const events = mergeMonitorEvents(localEvents, realtimeEvents);
+  const availableDates = await listMonitorDates(7);
 
   return {
     updatedAt: timestamp,
     events: events.filter((event) => new Date(event.timestamp).getTime() >= sinceTime).slice(0, limit),
+    mode: 'realtime',
+    isTradingTime: true,
+    availableDates,
+    selectedDate: tradeDate,
+    total: Math.max(localTotal, events.length),
   };
 }
 

@@ -12,9 +12,11 @@ import {
   stopMarketNewsSummaryScheduler,
 } from './services/market-data/market-news-summary-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
-import { stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
+import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler, waitForSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
+import { startMonitorHistoryScheduler, stopMonitorHistoryScheduler, waitForMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
+import { closeMonitorHistoryInstance, closeMonitorHistoryStore } from './services/stock/monitor-history-store.js';
 import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
 import { checkAppUpdate, setInstallUpdateHandler } from './services/update-service.js';
 
@@ -71,6 +73,7 @@ function prepareForUpdateInstall() {
   stopMarketDataScheduler();
   stopMarketNewsSummaryScheduler();
   stopSurgeHistoryScheduler();
+  stopMonitorHistoryScheduler();
 }
 
 function createWindow() {
@@ -118,6 +121,8 @@ app.whenReady().then(() => {
   void startMarketNewsSummaryScheduler().catch((error) =>
     console.warn('[news-summary] scheduler initialization failed', error),
   );
+  ensureSurgeHistoryCapture();
+  startMonitorHistoryScheduler();
   createWindow();
   setTimeout(() => {
     void checkAppUpdate({ silent: true });
@@ -138,6 +143,7 @@ app.on('before-quit', (event) => {
   stopMarketDataScheduler();
   stopMarketNewsSummaryScheduler();
   stopSurgeHistoryScheduler();
+  stopMonitorHistoryScheduler();
   if (cleanupDone || cleanupStarted) return;
   event.preventDefault();
   cleanupStarted = true;
@@ -148,8 +154,9 @@ app.on('before-quit', (event) => {
   }, 8000);
   void Promise.allSettled([
     waitForMarketDataScheduler().then(() => closeMarketDataStore()),
+    waitForSurgeHistoryScheduler().then(() => closeSurgeHistoryStore()),
+    waitForMonitorHistoryScheduler().then(() => closeMonitorHistoryStore()).then(() => closeMonitorHistoryInstance()),
     Promise.resolve(closeQuoteStore()),
-    closeSurgeHistoryStore(),
     Promise.resolve(closeConversationStore()),
     shutdownPostHog(),
   ]).finally(() => {

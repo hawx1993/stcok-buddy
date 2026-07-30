@@ -448,9 +448,15 @@ export function upsertMarketBoards(items: MarketBoardRecord[]) {
     await connection.run('BEGIN TRANSACTION');
     try {
       const statement = await connection.prepare(`
-        INSERT OR REPLACE INTO market_boards
+        INSERT INTO market_boards
         (board_code, name, kind, change_percent, source, updated_at)
         VALUES ($code, $name, $kind, $changePercent, $source, $updatedAt)
+        ON CONFLICT(board_code) DO UPDATE SET
+          name = excluded.name,
+          kind = excluded.kind,
+          change_percent = excluded.change_percent,
+          source = excluded.source,
+          updated_at = excluded.updated_at
       `);
       for (const item of items) {
         statement.bind({

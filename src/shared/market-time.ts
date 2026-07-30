@@ -31,7 +31,7 @@ export function toShanghaiMarketTime(now: Date): IShanghaiMarketTime {
 export function isChinaMarketOpen(now = new Date()): boolean {
   const { minutes, weekday } = toShanghaiMarketTime(now);
   if (weekday === 0 || weekday === 6) return false;
-  return (minutes >= 9 * 60 + 30 && minutes <= 11 * 60 + 30) || (minutes >= 13 * 60 && minutes <= 15 * 60);
+  return (minutes >= 9 * 60 + 25 && minutes <= 11 * 60 + 30) || (minutes >= 13 * 60 && minutes <= 15 * 60);
 }
 
 function weekdayIndex(value: string | undefined): number | undefined {

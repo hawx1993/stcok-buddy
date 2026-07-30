@@ -30,6 +30,8 @@ import styles from './index.module.scss';
 
 type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
 
+type TAshareMarketPhase = { label: string; isTrading: boolean };
+
 interface ISectorSummary {
   code: string;
   name: string;
@@ -117,6 +119,20 @@ const PILLS = [
   { id: 'sec-trading-advice', label: '交易建议' },
 ];
 
+function getAshareMarketPhase(now: Date): TAshareMarketPhase {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const day = now.getDay();
+  const isWeekday = day >= 1 && day <= 5;
+
+  if (!isWeekday) return { label: '非交易日', isTrading: false };
+  if (minutes < 9 * 60 + 25) return { label: '盘前', isTrading: false };
+  if (minutes < 9 * 60 + 30) return { label: '集合竞价', isTrading: true };
+  if (minutes <= 11 * 60 + 30) return { label: '盘中', isTrading: true };
+  if (minutes < 13 * 60) return { label: '午间休市', isTrading: false };
+  if (minutes <= 15 * 60) return { label: '盘中', isTrading: true };
+  return { label: '已收盘', isTrading: false };
+}
+
 function formatDate(date: Date) {
   const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
   const y = date.getFullYear();
@@ -164,12 +180,28 @@ function SectionSkeleton() {
   );
 }
 
+function HeroGaugeSkeleton() {
+  return (
+    <div className="hero-gauge-wrap hero-gauge-skeleton" aria-label="机会评分加载中">
+      <div className="hero-gauge-skeleton-arc" />
+      <div className="hero-gauge-skeleton-body">
+        <div className="hero-gauge-skeleton-line short" />
+        <div className="hero-gauge-skeleton-line" />
+        <div className="hero-gauge-skeleton-line" />
+        <div className="hero-gauge-skeleton-trend" />
+      </div>
+    </div>
+  );
+}
+
 export function DiscoveryView() {
   const setMainView = useAppStore((state) => state.setMainView);
+  const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
   const [snapshot, setSnapshot] = useState<IDiscoverySnapshot | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activePill, setActivePill] = useState('hero');
+  const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase(new Date()));
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -189,6 +221,13 @@ export function DiscoveryView() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setMarketPhase(getAshareMarketPhase(new Date()));
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // IntersectionObserver for pill active state
   useEffect(() => {
@@ -218,7 +257,7 @@ export function DiscoveryView() {
   return (
     <section className={styles.wrap}>
       {/* ── Topbar ── */}
-      <div className={styles.topbar}>
+      <div className={cx(styles.topbar, isLeftSidebarCollapsed && styles.topbarCollapsed)}>
         <button className={styles.backBtn} onClick={() => setMainView('chat')} type="button">
           <ArrowLeft size={15} />
           返回
@@ -229,9 +268,9 @@ export function DiscoveryView() {
         </h1>
         <span className={styles.date}>{snapshot?.tradeDate ? `${snapshot.tradeDate} ${dateStr.slice(11)}` : dateStr}</span>
         <div className={styles.topbarRight}>
-          <span className={styles.phasePill}>
-            <span className={styles.liveDot} />
-            盘中
+          <span className={cx(styles.phasePill, !marketPhase.isTrading && styles.phasePillInactive)}>
+            <span className={cx(styles.liveDot, !marketPhase.isTrading && styles.liveDotInactive)} />
+            {marketPhase.label}
           </span>
         </div>
       </div>
@@ -264,12 +303,16 @@ export function DiscoveryView() {
           {/* Hero Gauge */}
           <div data-discovery-section="hero" id="hero" className={styles.section}>
             <div className={styles.heroCard}>
-              <HeroGauge
-                score={snapshot?.score}
-                scoreLabel={snapshot?.scoreLabel}
-                scoreVerdict={snapshot?.scoreVerdict}
-                scoreTrend={snapshot?.scoreTrend}
-              />
+              {loading && !snapshot ? (
+                <HeroGaugeSkeleton />
+              ) : (
+                <HeroGauge
+                  score={snapshot?.score}
+                  scoreLabel={snapshot?.scoreLabel}
+                  scoreVerdict={snapshot?.scoreVerdict}
+                  scoreTrend={snapshot?.scoreTrend}
+                />
+              )}
             </div>
           </div>
 

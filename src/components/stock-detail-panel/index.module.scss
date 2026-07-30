@@ -88,6 +88,7 @@
   display: flex;
   gap: 6px;
   padding-top: 8px;
+  margin: 0 10px;
 }
 .surge-date-select {
   flex: 1;
@@ -135,6 +136,9 @@
   height: 28px;
   padding: 0 10px;
   border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 6px;
   background: var(--surface-hover);
   color: var(--fg-secondary);
@@ -157,6 +161,13 @@
   inset: 8px;
   border-radius: 999px;
   background: currentColor;
+}
+.surge-monitor-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.surge-monitor-button:disabled span {
+  background: var(--muted);
 }
 .surge-monitor-button.active {
   color: var(--danger);
@@ -2158,6 +2169,7 @@
   cursor: pointer;
   transition: all 0.12s ease;
   flex-shrink: 0;
+  width: 88px;
   &:hover {
     color: var(--_c);
     border-color: color-mix(in srgb, var(--_c) 45%, var(--border));

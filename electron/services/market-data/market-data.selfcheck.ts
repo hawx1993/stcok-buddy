@@ -90,6 +90,20 @@ const quote = await query.queryLatestQuote('600519', async () => {
 assert.equal(quote.meta.freshness, 'stale');
 assert.equal(quote.meta.isComplete, false);
 
+const updatedAt = new Date().toISOString();
+await store.upsertMarketBoards([
+  { code: 'BK1556', name: '教育运营及其他', source: 'selfcheck', updatedAt },
+  { code: 'BK1556', name: '教育运营及其他', kind: 'industry', changePercent: 1.2, source: 'selfcheck', updatedAt },
+]);
+const boards = await store.listMarketBoards();
+assert.equal(boards.filter((row) => row.code === 'BK1556').length, 1);
+const board = boards.find((row) => row.code === 'BK1556');
+assert.equal(board?.name, '教育运营及其他');
+assert.equal(board?.kind, 'industry');
+assert.equal(board?.changePercent, 1.2);
+assert.equal(board?.source, 'selfcheck');
+assert(board?.updatedAt);
+
 await store.closeMarketDataStore();
 for (const suffix of ['', '.wal']) {
   try {

@@ -76,6 +76,11 @@ function formatMoneyYi(value?: number | null) {
   return `${sign}${value.toFixed(1)}亿`;
 }
 
+function formatMainFlow(value: number) {
+  if (value === 0) return '资金暂无';
+  return `主力${value >= 0 ? '净流入' : '净流出'} ${formatMoneyYi(value)}`;
+}
+
 function sectorCellBg(changePercent: number) {
   const abs = Math.min(Math.abs(changePercent) / 5, 1);
   if (changePercent >= 0) {
@@ -320,7 +325,7 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
             >
               <span className={styles.msSectorName}>{sector.name}</span>
               <span className={styles.msSectorSub}>
-                {formatChange(sector.changePercent)} · {sector.mainNetInflow >= 0 ? '+' : ''}{sector.mainNetInflow.toFixed(1)}亿
+                {formatChange(sector.changePercent)} · {formatMainFlow(sector.mainNetInflow)}
               </span>
             </button>
           ))}
@@ -382,7 +387,7 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
                     龙头 {theme.leader.name}
                   </button>
                 ) : (
-                  <div className={styles.msMonthlyLeader}>龙头 --</div>
+                  <div className={styles.msMonthlyLeader}>龙头数据暂缺</div>
                 )}
               </div>
             ))}

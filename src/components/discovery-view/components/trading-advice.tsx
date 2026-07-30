@@ -26,7 +26,7 @@ function StrategyTags({ items, type }: { items: string[]; type: 'suitable' | 'un
   if (!items.length) return null;
   const isSuitable = type === 'suitable';
   return (
-    <div className="advice-tags">
+    <div className='advice-tags'>
       {items.map((item) => (
         <span key={item} className={`advice-tag ${isSuitable ? 'suitable' : 'unsuitable'}`}>
           {isSuitable ? '✓' : '✗'} {item}
@@ -92,14 +92,14 @@ export function TradingAdvice() {
 
   if (loading) {
     return (
-      <div className="advice-card">
-        <div className="advice-loading">
+      <div className='advice-card'>
+        <div className='advice-loading'>
           <Bot size={26} />
           <p>AI 正在分析今日市场数据…</p>
-          <div className="advice-skeleton">
-            <div className="advice-skeleton-line" />
-            <div className="advice-skeleton-line" />
-            <div className="advice-skeleton-line" />
+          <div className='advice-skeleton'>
+            <div className='advice-skeleton-line' />
+            <div className='advice-skeleton-line' />
+            <div className='advice-skeleton-line' />
           </div>
         </div>
       </div>
@@ -108,11 +108,11 @@ export function TradingAdvice() {
 
   if (error) {
     return (
-      <div className="advice-card">
-        <div className="advice-error">
-          <AlertTriangle className="advice-error-icon" size={26} />
+      <div className='advice-card'>
+        <div className='advice-error'>
+          <AlertTriangle className='advice-error-icon' size={26} />
           <p>{error}</p>
-          <button className="advice-retry-btn" onClick={load} type="button">
+          <button className='advice-retry-btn' onClick={load} type='button'>
             重试
           </button>
         </div>
@@ -122,9 +122,9 @@ export function TradingAdvice() {
 
   if (!advice) {
     return (
-      <div className="advice-card">
-        <div className="advice-empty">
-          <BarChart3 className="advice-empty-icon" size={26} />
+      <div className='advice-card'>
+        <div className='advice-empty'>
+          <BarChart3 className='advice-empty-icon' size={26} />
           <p>暂无交易建议数据</p>
         </div>
       </div>
@@ -132,77 +132,64 @@ export function TradingAdvice() {
   }
 
   return (
-    <div className="advice-card">
-      {/* Header */}
-      <div className="advice-header">
-        <Target className="advice-header-icon" size={16} />
-        <span className="advice-header-title">AI 交易建议</span>
-        <span className="advice-header-badge">AI 生成 · 仅供参考</span>
-      </div>
-
-      {/* Star & Score */}
-      <div className="advice-hero">
-        <div className="advice-stars">
+    <div className='advice-card'>
+      <div className='advice-hero'>
+        <div className='advice-stars'>
           <StarRating rating={advice.starRating} />
-          <span className="advice-star-label">{advice.starLabel}</span>
+          <span className='advice-star-label'>{advice.starLabel}</span>
         </div>
       </div>
-
       {/* Position & Summary Row */}
-      <div className="advice-metrics">
-        <div className="advice-position">
-          <span className="advice-metric-label">建议仓位</span>
-          <span className="advice-position-value">{advice.suggestedPosition}%</span>
-          <span className="advice-position-reason">{advice.positionReason}</span>
-          <div className="advice-position-bar">
-            <div
-              className="advice-position-fill"
-              style={{ width: `${advice.suggestedPosition}%` }}
-            />
+      <div className='advice-metrics'>
+        <div className='advice-position'>
+          <span className='advice-metric-label'>建议仓位</span>
+          <span className='advice-position-value'>{advice.suggestedPosition}%</span>
+          <span className='advice-position-reason'>{advice.positionReason}</span>
+          <div className='advice-position-bar'>
+            <div className='advice-position-fill' style={{ width: `${advice.suggestedPosition}%` }} />
           </div>
         </div>
-        <div className="advice-summary-box">
-          <span className="advice-metric-label">市场核心矛盾</span>
-          <p className="advice-summary-text">{advice.marketSummary}</p>
+        <div className='advice-summary-box'>
+          <span className='advice-metric-label'>市场核心矛盾</span>
+          <p className='advice-summary-text'>{advice.marketSummary}</p>
         </div>
       </div>
 
       {/* Strategies */}
-      <div className="advice-strategies">
-        <div className="advice-strategy-group">
-          <span className="advice-strategy-label">适合</span>
-          <StrategyTags items={advice.suitableStrategies} type="suitable" />
+      <div className='advice-strategies'>
+        <div className='advice-strategy-group'>
+          <span className='advice-strategy-label'>适合</span>
+          <StrategyTags items={advice.suitableStrategies} type='suitable' />
         </div>
-        <div className="advice-strategy-group">
-          <span className="advice-strategy-label">不建议</span>
-          <StrategyTags items={advice.unsuitableStrategies} type="unsuitable" />
+        <div className='advice-strategy-group'>
+          <span className='advice-strategy-label'>不建议</span>
+          <StrategyTags items={advice.unsuitableStrategies} type='unsuitable' />
         </div>
       </div>
 
       {/* Key Sectors */}
       {advice.keySectors.length > 0 && (
-        <div className="advice-sectors">
-          <span className="advice-sectors-title">重点观察</span>
-          <div className="advice-sectors-grid">
+        <div className='advice-sectors'>
+          <span className='advice-sectors-title'>重点观察</span>
+          <div className='advice-sectors-grid'>
             {advice.keySectors.map((sector) => (
               <div key={sector.name} className={`advice-sector-card confidence-${sector.confidence}`}>
-                <div className="advice-sector-top">
-                  <button className="advice-sector-name" onClick={() => handleSectorClick(sector.name)} type="button">
+                <div className='advice-sector-top'>
+                  <button className='advice-sector-name' onClick={() => handleSectorClick(sector.name)} type='button'>
                     {sector.name}
                   </button>
                   <span className={`advice-sector-confidence ${sector.confidence}`}>
                     {CONFIDENCE_LABELS[sector.confidence] ?? sector.confidence}
                   </span>
                 </div>
-                <span className="advice-sector-reason">{sector.reason}</span>
+                <span className='advice-sector-reason'>{sector.reason}</span>
                 {sector.leaderName && (
                   <button
-                    className="advice-sector-leader"
+                    className='advice-sector-leader'
                     onClick={() => handleStockClick(sector.leaderCode, sector.leaderName)}
-                    type="button"
+                    type='button'
                   >
-                    领涨：{sector.leaderName}{' '}
-                    <span className="advice-sector-code">{sector.leaderCode}</span>
+                    领涨：{sector.leaderName} <span className='advice-sector-code'>{sector.leaderCode}</span>
                   </button>
                 )}
               </div>
@@ -213,15 +200,15 @@ export function TradingAdvice() {
 
       {/* Risk Reminder */}
       {advice.riskReminder && (
-        <div className="advice-risk">
-          <Zap className="advice-risk-icon" size={14} />
+        <div className='advice-risk'>
+          <Zap className='advice-risk-icon' size={14} />
           <span>风险提示：{advice.riskReminder}</span>
         </div>
       )}
 
       {/* Refresh */}
-      <div className="advice-footer">
-        <button className="advice-refresh-btn" onClick={load} type="button">
+      <div className='advice-footer'>
+        <button className='advice-refresh-btn' onClick={load} type='button'>
           <RefreshCw size={13} />
           刷新建议
         </button>

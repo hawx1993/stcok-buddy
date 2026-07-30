@@ -18,10 +18,14 @@
   background: var(--sidebar-bg);
   flex-shrink: 0;
 }
+.topbarCollapsed {
+  padding-left: 146px;
+}
 .backBtn {
   display: flex;
   align-items: center;
   gap: 6px;
+  cursor: pointer;
   background: var(--surface-hover);
   border: 1px solid var(--glass-border);
   color: var(--fg-secondary);
@@ -65,12 +69,19 @@
   padding: 5px 11px;
   border-radius: 20px;
 }
+.phasePillInactive {
+  color: var(--muted);
+}
 .liveDot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--market-up, #2fbf71);
   animation: pulse 1.6s infinite;
+}
+.liveDotInactive {
+  background: var(--muted);
+  animation: none;
 }
 @keyframes pulse {
   0%,
@@ -91,6 +102,7 @@
   border-bottom: 1px solid var(--glass-border);
   padding: 10px 28px;
   display: flex;
+  justify-content: center;
   gap: 8px;
   overflow-x: auto;
   flex-shrink: 0;
@@ -335,6 +347,38 @@
 :global(.hero-sparkline) {
   display: block;
   overflow: visible;
+}
+:global(.hero-gauge-skeleton-arc) {
+  width: 200px;
+  height: 120px;
+  flex-shrink: 0;
+  border-radius: 16px;
+  background: var(--surface-hover);
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+}
+:global(.hero-gauge-skeleton-body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+:global(.hero-gauge-skeleton-line) {
+  width: min(100%, 520px);
+  height: 14px;
+  border-radius: 7px;
+  background: var(--surface-hover);
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+}
+:global(.hero-gauge-skeleton-line.short) {
+  width: 140px;
+}
+:global(.hero-gauge-skeleton-trend) {
+  width: 120px;
+  height: 32px;
+  margin-top: 8px;
+  border-radius: 8px;
+  background: var(--surface-hover);
+  animation: skeletonPulse 1.5s ease-in-out infinite;
 }
 
 // ── Index Cards ──
@@ -810,7 +854,7 @@
 }
 :global(.chip-detail-count) {
   font-size: 11px;
-  color: var(--muted);
+  color: #fff;
   background: rgba(232, 184, 75, 0.1);
   padding: 2px 8px;
   border-radius: 12px;
@@ -1431,6 +1475,7 @@
   border: 1px solid var(--glass-border);
   border-radius: 12px;
   padding: 14px;
+  cursor: pointer;
   transition:
     border-color 0.15s,
     box-shadow 0.15s,
@@ -1663,6 +1708,8 @@
 :global(.monitor-stock-name) {
   font-size: 14px;
   font-weight: 700;
+  cursor: pointer;
+  color: #e8b84b;
 }
 :global(.monitor-stock-code) {
   font-family: var(--font-mono, monospace);
@@ -2660,6 +2707,9 @@
   gap: 10px;
 }
 .msMonthlyCard {
+  display: flex;
+  flex-direction: column;
+
   background: var(--surface-hover);
   border: 1px solid var(--glass-border);
   border-radius: 10px;
@@ -2729,7 +2779,7 @@
 .msNextWeekName {
   font-size: 14px;
   font-weight: 700;
-  color: var(--fg);
+  color: #e8b84b;
 }
 .msNextWeekScore {
   font-size: 11px;

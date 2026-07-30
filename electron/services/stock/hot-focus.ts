@@ -19,8 +19,8 @@ import {
   isSurgeHistoryClearMarkerActive,
   listStockSurgeEvents as listLocalStockSurgeEvents,
   listSurgeHistory,
+  enqueueSurgeSnapshot,
   saveIndividualSurgeHistory,
-  saveSurgeSnapshot,
   setSurgeHistoryClearMarker,
 } from './surge-history-store.js';
 
@@ -51,18 +51,16 @@ export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
     if (tab === 'sector') return listSectorHot();
     if (tab === 'market') return listMarketHot();
     if (tab === 'surge') {
-      // Local-first: today's snapshot is already persisted by saveSurgeSnapshot.
-      // Render cached data immediately and refresh from the network in the
-      // background so the panel never stalls on a slow/unavailable connection.
       try {
-        const cached = await listSurgeHistory(toTradeDate(new Date()));
-        if (cached.length) {
-          refreshSurgeHotInBackground();
-          return cached;
-        }
-      } catch { /* DB unavailable, fall through to remote */ }
-      const items = await withTimeoutReject(listSurgeHot(), 5_000, 'surge hot timeout');
-      if (items.length) return items;
+        const cached = await listSurgeHistory(toTradeDate(new Date()), 0, 100);
+        const remote = await withTimeoutReject(listSurgeHot(), 5_000, 'surge hot timeout');
+        return mergeHotFocusItems(cached, remote).slice(0, 100);
+      } catch {
+        try {
+          const cached = await listSurgeHistory(toTradeDate(new Date()), 0, 100);
+          if (cached.length) return cached;
+        } catch { /* DB unavailable, fall through to global fallback */ }
+      }
     } else if (tab === 'flow') {
       return listFlowHot();
     } else {
@@ -82,8 +80,15 @@ export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
 }
 
 function refreshSurgeHotInBackground() {
-  // Fire-and-forget refresh; listSurgeHot persists the snapshot on success.
+  // Fire-and-forget refresh; listSurgeHot queues the snapshot for batched persistence.
   listSurgeHot().catch(() => {});
+}
+
+function mergeHotFocusItems(local: HotFocusItem[], remote: HotFocusItem[]): HotFocusItem[] {
+  const map = new Map<string, HotFocusItem>();
+  for (const item of local) map.set(item.id, item);
+  for (const item of remote) map.set(item.id, item);
+  return Array.from(map.values()).sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time) || b.id.localeCompare(a.id));
 }
 
 function toTradeDate(date: Date) {
@@ -262,7 +267,7 @@ async function fetchSurgeHot(): Promise<HotFocusItem[]> {
     ...pools.filter((pool) => !changes.some((change) => change.code === pool.code && change.tag === pool.tag)),
   ].sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time));
   surgeCache = { items, updatedAt: Date.now() };
-  saveSurgeSnapshot(items).catch((err) => console.warn('[hot-focus] save snapshot failed', err));
+  enqueueSurgeSnapshot(items);
   return items;
 }
 
@@ -331,7 +336,7 @@ function refreshStockSurgeEventsFromRemote(symbol: string) {
       if (historyEvents.length) {
         saveIndividualSurgeHistory(historyEvents).catch(() => {});
       }
-      // current events are already persisted by listSurgeHot via saveSurgeSnapshot.
+      // current events are already queued by listSurgeHot for batched persistence.
     })
     .catch(() => {});
 }

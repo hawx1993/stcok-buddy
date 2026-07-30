@@ -4,7 +4,9 @@ import { getBatchQuotes, getMarketPageSnapshot, listDailyDragonTiger, listEastmo
 import { listFavoriteStocks, getConfig } from '../config-store.js';
 import { chatWithOpenAICompatible } from '../llm/openai-compatible-client.js';
 import { listSurgeDates, listSurgeHistory } from './surge-history-store.js';
+import { listMarketBoards } from '../market-data/market-data-store.js';
 import { fetchMarketIndex } from './market-indices.js';
+import { buildMonthlyThemesFromHistoricalPools } from './discovery-monthly-themes.js';
 import type {
   HotFocusItem,
   IMarketReviewHotTheme,
@@ -133,6 +135,21 @@ export interface INextWeekSector {
   };
 }
 
+type TSectorFlowIndicator = 'today';
+export type TLocalBoardSummary = { code: string; name: string; changePercent: number; mainNetInflow: number };
+
+type TLocalBoardCatalog = {
+  rows: TLocalBoardSummary[];
+  byCode: Map<string, TLocalBoardSummary>;
+  byName: Map<string, TLocalBoardSummary>;
+};
+
+const SECTOR_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
+const sectorFlowRankCache = new Map<
+  TSectorFlowIndicator,
+  { rows: ISectorSummary[]; updatedAt: number; promise?: Promise<ISectorSummary[]> }
+>();
+
 function mapMetricToFactor(m: IMarketReviewMetric): { label: string; value: string | number } {
   if (m.value === null || m.value === undefined) return { label: m.label, value: '--' };
   return { label: m.label, value: `${m.value}${m.unit ?? ''}` };
@@ -160,7 +177,6 @@ function mapFocusItem(item: IMarketReviewWatchItem): NonNullable<IDiscoverySnaps
   return { category: item.category, condition: item.condition, baseline: item.baseline };
 }
 
-type TMonthlyThemeCandidate = { week?: string; theme?: string; leaderName?: string; leaderCode?: string };
 type TNextWeekSectorCandidate = { name?: string; score?: number; reasoning?: Partial<INextWeekSector['reasoning']> };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -172,16 +188,125 @@ function parseJsonArray<T>(text: string, isItem: (value: unknown) => value is T)
   return Array.isArray(parsed) ? parsed.filter(isItem) : [];
 }
 
-function isMonthlyThemeCandidate(value: unknown): value is TMonthlyThemeCandidate {
-  return isRecord(value);
-}
-
 function isNextWeekSectorCandidate(value: unknown): value is TNextWeekSectorCandidate {
   return isRecord(value);
 }
 
-function sdkErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+export function normalizeBoardLookupName(name: string) {
+  return name.replace(/行业|板块|Ⅱ|Ⅲ|II|III|\s/g, '');
+}
+
+export function buildLocalBoardCatalog(rows: TLocalBoardSummary[]): TLocalBoardCatalog {
+  const byCode = new Map<string, TLocalBoardSummary>();
+  const byName = new Map<string, TLocalBoardSummary>();
+  for (const row of rows) {
+    byCode.set(row.code, row);
+    byName.set(row.name, row);
+    byName.set(normalizeBoardLookupName(row.name), row);
+  }
+  return { rows, byCode, byName };
+}
+
+function findLocalBoard(catalog: TLocalBoardCatalog, input: { code?: string; name?: string }) {
+  if (input.code) {
+    const byCode = catalog.byCode.get(input.code);
+    if (byCode) return byCode;
+  }
+  const name = input.name?.trim();
+  if (!name) return undefined;
+  const normalized = normalizeBoardLookupName(name);
+  return catalog.byName.get(name)
+    ?? catalog.byName.get(normalized)
+    ?? catalog.rows.find((row) => {
+      const rowName = normalizeBoardLookupName(row.name);
+      return rowName.includes(normalized) || normalized.includes(rowName);
+    });
+}
+
+function formatMonthlyWeekLabel(index: number): string {
+  return `第${index + 1}周`;
+}
+
+function isFinalWeekOfMonth(date: Date): boolean {
+  const nextWeek = new Date(date);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  return nextWeek.getMonth() !== date.getMonth();
+}
+
+function shanghaiDateParts(now = new Date()): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
+  const year = Number(value('year'));
+  const month = Number(value('month'));
+  const day = Number(value('day'));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    throw new Error('无法解析北京时间');
+  }
+  return { year, month, day };
+}
+
+function toDateKey(date: Date): string {
+  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function buildCompletedMonthWeeks(now = new Date()): Array<{ label: string; dates: string[] }> {
+  const { year, month, day } = shanghaiDateParts(now);
+  const today = new Date(year, month - 1, day);
+  const weeks: Array<{ label: string; dates: string[] }> = [];
+  let startDay = 1;
+  let weekIndex = 0;
+
+  while (weekIndex < 4) {
+    const start = new Date(year, month - 1, startDay);
+    if (start.getMonth() !== month - 1) break;
+    const end = new Date(year, month - 1, startDay + 6);
+    const isCompleted = end < today || (weekIndex === 3 && isFinalWeekOfMonth(today));
+    if (!isCompleted) break;
+
+    const dates: string[] = [];
+    const cursor = new Date(start);
+    while (cursor <= end && cursor.getMonth() === month - 1) {
+      dates.push(toDateKey(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    weeks.push({ label: formatMonthlyWeekLabel(weekIndex), dates });
+    startDay += 7;
+    weekIndex += 1;
+  }
+
+  return weeks;
+}
+
+async function fetchCompletedMonthWeekPools(
+  boardCatalog: TLocalBoardCatalog,
+  now = new Date(),
+): Promise<IMonthlyThemeItem[]> {
+  const weeks = buildCompletedMonthWeeks(now);
+  if (!weeks.length) return [];
+
+  const rows = await Promise.all(weeks.map(async (week) => {
+    const items = (await Promise.all(week.dates.map((date) => listEastmoneySurgeByDate(date)))).flat();
+    return { ...week, items };
+  }));
+
+  return buildMonthlyThemesFromHistoricalPools(rows, boardCatalog.rows);
+}
+
+function reconcileSectorsWithLocalBoards(sectors: ISectorSummary[], catalog: TLocalBoardCatalog): ISectorSummary[] {
+  if (!catalog.rows.length) return [];
+  const matched = sectors
+    .map((sector) => {
+      const local = findLocalBoard(catalog, sector);
+      return local ? { ...sector, code: local.code, name: local.name } : undefined;
+    })
+    .filter((sector): sector is ISectorSummary => Boolean(sector));
+  if (matched.length) return matched;
+  return catalog.rows.slice(0, 30);
 }
 
 function toStockItem(item: HotFocusItem): TStockItem {
@@ -370,23 +495,55 @@ async function fetchNorthFundFlow(): Promise<number | null> {
   }
 }
 
-async function fetchSectorFlowRank(indicator: 'today' | '10day' = 'today'): Promise<ISectorSummary[]> {
+async function fetchLocalBoardCatalog(): Promise<TLocalBoardCatalog> {
   try {
-    const rows = await sdk.fundFlow.sectorRank({ indicator });
-    return rows
-      .filter((r) => r.changePercent !== null && r.changePercent !== undefined)
-      .map((r) => ({
-        code: r.code ?? '',
-        name: r.name ?? '',
-        changePercent: Number(r.changePercent ?? 0),
-        mainNetInflow: r.mainNetInflow !== null && r.mainNetInflow !== undefined ? Number(r.mainNetInflow) / 100_000_000 : 0,
+    const rows = await listMarketBoards();
+    const summaries = rows
+      .map((row) => ({
+        code: row.code,
+        name: row.name,
+        changePercent: row.changePercent ?? 0,
+        mainNetInflow: 0,
       }))
-      .filter((r) => r.code && r.name)
-      .slice(0, 30);
-  } catch (err) {
-    console.warn(`[discovery] sector flow ${indicator} rank unavailable: ${sdkErrorMessage(err)}`);
-    return [];
+      .filter((row) => row.code && row.name);
+    return buildLocalBoardCatalog(summaries);
+  } catch {
+    return buildLocalBoardCatalog([]);
   }
+}
+
+async function fetchSectorFlowRank(indicator: TSectorFlowIndicator = 'today'): Promise<ISectorSummary[]> {
+  const cached = sectorFlowRankCache.get(indicator);
+  const now = Date.now();
+  if (cached && now - cached.updatedAt < SECTOR_FLOW_CACHE_TTL_MS) return cached.rows;
+  if (cached?.promise) return cached.promise;
+
+  const promise = loadSectorFlowRank(indicator)
+    .then((rows) => {
+      sectorFlowRankCache.set(indicator, { rows, updatedAt: Date.now() });
+      return rows;
+    })
+    .catch(() => {
+      const rows: ISectorSummary[] = [];
+      sectorFlowRankCache.set(indicator, { rows, updatedAt: Date.now() });
+      return rows;
+    });
+  sectorFlowRankCache.set(indicator, { rows: cached?.rows ?? [], updatedAt: cached?.updatedAt ?? 0, promise });
+  return promise;
+}
+
+async function loadSectorFlowRank(indicator: TSectorFlowIndicator): Promise<ISectorSummary[]> {
+  const rows = await sdk.fundFlow.sectorRank({ indicator });
+  return rows
+    .filter((r) => r.changePercent !== null && r.changePercent !== undefined)
+    .map((r) => ({
+      code: r.code ?? '',
+      name: r.name ?? '',
+      changePercent: Number(r.changePercent ?? 0),
+      mainNetInflow: r.mainNetInflow !== null && r.mainNetInflow !== undefined ? Number(r.mainNetInflow) / 100_000_000 : 0,
+    }))
+    .filter((r) => r.code && r.name)
+    .slice(0, 30);
 }
 
 function buildOpportunityRadar(sectors: ISectorSummary[]): IOpportunityRadarItem[] {
@@ -407,60 +564,12 @@ function buildOpportunityRadar(sectors: ISectorSummary[]): IOpportunityRadarItem
     .slice(0, 5);
 }
 
-async function generateMonthlyThemes(
-  hotThemes: IMarketReviewHotTheme[],
-  sectorFlows10d: ISectorSummary[],
-): Promise<IMonthlyThemeItem[]> {
-  try {
-    const cfg = getConfig();
-    const hotThemesText = hotThemes
-      .slice(0, 8)
-      .map((t) => `${t.name}(涨停${t.limitUpCount ?? 0}家，龙头${t.leaderName ?? '--'})`)
-      .join('、');
-    const flowText = sectorFlows10d
-      .slice(0, 10)
-      .map((s) => `${s.name}(10日资金${s.mainNetInflow >= 0 ? '+' : ''}${s.mainNetInflow.toFixed(1)}亿，涨幅${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%)`)
-      .join('、');
-
-    const messages = [
-      {
-        role: 'system' as const,
-        content:
-          '你是 A 股题材轮动分析师。仅使用用户提供的真实数据，严禁编造股票或数值。请根据近 10 日资金流向和当前热点，推断出近 4 周每周的主流热点主题及代表性龙头。输出严格的 JSON 数组，每个元素包含 week（第1周~第4周，本周为第4周）、theme（主题名称）、leaderName（龙头名称）、leaderCode（龙头代码，如 300308，没有则空字符串）。主题应从数据中归纳，不能脱离数据。',
-      },
-      {
-        role: 'user' as const,
-        content: `当前热点板块：${hotThemesText}\n近10日板块资金流向：${flowText}\n\n请输出 JSON：`,
-      },
-    ];
-
-    const raw = await chatWithOpenAICompatible(cfg.model, messages);
-    const jsonText = raw.match(/\[[\s\S]*\]/)?.[0] ?? raw;
-    const parsed = parseJsonArray<TMonthlyThemeCandidate>(jsonText, isMonthlyThemeCandidate);
-    return parsed
-      .filter((p) => p.week && p.theme)
-      .map((p) => ({
-        week: p.week!,
-        theme: p.theme!,
-        leader: p.leaderName ? { code: p.leaderCode ?? '', name: p.leaderName } : null,
-      }))
-      .slice(0, 4);
-  } catch (err) {
-    console.warn('[discovery] generate monthly themes failed', err);
-    // fallback: derive from hot themes
-    return hotThemes.slice(0, 4).map((t, i) => ({
-      week: `第${i + 1}周`,
-      theme: t.name,
-      leader: t.leaderName && t.leaderCode ? { code: t.leaderCode, name: t.leaderName } : null,
-    }));
-  }
-}
-
 async function generateNextWeekSectors(
   sectors: ISectorSummary[],
   hotThemes: IMarketReviewHotTheme[],
   mainFundFlow: number | null,
   northFundFlow: number | null,
+  boardCatalog: TLocalBoardCatalog,
 ): Promise<INextWeekSector[]> {
   try {
     const cfg = getConfig();
@@ -473,11 +582,16 @@ async function generateNextWeekSectors(
       .map((t) => `${t.name}(涨停${t.limitUpCount ?? 0}家，龙头${t.leaderName ?? '--'})`)
       .join('、');
 
+    const localBoardText = boardCatalog.rows
+      .slice(0, 40)
+      .map((board) => `${board.name}(${board.code})`)
+      .join('、');
+
     const messages = [
       {
         role: 'system' as const,
         content:
-          '你是 A 股策略分析师。仅使用用户提供的真实数据，从资金面、消息面/政策、技术面、板块轮动四个维度，挑选下周最可能强势的 4 个板块。输出严格 JSON 数组，每个元素包含 name（板块名）、score（0-100 整数）、reasoning（对象：fundFlow/news/policy/technical/rotation，每个字段 30-60 字）。严禁编造具体数值，可从数据中归纳趋势。',
+          '你是 A 股策略分析师。仅使用用户提供的真实数据，从资金面、消息面/政策、技术面、板块轮动四个维度，挑选下周最可能强势的 4 个板块。输出严格 JSON 数组，每个元素包含 name（板块名，必须从“本地可打开板块”中原样选择）、score（0-100 整数）、reasoning（对象：fundFlow/news/policy/technical/rotation，每个字段 30-60 字）。严禁编造板块、股票或具体数值。',
       },
       {
         role: 'user' as const,
@@ -485,6 +599,7 @@ async function generateNextWeekSectors(
 今日北向资金净流入：${northFundFlow !== null ? `${northFundFlow >= 0 ? '+' : ''}${northFundFlow.toFixed(1)}亿` : '暂无'}
 今日板块表现：${sectorText}
 当前热点：${hotText}
+本地可打开板块：${localBoardText}
 
 请输出 JSON：`,
       },
@@ -494,25 +609,26 @@ async function generateNextWeekSectors(
     const jsonText = raw.match(/\[[\s\S]*\]/)?.[0] ?? raw;
     const parsed = parseJsonArray<TNextWeekSectorCandidate>(jsonText, isNextWeekSectorCandidate);
     return parsed
-      .filter((p) => p.name)
-      .map((p) => ({
-        name: p.name!,
-        score: Math.max(0, Math.min(100, Math.round(p.score ?? 70))),
+      .map((p) => ({ candidate: p, board: findLocalBoard(boardCatalog, { name: p.name }) }))
+      .filter((item): item is { candidate: TNextWeekSectorCandidate; board: TLocalBoardSummary } => Boolean(item.board))
+      .map(({ candidate, board }) => ({
+        name: board.name,
+        score: Math.max(0, Math.min(100, Math.round(candidate.score ?? 70))),
         reasoning: {
-          fundFlow: p.reasoning?.fundFlow ?? '资金关注度一般，需持续跟踪。',
-          news: p.reasoning?.news ?? '消息面暂无重大催化。',
-          policy: p.reasoning?.policy ?? '政策面无明确边际变化。',
-          technical: p.reasoning?.technical ?? '技术面处于震荡整理阶段。',
-          rotation: p.reasoning?.rotation ?? '板块轮动中尚未形成明确主线。',
+          fundFlow: candidate.reasoning?.fundFlow ?? '资金关注度一般，需持续跟踪。',
+          news: candidate.reasoning?.news ?? '消息面暂无重大催化。',
+          policy: candidate.reasoning?.policy ?? '政策面无明确边际变化。',
+          technical: candidate.reasoning?.technical ?? '技术面处于震荡整理阶段。',
+          rotation: candidate.reasoning?.rotation ?? '板块轮动中尚未形成明确主线。',
         },
       }))
       .slice(0, 4);
   } catch (err) {
     console.warn('[discovery] generate next-week sectors failed', err);
     // fallback: top sectors by inflow
-    return sectors
-      .filter((s) => s.mainNetInflow > 0)
-      .sort((a, b) => b.mainNetInflow - a.mainNetInflow)
+    return reconcileSectorsWithLocalBoards(sectors, boardCatalog)
+      .filter((s) => s.mainNetInflow > 0 || sectors.length === 0)
+      .sort((a, b) => b.mainNetInflow - a.mainNetInflow || b.changePercent - a.changePercent)
       .slice(0, 4)
       .map((s) => ({
         name: s.name,
@@ -608,7 +724,11 @@ async function buildMarketSummary(
   reviewData: Awaited<ReturnType<typeof getMarketReview>> | undefined,
   pools: HotFocusItem[],
 ): Promise<IMarketSummary | undefined> {
-  const [sectors, sectorFlows10d] = await Promise.all([fetchSectorFlowRank(), fetchSectorFlowRank('10day')]);
+  const [boardCatalog, remoteSectors] = await Promise.all([
+    fetchLocalBoardCatalog(),
+    fetchSectorFlowRank(),
+  ]);
+  const sectors = reconcileSectorsWithLocalBoards(remoteSectors, boardCatalog);
 
   const [indices, mainFundFlow, northFundFlow] = await Promise.all([
     fetchAllIndices(),
@@ -624,8 +744,8 @@ async function buildMarketSummary(
   const opportunityRadar = buildOpportunityRadar(sectors);
 
   const [monthlyThemes, nextWeekSectors] = await Promise.all([
-    generateMonthlyThemes(reviewData?.hotThemes ?? [], sectorFlows10d),
-    generateNextWeekSectors(sectors, reviewData?.hotThemes ?? [], mainFundFlow, northFundFlow),
+    fetchCompletedMonthWeekPools(boardCatalog),
+    generateNextWeekSectors(sectors, reviewData?.hotThemes ?? [], mainFundFlow, northFundFlow, boardCatalog),
   ]);
 
   return {
