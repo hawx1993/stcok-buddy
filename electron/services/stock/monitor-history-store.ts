@@ -29,6 +29,7 @@ interface IMonitorHistoryQuery {
 }
 
 const MAX_MONITOR_HISTORY_LIMIT = 1000;
+const HIGH_FREQUENCY_MONITOR_CATEGORIES: TMonitorCategory[] = ['technical', 'risk', 'ai-opportunity', 'ai-warning'];
 
 const dbPath = process.env.STOCKSENSE_MONITOR_DB_PATH ?? path.join(
   app.getPath('userData'),
@@ -88,6 +89,15 @@ export function saveMonitorEvents(events: IMonitorEvent[], capturedAt = new Date
     const captured = capturedAt.toISOString();
     const statements = events.flatMap((event) => [
       `DELETE FROM ai_monitor_events WHERE trade_date = ${sqlValue(tradeDate)} AND id = ${sqlValue(event.id)}`,
+      ...(isHighFrequencyMonitorEvent(event)
+        ? [
+            `DELETE FROM ai_monitor_events
+             WHERE trade_date = ${sqlValue(tradeDate)}
+               AND category = ${sqlValue(event.category)}
+               AND code = ${sqlValue(event.code)}
+               AND title = ${sqlValue(event.title)}`,
+          ]
+        : []),
       `INSERT INTO ai_monitor_events
         (trade_date, captured_at, id, category, timestamp, code, name, price, change_percent, title, badge, details_json, ai_analysis, chart_json, score)
        VALUES (${[
@@ -173,12 +183,58 @@ export function countMonitorHistory(options: Pick<IMonitorHistoryQuery, 'date' |
   });
 }
 
+export function countMonitorHistoryByCategory(options: Pick<IMonitorHistoryQuery, 'date' | 'categories'>) {
+  return readDb(async () => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date)) return {} as Partial<Record<TMonitorCategory, number>>;
+    const categorySql = monitorCategorySql(options.categories);
+    const rows = await all<{ category: TMonitorCategory; total: number }>(
+      `SELECT category, COUNT(*) AS total FROM ai_monitor_events WHERE trade_date = ${sqlValue(options.date)}${categorySql} GROUP BY category`,
+    );
+    const counts: Partial<Record<TMonitorCategory, number>> = {};
+    for (const row of rows) counts[row.category] = Number(row.total ?? 0);
+    return counts;
+  });
+}
+
 export function pruneMonitorHistory(keepTradingDays = 7) {
   return withDb(async () => {
     const dates = await listMonitorDates(Math.max(keepTradingDays, 1) + 1);
     const cutoff = dates[Math.max(keepTradingDays, 1)];
     if (!cutoff) return;
     await run(`DELETE FROM ai_monitor_events WHERE trade_date <= ${sqlValue(cutoff)}`);
+  });
+}
+
+export function cleanupMonitorHistoryNoise(tradeDate: string) {
+  return withDb(async () => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tradeDate)) return;
+    const categorySql = HIGH_FREQUENCY_MONITOR_CATEGORIES.map(sqlValue).join(', ');
+    await run(`
+      DELETE FROM ai_monitor_events
+      WHERE trade_date = ${sqlValue(tradeDate)}
+        AND category IN (${categorySql})
+        AND id NOT IN (
+          SELECT id FROM (
+            SELECT id,
+              ROW_NUMBER() OVER (
+                PARTITION BY trade_date, category, code, title
+                ORDER BY timestamp DESC, captured_at DESC, id DESC
+              ) AS rn
+            FROM ai_monitor_events
+            WHERE trade_date = ${sqlValue(tradeDate)}
+              AND category IN (${categorySql})
+          ) ranked
+          WHERE rn = 1
+        );
+      DELETE FROM ai_monitor_events
+      WHERE trade_date = ${sqlValue(tradeDate)}
+        AND category = 'ai-opportunity'
+        AND COALESCE(TRY_CAST(change_percent AS DOUBLE), 0) < 4;
+      DELETE FROM ai_monitor_events
+      WHERE trade_date = ${sqlValue(tradeDate)}
+        AND category = 'ai-warning'
+        AND COALESCE(TRY_CAST(change_percent AS DOUBLE), 0) > -4;
+    `);
   });
 }
 
@@ -271,6 +327,10 @@ async function withConnection<T>(work: (connection: DuckDBConnection) => Promise
     activeConnections -= 1;
     if (isClosing && activeConnections === 0) closeResolve?.();
   }
+}
+
+function isHighFrequencyMonitorEvent(event: IMonitorEvent) {
+  return HIGH_FREQUENCY_MONITOR_CATEGORIES.includes(event.category);
 }
 
 function monitorCategorySql(categories: TMonitorCategory[] | undefined) {

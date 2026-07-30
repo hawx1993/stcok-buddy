@@ -63,7 +63,7 @@ export function buildMonthlyThemesFromHistoricalPools(
 
     const topTheme = Array.from(groups.entries())
       .sort((a, b) => b[1].count - a[1].count || b[1].amount - a[1].amount || a[0].localeCompare(b[0], 'zh-Hans-CN'))[0];
-    if (!topTheme) return [];
+    if (!topTheme) return [{ week: week.label, theme: '暂无热点数据', leader: null }];
 
     const [theme, stats] = topTheme;
     const leader = stats.leaders

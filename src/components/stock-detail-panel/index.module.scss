@@ -1875,6 +1875,83 @@
   line-height: 1.7;
 }
 
+.monitor-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.monitor-skeleton-card {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  pointer-events: none;
+}
+
+.monitor-skeleton-rail {
+  width: 20px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding-top: 1px;
+  &::before {
+    content: '';
+    width: 3px;
+    height: 92px;
+    border-radius: 2px;
+    background: var(--surface-active);
+    animation: skeleton-shimmer 1.4s ease infinite;
+  }
+}
+
+.monitor-skeleton-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.monitor-skeleton-head,
+.monitor-skeleton-stock,
+.monitor-skeleton-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.monitor-skeleton-line {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--surface-hover) 25%, var(--surface-active) 37%, var(--surface-hover) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+  &.category { width: 56px; }
+  &.time { width: 58px; }
+  &.badge { width: 62px; margin-left: auto; }
+  &.name { width: 82px; height: 15px; }
+  &.code { width: 48px; }
+  &.price { width: 50px; margin-left: auto; }
+  &.change { width: 56px; height: 18px; border-radius: 5px; }
+  &.title { width: 48%; height: 14px; }
+  &.detail { width: 34%; }
+  &.aiLabel { width: 28px; height: 18px; border-radius: 4px; flex-shrink: 0; }
+  &.aiText { flex: 1; height: 12px; }
+  &.chart { width: 100px; height: 32px; border-radius: 4px; }
+  &.button { width: 88px; height: 28px; border-radius: 6px; margin-left: auto; }
+}
+
+.monitor-skeleton-ai {
+  display: flex;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+}
+
 /* =========================================================
    CARD - 极简列表卡片
    ========================================================= */

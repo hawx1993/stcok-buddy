@@ -1,11 +1,10 @@
 import { ConfigProvider, Select } from 'antd';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
   Banknote,
   Layers,
   TrendingUp,
-  Flame,
   Newspaper,
   AlertTriangle,
   Bot,
@@ -21,7 +20,10 @@ import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { IMonitorEvent, TMonitorCategory, TMonitorMode, StockDetail } from '../../../shared/types';
 import type { LucideIcon } from 'lucide-react';
 
-const CATEGORY_CONFIG: Record<TMonitorCategory, { label: string; Icon: LucideIcon; color: string; glow: string }> = {
+type TVisibleMonitorCategory = Exclude<TMonitorCategory, 'dragon-tiger'>;
+type TVisibleMonitorEvent = IMonitorEvent & { category: TVisibleMonitorCategory };
+
+const CATEGORY_CONFIG: Record<TVisibleMonitorCategory, { label: string; Icon: LucideIcon; color: string; glow: string }> = {
   'large-order': {
     label: '大单异动',
     Icon: Banknote,
@@ -39,12 +41,6 @@ const CATEGORY_CONFIG: Record<TMonitorCategory, { label: string; Icon: LucideIco
     Icon: TrendingUp,
     color: '#3b82f6',
     glow: 'rgba(59, 130, 246, 0.45)',
-  },
-  'dragon-tiger': {
-    label: '龙虎榜',
-    Icon: Flame,
-    color: '#e8b84b',
-    glow: 'rgba(232, 184, 75, 0.45)',
   },
   news: {
     label: '新闻公告',
@@ -72,11 +68,10 @@ const CATEGORY_CONFIG: Record<TMonitorCategory, { label: string; Icon: LucideIco
   },
 };
 
-const ALL_CATEGORIES: TMonitorCategory[] = [
+const ALL_CATEGORIES: TVisibleMonitorCategory[] = [
   'large-order',
   'chip',
   'technical',
-  'dragon-tiger',
   'news',
   'risk',
   'ai-opportunity',
@@ -96,8 +91,11 @@ const cardAccentStyle = (color: string): CSSProperties =>
 
 const classNames = (...classes: Array<string | false | undefined>) => classes.filter(Boolean).join(' ');
 
+function isVisibleMonitorEvent(event: IMonitorEvent): event is TVisibleMonitorEvent {
+  return event.category !== 'dragon-tiger';
+}
+
 const PAGE_SIZE = 20;
-const AI_MONITOR_FETCH_LIMIT = 1000;
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -149,10 +147,45 @@ function SparkLine({ data, color }: { data: number[]; color: string }) {
   );
 }
 
+function AiMonitorSkeletonList() {
+  return (
+    <div className={styles['monitor-skeleton-list']} aria-label='AI 监控加载中'>
+      {Array.from({ length: 5 }, (_, index) => (
+        <div className={styles['monitor-skeleton-card']} key={index}>
+          <div className={styles['monitor-skeleton-rail']} />
+          <div className={styles['monitor-skeleton-main']}>
+            <div className={styles['monitor-skeleton-head']}>
+              <span className={classNames(styles['monitor-skeleton-line'], styles.category)} />
+              <span className={classNames(styles['monitor-skeleton-line'], styles.time)} />
+              <span className={classNames(styles['monitor-skeleton-line'], styles.badge)} />
+            </div>
+            <div className={styles['monitor-skeleton-stock']}>
+              <span className={classNames(styles['monitor-skeleton-line'], styles.name)} />
+              <span className={classNames(styles['monitor-skeleton-line'], styles.code)} />
+              <span className={classNames(styles['monitor-skeleton-line'], styles.price)} />
+              <span className={classNames(styles['monitor-skeleton-line'], styles.change)} />
+            </div>
+            <span className={classNames(styles['monitor-skeleton-line'], styles.title)} />
+            <span className={classNames(styles['monitor-skeleton-line'], styles.detail)} />
+            <div className={styles['monitor-skeleton-ai']}>
+              <span className={classNames(styles['monitor-skeleton-line'], styles.aiLabel)} />
+              <span className={classNames(styles['monitor-skeleton-line'], styles.aiText)} />
+            </div>
+            <div className={styles['monitor-skeleton-foot']}>
+              <span className={classNames(styles['monitor-skeleton-line'], styles.chart)} />
+              <span className={classNames(styles['monitor-skeleton-line'], styles.button)} />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
   const [events, setEvents] = useState<IMonitorEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<TMonitorCategory | 'all'>('all');
+  const [activeTab, setActiveTab] = useState<TVisibleMonitorCategory | 'all'>('all');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [mode, setMode] = useState<TMonitorMode>('history');
   const [isTradingTime, setTradingTime] = useState(false);
@@ -161,80 +194,79 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
   const [lastUpdated, setLastUpdated] = useState<string>();
   const [error, setError] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [categoryTotals, setCategoryTotals] = useState<Partial<Record<TMonitorCategory, number>>>({});
+  const selectedDateRef = useRef(selectedDate);
   const feedRef = useRef<HTMLDivElement>(null);
 
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
   const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
 
-  const loadFeed = async (nextMode: TMonitorMode = mode, nextDate = selectedDate) => {
-    try {
-      setError('');
-      const api = getStocksenseApi();
-      const feed = await api.getMonitorFeed({
-        categories: ALL_CATEGORIES,
-        limit: AI_MONITOR_FETCH_LIMIT,
-        mode: nextMode,
-        date: nextMode === 'history' ? nextDate : undefined,
-      });
-      setMode(feed.mode);
-      setTradingTime(feed.isTradingTime);
-      setSelectedDate(feed.selectedDate ?? nextDate);
-      setEvents((prev) => {
-        if (feed.mode === 'history') {
-          return feed.events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-        }
-        const map = new Map<string, IMonitorEvent>();
-        for (const e of prev) map.set(e.id, e);
-        for (const e of feed.events) map.set(e.id, e);
-        return Array.from(map.values()).sort(
-          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-        );
-      });
-      setLastUpdated(feed.updatedAt);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '监控数据加载失败');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loadFeed = useCallback(
+    async (nextMode: TMonitorMode, nextDate: string, nextPage: number, nextTab: TVisibleMonitorCategory | 'all') => {
+      try {
+        setError('');
+        const api = getStocksenseApi();
+        const feed = await api.getMonitorFeed({
+          categories: nextTab === 'all' ? ALL_CATEGORIES : [nextTab],
+          limit: PAGE_SIZE,
+          offset: (nextPage - 1) * PAGE_SIZE,
+          mode: nextMode,
+          date: nextMode === 'history' ? nextDate : undefined,
+        });
+        setMode(feed.mode);
+        setTradingTime(feed.isTradingTime);
+        setSelectedDate(feed.selectedDate ?? nextDate);
+        setEvents(feed.events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+        setTotalCount(feed.total ?? feed.events.length);
+        setCategoryTotals(feed.categoryTotals ?? {});
+        setLastUpdated(feed.updatedAt);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '监控数据加载失败');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    selectedDateRef.current = selectedDate;
+  }, [selectedDate]);
 
   useEffect(() => {
     if (!isActive) return;
     setLoading(true);
     setCurrentPage(1);
-    loadFeed('realtime');
-  }, [isActive]);
+    void loadFeed('realtime', selectedDateRef.current, 1, activeTab);
+  }, [activeTab, isActive, loadFeed]);
 
   useEffect(() => {
     if (!isActive || !autoRefresh || !isTradingTime || mode !== 'realtime') return;
-    const id = setInterval(() => void loadFeed('realtime'), 30_000);
+    const id = setInterval(() => void loadFeed('realtime', selectedDate, currentPage, activeTab), 30_000);
     return () => clearInterval(id);
-  }, [autoRefresh, isActive, isTradingTime, mode]);
+  }, [activeTab, autoRefresh, currentPage, isActive, isTradingTime, loadFeed, mode, selectedDate]);
 
-  const filteredEvents = useMemo(() => {
-    if (activeTab === 'all') return events;
-    return events.filter((e) => e.category === activeTab);
-  }, [events, activeTab]);
+  const filteredEvents = events.filter(isVisibleMonitorEvent);
 
   const counts = useMemo(() => {
     const map = new Map<TMonitorCategory | 'all', number>();
-    map.set('all', events.length);
+    const allTotal = ALL_CATEGORIES.reduce((sum, cat) => sum + (categoryTotals[cat] ?? 0), 0);
+    map.set('all', allTotal || totalCount);
     for (const cat of ALL_CATEGORIES) {
-      map.set(cat, events.filter((e) => e.category === cat).length);
+      map.set(cat, categoryTotals[cat] ?? 0);
     }
     return map;
-  }, [events]);
+  }, [categoryTotals, totalCount]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredEvents.length / PAGE_SIZE));
-  const pageEvents = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return filteredEvents.slice(start, start + PAGE_SIZE);
-  }, [filteredEvents, currentPage]);
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const pageEvents = filteredEvents;
 
   useEffect(() => {
-    setCurrentPage(1);
-  }, [activeTab, events.length]);
+    if (currentPage <= totalPages) return;
+    setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   // Scroll feed to top when page changes.
   useEffect(() => {
@@ -259,10 +291,10 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
   };
 
   const goPage = (page: number) => {
-    setCurrentPage((p) => {
-      const next = Math.max(1, Math.min(totalPages, page));
-      return next;
-    });
+    const next = Math.max(1, Math.min(totalPages, page));
+    setCurrentPage(next);
+    setLoading(true);
+    void loadFeed(mode, selectedDate, next, activeTab);
   };
 
   const getMonitorDateSelectPopupContainer = (trigger: HTMLElement) => trigger.parentElement ?? document.body;
@@ -298,18 +330,19 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
   const handleRealtimeClick = () => {
     if (!isTradingTime) return;
     setLoading(true);
-    void loadFeed('realtime');
+    setCurrentPage(1);
+    void loadFeed('realtime', selectedDate, 1, activeTab);
   };
 
   const handleHistoryDateClick = (date: string) => {
     setLoading(true);
     setCurrentPage(1);
-    void loadFeed('history', date);
+    void loadFeed('history', date, 1, activeTab);
   };
 
   const handleRefresh = () => {
     setLoading(true);
-    void loadFeed(mode === 'realtime' && isTradingTime ? 'realtime' : 'history', selectedDate);
+    void loadFeed(mode === 'realtime' && isTradingTime ? 'realtime' : 'history', selectedDate, currentPage, activeTab);
   };
 
   const emptyText = mode === 'history' ? '该交易日暂无此分类监控事件' : '暂无监控事件';
@@ -355,8 +388,20 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
             setAutoRefresh((value) => !value);
           }}
           disabled={!isTradingTime}
-          title={isTradingTime ? (autoRefresh && mode === 'realtime' ? '关闭实时监控' : '开启实时监控') : '非交易时段不可开启实时监控'}
-          aria-label={isTradingTime ? (autoRefresh && mode === 'realtime' ? '关闭实时监控' : '开启实时监控') : '非交易时段不可开启实时监控'}
+          title={
+            isTradingTime
+              ? autoRefresh && mode === 'realtime'
+                ? '关闭实时监控'
+                : '开启实时监控'
+              : '非交易时段不可开启实时监控'
+          }
+          aria-label={
+            isTradingTime
+              ? autoRefresh && mode === 'realtime'
+                ? '关闭实时监控'
+                : '开启实时监控'
+              : '非交易时段不可开启实时监控'
+          }
           type='button'
         >
           <span />
@@ -397,7 +442,7 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
 
       <div className={styles['ai-monitor-panel-feed']} ref={feedRef}>
         {loading && !events.length ? (
-          <div className={styles['empty-block']}>正在加载 AI 监控数据...</div>
+          <AiMonitorSkeletonList />
         ) : error ? (
           <div className={styles['empty-block']}>{error}</div>
         ) : filteredEvents.length === 0 ? (

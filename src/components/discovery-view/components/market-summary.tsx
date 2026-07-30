@@ -84,34 +84,33 @@ function formatMainFlow(value: number) {
 function sectorCellBg(changePercent: number) {
   const abs = Math.min(Math.abs(changePercent) / 5, 1);
   if (changePercent >= 0) {
-    return `rgba(239, 68, 68, ${0.12 + abs * 0.38})`;
+    return `rgba(239, 68, 68, ${0.08 + abs * 0.2})`;
   }
-  return `rgba(34, 197, 94, ${0.12 + abs * 0.38})`;
+  return `rgba(34, 197, 94, ${0.08 + abs * 0.2})`;
 }
 
 function sectorCellBorder(changePercent: number) {
   const abs = Math.min(Math.abs(changePercent) / 5, 1);
   if (changePercent >= 0) {
-    return `rgba(239, 68, 68, ${0.25 + abs * 0.35})`;
+    return `rgba(239, 68, 68, ${0.2 + abs * 0.26})`;
   }
-  return `rgba(34, 197, 94, ${0.25 + abs * 0.35})`;
+  return `rgba(34, 197, 94, ${0.2 + abs * 0.26})`;
+}
+
+export function getSentimentMarkerPosition(value: number): number {
+  return Math.min(Math.max(value, 0), 100);
 }
 
 function SentimentBar({ value, up, down }: { value: number; up: number; down: number }) {
-  const total = up + down || 1;
-  const upPct = (up / total) * 100;
-  const downPct = (down / total) * 100;
-  const marker = Math.min(Math.max(value, 0), 100);
+  const marker = getSentimentMarkerPosition(value);
   return (
     <div className={styles.msBarWrap}>
       <div className={styles.msBarTrack}>
-        <div className={styles.msBarUp} style={{ width: `${upPct}%` }} />
-        <div className={styles.msBarDown} style={{ width: `${downPct}%` }} />
         <div className={styles.msBarMarker} style={{ left: `${marker}%` }} />
       </div>
       <div className={styles.msBarLabels}>
         <span>偏空</span>
-        <span className={styles.msBarValue}>情绪指数 {value.toFixed(0)}</span>
+        <span className={styles.msBarValue}>情绪指数 {value.toFixed(0)} · 涨停 {up} / 跌停 {down}</span>
         <span>偏多</span>
       </div>
     </div>
@@ -375,9 +374,13 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
             {monthlyThemes.map((theme) => (
               <div key={theme.week} className={styles.msMonthlyCard}>
                 <div className={styles.msMonthlyWeek}>{theme.week}</div>
-                <button className={styles.msMonthlyTheme} onClick={() => handleBoardNameClick(theme.theme)} type="button">
-                  {theme.theme}
-                </button>
+                {theme.leader ? (
+                  <button className={styles.msMonthlyTheme} onClick={() => handleBoardNameClick(theme.theme)} type="button">
+                    {theme.theme}
+                  </button>
+                ) : (
+                  <div className={styles.msMonthlyTheme}>{theme.theme}</div>
+                )}
                 {theme.leader ? (
                   <button
                     className={styles.msMonthlyLeader}

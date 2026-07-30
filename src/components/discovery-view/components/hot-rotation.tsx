@@ -60,6 +60,7 @@ export function HotRotation({ themes }: IHotRotationProps) {
     (a, b) => (b.limitUpCount ?? 0) - (a.limitUpCount ?? 0) || (b.score ?? 0) - (a.score ?? 0),
   );
   const chip = sortedThemes.find((t) => t.name === activeChip) ?? sortedThemes[0];
+  const chipLeaders = chip?.leaders?.slice(0, 3) ?? [];
 
   return (
     <div className='hot-rotation-panel'>
@@ -115,9 +116,9 @@ export function HotRotation({ themes }: IHotRotationProps) {
             {chip.limitUpCount ? <span className='chip-detail-count'>{chip.limitUpCount} 家涨停</span> : null}
           </div>
           <div className='chip-detail-reason'>{chip.reason ?? '暂无归因'}</div>
-          {chip.leaders && chip.leaders.length > 0 ? (
+          {chipLeaders.length > 0 ? (
             <div className='chip-leaders'>
-              {chip.leaders.map((leader, index) => (
+              {chipLeaders.map((leader, index) => (
                 <button
                   key={leader.code}
                   className='chip-leader-row'
@@ -131,7 +132,9 @@ export function HotRotation({ themes }: IHotRotationProps) {
                 </button>
               ))}
             </div>
-          ) : null}
+          ) : (
+            <div className='chip-detail-reason'>龙头股数据暂缺</div>
+          )}
         </div>
       ) : null}
     </div>

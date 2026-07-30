@@ -7,6 +7,9 @@ import { listSurgeDates, listSurgeHistory } from './surge-history-store.js';
 import { listMarketBoards } from '../market-data/market-data-store.js';
 import { fetchMarketIndex } from './market-indices.js';
 import { buildMonthlyThemesFromHistoricalPools } from './discovery-monthly-themes.js';
+import { mergeHotThemeLeaders } from './discovery-hot-themes.js';
+import type { IHotThemeLeader } from './discovery-hot-themes.js';
+import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from './discovery-market-summary.js';
 import type {
   HotFocusItem,
   IMarketReviewHotTheme,
@@ -107,6 +110,8 @@ export interface ISectorSummary {
   name: string;
   changePercent: number;
   mainNetInflow: number;
+  topStockName?: string;
+  topStockCode?: string;
 }
 
 export interface IOpportunityRadarItem {
@@ -136,7 +141,7 @@ export interface INextWeekSector {
 }
 
 type TSectorFlowIndicator = 'today';
-export type TLocalBoardSummary = { code: string; name: string; changePercent: number; mainNetInflow: number };
+export type TLocalBoardSummary = { code: string; name: string; changePercent: number; mainNetInflow: number; topStockName?: string; topStockCode?: string };
 
 type TLocalBoardCatalog = {
   rows: TLocalBoardSummary[];
@@ -338,6 +343,42 @@ function yyyymmdd(date: Date): string {
   return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
 }
 
+function normalizeThemeName(name?: string | null): string {
+  if (!name) return '';
+  return name.replace(/行业|板块|Ⅱ|Ⅲ|II|III|\s/g, '').toLowerCase();
+}
+
+function themeMatches(themeName: string, text?: string | null): boolean {
+  if (!text) return false;
+  const normalized = normalizeThemeName(themeName);
+  if (!normalized) return false;
+  const haystack = normalizeThemeName(text);
+  return haystack.includes(normalized);
+}
+
+function findLeadersFromPool(
+  themeName: string,
+  poolItems: HotFocusItem[],
+): Array<{ code: string; name: string; height: number }> {
+  const matches = poolItems
+    .filter((item) => item.tag === '封涨停板' && themeMatches(themeName, item.description))
+    .map((item) => ({
+      code: item.code ?? '',
+      name: item.name ?? item.title,
+      height: parseHeight(item.description),
+      changePercent: parseChgPct(item.changePercent) ?? 0,
+    }))
+    .filter((item) => item.code && item.name)
+    .sort((a, b) => b.height - a.height || b.changePercent - a.changePercent);
+
+  const unique: typeof matches = [];
+  for (const item of matches) {
+    if (!unique.some((u) => u.code === item.code)) unique.push(item);
+    if (unique.length >= 3) break;
+  }
+  return unique;
+}
+
 function offsetDate(days: number): Date {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -474,10 +515,7 @@ async function fetchAllIndices(): Promise<Array<{ code: string; name: string; pr
 async function fetchMainFundFlow(): Promise<number | null> {
   try {
     const rows = await sdk.fundFlow.market();
-    const latest = rows
-      .filter((r) => r.mainNetInflow !== null && r.mainNetInflow !== undefined)
-      .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))[0];
-    return latest ? Number(latest.mainNetInflow) / 100_000_000 : null;
+    return selectLatestMainFundFlowYi(rows);
   } catch (err) {
     console.warn('[discovery] main fund flow fetch failed', err);
     return null;
@@ -487,8 +525,7 @@ async function fetchMainFundFlow(): Promise<number | null> {
 async function fetchNorthFundFlow(): Promise<number | null> {
   try {
     const rows = await sdk.northbound.summary();
-    const north = rows.find((r) => r.direction?.includes('北向') || r.direction?.includes('North'));
-    return north?.netInflow !== null && north?.netInflow !== undefined ? Number(north.netInflow) / 100_000_000 : null;
+    return sumNorthFundFlowYi(rows);
   } catch (err) {
     console.warn('[discovery] north fund flow fetch failed', err);
     return null;
@@ -541,6 +578,8 @@ async function loadSectorFlowRank(indicator: TSectorFlowIndicator): Promise<ISec
       name: r.name ?? '',
       changePercent: Number(r.changePercent ?? 0),
       mainNetInflow: r.mainNetInflow !== null && r.mainNetInflow !== undefined ? Number(r.mainNetInflow) / 100_000_000 : 0,
+      topStockName: r.topStockName,
+      topStockCode: r.topStockCode,
     }))
     .filter((r) => r.code && r.name)
     .slice(0, 30);
@@ -653,9 +692,10 @@ async function fetchSectorLeaders(code: string): Promise<Array<{ code: string; n
     try {
       const items = await load();
       const leaders = items
+        .filter((item) => item.code && item.name)
+        .sort((a, b) => (b.changePercent ?? -Infinity) - (a.changePercent ?? -Infinity))
         .slice(0, 3)
-        .map((item) => ({ code: item.code ?? '', name: item.name ?? '' }))
-        .filter((item) => item.code && item.name);
+        .map((item) => ({ code: item.code ?? '', name: item.name ?? '' }));
       if (leaders.length) return leaders;
     } catch {
       // Try the next real board constituent source.
@@ -718,6 +758,35 @@ async function buildHotThemesFromSectors(sectors: ISectorSummary[]): Promise<Non
     leaderCode: leaders[index]?.[0]?.code ?? null,
     leaders: leaders[index],
   }));
+}
+
+async function enrichHotThemesWithLeaders(
+  themes: NonNullable<IDiscoverySnapshot['hotThemes']>,
+  sectors: ISectorSummary[],
+  boardCatalog: TLocalBoardCatalog,
+  poolItems: HotFocusItem[],
+): Promise<NonNullable<IDiscoverySnapshot['hotThemes']>> {
+  const enriched = await Promise.all(themes.map(async (theme) => {
+    if (theme.leaders?.length) return theme;
+
+    const board = findLocalBoard(boardCatalog, { code: theme.code ?? undefined, name: theme.name });
+    const sector = sectors.find((item) => item.code === theme.code || item.code === board?.code || normalizeBoardLookupName(item.name) === normalizeBoardLookupName(theme.name));
+
+    // 1) 用当日涨停池按题材名匹配真正的龙头股（含连板高度）
+    const poolLeaders = findLeadersFromPool(theme.name, poolItems);
+    if (poolLeaders.length) {
+      return { ...theme, leaders: poolLeaders, leaderName: poolLeaders[0].name, leaderCode: poolLeaders[0].code };
+    }
+
+    // 2) 用 stock-sdk 板块成分股 fallback
+    let fallbackLeaders: IHotThemeLeader[] = [];
+    const boardCode = theme.code ?? board?.code;
+    if (boardCode) {
+      fallbackLeaders = await fetchSectorLeaders(boardCode) ?? [];
+    }
+    return mergeHotThemeLeaders(theme, sector, fallbackLeaders);
+  }));
+  return enriched;
 }
 
 async function buildMarketSummary(
@@ -918,11 +987,17 @@ export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
 
   const sectorThemes = await buildHotThemesFromSectors(marketSummary?.sectors ?? []);
   const poolThemes = buildHotThemesFromPools(poolItems);
-  const hotThemes = reviewData?.hotThemes?.length
+  const baseHotThemes = reviewData?.hotThemes?.length
     ? reviewData.hotThemes.map(mapTheme)
     : sectorThemes.length
       ? sectorThemes
       : poolThemes;
+  const hotThemes = await enrichHotThemesWithLeaders(
+    baseHotThemes,
+    marketSummary?.sectors ?? [],
+    buildLocalBoardCatalog(marketSummary?.sectors ?? []),
+    poolItems,
+  );
 
   return {
     tradeDate,

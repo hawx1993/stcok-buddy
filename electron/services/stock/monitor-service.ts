@@ -1,6 +1,16 @@
 import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/market-time.js';
 import { listFavoriteStocks } from '../config-store.js';
-import { countMonitorHistory, enqueueMonitorEvents, flushMonitorEventQueue, listMonitorDates, listMonitorHistory, pruneMonitorHistory } from './monitor-history-store.js';
+import {
+  cleanupMonitorHistoryNoise,
+  countMonitorHistory,
+  countMonitorHistoryByCategory,
+  enqueueMonitorEvents,
+  flushMonitorEventQueue,
+  listMonitorDates,
+  listMonitorHistory,
+  pruneMonitorHistory,
+} from './monitor-history-store.js';
+import { listStockSurgeEvents } from './surge-history-store.js';
 import { getBatchQuotes, getChipDistribution, listHotFocus } from './stock-client.js';
 import { listStockNewsAnnouncements } from './news-client.js';
 import type {
@@ -12,6 +22,7 @@ import type {
   IMonitorFeed,
   MarketNewsItem,
   StockDetail,
+  StockSurgeEvent,
   TMonitorCategory,
 } from '../../../src/shared/types.js';
 
@@ -19,7 +30,6 @@ const CATEGORIES: TMonitorCategory[] = [
   'large-order',
   'chip',
   'technical',
-  'dragon-tiger',
   'news',
   'risk',
   'ai-opportunity',
@@ -110,6 +120,7 @@ function createQuoteEvents(
   quote: StockDetail | undefined,
   enabledCategories: TMonitorCategory[],
   timestamp: string,
+  tradeDate: string,
 ): IMonitorEvent[] {
   if (!quote) return [];
 
@@ -131,11 +142,13 @@ function createQuoteEvents(
     ? ((price - low) / (high - low)) * 100
     : undefined;
 
-  if (changePercent >= 2 || (intradayPosition !== undefined && intradayPosition >= 82 && changePercent > 0)) {
+  const strongTurnover = turnoverRate !== undefined && turnoverRate >= 2;
+
+  if (changePercent >= 3 || (intradayPosition !== undefined && intradayPosition >= 88 && changePercent >= 1.5)) {
     add({
       ...base('technical'),
-      id: `mo-tech-quote-${stock.code}-${timestamp}`,
-      title: changePercent >= 2 ? '日内涨幅走强' : '接近日内高位',
+      id: `mo-tech-quote-${stock.code}-${tradeDate}`,
+      title: changePercent >= 3 ? '日内强势信号' : '接近日内高位',
       badge: '实时行情',
       details: [
         `当前涨跌幅 ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
@@ -145,42 +158,42 @@ function createQuoteEvents(
     });
   }
 
-  if (changePercent >= 1.5 && open !== undefined && price >= open) {
+  if (changePercent >= 4 && open !== undefined && price >= open && intradayPosition !== undefined && intradayPosition >= 75 && strongTurnover) {
     add({
       ...base('ai-opportunity'),
-      id: `mo-opp-quote-${stock.code}-${timestamp}`,
-      title: '日内量价走强',
-      badge: '行情信号',
+      id: `mo-opp-quote-${stock.code}-${tradeDate}`,
+      title: '强势量价机会',
+      badge: '强信号',
       details: [
-        `当前价 ${price.toFixed(2)}，较昨收 ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
-        `当前价${price >= open ? '高于或等于' : '低于'}开盘价 ${open.toFixed(2)}`,
+        `当前价 ${price.toFixed(2)}，较昨收 +${changePercent.toFixed(2)}%`,
+        `接近日内高位，换手率 ${turnoverRate.toFixed(2)}%`,
       ],
-      aiAnalysis: '实时涨跌幅与开盘价关系偏强，建议继续结合K线、成交量和板块表现核对。',
+      aiAnalysis: '涨幅、日内位置与换手率同时满足强信号条件，仍需结合板块共振和成交额验证。',
     });
   }
 
-  if (changePercent <= -2) {
+  if (changePercent <= -4 && (intradayPosition === undefined || intradayPosition <= 35 || (open !== undefined && price <= open))) {
     add({
       ...base('ai-warning'),
-      id: `mo-warn-quote-${stock.code}-${timestamp}`,
+      id: `mo-warn-quote-${stock.code}-${tradeDate}`,
       title: '日内回撤风险',
-      badge: '行情预警',
+      badge: '强预警',
       details: [
         `当前涨跌幅 ${changePercent.toFixed(2)}%`,
         low !== undefined ? `日内低点 ${low.toFixed(2)}` : '日内低点数据暂缺',
       ],
-      aiAnalysis: '实时跌幅较大，短线波动风险上升。',
+      aiAnalysis: '实时跌幅较大且价格处于偏弱区间，短线波动风险上升。',
     });
   }
 
-  if (turnoverRate !== undefined && turnoverRate >= 8) {
+  if (turnoverRate !== undefined && turnoverRate >= 10 && Math.abs(changePercent) >= 2) {
     add({
       ...base('risk'),
-      id: `mo-risk-turnover-${stock.code}-${timestamp}`,
-      title: '换手率偏高',
+      id: `mo-risk-turnover-${stock.code}-${tradeDate}`,
+      title: '高换手波动风险',
       badge: '波动提示',
       details: [`当前换手率 ${turnoverRate.toFixed(2)}%`, `当前涨跌幅 ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`],
-      aiAnalysis: '高换手通常意味着分歧加大，需结合成交额和K线位置判断。',
+      aiAnalysis: '高换手叠加价格波动通常意味着分歧加大，需结合成交额和K线位置判断。',
     });
   }
 
@@ -216,9 +229,18 @@ function createLargeOrderEvents(
     });
 }
 
-function isLargeOrderItem(item: HotFocusItem) {
+export function isLargeOrderItem(item: HotFocusItem) {
   const text = `${item.title} ${item.description ?? ''} ${item.tag ?? ''}`;
-  return /特大单买入|特大单卖出|大笔买入|大笔卖出/.test(text);
+  return /特大单买入|特大单卖出|大笔买入|大笔卖出/.test(text) && largeOrderHands(item) >= 10000;
+}
+
+function largeOrderHands(item: HotFocusItem) {
+  const text = [item.amount, item.description, item.title, item.tag].filter(isString).join(' ');
+  const match = text.match(/(?:买入|卖出)?([0-9]+(?:\.[0-9]+)?)(万)?手/);
+  if (!match) return 0;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return 0;
+  return match[2] ? value * 10000 : value;
 }
 
 function createChipEvent(
@@ -258,6 +280,121 @@ function createChipEvent(
       ? { type: 'line', data: chip.trend.map((item) => item.concentration70).filter((value): value is number => typeof value === 'number') }
       : undefined,
   };
+}
+
+function createChipSignalEvents(
+  stock: FavoriteStock,
+  quote: StockDetail | undefined,
+  chip: IChipDistributionResult,
+  surgeEvents: StockSurgeEvent[],
+  timestamp: string,
+  tradeDate: string,
+): IMonitorEvent[] {
+  const latest = chip.latest;
+  const concentration90 = ratioPercent(latest?.concentration90);
+  if (latest === undefined || concentration90 === undefined || concentration90 >= 15) return [];
+
+  const baseDetails = [`90%筹码集中度 ${concentration90.toFixed(2)}%`];
+  const events: IMonitorEvent[] = [];
+  const base = () => makeEventBase(stock, quote, 'chip', timestamp);
+  const profitRatio = ratioPercent(latest.profitRatio);
+  const marketCapYi = parseMarketCapYi(quote?.marketCap);
+  const recentLimitUp = findRecentLimitUpEvent(surgeEvents);
+  const recentLargeBuy = findRecentLargeBuyEvent(surgeEvents.filter((event) => isWithinRecentDays(event.tradeDate, tradeDate, 7)));
+
+  if (marketCapYi !== undefined && marketCapYi >= 20 && marketCapYi <= 100) {
+    events.push({
+      ...base(),
+      id: `mo-chip-low-concentration-cap-${stock.code}-${tradeDate}`,
+      title: '低集中度小中市值筹码信号',
+      badge: '筹码+市值',
+      details: [...baseDetails, `总市值 ${marketCapYi.toFixed(1)}亿`],
+      aiAnalysis: '90%筹码集中度低且市值处于20亿-100亿区间，说明筹码结构较集中但仍需结合流动性和基本面验证。',
+    });
+  }
+
+  if (profitRatio !== undefined && profitRatio < 30) {
+    events.push({
+      ...base(),
+      id: `mo-chip-low-concentration-profit-${stock.code}-${tradeDate}`,
+      title: '低集中度低获利盘信号',
+      badge: '筹码+获利盘',
+      details: [...baseDetails, `获利盘 ${profitRatio.toFixed(2)}%`],
+      aiAnalysis: '90%筹码集中度低且获利盘比例低于30%，代表套牢盘压力仍需观察，不能单独作为买入依据。',
+    });
+  }
+
+  if (recentLimitUp) {
+    events.push({
+      ...base(),
+      id: `mo-chip-low-concentration-limitup-${stock.code}-${tradeDate}`,
+      title: '低集中度叠加近月涨停',
+      badge: '筹码+涨停',
+      details: [...baseDetails, `近月涨停：${recentLimitUp.tradeDate}${recentLimitUp.time ? ` ${recentLimitUp.time}` : ''}`, recentLimitUp.tag ?? recentLimitUp.description ?? recentLimitUp.title],
+      aiAnalysis: '90%筹码集中度低且近一个月出现过涨停，说明曾有真实强势异动，需继续观察涨停后的承接和回撤。',
+    });
+  }
+
+  if (recentLargeBuy) {
+    events.push({
+      ...base(),
+      id: `mo-chip-low-concentration-largebuy-${stock.code}-${tradeDate}`,
+      title: '低集中度叠加大额买入',
+      badge: '筹码+大单',
+      details: [...baseDetails, `近周大额买入：${recentLargeBuy.tradeDate}${recentLargeBuy.time ? ` ${recentLargeBuy.time}` : ''}`, recentLargeBuy.amount ?? recentLargeBuy.description ?? recentLargeBuy.tag ?? recentLargeBuy.title],
+      aiAnalysis: '90%筹码集中度低且近一周出现单笔大于1万手买入异动，资金行为值得跟踪，但仍需结合后续成交持续性。',
+    });
+  }
+
+  return events;
+}
+
+export function ratioPercent(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return undefined;
+  return Math.abs(value) <= 1 ? value * 100 : value;
+}
+
+export function parseMarketCapYi(value: number | string | undefined) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return undefined;
+    return value > 100_000 ? value / 100_000_000 : value;
+  }
+  const text = value.replaceAll(',', '').trim();
+  if (!text || text === '--') return undefined;
+  const parsed = Number(text.replace(/万亿|亿|万/g, ''));
+  if (!Number.isFinite(parsed)) return undefined;
+  if (text.includes('万亿')) return parsed * 10_000;
+  if (text.includes('亿')) return parsed;
+  if (text.includes('万')) return parsed / 10_000;
+  return parsed > 100_000 ? parsed / 100_000_000 : parsed;
+}
+
+export function isRecentLimitUpEvent(event: StockSurgeEvent) {
+  const text = `${event.tag ?? ''} ${event.title} ${event.description ?? ''}`;
+  if (/跌停|炸板|开板/.test(text)) return false;
+  return /封涨停板|涨停/.test(text);
+}
+
+export function isRecentLargeBuyEvent(event: StockSurgeEvent) {
+  const text = `${event.tag ?? ''} ${event.title} ${event.description ?? ''} ${event.amount ?? ''}`;
+  return /买入/.test(text) && largeOrderHands(event) >= 10000;
+}
+
+function findRecentLimitUpEvent(events: StockSurgeEvent[]) {
+  return events.find(isRecentLimitUpEvent);
+}
+
+function findRecentLargeBuyEvent(events: StockSurgeEvent[]) {
+  return events.find(isRecentLargeBuyEvent);
+}
+
+function isWithinRecentDays(eventDate: string, tradeDate: string, days: number) {
+  const eventTime = new Date(`${eventDate}T00:00:00+08:00`).getTime();
+  const tradeTime = new Date(`${tradeDate}T00:00:00+08:00`).getTime();
+  if (!Number.isFinite(eventTime) || !Number.isFinite(tradeTime)) return false;
+  const diffDays = Math.floor((tradeTime - eventTime) / 86_400_000);
+  return diffDays >= 0 && diffDays < days;
 }
 
 function chipTrendTitle(chip: IChipDistributionResult) {
@@ -347,6 +484,7 @@ function mergeMonitorEvents(local: IMonitorEvent[], realtime: IMonitorEvent[]) {
 
 export async function captureMonitorEvents(now = new Date(), categories: TMonitorCategory[] = CATEGORIES) {
   const timestamp = now.toISOString();
+  const tradeDate = toShanghaiMarketTime(now).date;
   const favorites = await listFavoriteStocks();
 
   const monitorUniverse: FavoriteStock[] = [
@@ -366,7 +504,7 @@ export async function captureMonitorEvents(now = new Date(), categories: TMonito
 
   const detailStocks = monitorUniverse.slice(0, DETAIL_STOCK_LIMIT);
   const events = monitorUniverse.flatMap((stock) =>
-    createQuoteEvents(stock, quoteByCode.get(stock.code), categories, timestamp),
+    createQuoteEvents(stock, quoteByCode.get(stock.code), categories, timestamp, tradeDate),
   );
 
   if (categories.includes('large-order')) {
@@ -380,12 +518,17 @@ export async function captureMonitorEvents(now = new Date(), categories: TMonito
 
   if (categories.includes('chip')) {
     const chipResults = await Promise.allSettled(detailStocks.map((stock) => getChipDistribution(stock.code)));
+    const surgeHistoryResults = await Promise.allSettled(detailStocks.map((stock) => listStockSurgeEvents(stock.code, 30)));
     warnSettledErrors('chip', chipResults);
+    warnSettledErrors('chip-surge-history', surgeHistoryResults);
     chipResults.forEach((result, index) => {
       if (result.status !== 'fulfilled') return;
       const stock = detailStocks[index];
-      const event = createChipEvent(stock, quoteByCode.get(stock.code), result.value, timestamp);
+      const quote = quoteByCode.get(stock.code);
+      const surgeEvents = surgeHistoryResults[index]?.status === 'fulfilled' ? surgeHistoryResults[index].value : [];
+      const event = createChipEvent(stock, quote, result.value, timestamp);
       if (event) events.push(event);
+      events.push(...createChipSignalEvents(stock, quote, result.value, surgeEvents, timestamp, tradeDate));
     });
   }
 
@@ -399,7 +542,25 @@ export async function captureMonitorEvents(now = new Date(), categories: TMonito
     });
   }
 
-  return sortMonitorEvents(events);
+  return limitQuoteSignals(sortMonitorEvents(events));
+}
+
+function limitQuoteSignals(events: IMonitorEvent[]) {
+  const quota: Partial<Record<TMonitorCategory, number>> = {
+    'ai-opportunity': 8,
+    'ai-warning': 8,
+    technical: 12,
+    risk: 8,
+  };
+  const used: Partial<Record<TMonitorCategory, number>> = {};
+  return events.filter((event) => {
+    const max = quota[event.category];
+    if (max === undefined) return true;
+    const next = (used[event.category] ?? 0) + 1;
+    if (next > max) return false;
+    used[event.category] = next;
+    return true;
+  });
 }
 
 export async function persistMonitorCapture(events: IMonitorEvent[], now = new Date()) {
@@ -407,6 +568,7 @@ export async function persistMonitorCapture(events: IMonitorEvent[], now = new D
   if (events.length) enqueueMonitorEvents(events, now, tradeDate);
   if (lastPrunedDate !== tradeDate) {
     await pruneMonitorHistory(7);
+    await cleanupMonitorHistoryNoise(tradeDate);
     lastPrunedDate = tradeDate;
   }
   return tradeDate;
@@ -416,11 +578,13 @@ export async function getMonitorFeed(options?: {
   categories?: TMonitorCategory[];
   since?: string;
   limit?: number;
+  offset?: number;
   date?: string;
   mode?: 'realtime' | 'history';
 }): Promise<IMonitorFeed> {
   const enabledCategories = options?.categories?.length ? options.categories : CATEGORIES;
   const limit = options?.limit ?? 50;
+  const offset = Math.max(0, Math.floor(options?.offset ?? 0));
   const now = new Date();
   const timestamp = now.toISOString();
   const isTradingTime = isChinaMarketOpen(now);
@@ -432,18 +596,22 @@ export async function getMonitorFeed(options?: {
     const availableDates = await listMonitorDates(7);
     const selectedDate = options?.date && /^\d{4}-\d{2}-\d{2}$/.test(options.date) ? options.date : availableDates[0];
     const events = selectedDate
-      ? await listMonitorHistory({ date: selectedDate, categories: enabledCategories, limit })
+      ? await listMonitorHistory({ date: selectedDate, categories: enabledCategories, offset, limit })
       : [];
     const total = selectedDate ? await countMonitorHistory({ date: selectedDate, categories: enabledCategories }) : 0;
+    const categoryTotals = selectedDate
+      ? await countMonitorHistoryByCategory({ date: selectedDate })
+      : {};
     const sinceTime = options?.since ? new Date(options.since).getTime() : 0;
     return {
       updatedAt: timestamp,
-      events: events.filter((event) => new Date(event.timestamp).getTime() >= sinceTime).slice(0, limit),
+      events: events.filter((event) => new Date(event.timestamp).getTime() >= sinceTime),
       mode: 'history',
       isTradingTime,
       availableDates,
       selectedDate,
       total,
+      categoryTotals,
     };
   }
 
@@ -451,9 +619,11 @@ export async function getMonitorFeed(options?: {
   const sinceTime = options?.since ? new Date(options.since).getTime() : 0;
   let localEvents: IMonitorEvent[] = [];
   let localTotal = 0;
+  let categoryTotals: Partial<Record<TMonitorCategory, number>> = {};
   try {
-    localEvents = await listMonitorHistory({ date: tradeDate, categories: enabledCategories, limit });
+    localEvents = await listMonitorHistory({ date: tradeDate, categories: enabledCategories, offset, limit });
     localTotal = await countMonitorHistory({ date: tradeDate, categories: enabledCategories });
+    categoryTotals = await countMonitorHistoryByCategory({ date: tradeDate });
   } catch (error) {
     console.warn('[monitor] failed to read local realtime history', error);
   }
@@ -465,17 +635,18 @@ export async function getMonitorFeed(options?: {
   } catch (error) {
     console.warn('[monitor] realtime capture failed', error);
   }
-  const events = mergeMonitorEvents(localEvents, realtimeEvents);
+  const events = offset === 0 ? mergeMonitorEvents(localEvents, realtimeEvents).slice(0, limit) : localEvents;
   const availableDates = await listMonitorDates(7);
 
   return {
     updatedAt: timestamp,
-    events: events.filter((event) => new Date(event.timestamp).getTime() >= sinceTime).slice(0, limit),
+    events: events.filter((event) => new Date(event.timestamp).getTime() >= sinceTime),
     mode: 'realtime',
     isTradingTime: true,
     availableDates,
     selectedDate: tradeDate,
-    total: Math.max(localTotal, events.length),
+    total: Math.max(localTotal, offset === 0 ? events.length : localTotal),
+    categoryTotals,
   };
 }
 

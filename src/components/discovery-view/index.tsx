@@ -96,7 +96,7 @@ interface IDiscoverySnapshot {
   yesterdayZt?: TStockItem[];
   yesterdayLb?: TStockItem[];
   leaders?: Array<{ code: string; name: string; height?: number | null; amount?: number | null; concepts?: string[]; changePercent?: number | null }>;
-  hotThemes?: Array<{ name: string; score?: number | null; changePercent?: number | null; limitUpCount?: number | null; reason?: string | null; leaderName?: string | null; leaderCode?: string | null }>;
+  hotThemes?: Array<{ name: string; score?: number | null; changePercent?: number | null; limitUpCount?: number | null; reason?: string | null; leaderName?: string | null; leaderCode?: string | null; leaders?: Array<{ code: string; name: string; height?: number | null }> }>;
   limitUps?: Array<{ code: string; name: string; height: string; reason: string }>;
   dragonTiger?: {
     inst: Array<{ code: string; name: string; changePercent?: number; netBuy: number; reason: string }>;

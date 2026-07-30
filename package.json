@@ -34,6 +34,7 @@
     "selfcheck:orchestrator": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/agent/orchestrator.selfcheck.js",
     "selfcheck:trade-date": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/market-data/trade-date-resolver.selfcheck.js",
     "selfcheck:surge-monitor": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/surge-monitor.selfcheck.js",
+    "selfcheck:monitor-service": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/monitor-service.selfcheck.js",
     "selfcheck:ai-monitor-history": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/monitor-history-store.selfcheck.js",
     "selfcheck:news-summary": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/news-client.selfcheck.js",
     "selfcheck:hot-stock-hints": "tsc -p tsconfig.node.json && electron dist-electron/electron/services/stock/hot-stock-hints.selfcheck.js"

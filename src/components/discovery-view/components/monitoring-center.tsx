@@ -108,7 +108,6 @@ export function MonitoringCenter() {
   return (
     <div className='monitor-center compact'>
       <div className='monitor-feed compact-feed'>
-        {!isTradingTime || mode === 'history' ? <div className='empty-block'>休市 · 展示最近交易日记录</div> : null}
         {loading && !events.length ? (
           <div className='monitor-skeleton-grid'>
             {Array.from({ length: 6 }).map((_, index) => (

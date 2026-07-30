@@ -435,6 +435,7 @@ export interface IMonitorFeed {
   availableDates: string[];
   selectedDate?: string;
   total?: number;
+  categoryTotals?: Partial<Record<TMonitorCategory, number>>;
 }
 
 export interface IStockNewsSubscription {
@@ -826,7 +827,7 @@ export interface StocksenseApi {
   getMarketDataStats(): Promise<MarketDataStats>;
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
   getDiscoverySnapshot(): Promise<Record<string, unknown>>;
-  getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number; date?: string; mode?: TMonitorMode }): Promise<IMonitorFeed>;
+  getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number; offset?: number; date?: string; mode?: TMonitorMode }): Promise<IMonitorFeed>;
   getTradingAdvice(): Promise<ITradingAdvice>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;
