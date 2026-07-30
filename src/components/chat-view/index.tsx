@@ -356,6 +356,11 @@ export function ChatView() {
       delete (window as typeof window & { __stocksensePendingReport?: string }).__stocksensePendingReport;
       void send(`/综合投研报告 ${pending}`);
     }
+    const pendingSectorChat = (window as typeof window & { __stocksensePendingSectorChat?: string }).__stocksensePendingSectorChat;
+    if (pendingSectorChat) {
+      delete (window as typeof window & { __stocksensePendingSectorChat?: string }).__stocksensePendingSectorChat;
+      void send(pendingSectorChat);
+    }
     return () => window.removeEventListener('stocksense:send-report', handleReport);
   });
 

@@ -524,6 +524,30 @@
   align-items: center;
   justify-content: space-between;
 }
+.offline-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  justify-content: center;
+  padding: 6px 16px;
+  font-size: 11px;
+  color: var(--danger, #ef4444);
+  white-space: nowrap;
+  border-top: 1px solid var(--glass-border);
+  flex-shrink: 0;
+  animation: offline-fade-in 0.3s ease;
+}
+.offline-indicator svg {
+  flex-shrink: 0;
+}
+@keyframes offline-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 .footer-action {
   height: 28px;
   border-radius: 8px;

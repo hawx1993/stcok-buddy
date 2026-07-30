@@ -87,6 +87,9 @@ const api: StocksenseApi = {
   getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
   getMarketPageSnapshot: (tab: MarketTab, period?: MarketIndexPeriod) =>
     ipcRenderer.invoke('market:getPageSnapshot', tab, period),
+  getDiscoverySnapshot: () => ipcRenderer.invoke('discovery:getSnapshot'),
+  getMonitorFeed: (options?: Parameters<StocksenseApi['getMonitorFeed']>[0]) => ipcRenderer.invoke('monitor:getFeed', options),
+  getTradingAdvice: () => ipcRenderer.invoke('trading-advice:get'),
   onMarketPageSnapshotUpdated: (handler: (snapshot: MarketPageSnapshot) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: MarketPageSnapshot) => handler(snapshot);
     ipcRenderer.on('market:pageSnapshotUpdated', listener);

@@ -4,7 +4,7 @@ import {
   resolveTradingDate,
   toShanghaiMarketTime,
   type ITradingCalendarClient,
-} from './trade-date-resolver.js';
+} from '../services/market-data/trade-date-resolver.js';
 
 const calendar: ITradingCalendarClient = {
   isTradingDay: async (date) => date === '2026-07-23',

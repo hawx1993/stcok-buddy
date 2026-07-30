@@ -16,8 +16,8 @@ import type {
 export type SidebarTab = 'all' | 'surge' | 'stock' | 'diagnosis' | 'market';
 export type SidebarMainTab = 'session' | 'hot';
 export type HotSubTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
-export type RightPanelTab = 'favorites' | 'stock' | 'board' | 'surge' | 'news';
-export type MainView = 'chat' | 'market' | 'news-reader';
+export type RightPanelTab = 'favorites' | 'stock' | 'board' | 'surge' | 'news' | 'ai-monitor';
+export type MainView = 'chat' | 'market' | 'news-reader' | 'discovery';
 
 export interface ISyncBannerState {
   taskType: DataSyncTaskType;
@@ -91,6 +91,7 @@ interface AppState {
   toggleRightPanel(): void;
   openRightPanel(): void;
   openBoardPanel(): void;
+  openAiMonitorPanel(): void;
   setSearch(search: string): void;
   addMessage(message: ChatMessage): void;
   setFavoriteStocks(favoriteStocks: FavoriteStock[]): void;
@@ -187,6 +188,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleRightPanel: () => set((state) => ({ isRightPanelCollapsed: !state.isRightPanelCollapsed })),
   openRightPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'stock', stockReturnContext: undefined }),
   openBoardPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'board' }),
+  openAiMonitorPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'ai-monitor' }),
   setSearch: (search) => set({ search }),
   rememberStockKline: (code, data) => {
     if (data?.length) set((state) => ({ stockKlines: { ...state.stockKlines, [code]: data } }));

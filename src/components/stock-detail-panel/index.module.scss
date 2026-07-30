@@ -88,6 +88,7 @@
   display: flex;
   gap: 6px;
   padding-top: 8px;
+  margin: 0 10px;
 }
 .surge-date-select {
   flex: 1;
@@ -135,6 +136,9 @@
   height: 28px;
   padding: 0 10px;
   border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 6px;
   background: var(--surface-hover);
   color: var(--fg-secondary);
@@ -157,6 +161,13 @@
   inset: 8px;
   border-radius: 999px;
   background: currentColor;
+}
+.surge-monitor-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.surge-monitor-button:disabled span {
+  background: var(--muted);
 }
 .surge-monitor-button.active {
   color: var(--danger);
@@ -266,7 +277,9 @@
   animation: news-refresh-spin 0.8s linear infinite;
 }
 @keyframes news-refresh-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 .news-tabs {
   display: inline-flex;
@@ -356,8 +369,12 @@
   color: var(--muted);
   cursor: pointer;
 }
-.stock-news-chip button:hover { color: var(--danger, #d45b5b); }
-.stock-news-search-wrap { position: relative; }
+.stock-news-chip button:hover {
+  color: var(--danger, #d45b5b);
+}
+.stock-news-search-wrap {
+  position: relative;
+}
 .stock-news-suggestions {
   position: absolute;
   z-index: 4;
@@ -383,14 +400,43 @@
   font-size: 11px;
   text-align: left;
 }
-.stock-news-suggestions button { cursor: pointer; }
-.stock-news-suggestions button:hover:not(:disabled) { background: var(--list-item-hover); }
-.stock-news-suggestions button:disabled { cursor: not-allowed; opacity: .55; }
-.stock-news-suggestions button span { display: inline-flex; gap: 5px; }
-.stock-news-suggestions em { color: var(--accent); font-size: 10px; font-style: normal; }
-.stock-news-limit { color: var(--muted); font-size: 10px; text-align: right; }
-.stock-news-heading { margin: 9px 0 3px; padding-bottom: 7px; border-bottom: 1px solid var(--border); font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
-.stock-news-stock { color: var(--accent); font-size: 10px; white-space: nowrap; }
+.stock-news-suggestions button {
+  cursor: pointer;
+}
+.stock-news-suggestions button:hover:not(:disabled) {
+  background: var(--list-item-hover);
+}
+.stock-news-suggestions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.stock-news-suggestions button span {
+  display: inline-flex;
+  gap: 5px;
+}
+.stock-news-suggestions em {
+  color: var(--accent);
+  font-size: 10px;
+  font-style: normal;
+}
+.stock-news-limit {
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+.stock-news-heading {
+  margin: 9px 0 3px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.stock-news-stock {
+  color: var(--accent);
+  font-size: 10px;
+  white-space: nowrap;
+}
 
 .news-summary {
   margin-top: 10px;
@@ -543,7 +589,9 @@
   color: var(--fg);
   cursor: pointer;
   text-align: left;
-  transition: background 0.14s ease, border-color 0.14s ease;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease;
 }
 .news-item::before {
   position: absolute;
@@ -611,7 +659,10 @@
   color: var(--muted);
   opacity: 0;
   transform: translate(-2px, 2px);
-  transition: opacity 0.14s ease, transform 0.14s ease, color 0.14s ease;
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease,
+    color 0.14s ease;
 }
 .news-item-actions {
   display: inline-flex;
@@ -1649,4 +1700,615 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* =========================================================
+   AI MONITOR PANEL - 克制极简 / 专业金融终端风
+   核心原则: 少即是多, 数据优先, 装饰最小化
+   ========================================================= */
+.ai-monitor-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ---------- 顶部栏 ---------- */
+.ai-monitor-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.ai-monitor-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg);
+
+  .ai-monitor-panel-icon {
+    display: inline-flex;
+    color: var(--accent);
+  }
+}
+
+.ai-monitor-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-monitor-panel-controls .monitor-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  &.active {
+    color: #22c55e;
+    border-color: color-mix(in srgb, #22c55e 40%, transparent);
+    background: color-mix(in srgb, #22c55e 8%, transparent);
+  }
+  &:hover:not(.active) {
+    background: var(--surface-hover);
+    color: var(--fg);
+  }
+}
+
+/* ---------- Tabs ---------- */
+.ai-monitor-panel-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.ai-monitor-panel-tabs .monitor-tab {
+  --_tc: var(--cat-color, var(--accent));
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+
+  .monitor-tab-indicator {
+    display: none;
+  }
+  .monitor-tab-icon {
+    opacity: 0.5;
+  }
+  .monitor-count {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 10px;
+    color: var(--muted);
+    padding: 0 5px;
+    border-radius: 4px;
+    background: var(--surface-hover);
+    font-weight: 600;
+    line-height: 14px;
+    min-width: 16px;
+    text-align: center;
+  }
+
+  &:hover:not(.active) {
+    background: var(--surface-hover);
+    border-color: color-mix(in srgb, var(--_tc) 34%, var(--border));
+    color: var(--fg);
+  }
+
+  &.active {
+    color: color-mix(in srgb, var(--_tc) 74%, #fff);
+    border-color: color-mix(in srgb, var(--_tc) 62%, transparent);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--_tc) 24%, var(--surface)),
+      color-mix(in srgb, var(--_tc) 12%, var(--surface))
+    );
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--_tc) 12%, transparent),
+      0 8px 18px color-mix(in srgb, var(--cat-glow, var(--_tc)) 14%, transparent);
+    .monitor-tab-icon {
+      opacity: 0.95;
+      color: var(--_tc);
+    }
+    .monitor-count {
+      color: color-mix(in srgb, var(--_tc) 78%, #fff);
+      background: color-mix(in srgb, var(--_tc) 18%, transparent);
+    }
+  }
+}
+
+/* ---------- Feed ---------- */
+.ai-monitor-panel-feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+    &:hover {
+      background: var(--accent);
+    }
+  }
+}
+
+.empty-block {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.monitor-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.monitor-skeleton-card {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  pointer-events: none;
+}
+
+.monitor-skeleton-rail {
+  width: 20px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding-top: 1px;
+  &::before {
+    content: '';
+    width: 3px;
+    height: 92px;
+    border-radius: 2px;
+    background: var(--surface-active);
+    animation: skeleton-shimmer 1.4s ease infinite;
+  }
+}
+
+.monitor-skeleton-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.monitor-skeleton-head,
+.monitor-skeleton-stock,
+.monitor-skeleton-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.monitor-skeleton-line {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--surface-hover) 25%, var(--surface-active) 37%, var(--surface-hover) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+  &.category { width: 56px; }
+  &.time { width: 58px; }
+  &.badge { width: 62px; margin-left: auto; }
+  &.name { width: 82px; height: 15px; }
+  &.code { width: 48px; }
+  &.price { width: 50px; margin-left: auto; }
+  &.change { width: 56px; height: 18px; border-radius: 5px; }
+  &.title { width: 48%; height: 14px; }
+  &.detail { width: 34%; }
+  &.aiLabel { width: 28px; height: 18px; border-radius: 4px; flex-shrink: 0; }
+  &.aiText { flex: 1; height: 12px; }
+  &.chart { width: 100px; height: 32px; border-radius: 4px; }
+  &.button { width: 88px; height: 28px; border-radius: 6px; margin-left: auto; }
+}
+
+.monitor-skeleton-ai {
+  display: flex;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+}
+
+/* =========================================================
+   CARD - 极简列表卡片
+   ========================================================= */
+.ai-monitor-panel-feed .monitor-card {
+  --_c: var(--card-accent, var(--accent));
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--_c) 4%, transparent);
+  }
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+/* 左侧 rail: 色条 + 图标 */
+.ai-monitor-panel-feed .monitor-card-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 1px;
+  color: var(--_c);
+  width: 20px;
+  flex-shrink: 0;
+
+  &::before {
+    content: '';
+    width: 3px;
+    flex: 1;
+    min-height: 24px;
+    border-radius: 2px;
+    background: var(--_c);
+    opacity: 0.85;
+  }
+  svg {
+    opacity: 0.85;
+    flex-shrink: 0;
+  }
+}
+
+/* 主内容 */
+.ai-monitor-panel-feed .monitor-card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* 顶部行 */
+.ai-monitor-panel-feed .monitor-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ai-monitor-panel-feed .monitor-card-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ai-monitor-panel-feed .monitor-cat-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--_c);
+  letter-spacing: 0.02em;
+}
+
+.ai-monitor-panel-feed .monitor-card-time {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.ai-monitor-panel-feed .monitor-card-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.ai-monitor-panel-feed .monitor-card-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: color-mix(in srgb, #eab308 15%, transparent);
+  color: #ca8a04;
+  border: 1px solid color-mix(in srgb, #eab308 30%, transparent);
+}
+
+.ai-monitor-panel-feed .monitor-star-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  padding: 0;
+  line-height: 0;
+  &:hover {
+    color: #eab308;
+    background: color-mix(in srgb, #eab308 10%, transparent);
+  }
+  &.active {
+    color: #eab308;
+  }
+}
+
+/* 股票行 */
+.ai-monitor-panel-feed .monitor-card-stock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-monitor-panel-feed .monitor-stock-btn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+  &:hover .monitor-stock-name {
+    color: var(--_c);
+  }
+}
+
+.ai-monitor-panel-feed .monitor-stock-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg);
+  line-height: 1.2;
+}
+.ai-monitor-panel-feed .monitor-stock-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.ai-monitor-panel-feed .monitor-stock-market {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.ai-monitor-panel-feed .monitor-stock-price {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  font-weight: 600;
+}
+.ai-monitor-panel-feed .monitor-stock-chg {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  &.up {
+    color: var(--market-up, #ef4444);
+    background: color-mix(in srgb, var(--market-up, #ef4444) 8%, transparent);
+  }
+  &.down {
+    color: var(--market-down, #22c55e);
+    background: color-mix(in srgb, var(--market-down, #22c55e) 8%, transparent);
+  }
+}
+
+/* 标题 */
+.ai-monitor-panel-feed .monitor-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.4;
+}
+
+/* 详情列表 */
+.ai-monitor-panel-feed .monitor-card-details {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  li {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--fg-secondary);
+    line-height: 1.5;
+    &::before {
+      content: '›';
+      flex-shrink: 0;
+      color: var(--_c);
+      font-weight: 700;
+      font-size: 10px;
+      line-height: 1.5;
+    }
+  }
+}
+
+/* AI 分析 */
+.ai-monitor-panel-feed .monitor-card-ai {
+  display: flex;
+  gap: 7px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+}
+
+.ai-monitor-panel-feed .monitor-ai-label {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  min-width: 22px;
+  height: 18px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.ai-monitor-panel-feed .monitor-ai-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+  line-height: 1.6;
+}
+
+/* 底部行: sparkline + action */
+.ai-monitor-panel-feed .monitor-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 5px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+}
+
+/* Sparkline */
+.ai-monitor-panel-feed .monitor-sparkline {
+  display: block;
+  width: 100px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+/* CTA 按钮 */
+.ai-monitor-panel-feed .monitor-action-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  flex-shrink: 0;
+  width: 88px;
+  &:hover {
+    color: var(--_c);
+    border-color: color-mix(in srgb, var(--_c) 45%, var(--border));
+  }
+}
+
+/* ---------- 分页 ---------- */
+.monitor-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 14px 4px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.monitor-page-btn {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  &:hover:not(:disabled) {
+    color: var(--fg);
+    background: var(--surface-hover);
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.monitor-page-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.monitor-page-current {
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.monitor-page-sep {
+  color: var(--muted);
+}
+.monitor-page-total {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.monitor-footer {
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  padding: 0 0 4px;
+  flex-shrink: 0;
 }

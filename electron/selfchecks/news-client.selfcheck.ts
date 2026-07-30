@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import type { IMarketNewsSummary, IMarketNewsSummaryState } from '../../../src/shared/types.js';
-import { articleToText, ensureMarketNewsSummaryState } from './news-client.js';
+import type { IMarketNewsSummary, IMarketNewsSummaryState } from '../../src/shared/types.js';
+import { articleToText, ensureMarketNewsSummaryState } from '../services/stock/news-client.js';
 
 const existingSummary: IMarketNewsSummary = {
   tradeDate: '2026-07-23',

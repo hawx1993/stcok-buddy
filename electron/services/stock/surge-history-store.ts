@@ -19,7 +19,7 @@ interface SurgeRow {
   type?: HotFocusItem['type'];
 }
 
-const dbPath = path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb');
+const dbPath = process.env.STOCKSENSE_SURGE_DB_PATH ?? path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb');
 // ponytail: dbReady is undefined after a storage clear so the database file is
 // NOT recreated until the next actual read/write — otherwise resetSurgeHistoryStore
 // would immediately DuckDBInstance.create() an empty ~12KB file and the storage
@@ -37,6 +37,14 @@ let closeResolve: (() => void) | undefined;
 // from remote. The marker expires after a grace period (or on app restart).
 const SURGE_CLEAR_MARKER_TTL_MS = 30 * 60 * 1000;
 let surgeHistoryClearMarkerAt: number | undefined;
+
+type TQueuedSurgeSnapshot = {
+  item: HotFocusItem;
+  capturedAt: Date;
+  tradeDate: string;
+};
+
+const surgeSnapshotQueue = new Map<string, TQueuedSurgeSnapshot>();
 
 export function isSurgeHistoryClearMarkerActive() {
   if (!surgeHistoryClearMarkerAt) return false;
@@ -118,6 +126,39 @@ export function saveSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date()
     ]);
     await run(`BEGIN TRANSACTION; ${statements.join('; ')}; COMMIT`);
   });
+}
+
+export function enqueueSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
+  if (!items.length || isSurgeHistoryClearMarkerActive()) return;
+  for (const item of items) {
+    surgeSnapshotQueue.set(`${tradeDate}|${item.id}`, { item, capturedAt, tradeDate });
+  }
+}
+
+export async function flushSurgeSnapshotQueue() {
+  if (!surgeSnapshotQueue.size || isSurgeHistoryClearMarkerActive()) {
+    surgeSnapshotQueue.clear();
+    return;
+  }
+  const queued = Array.from(surgeSnapshotQueue.values());
+  surgeSnapshotQueue.clear();
+  const groups = new Map<string, { capturedAt: Date; items: HotFocusItem[] }>();
+  for (const entry of queued) {
+    const group = groups.get(entry.tradeDate);
+    if (group) {
+      group.items.push(entry.item);
+      if (entry.capturedAt > group.capturedAt) group.capturedAt = entry.capturedAt;
+    } else {
+      groups.set(entry.tradeDate, { capturedAt: entry.capturedAt, items: [entry.item] });
+    }
+  }
+  for (const [tradeDate, group] of groups) {
+    await saveSurgeSnapshot(group.items, group.capturedAt, tradeDate);
+  }
+}
+
+export function getQueuedSurgeSnapshotCount() {
+  return surgeSnapshotQueue.size;
 }
 
 export function clearSurgeHistoryDate(tradeDate: string) {
@@ -307,6 +348,7 @@ export async function resetSurgeHistoryStore() {
   dbReady = undefined;
   ready = undefined;
   queue = Promise.resolve();
+  surgeSnapshotQueue.clear();
   isClosing = false;
   activeConnections = 0;
   closeResolve = undefined;

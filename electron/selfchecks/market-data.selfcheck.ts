@@ -6,10 +6,10 @@ import os from 'node:os';
 const dbPath = path.join(os.tmpdir(), `stocksense-market-selfcheck-${process.pid}.duckdb`);
 process.env.STOCKSENSE_MARKET_DB_PATH = dbPath;
 
-const store = await import('./market-data-store.js');
-const query = await import('./market-data-query.js');
-const quality = await import('./quality.js');
-const sync = await import('./market-data-sync.js');
+const store = await import('../services/market-data/market-data-store.js');
+const query = await import('../services/market-data/market-data-query.js');
+const quality = await import('../services/market-data/quality.js');
+const sync = await import('../services/market-data/market-data-sync.js');
 
 await store.initializeMarketDataStore();
 await store.initializeMarketDataStore();
@@ -89,6 +89,20 @@ const quote = await query.queryLatestQuote('600519', async () => {
 });
 assert.equal(quote.meta.freshness, 'stale');
 assert.equal(quote.meta.isComplete, false);
+
+const updatedAt = new Date().toISOString();
+await store.upsertMarketBoards([
+  { code: 'BK1556', name: '教育运营及其他', source: 'selfcheck', updatedAt },
+  { code: 'BK1556', name: '教育运营及其他', kind: 'industry', changePercent: 1.2, source: 'selfcheck', updatedAt },
+]);
+const boards = await store.listMarketBoards();
+assert.equal(boards.filter((row) => row.code === 'BK1556').length, 1);
+const board = boards.find((row) => row.code === 'BK1556');
+assert.equal(board?.name, '教育运营及其他');
+assert.equal(board?.kind, 'industry');
+assert.equal(board?.changePercent, 1.2);
+assert.equal(board?.source, 'selfcheck');
+assert(board?.updatedAt);
 
 await store.closeMarketDataStore();
 for (const suffix of ['', '.wal']) {

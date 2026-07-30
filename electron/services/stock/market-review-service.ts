@@ -159,5 +159,17 @@ function mean(values: number[]) { return values.length ? values.reduce((sum, val
 function median(values: number[]) { if (!values.length) return null; const sorted = [...values].sort((a, b) => a - b); const middle = Math.floor(sorted.length / 2); return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2; }
 function toRating(value: number): TMarketReviewRating { return Math.max(1, Math.min(5, Math.ceil(value))) as TMarketReviewRating; }
 function ratingFromRank(index: number, changePercent: number | null, flow?: HotFocusItem): TMarketReviewRating | null { if (changePercent === null && !flow) return null; return toRating(Math.max(1, 5 - index)); }
-function scoreSentiment(up: number, down: number, zt: number, dt: number, broken: number) { if (!up && !down && !zt && !dt && !broken) return null; return Math.max(0, Math.min(100, Math.round(50 + (up - down) / Math.max(up + down, 1) * 30 + zt - dt * 2 - broken / 2))); }
+export function scoreSentiment(up: number, down: number, zt: number, dt: number, broken: number) {
+  if (!up && !down && !zt && !dt && !broken) return null;
+
+  const directionalTotal = up + down;
+  const breadthScore = directionalTotal ? (up / directionalTotal) * 75 : 35;
+  const limitUpBonus = Math.min(10, zt * 0.12);
+  const limitDownPenalty = Math.min(20, dt * 0.8);
+  const brokenPenalty = Math.min(10, broken * 0.25);
+  const rawScore = 15 + breadthScore + limitUpBonus - limitDownPenalty - brokenPenalty;
+  const cappedScore = directionalTotal && down > 0 ? Math.min(rawScore, 99) : rawScore;
+
+  return Math.max(0, Math.min(100, Math.round(cappedScore)));
+}
 function buildDataGaps(input: { pools: HotFocusItem[]; sectors: HotFocusItem[]; flows: HotFocusItem[] }) { return [!input.pools.length ? '涨停/炸板/跌停池' : '', !input.sectors.length ? '板块排行' : '', !input.flows.length ? '板块资金流' : '', '昨日涨停指数与昨日连板指数'].filter(Boolean); }

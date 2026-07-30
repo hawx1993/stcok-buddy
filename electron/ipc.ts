@@ -64,10 +64,14 @@ import {
   onMarketPageSnapshotUpdated,
   searchStocks,
 } from './services/stock/stock-client.js';
+import { getDiscoverySnapshot } from './services/stock/discovery-service.js';
+import { getMonitorFeed } from './services/stock/monitor-service.js';
+import { getTradingAdvice } from './services/stock/trading-advice-service.js';
 import { listHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { closeSurgeHistoryInstance, listSurgeDates } from './services/stock/surge-history-store.js';
 import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
+import { stopMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
 import {
   ensureMarketNewsSummaryState,
   getMarketNewsDetail,
@@ -82,6 +86,7 @@ import {
   uninstallStoreItem,
 } from './services/store-service.js';
 import { closeSurgeHistoryStore, resetSurgeHistoryStore } from './services/stock/surge-history-store.js';
+import { closeMonitorHistoryInstance, closeMonitorHistoryStore, resetMonitorHistoryStore } from './services/stock/monitor-history-store.js';
 import {
   closeMarketDataStore,
   getMarketDataDatabasePath,
@@ -202,6 +207,9 @@ export function registerIpcHandlers() {
   ipcMain.handle('market:getPageSnapshot', (_event, tab: MarketTab, period?: MarketIndexPeriod) =>
     getMarketPageSnapshot(tab, period),
   );
+  ipcMain.handle('discovery:getSnapshot', () => getDiscoverySnapshot());
+  ipcMain.handle('monitor:getFeed', (_event, options?: Parameters<typeof getMonitorFeed>[0]) => getMonitorFeed(options));
+  ipcMain.handle('trading-advice:get', () => getTradingAdvice());
   const removeMarketPageListener = onMarketPageSnapshotUpdated((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('market:pageSnapshotUpdated', snapshot);
   });
@@ -416,6 +424,8 @@ function getStorageStats(): IStorageStats {
   const configPath = path.join(userDataDir(), 'stocksense-store.json');
   const surgeDb = app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb';
   const surgePath = path.join(userDataDir(), surgeDb);
+  const monitorDb = app.isPackaged ? 'stocksense-monitor.duckdb' : 'stocksense-monitor-dev.duckdb';
+  const monitorPath = path.join(userDataDir(), monitorDb);
   const marketPath = getMarketDataDatabasePath();
 
   return {
@@ -423,12 +433,13 @@ function getStorageStats(): IStorageStats {
     config: { label: '应用配置和收藏', bytes: fileSize(configPath) },
     market: { label: '本地行情数据库', bytes: fileSize(marketPath) },
     surge: { label: '异动/热点历史', bytes: fileSize(surgePath) },
+    monitor: { label: 'AI监控历史', bytes: fileSize(monitorPath) },
   };
 }
 
 function getDiskInfo(): IDiskInfo {
   const stats = getStorageStats();
-  const usedByAppBytes = stats.chat.bytes + stats.config.bytes + stats.market.bytes + stats.surge.bytes;
+  const usedByAppBytes = stats.chat.bytes + stats.config.bytes + stats.market.bytes + stats.surge.bytes + stats.monitor.bytes;
   let totalBytes = 0;
   let freeBytes = 0;
   try {
@@ -451,6 +462,8 @@ function storageLabel(key: string) {
       return '本地行情数据库';
     case 'surge':
       return '异动/热点历史';
+    case 'monitor':
+      return 'AI监控历史';
     default:
       return key;
   }
@@ -533,6 +546,27 @@ async function clearSingleStorage(key: string) {
         }
       }
       await resetSurgeHistoryStore();
+      break;
+    case 'monitor':
+      stopMonitorHistoryScheduler();
+      await closeMonitorHistoryStore(5000);
+      await closeMonitorHistoryInstance();
+      const monitorName = app.isPackaged ? 'stocksense-monitor.duckdb' : 'stocksense-monitor-dev.duckdb';
+      const monitorPath = path.join(userDataDir(), monitorName);
+      try {
+        unlinkSync(monitorPath);
+      } catch {
+        /* file may not exist */
+      }
+      if (existsSync(monitorPath)) {
+        console.warn('[storage:clear] monitor db file still exists after unlink, truncating in-place');
+        try {
+          truncateSync(monitorPath, 0);
+        } catch {
+          /* ignore */
+        }
+      }
+      await resetMonitorHistoryStore();
       break;
   }
 }

@@ -69,14 +69,8 @@ export async function getBoardDetail(symbol: string, forceRefresh = false, board
   const cached =
     (await readBoardDetail(cacheKey).catch(() => undefined)) ?? (await readBoardDetail(symbol).catch(() => undefined));
   const cachedName = cached?.detail.name;
-  // ponytail: timeout local scan — scanBoardMembership can run 8s+
-  const localDetail = await withTimeoutReject(
-    getLocalBoardDetail(cacheKey, cachedName ?? boardName),
-    6_000,
-    '本地板块详情加载超时',
-  ).catch(() => undefined);
-  if (cached?.detail.constituents?.length) {
-    void refreshRemote().catch((error) =>
+  if (cached?.detail.kline?.length || cached?.detail.constituents?.length) {
+    void refreshRemote(cached.detail).catch((error) =>
       console.warn(
         '[market] board detail background refresh failed',
         symbol,
@@ -85,6 +79,13 @@ export async function getBoardDetail(symbol: string, forceRefresh = false, board
     );
     return cached.detail;
   }
+
+  // ponytail: timeout local scan — scanBoardMembership can run 8s+
+  const localDetail = await withTimeoutReject(
+    getLocalBoardDetail(cacheKey, cachedName ?? boardName),
+    6_000,
+    '本地板块详情加载超时',
+  ).catch(() => undefined);
 
   if (localDetail?.constituents?.length) {
     void refreshRemote(localDetail).catch((error) =>

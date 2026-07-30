@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
-import { uniqueRowsByCode } from './market-review-data.js';
+import { uniqueRowsByCode } from '../services/stock/market-review-data.js';
+import { scoreSentiment } from '../services/stock/market-review-service.js';
 
 interface IQuoteRow {
   code: string;
@@ -23,5 +24,9 @@ assert.equal(uniqueRows.length, 3);
 assert.equal(rising.length, 2);
 assert.equal(falling.length, 1);
 assert(rising.length + falling.length <= uniqueRows.length);
+
+assert.equal(scoreSentiment(5000, 0, 120, 0, 0), 100);
+assert(scoreSentiment(4999, 1, 120, 0, 0)! < 100);
+assert(scoreSentiment(4251, 749, 81, 9, 7)! < 100);
 
 console.log('market-review selfcheck passed');

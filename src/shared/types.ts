@@ -394,6 +394,50 @@ export interface IChipDistributionResult {
   warnings?: string[];
 }
 
+export type TMonitorCategory =
+  | 'large-order'
+  | 'chip'
+  | 'technical'
+  | 'dragon-tiger'
+  | 'news'
+  | 'risk'
+  | 'ai-opportunity'
+  | 'ai-warning';
+
+export type TMonitorMode = 'realtime' | 'history';
+
+export interface IMonitorEvent {
+  id: string;
+  category: TMonitorCategory;
+  timestamp: string;
+  code: string;
+  name: string;
+  price?: number | string;
+  changePercent?: number | string;
+  title: string;
+  badge?: string;
+  details: string[];
+  aiAnalysis: string;
+  star?: boolean;
+  chart?: {
+    type: 'line' | 'bar' | 'radar';
+    data: number[];
+    labels?: string[];
+  };
+  score?: number;
+}
+
+export interface IMonitorFeed {
+  updatedAt: string;
+  events: IMonitorEvent[];
+  mode: TMonitorMode;
+  isTradingTime: boolean;
+  availableDates: string[];
+  selectedDate?: string;
+  total?: number;
+  categoryTotals?: Partial<Record<TMonitorCategory, number>>;
+}
+
 export interface IStockNewsSubscription {
   code: string;
   name: string;
@@ -684,6 +728,7 @@ export interface IStorageStats {
   config: { label: string; bytes: number };
   market: { label: string; bytes: number };
   surge: { label: string; bytes: number };
+  monitor: { label: string; bytes: number };
 }
 
 export interface IDiskInfo {
@@ -710,6 +755,26 @@ export interface IDataSyncTaskProgress {
   total: number;
   message: string;
   error?: string;
+}
+
+export interface ITradingAdviceSector {
+  name: string;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  leaderCode: string;
+  leaderName: string;
+}
+
+export interface ITradingAdvice {
+  starRating: number;
+  starLabel: string;
+  suggestedPosition: number;
+  positionReason: string;
+  suitableStrategies: string[];
+  unsuitableStrategies: string[];
+  keySectors: ITradingAdviceSector[];
+  marketSummary: string;
+  riskReminder: string;
 }
 
 export interface StocksenseApi {
@@ -762,6 +827,9 @@ export interface StocksenseApi {
   cancelMarketDataSync(): Promise<MarketDataSyncStatus>;
   getMarketDataStats(): Promise<MarketDataStats>;
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
+  getDiscoverySnapshot(): Promise<Record<string, unknown>>;
+  getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number; offset?: number; date?: string; mode?: TMonitorMode }): Promise<IMonitorFeed>;
+  getTradingAdvice(): Promise<ITradingAdvice>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;
   syncKlines(): Promise<MarketDataSyncStatus>;

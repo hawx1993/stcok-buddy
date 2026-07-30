@@ -106,6 +106,11 @@ export interface SyncJobRecord extends MarketDataSyncStatus {
   errorMessage?: string;
 }
 
+export interface DiscoverySnapshotCacheRecord {
+  snapshot: unknown;
+  updatedAt: string;
+}
+
 export interface BoardSnapshotRecord {
   rows: MarketBoardRow[];
   updatedAt: string;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { calculateChipDistribution } from './chip-distribution.js';
-import type { KlinePoint } from '../../../src/shared/types.js';
+import { calculateChipDistribution } from '../services/stock/chip-distribution.js';
+import type { KlinePoint } from '../../src/shared/types.js';
 
 const start = Date.parse('2026-01-02T00:00:00+08:00');
 const klines: KlinePoint[] = Array.from({ length: 140 }, (_, index) => {

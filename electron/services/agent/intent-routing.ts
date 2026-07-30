@@ -109,11 +109,21 @@ export function intentLabel(intent: TAgentIntent): string {
 }
 
 export function extractBoardKeyword(query: string): string {
-  const match = query.match(/([一-龥A-Za-z0-9]+)(板块|行业)/);
-  if (match) return match[1];
+  const boardMatch = query.match(/([一-龥A-Za-z0-9]+)(板块|行业)/);
+  if (boardMatch) {
+    const keyword = normalizeBoardKeyword(boardMatch[1]);
+    if (keyword) return keyword;
+  }
   if (query.includes('北向')) return '北向资金';
   if (query.includes('资金')) return '资金流';
   return '热点';
+}
+
+function normalizeBoardKeyword(value: string): string {
+  return value
+    .replace(/^(请|帮我|帮忙|分析|看一下|看看|今日|今天|近期|一下)+/g, '')
+    .replace(/(今日|今天|近期|的)+$/g, '')
+    .trim();
 }
 
 function hasStock(query: string): boolean {

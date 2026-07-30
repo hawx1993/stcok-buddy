@@ -1,6 +1,6 @@
 import { Dropdown, message as antdMessage } from 'antd';
 import type { MenuProps } from 'antd';
-import { BarChart3, CloudDownload, Database, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
+import { BarChart3, CloudDownload, Compass, Database, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
 import { useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../store/app-store';
 import { usePanelResize } from '../../hooks/use-panel-resize';
@@ -9,6 +9,7 @@ import { createChatConversation } from './components/create-chat-conversation';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { UpdateBanner } from './components/update-banner';
 import { SyncBanner } from './components/sync-banner';
+import { OfflineIndicator } from './components/offline-indicator';
 import type { ConversationSummary } from '../../shared/types';
 import { trackButtonClick, trackPageView } from '../../shared/analytics';
 import { WhaleLogo } from '../chat-view/components/whale-logo';
@@ -123,6 +124,10 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
 
   const checkUpdate = async () => {
     trackButtonClick('sidebar_check_update');
+    if (!navigator.onLine) {
+      antdMessage.info('网络已断开，无法检查更新');
+      return;
+    }
     const hideLoading = antdMessage.loading('正在检查更新…', 0);
     try {
       const state = await getStocksenseApi().checkAppUpdate();
@@ -243,6 +248,20 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
           <BarChart3 size={17} />
           行情
         </button>
+        <button
+          className={cx(styles['market-entry'], mainView === 'discovery' && styles.active)}
+          onMouseMove={moveGlow}
+          onClick={() => {
+            trackButtonClick('open_discovery');
+            trackPageView('discovery');
+            setConversationMenuId(undefined);
+            setMainView('discovery');
+          }}
+          type='button'
+        >
+          <Compass size={17} />
+          探索
+        </button>
         {searchOpen ? (
           <input
             ref={searchRef}
@@ -339,6 +358,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
       <UpdateBanner />
       <SyncBanner />
 
+      <OfflineIndicator />
       <div className={styles['sidebar-footer']}>
         <Dropdown
           menu={{ items: menuItems, onClick: runAccountMenuAction }}
