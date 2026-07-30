@@ -126,6 +126,7 @@ export interface MarketBoardRecord {
   name: string;
   kind?: string;
   changePercent?: number;
+  amount?: number;
   source: string;
   updatedAt: string;
 }

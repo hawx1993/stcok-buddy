@@ -12,8 +12,10 @@ import { ChipOverlay } from './components/chip-overlay';
 import { findChipDistributionByDate, useChipDistribution } from './components/use-chip-distribution';
 import { KlineHoverInfo } from './components/kline-hover-info';
 import { KlineModalFrame } from './components/kline-modal-frame';
+import { StockTimelineChart } from './components/stock-timeline-chart';
 
 export const klineTimeframes = [
+  { id: 'timeline', label: '分时', limit: 0, period: { type: 'minute', span: 1 } },
   { id: '15m', label: '15分钟', limit: 240, period: { type: 'minute', span: 15 } },
   { id: '1h', label: '1小时', limit: 240, period: { type: 'hour', span: 1 } },
   { id: '1d', label: '天', limit: 360, period: { type: 'day', span: 1 } },
@@ -79,6 +81,7 @@ export function StockKlineChart({
   const [localTf, setLocalTf] = useState<TimeframeId>('1d');
   const requestedTf = timeframe ?? localTf;
   const tf = requestedTf;
+  const isTimeline = tf === 'timeline';
   const usesProvidedData = data.length > 0 && staticData;
   const [loadedData, setLoadedData] = useState<KlinePoint[]>(() => {
     if (usesProvidedData || (data.length > 0 && !staticData)) {
@@ -113,16 +116,16 @@ export function StockKlineChart({
     error: chipError,
   } = useChipDistribution(chipsEnabled && stock ? toKlineRequestSymbol(stock) : undefined, chipsEnabled);
   const activeKlinePoint = hoverPoint ?? chartData[chartData.length - 1];
-  const chipDistribution = hoverPoint
-    ? findChipDistributionByDate(chipDistributions, hoverPoint.time)
-    : latestChipDistribution;
+  const chipDistribution =
+    (hoverPoint ? findChipDistributionByDate(chipDistributions, hoverPoint.time) : latestChipDistribution) ??
+    latestChipDistribution;
 
   useEffect(() => {
     if (usesProvidedData) setLoadedData(data);
   }, [data, usesProvidedData]);
 
   useEffect(() => {
-    if (!stock?.code || usesProvidedData) return;
+    if (!stock?.code || usesProvidedData || isTimeline) return;
     let alive = true;
     // For daily timeframe use provided data as seed, allow loadOlderData to fetch more on drag-left.
     // For other timeframes always fetch via API since the data prop is daily-only.
@@ -169,7 +172,7 @@ export function StockKlineChart({
     return () => {
       alive = false;
     };
-  }, [usesProvidedData, stock?.code, frame.limit, frame.period, tf, data, staticData]);
+  }, [usesProvidedData, isTimeline, stock?.code, frame.limit, frame.period, tf, data, staticData]);
 
   const loadOlderData = useCallback(
     async (options: { anchorTimestamp?: number } = {}) => {
@@ -239,9 +242,9 @@ export function StockKlineChart({
           tooltip: { showRule: showLegend ? 'always' : 'none', showType: 'standard' },
         },
         grid: {
-          show: false,
-          horizontal: { show: false },
-          vertical: { show: false },
+          show: true,
+          horizontal: { show: true, size: 1, color: 'rgba(148, 163, 184, 0.1)' },
+          vertical: { show: true, size: 1, color: 'rgba(148, 163, 184, 0.06)' },
         },
         xAxis: {
           show: true,
@@ -260,10 +263,16 @@ export function StockKlineChart({
     setChartInstance(chart);
     const refreshChipLayout = () => setChipLayoutVersion((value) => value + 1);
     const updateHoverIndex = (nextIndex: number | undefined) => {
-      if (nextIndex !== undefined && nextIndex < 12)
+      const currentLength = chartDataRef.current.length;
+      const normalizedIndex =
+        nextIndex === undefined || !currentLength ? undefined : Math.max(0, Math.min(currentLength - 1, nextIndex));
+      if (normalizedIndex !== undefined && normalizedIndex < 12)
         requestOlderData(getFirstKlineTimestamp(frame.period, chartDataRef.current));
-      setHoverIndex(nextIndex);
-      setHoverPoint(nextIndex === undefined ? undefined : chartDataRef.current[nextIndex]);
+      setHoverIndex((current) => (current === normalizedIndex ? current : normalizedIndex));
+      setHoverPoint((current) => {
+        const nextPoint = normalizedIndex === undefined ? undefined : chartDataRef.current[normalizedIndex];
+        return current === nextPoint ? current : nextPoint;
+      });
     };
     const onCrosshairChange = (value?: unknown) => {
       updateHoverIndex(resolveCrosshairIndex(value as Crosshair | undefined, chartDataRef.current));
@@ -356,6 +365,28 @@ export function StockKlineChart({
     setLocalTf(next);
     onTimeframeChange?.(next);
   };
+
+  if (isTimeline) {
+    return (
+      <div className={cx(styles.wrap, className)} style={{ height }}>
+        <StockTimelineChart stock={stock} height='100%' />
+        {showSwitcher ? (
+          <div className={styles.timeframes}>
+            {klineTimeframes.map((item) => (
+              <button
+                key={item.id}
+                className={cx(styles.tf, tf === item.id && styles.active)}
+                onClick={() => setTimeframe(item.id)}
+                type='button'
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className={cx(styles.wrap, className)} style={{ height }}>

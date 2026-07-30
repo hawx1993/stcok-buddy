@@ -63,6 +63,7 @@ const api: StocksenseApi = {
     ipcRenderer.invoke('stock:getKline', symbol, limit, period, beforeTimestamp),
   getChipDistribution: (symbol: string) => ipcRenderer.invoke('stock:getChipDistribution', symbol),
   getBatchQuotes: (codes: string[]) => ipcRenderer.invoke('stock:getBatchQuotes', codes),
+  getStockTimelines: (codes: string[]) => ipcRenderer.invoke('stock:getTimelines', codes),
   listMarketNews: (query?: string, page?: number, pageSize?: number) =>
     ipcRenderer.invoke('news:list', query, page, pageSize),
   listStockNews: (code: string, limit?: number) => ipcRenderer.invoke('news:stockList', code, limit),

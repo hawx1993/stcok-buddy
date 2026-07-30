@@ -43,6 +43,7 @@ var api = {
   getKline: (symbol, limit, period, beforeTimestamp) => import_electron.ipcRenderer.invoke("stock:getKline", symbol, limit, period, beforeTimestamp),
   getChipDistribution: (symbol) => import_electron.ipcRenderer.invoke("stock:getChipDistribution", symbol),
   getBatchQuotes: (codes) => import_electron.ipcRenderer.invoke("stock:getBatchQuotes", codes),
+  getStockTimelines: (codes) => import_electron.ipcRenderer.invoke("stock:getTimelines", codes),
   listMarketNews: (query, page, pageSize) => import_electron.ipcRenderer.invoke("news:list", query, page, pageSize),
   listStockNews: (code, limit) => import_electron.ipcRenderer.invoke("news:stockList", code, limit),
   listStockNewsFeed: () => import_electron.ipcRenderer.invoke("news:stockFeed"),

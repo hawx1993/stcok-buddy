@@ -59,6 +59,7 @@ import {
   getKline,
   getMarketPageSnapshot,
   getStockDetail,
+  getStockTimelines,
   listHotFocus,
   listStockSurgeEvents,
   onMarketPageSnapshotUpdated,
@@ -204,6 +205,7 @@ export function registerIpcHandlers() {
   );
   ipcMain.handle('stock:getChipDistribution', (_event, symbol: string) => getChipDistribution(symbol));
   ipcMain.handle('stock:getBatchQuotes', (_event, codes: string[]) => getBatchQuotes(codes));
+  ipcMain.handle('stock:getTimelines', (_event, codes: string[]) => getStockTimelines(codes));
   ipcMain.handle('market:getPageSnapshot', (_event, tab: MarketTab, period?: MarketIndexPeriod) =>
     getMarketPageSnapshot(tab, period),
   );

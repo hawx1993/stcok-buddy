@@ -281,8 +281,18 @@ async function getMarketPageSnapshotCore(
   const fallback = local?.rows.length ? local : cached;
 
   if (!shouldUseRemoteMarketData()) {
-    // Non-trading hours: show whatever we have locally, and try a remote refresh
-    // in the background only if the local data is sparse.
+    // Non-trading hours: show whatever we have locally, but do not keep an empty
+    // index chart when the real remote index series is available.
+    if (hasSparseIndexRows(fallback.indices)) {
+      try {
+        const remote = await getRemoteMarketPageSnapshot(tab, period);
+        const remoteSnapshot = { ...remote, rowOrderSource: 'remote' as const };
+        marketPageCache.set(key, { snapshot: remoteSnapshot });
+        return remoteSnapshot;
+      } catch {
+        /* offline — keep the local fallback */
+      }
+    }
     if (!fallback.rows.length || hasSparseQuoteRows(fallback.rows)) {
       getRemoteMarketPageSnapshot(tab, period)
         .then((remote) => {
@@ -366,9 +376,7 @@ async function getLocalMarketIndices(period: MarketIndexPeriod): Promise<MarketI
         ? await listDailyBars(item.db, { limit: dailyLimit, adjustType: 'qfq' }).catch(() => [])
         : [];
       // Filter out any accidentally-persisted weekly/monthly rows from older builds.
-      const dailyBars = bars.filter(
-        (bar) => bar.source.endsWith(':1d') || bar.source === 'stock-sdk:tencent-index:1d',
-      );
+      const dailyBars = bars.filter((bar) => isPersistedIndexDailyBarSource(bar.source));
       const dailyMinutes = dailyBars.map((bar) => ({
         time: bar.tradeDate,
         timestamp: parseMarketTime(bar.tradeDate),
@@ -756,4 +764,18 @@ function hasSparseQuoteMetrics(rows: MarketQuoteRow[]) {
 
 function hasSparseQuoteRows(rows: MarketQuoteRow[]) {
   return hasSparseQuoteMetrics(rows) || rows.some((row) => !row.name || row.name === row.code);
+}
+
+function hasSparseIndexRows(indices: MarketIndexSnapshot[]) {
+  if (indices.length < 2) return true;
+  const required = new Set(['000001', '399001']);
+  for (const index of indices) {
+    required.delete(index.code);
+    if (!index.minutes.length) return true;
+  }
+  return required.size > 0;
+}
+
+function isPersistedIndexDailyBarSource(source: string) {
+  return source === 'stock-sdk:tencent-index' || source === 'stock-sdk:tencent-index:1d' || source.endsWith(':1d');
 }

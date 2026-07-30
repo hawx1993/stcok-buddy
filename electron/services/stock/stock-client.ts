@@ -1,6 +1,8 @@
 import type {
   AgentResultCard,
   IChipDistributionResult,
+  IStockTimelinePoint,
+  IStockTimelineSnapshot,
   KlinePoint,
   MarketBoardRow,
   MarketQuoteRow,
@@ -57,6 +59,16 @@ const CHIP_DISTRIBUTION_CACHE_TTL_MS = 5 * 60_000;
 import { deriveStockRating, toStockDetail } from './stock-rating.js';
 
 type AnyRecord = Record<string, unknown>;
+type TTimelinePointRecord = Partial<IStockTimelinePoint> & { time?: unknown; price?: unknown };
+
+type TTimelineResponse = {
+  code?: string;
+  date?: string;
+  preClose?: number;
+  data?: TTimelinePointRecord[];
+};
+
+const STOCK_TIMELINE_CONCURRENCY = 4;
 
 export async function resolveASymbol(input: string): Promise<{ symbol: string; name?: string }> {
   const candidate = extractSymbolCandidate(input);
@@ -108,6 +120,54 @@ export async function getBatchQuotes(codes: string[]): Promise<StockDetail[]> {
 
   const results = await Promise.all(unique.map((code) => getQuote(code).catch(() => undefined)));
   return results.filter((r): r is StockDetail => Boolean(r));
+}
+
+export async function getStockTimelines(codes: string[]): Promise<Record<string, IStockTimelineSnapshot>> {
+  const unique = [...new Set(codes.map((code) => normalizeASymbol(code)).filter(Boolean))];
+  const result: Record<string, IStockTimelineSnapshot> = {};
+  for (let index = 0; index < unique.length; index += STOCK_TIMELINE_CONCURRENCY) {
+    const chunk = unique.slice(index, index + STOCK_TIMELINE_CONCURRENCY);
+    const snapshots = await Promise.all(chunk.map((code) => fetchStockTimeline(code)));
+    for (const snapshot of snapshots) result[snapshot.code] = snapshot;
+  }
+  return result;
+}
+
+async function fetchStockTimeline(code: string): Promise<IStockTimelineSnapshot> {
+  try {
+    const raw = await sdk.quotes.timeline(toQuoteSymbol(code));
+    return toStockTimelineSnapshot(code, raw as TTimelineResponse);
+  } catch (error) {
+    console.warn('[stock] timeline failed', code, error);
+    return { code, points: [], source: 'stock-sdk' };
+  }
+}
+
+function toStockTimelineSnapshot(code: string, raw: TTimelineResponse): IStockTimelineSnapshot {
+  return {
+    code,
+    date: raw.date,
+    preClose: Number.isFinite(raw.preClose) ? raw.preClose : undefined,
+    points: (raw.data ?? []).map(toStockTimelinePoint).filter((point): point is IStockTimelinePoint => Boolean(point)),
+    source: 'stock-sdk',
+  };
+}
+
+function toStockTimelinePoint(raw: TTimelinePointRecord): IStockTimelinePoint | undefined {
+  const price = Number(raw.price);
+  if (!Number.isFinite(price)) return undefined;
+  const timestamp = Number(raw.timestamp);
+  const volume = Number(raw.volume);
+  const amount = Number(raw.amount);
+  const avgPrice = Number(raw.avgPrice);
+  return {
+    time: String(raw.time ?? ''),
+    price,
+    timestamp: Number.isFinite(timestamp) ? timestamp : undefined,
+    volume: Number.isFinite(volume) ? volume : undefined,
+    amount: Number.isFinite(amount) ? amount : undefined,
+    avgPrice: Number.isFinite(avgPrice) ? avgPrice : undefined,
+  };
 }
 
 /** 相同参数的并发 K 线请求共享同一个 Promise，避免图表与详情页同时发起重复远程拉取 */
@@ -391,7 +451,7 @@ async function getCachedIndexKline(
             changePercent: p.changePercent,
             turnoverRate: p.turnoverRate,
             adjustType: 'qfq' as const,
-            source: 'stock-sdk:tencent-index',
+            source: 'stock-sdk:tencent-index:1d',
             fetchedAt: new Date().toISOString(),
           }));
         if (bars.length) {

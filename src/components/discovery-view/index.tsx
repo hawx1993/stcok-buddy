@@ -37,6 +37,7 @@ interface ISectorSummary {
   name: string;
   changePercent: number;
   mainNetInflow: number;
+  amount?: number;
 }
 
 interface IOpportunityRadarItem {

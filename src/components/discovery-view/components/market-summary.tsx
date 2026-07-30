@@ -9,6 +9,7 @@ interface ISectorSummary {
   name: string;
   changePercent: number;
   mainNetInflow: number;
+  amount?: number;
 }
 
 interface IOpportunityRadarItem {
@@ -76,25 +77,23 @@ function formatMoneyYi(value?: number | null) {
   return `${sign}${value.toFixed(1)}亿`;
 }
 
-function formatMainFlow(value: number) {
-  if (value === 0) return '资金暂无';
-  return `主力${value >= 0 ? '净流入' : '净流出'} ${formatMoneyYi(value)}`;
+function formatAmountYi(value?: number | null) {
+  if (value === undefined || value === null) return '成交额暂无';
+  return `成交额 ${(value / 100_000_000).toFixed(1)}亿`;
+}
+
+function sectorTone(changePercent: number) {
+  return changePercent >= 0 ? 'var(--market-up)' : 'var(--market-down)';
 }
 
 function sectorCellBg(changePercent: number) {
   const abs = Math.min(Math.abs(changePercent) / 5, 1);
-  if (changePercent >= 0) {
-    return `rgba(239, 68, 68, ${0.08 + abs * 0.2})`;
-  }
-  return `rgba(34, 197, 94, ${0.08 + abs * 0.2})`;
+  return `color-mix(in srgb, ${sectorTone(changePercent)} ${8 + abs * 12}%, var(--surface) 100%)`;
 }
 
 function sectorCellBorder(changePercent: number) {
   const abs = Math.min(Math.abs(changePercent) / 5, 1);
-  if (changePercent >= 0) {
-    return `rgba(239, 68, 68, ${0.2 + abs * 0.26})`;
-  }
-  return `rgba(34, 197, 94, ${0.2 + abs * 0.26})`;
+  return `color-mix(in srgb, ${sectorTone(changePercent)} ${28 + abs * 18}%, var(--border) 100%)`;
 }
 
 export function getSentimentMarkerPosition(value: number): number {
@@ -324,7 +323,7 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
             >
               <span className={styles.msSectorName}>{sector.name}</span>
               <span className={styles.msSectorSub}>
-                {formatChange(sector.changePercent)} · {formatMainFlow(sector.mainNetInflow)}
+                {formatChange(sector.changePercent)} · {formatAmountYi(sector.amount)}
               </span>
             </button>
           ))}

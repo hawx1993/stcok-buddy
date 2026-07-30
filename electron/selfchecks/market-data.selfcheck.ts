@@ -95,12 +95,21 @@ await store.upsertMarketBoards([
   { code: 'BK1556', name: '教育运营及其他', source: 'selfcheck', updatedAt },
   { code: 'BK1556', name: '教育运营及其他', kind: 'industry', changePercent: 1.2, source: 'selfcheck', updatedAt },
 ]);
+await store.upsertStockSnapshots([
+  { symbol: '600519', name: '贵州茅台', amount: 12_000_000 },
+  { symbol: '000001', name: '平安银行', amount: 8_000_000 },
+]);
+await store.replaceBoardConstituents('BK1556', [
+  { boardCode: 'BK1556', stockCode: '600519', stockName: '贵州茅台', position: 1, updatedAt },
+  { boardCode: 'BK1556', stockCode: '000001', stockName: '平安银行', position: 2, updatedAt },
+]);
 const boards = await store.listMarketBoards();
 assert.equal(boards.filter((row) => row.code === 'BK1556').length, 1);
 const board = boards.find((row) => row.code === 'BK1556');
 assert.equal(board?.name, '教育运营及其他');
 assert.equal(board?.kind, 'industry');
 assert.equal(board?.changePercent, 1.2);
+assert.equal(board?.amount, 20_000_000);
 assert.equal(board?.source, 'selfcheck');
 assert(board?.updatedAt);
 

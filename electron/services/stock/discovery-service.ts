@@ -126,6 +126,7 @@ export interface ISectorSummary {
   name: string;
   changePercent: number;
   mainNetInflow: number;
+  amount?: number;
   topStockName?: string;
   topStockCode?: string;
 }
@@ -160,11 +161,15 @@ type TSectorFlowIndicator = 'today';
 export type TLocalBoardSummary = {
   code: string;
   name: string;
+  kind?: string;
   changePercent: number;
   mainNetInflow: number;
+  amount?: number;
   topStockName?: string;
   topStockCode?: string;
 };
+
+type TBoardAmountCacheEntry = { amount?: number; updatedAt: number; promise?: Promise<number | undefined> };
 
 type TLocalBoardCatalog = {
   rows: TLocalBoardSummary[];
@@ -173,10 +178,14 @@ type TLocalBoardCatalog = {
 };
 
 const SECTOR_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
+const BOARD_AMOUNT_CACHE_TTL_MS = 5 * 60 * 1000;
+const BOARD_AMOUNT_FETCH_LIMIT = 12;
+const BOARD_AMOUNT_FETCH_CONCURRENCY = 3;
 const sectorFlowRankCache = new Map<
   TSectorFlowIndicator,
   { rows: ISectorSummary[]; updatedAt: number; promise?: Promise<ISectorSummary[]> }
 >();
+const boardAmountCache = new Map<string, TBoardAmountCacheEntry>();
 
 function mapMetricToFactor(m: IMarketReviewMetric): { label: string; value: string | number } {
   if (m.value === null || m.value === undefined) return { label: m.label, value: '--' };
@@ -523,19 +532,22 @@ function reconcileSectorsWithLocalBoards(sectors: ISectorSummary[], catalog: TLo
   const matched = sectors
     .map((sector) => {
       const local = findLocalBoard(catalog, sector);
-      return local
-        ? {
-            ...sector,
-            code: local.code,
-            name: local.name,
-            changePercent: local.changePercent,
-          }
-        : undefined;
+      if (!local) return undefined;
+      const merged: ISectorSummary = {
+        ...sector,
+        code: local.code,
+        name: local.name,
+        changePercent: local.changePercent,
+      };
+      if (local.amount !== undefined) merged.amount = local.amount;
+      return merged;
     })
     .filter((sector): sector is ISectorSummary => Boolean(sector));
   if (matched.length) return matched;
   return catalog.rows.slice(0, 30);
 }
+
+export const reconcileSectorsWithLocalBoardsForTest = reconcileSectorsWithLocalBoards;
 
 function toStockItem(item: HotFocusItem): TStockItem {
   return {
@@ -769,14 +781,72 @@ async function fetchLocalBoardCatalog(): Promise<TLocalBoardCatalog> {
       .map((row) => ({
         code: row.code,
         name: row.name,
+        kind: row.kind,
         changePercent: row.changePercent ?? 0,
         mainNetInflow: 0,
+        amount: row.amount,
       }))
       .filter((row) => row.code && row.name);
     return buildLocalBoardCatalog(summaries);
   } catch {
     return buildLocalBoardCatalog([]);
   }
+}
+
+function finitePositive(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function boardAmountApis(kind?: string) {
+  return kind === 'concept' ? [sdk.board.concept, sdk.board.industry] : [sdk.board.industry, sdk.board.concept];
+}
+
+async function fetchBoardAmountFromRemote(board: TLocalBoardSummary): Promise<number | undefined> {
+  for (const api of boardAmountApis(board.kind)) {
+    try {
+      const constituents = await api.constituents(board.code);
+      const amounts = constituents.map((item) => item.amount).filter(finitePositive);
+      if (amounts.length) return amounts.reduce((sum, amount) => sum + amount, 0);
+    } catch {
+      // Try the other real board namespace; keep missing amount explicit if both fail.
+    }
+  }
+  return undefined;
+}
+
+async function fetchBoardAmount(board: TLocalBoardSummary): Promise<number | undefined> {
+  const cached = boardAmountCache.get(board.code);
+  const now = Date.now();
+  if (cached && now - cached.updatedAt < BOARD_AMOUNT_CACHE_TTL_MS) return cached.amount;
+  if (cached?.promise) return cached.promise;
+
+  const promise = fetchBoardAmountFromRemote(board).then((amount) => {
+    boardAmountCache.set(board.code, { amount, updatedAt: Date.now() });
+    return amount;
+  });
+  boardAmountCache.set(board.code, { amount: cached?.amount, updatedAt: cached?.updatedAt ?? 0, promise });
+  return promise;
+}
+
+async function enrichMissingSectorAmounts(sectors: ISectorSummary[], catalog: TLocalBoardCatalog): Promise<ISectorSummary[]> {
+  const next = [...sectors];
+  const targets = next
+    .map((sector, index) => ({ sector, index, board: findLocalBoard(catalog, sector) }))
+    .filter(
+      (item): item is { sector: ISectorSummary; index: number; board: TLocalBoardSummary } =>
+        item.sector.amount === undefined && Boolean(item.board),
+    )
+    .slice(0, BOARD_AMOUNT_FETCH_LIMIT);
+
+  for (let start = 0; start < targets.length; start += BOARD_AMOUNT_FETCH_CONCURRENCY) {
+    const chunk = targets.slice(start, start + BOARD_AMOUNT_FETCH_CONCURRENCY);
+    const amounts = await Promise.all(chunk.map((item) => fetchBoardAmount(item.board)));
+    amounts.forEach((amount, offset) => {
+      if (amount !== undefined) next[chunk[offset].index] = { ...next[chunk[offset].index], amount };
+    });
+  }
+
+  return next;
 }
 
 async function fetchSectorFlowRank(indicator: TSectorFlowIndicator = 'today'): Promise<ISectorSummary[]> {
@@ -1054,7 +1124,7 @@ async function buildMarketSummary(
   pools: HotFocusItem[],
 ): Promise<IMarketSummary | undefined> {
   const [boardCatalog, remoteSectors] = await Promise.all([fetchLocalBoardCatalog(), fetchSectorFlowRank()]);
-  const sectors = reconcileSectorsWithLocalBoards(remoteSectors, boardCatalog);
+  const sectors = await enrichMissingSectorAmounts(reconcileSectorsWithLocalBoards(remoteSectors, boardCatalog), boardCatalog);
 
   const [indices, mainFundFlow, northFundFlow] = await Promise.all([
     fetchAllIndices(),

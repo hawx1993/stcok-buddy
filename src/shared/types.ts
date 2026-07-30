@@ -537,6 +537,23 @@ export interface MarketMinutePoint {
   amount?: number;
 }
 
+export interface IStockTimelinePoint {
+  time: string;
+  timestamp?: number;
+  price: number;
+  volume?: number;
+  amount?: number;
+  avgPrice?: number;
+}
+
+export interface IStockTimelineSnapshot {
+  code: string;
+  date?: string;
+  preClose?: number;
+  points: IStockTimelinePoint[];
+  source: 'stock-sdk';
+}
+
 export interface MarketIndexSnapshot {
   code: string;
   name: string;
@@ -805,6 +822,7 @@ export interface StocksenseApi {
   getKline(symbol: string, limit?: number, period?: string, beforeTimestamp?: number): Promise<KlinePoint[]>;
   getChipDistribution(symbol: string): Promise<IChipDistributionResult>;
   getBatchQuotes(codes: string[]): Promise<StockDetail[]>;
+  getStockTimelines(codes: string[]): Promise<Record<string, IStockTimelineSnapshot>>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
   listStockNews(code: string, limit?: number): Promise<MarketNewsItem[]>;
   listStockNewsFeed(): Promise<IStockNewsFeed>;

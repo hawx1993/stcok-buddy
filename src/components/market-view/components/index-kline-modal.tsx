@@ -30,29 +30,34 @@ interface IndexKlineModalProps {
  */
 export function IndexKlineModal({ index, initialPeriod, onClose }: IndexKlineModalProps) {
   const [period, setPeriod] = useState<MarketIndexPeriod>(initialPeriod);
+  const indexSymbol = useMemo(() => toIndexSymbol(index.code), [index.code]);
   // price 不放入依赖：行情快照每 15s 刷新会产生新对象，避免图表数据效果被反复触发
   const chartStock = useMemo(
-    () => ({ code: index.code, name: index.name, price: index.price }),
-    [index.code, index.name],
+    () => ({ code: indexSymbol ?? index.code, name: index.name, price: index.price }),
+    [index.code, index.name, indexSymbol],
   );
   const loadOlderKline = useCallback<TLoadOlderKline>(
     async ({ timeframe, limit, beforeTimestamp }) => {
-      const symbol = toIndexSymbol(index.code);
-      if (!symbol || timeframe !== period) return [];
-      return getStocksenseApi().getKline(symbol, limit, timeframe, beforeTimestamp);
+      if (!indexSymbol || timeframe !== period) return [];
+      return getStocksenseApi().getKline(indexSymbol, limit, timeframe, beforeTimestamp);
     },
-    [index.code, period],
+    [indexSymbol, period],
   );
   return createPortal(
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={(event) => event.stopPropagation()}>
         <div className={styles.header}>
-          <div>
-            {index.name}（{index.code || '--'}）K线图
+          <div className={styles['modal-title-group']}>
+            <span className={styles['modal-title']}>{index.name}</span>
+            <span className={styles['modal-code']}>{index.code || '--'}</span>
+            <span className={styles['modal-tag']}>指数K线</span>
           </div>
-          <button onClick={onClose} type='button'>
-            ✕
-          </button>
+          <div className={styles['modal-header-actions']}>
+            {index.price !== undefined ? <span className={styles['modal-meta']}>现价 {index.price}</span> : null}
+            <button className={styles['modal-close']} onClick={onClose} type='button' aria-label='关闭指数K线图弹窗'>
+              ✕
+            </button>
+          </div>
         </div>
         <div className={styles.wrap}>
           <StockKlineChart

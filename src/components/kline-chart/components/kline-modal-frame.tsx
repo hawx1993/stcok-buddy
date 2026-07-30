@@ -20,12 +20,18 @@ export function KlineModalFrame({ stock, onClose, renderChart }: KlineModalFrame
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={(event) => event.stopPropagation()}>
         <div className={styles.header}>
-          <div>
-            {stock.name}（{stock.code || '--'}）K线图
+          <div className={styles['modal-title-group']}>
+            <span className={styles['modal-title']}>{stock.name}</span>
+            <span className={styles['modal-code']}>{stock.code || '--'}</span>
+            <span className={styles['modal-tag']}>K线图</span>
           </div>
-          <button onClick={onClose} type='button'>
-            ✕
-          </button>
+          <div className={styles['modal-header-actions']}>
+            {stock.price !== undefined ? <span className={styles['modal-meta']}>现价 {stock.price}</span> : null}
+            {stock.pe !== undefined ? <span className={styles['modal-meta']}>PE {stock.pe}</span> : null}
+            <button className={styles['modal-close']} onClick={onClose} type='button' aria-label='关闭K线图弹窗'>
+              ✕
+            </button>
+          </div>
         </div>
         {renderChart(tf, setTf)}
       </div>

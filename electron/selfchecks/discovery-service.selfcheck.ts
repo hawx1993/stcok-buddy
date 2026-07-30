@@ -10,6 +10,10 @@ process.env.STOCKSENSE_MARKET_DB_PATH = dbPath;
 import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from '../services/stock/discovery-hot-themes.js';
 import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from '../services/stock/discovery-market-summary.js';
 import { buildMonthlyThemesFromHistoricalPools } from '../services/stock/discovery-monthly-themes.js';
+import {
+  buildLocalBoardCatalog,
+  reconcileSectorsWithLocalBoardsForTest,
+} from '../services/stock/discovery-service.js';
 import type { HotFocusItem } from '../../src/shared/types.js';
 import type { MarketFundFlow, NorthboundFlowSummary } from 'stock-sdk';
 
@@ -53,7 +57,7 @@ const weeks = [
 ];
 
 const boardCatalog = [
-  { code: 'BK0475', name: '银行', changePercent: 0, mainNetInflow: 0 },
+  { code: 'BK0475', name: '银行', changePercent: 0, mainNetInflow: 0, amount: 20_000_000 },
   { code: 'BK0477', name: '房地产开发', changePercent: 0, mainNetInflow: 0 },
   { code: 'BK0436', name: '白酒', changePercent: 0, mainNetInflow: 0 },
 ];
@@ -66,6 +70,13 @@ assert.equal(first.length, 3);
 assert.deepEqual(first[0], { week: '第1周', theme: '银行', leader: { code: '600000', name: '浦发银行' } });
 assert.deepEqual(first[1], { week: '第2周', theme: '白酒', leader: { code: '600519', name: '贵州茅台' } });
 assert.deepEqual(first[2], { week: '第3周', theme: '暂无热点数据', leader: null });
+
+const localBoardCatalog = buildLocalBoardCatalog(boardCatalog);
+const reconciledSectors = reconcileSectorsWithLocalBoardsForTest(
+  [{ code: 'BK0475', name: '银行', changePercent: 1.5, mainNetInflow: 3.2 }],
+  localBoardCatalog,
+);
+assert.equal(reconciledSectors[0].amount, 20_000_000);
 
 const marketFundRows: MarketFundFlow[] = [
   {
