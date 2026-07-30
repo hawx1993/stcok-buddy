@@ -23,7 +23,7 @@
   right: 0;
   bottom: 40px;
   width: 220px;
-  height: auto !important;
+  height: 100% !important;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface-active) 20%, transparent), transparent 34%),
     color-mix(in srgb, var(--surface) 96%, var(--bg));
@@ -401,8 +401,7 @@
   padding: 28px;
   background:
     radial-gradient(circle at 18% 12%, rgba(37, 99, 235, 0.18), transparent 32%),
-    radial-gradient(circle at 82% 4%, rgba(20, 184, 166, 0.12), transparent 28%),
-    rgba(2, 6, 23, 0.78);
+    radial-gradient(circle at 82% 4%, rgba(20, 184, 166, 0.12), transparent 28%), rgba(2, 6, 23, 0.78);
   backdrop-filter: blur(14px);
 }
 .modal {
@@ -422,9 +421,7 @@
   flex-direction: column;
   border: 1px solid rgba(148, 163, 184, 0.26);
   border-radius: 18px;
-  background:
-    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(3, 7, 18, 0.98)),
-    var(--surface);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(3, 7, 18, 0.98)), var(--surface);
   box-shadow:
     0 34px 110px rgba(0, 0, 0, 0.62),
     0 0 0 1px rgba(255, 255, 255, 0.04),

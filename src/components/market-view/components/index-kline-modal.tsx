@@ -61,7 +61,7 @@ export function IndexKlineModal({ index, initialPeriod, onClose }: IndexKlineMod
         </div>
         <div className={styles.wrap}>
           <StockKlineChart
-            key={index.code}
+            key={`${index.code}-${period}`}
             stock={chartStock}
             height='100%'
             showIndicators

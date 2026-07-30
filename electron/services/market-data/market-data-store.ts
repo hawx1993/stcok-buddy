@@ -118,7 +118,7 @@ const schemaSql = `
     updated_at TIMESTAMP NOT NULL,
     PRIMARY KEY (board_code, stock_code)
   );
-  CREATE INDEX IF NOT EXISTS idx_board_constituents_stock ON board_constituents(stock_code);
+  DROP INDEX IF EXISTS idx_board_constituents_stock;
 `;
 
 export function initializeMarketDataStore() {

@@ -365,8 +365,8 @@ async function hydrateLocalMarketPageSnapshot(tab: MarketTab, period: MarketInde
 
 async function getLocalMarketIndices(period: MarketIndexPeriod): Promise<MarketIndexSnapshot[]> {
   const symbols = [
-    { db: '000001', code: '000001', name: '上证指数' },
-    { db: '399001', code: '399001', name: '深证成指' },
+    { db: 'sh000001', code: '000001', name: '上证指数' },
+    { db: 'sz399001', code: '399001', name: '深证成指' },
   ];
   const rows = await Promise.all(
     symbols.map(async (item) => {

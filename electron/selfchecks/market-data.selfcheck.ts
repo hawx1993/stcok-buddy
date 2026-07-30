@@ -103,6 +103,17 @@ await store.replaceBoardConstituents('BK1556', [
   { boardCode: 'BK1556', stockCode: '600519', stockName: '贵州茅台', position: 1, updatedAt },
   { boardCode: 'BK1556', stockCode: '000001', stockName: '平安银行', position: 2, updatedAt },
 ]);
+const repeatedConstituents = Array.from({ length: 66 }, (_, index) => ({
+  boardCode: 'BK1608',
+  stockCode: `${300000 + index}`,
+  stockName: `成分股${index}`,
+  position: index,
+  updatedAt,
+}));
+await store.replaceBoardConstituents('BK1608', repeatedConstituents);
+await store.replaceBoardConstituents('BK1608', repeatedConstituents);
+const repeatedRows = await store.listBoardConstituents('BK1608');
+assert.equal(repeatedRows.length, 66);
 const boards = await store.listMarketBoards();
 assert.equal(boards.filter((row) => row.code === 'BK1556').length, 1);
 const board = boards.find((row) => row.code === 'BK1556');

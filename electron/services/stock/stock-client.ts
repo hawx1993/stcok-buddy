@@ -410,7 +410,7 @@ async function getCachedIndexKline(
   limit: number,
   beforeTimestamp?: number,
 ): Promise<KlinePoint[]> {
-  const dbSymbol = indexCode.replace(/^(sh|sz)/, '');
+  const dbSymbol = indexCode;
   const endDate = beforeTimestamp ? timestampToDate(beforeTimestamp) : undefined;
 
   // 本地优先：1d 直接读日线；1w/1mo 由本地日线聚合（daily_bars 只存日线粒度）
