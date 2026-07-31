@@ -1,11 +1,4 @@
-import type {
-  BoardDetail,
-  KlinePoint,
-  MarketBoardRow,
-  MarketQuoteRow,
-  MarketIndexPeriod,
-  MarketTab,
-} from '../../../src/shared/types.js';
+import type { BoardDetail, KlinePoint, MarketQuoteRow, MarketIndexPeriod } from '../../../src/shared/types.js';
 import {
   listDailyBars,
   listLatestMarketRows,
@@ -30,7 +23,6 @@ import {
   boardNamesMatch,
   fetchEastmoneyClist,
   getCachedMarketBoardRows,
-  hasValue,
   marketBoardsCache,
   normalizeBoardName,
   normalizeAmount,
@@ -49,9 +41,10 @@ let boardApisLoadingPromise: Promise<void> | undefined;
 type AnyRecord = Record<string, unknown>;
 
 export async function getBoardDetail(symbol: string, forceRefresh = false, boardName?: string): Promise<BoardDetail> {
-  const cacheKey = normalizeBoardCode(symbol);
+  const cacheKey = resolveBoardDetailLookupKey(symbol, boardName);
+  const requestSymbol = cacheKey || boardName || symbol;
   const refreshRemote = async (localFallback?: BoardDetail) => {
-    const detail = await getRemoteBoardDetail(symbol, !localFallback, boardName, localFallback);
+    const detail = await getRemoteBoardDetail(requestSymbol, !localFallback, boardName, localFallback);
     if (detail.kline?.length || detail.constituents?.length) {
       const updatedAt = new Date().toISOString();
       void writeBoardDetail({ detail, updatedAt });
@@ -66,8 +59,10 @@ export async function getBoardDetail(symbol: string, forceRefresh = false, board
     return detail;
   }
 
-  const cached =
-    (await readBoardDetail(cacheKey).catch(() => undefined)) ?? (await readBoardDetail(symbol).catch(() => undefined));
+  const cached = cacheKey
+    ? ((await readBoardDetail(cacheKey).catch(() => undefined)) ??
+      (symbol && symbol !== cacheKey ? await readBoardDetail(symbol).catch(() => undefined) : undefined))
+    : undefined;
   const cachedName = cached?.detail.name;
   if (cached?.detail.kline?.length || cached?.detail.constituents?.length) {
     void refreshRemote(cached.detail).catch((error) =>
@@ -227,6 +222,18 @@ function getBoardDetailTargets(
       ].filter(Boolean),
     ),
   ] as string[];
+}
+
+export function resolveBoardDetailLookupKey(symbol: string, boardName?: string): string {
+  const normalizedSymbol = normalizeBoardCode(symbol);
+  if (normalizedSymbol) return normalizedSymbol;
+  if (!boardName) return normalizedSymbol;
+  const directMatch = marketBoardsCache.rows.find((item) => item.name === boardName);
+  if (directMatch) return directMatch.code;
+  const normalizedName = normalizeBoardName(boardName);
+  return (
+    marketBoardsCache.rows.find((item) => normalizeBoardName(item.name) === normalizedName)?.code ?? normalizedSymbol
+  );
 }
 
 function normalizeBoardCode(value: string) {

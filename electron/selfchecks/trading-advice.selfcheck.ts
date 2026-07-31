@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { marketBoardsCache } from '../services/stock/shared.js';
+import { resolveBoardDetailLookupKey } from '../services/stock/board-detail.js';
 import { reconcileAdviceLeaderStocks } from '../services/stock/trading-advice-service.js';
 import type { ITradingAdvice } from '../../src/shared/types.js';
 
@@ -46,4 +48,15 @@ const failedResolverResult = await reconcileAdviceLeaderStocks(advice, async () 
 });
 assert.equal(failedResolverResult.keySectors[0].leaderName, '爱丽家居');
 
+marketBoardsCache.rows = [
+  { code: 'BK1197', name: '机器人执行器', minutes: [] },
+  { code: 'BK0854', name: '机器人', minutes: [] },
+  { code: 'BK1228', name: '电动乘用车', minutes: [] },
+];
+assert.equal(resolveBoardDetailLookupKey('', '机器人执行器'), 'BK1197');
+assert.equal(resolveBoardDetailLookupKey('', '机器人'), 'BK0854');
+assert.equal(resolveBoardDetailLookupKey('', '电动乘用车'), 'BK1228');
+assert.equal(resolveBoardDetailLookupKey('BK0815', '机器人'), 'BK0815');
+
 console.log('trading-advice selfcheck passed');
+process.exit(0);

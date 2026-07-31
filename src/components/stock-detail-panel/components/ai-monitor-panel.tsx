@@ -257,6 +257,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
   const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setAiMonitorState = useAppStore((state) => state.setAiMonitorState);
 
   const loadFeed = useCallback(
     async (nextMode: TMonitorMode, nextDate: string, nextPage: number, nextTab: TVisibleMonitorCategory | 'all') => {
@@ -275,6 +276,8 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
         const nextCategoryTotals = feed.categoryTotals ?? {};
         const nextFeedKey = makeMonitorFeedKey(feed.mode, feed.selectedDate ?? nextDate, nextPage, nextTab);
         setMode(feed.mode);
+        setActiveTab(nextTab);
+        setCurrentPage(nextPage);
         setTradingTime(feed.isTradingTime);
         setSelectedDate(feed.selectedDate ?? nextDate);
         setEvents(nextEvents);
@@ -282,6 +285,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
         setCategoryTotals(nextCategoryTotals);
         setLastUpdated(feed.updatedAt);
         setCurrentFeedKey(nextFeedKey);
+        setAiMonitorState({ activeTab: nextTab, currentPage: nextPage, selectedDate: feed.selectedDate ?? nextDate, mode: feed.mode });
         aiMonitorFeedCache = {
           activeTab: nextTab,
           categoryTotals: nextCategoryTotals,
@@ -300,7 +304,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
         setLoading(false);
       }
     },
-    [],
+    [setAiMonitorState],
   );
 
   useEffect(() => {
@@ -320,18 +324,20 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   }, [restoreState]);
 
   useEffect(() => {
-    if (!isActive) return;
-    const restoreState = !didRestoreRef.current ? restoreStateRef.current : undefined;
+    if (!isActive || didRestoreRef.current) return;
     didRestoreRef.current = true;
-    const nextPage = restoreState?.currentPage ?? 1;
-    const nextMode = restoreState?.mode ?? 'history';
+    const restoreState = restoreStateRef.current;
+    const nextPage = restoreState?.currentPage ?? currentPage;
+    const nextMode = restoreState?.mode ?? mode;
     const nextDate = restoreState?.selectedDate ?? selectedDateRef.current;
+    const nextTab = restoreState?.activeTab ?? activeTab;
+    setActiveTab(nextTab);
     setCurrentPage(nextPage);
-    const nextFeedKey = makeMonitorFeedKey(nextMode, nextDate, nextPage, activeTab);
+    const nextFeedKey = makeMonitorFeedKey(nextMode, nextDate, nextPage, nextTab);
     if (eventsLengthRef.current && currentFeedKeyRef.current === nextFeedKey) return;
     setLoading(true);
-    void loadFeed(nextMode, nextDate, nextPage, activeTab);
-  }, [activeTab, isActive, loadFeed]);
+    void loadFeed(nextMode, nextDate, nextPage, nextTab);
+  }, [activeTab, currentPage, isActive, loadFeed, mode]);
 
   useEffect(() => {
     if (!isActive || !autoRefresh || !isTradingTime || mode !== 'realtime') return;
@@ -372,9 +378,9 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   const pageEvents = filteredEvents;
 
   useEffect(() => {
-    if (currentPage <= totalPages) return;
+    if (loading || totalCount === 0 || currentPage <= totalPages) return;
     setCurrentPage(totalPages);
-  }, [currentPage, totalPages]);
+  }, [currentPage, loading, totalCount, totalPages]);
 
   // Scroll feed to top when page changes.
   useEffect(() => {
@@ -383,8 +389,9 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
 
   const handleStockClick = async (code: string, name: string) => {
     const snapshot = { code, name } as StockDetail;
+    const aiMonitorState = useAppStore.getState().aiMonitorState ?? { activeTab, currentPage, selectedDate, mode };
     openRightPanel();
-    setStockReturnContext({ tab: 'ai-monitor', code, aiMonitor: { activeTab, currentPage, selectedDate, mode } });
+    setStockReturnContext({ tab: 'ai-monitor', code, aiMonitor: aiMonitorState });
     setSelectedStock(snapshot);
     try {
       const detail = await getStocksenseApi().getStockDetail(code);
@@ -406,6 +413,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   const goPage = (page: number) => {
     const next = Math.max(1, Math.min(totalPages, page));
     setCurrentPage(next);
+    setAiMonitorState({ activeTab, currentPage: next, selectedDate, mode });
     setLoading(true);
     void loadFeed(mode, selectedDate, next, activeTab);
   };
@@ -444,12 +452,14 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
     if (!isTradingTime) return;
     setLoading(true);
     setCurrentPage(1);
+    setAiMonitorState({ activeTab, currentPage: 1, selectedDate, mode: 'realtime' });
     void loadFeed('realtime', selectedDate, 1, activeTab);
   };
 
   const handleHistoryDateClick = (date: string) => {
     setLoading(true);
     setCurrentPage(1);
+    setAiMonitorState({ activeTab, currentPage: 1, selectedDate: date, mode: 'history' });
     void loadFeed('history', date, 1, activeTab);
   };
 
@@ -530,7 +540,13 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
       <div className={styles['ai-monitor-panel-tabs']}>
         <button
           className={classNames(styles['monitor-tab'], activeTab === 'all' && styles.active)}
-          onClick={() => setActiveTab('all')}
+          onClick={() => {
+            setActiveTab('all');
+            setCurrentPage(1);
+            setAiMonitorState({ activeTab: 'all', currentPage: 1, selectedDate, mode });
+            setLoading(true);
+            void loadFeed(mode, selectedDate, 1, 'all');
+          }}
           type='button'
           style={categoryStyle('#a855f7', 'rgba(168, 85, 247, 0.45)')}
         >
@@ -546,7 +562,13 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
             <button
               key={cat}
               className={classNames(styles['monitor-tab'], activeTab === cat && styles.active)}
-              onClick={() => setActiveTab(cat)}
+              onClick={() => {
+                setActiveTab(cat);
+                setCurrentPage(1);
+                setAiMonitorState({ activeTab: cat, currentPage: 1, selectedDate, mode });
+                setLoading(true);
+                void loadFeed(mode, selectedDate, 1, cat);
+              }}
               type='button'
               style={categoryStyle(cfg.color, cfg.glow)}
             >

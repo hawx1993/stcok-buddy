@@ -17,6 +17,8 @@ import {
   reconcileSectorsWithLocalBoardsForTest,
   shouldDeferDiscoveryRefresh,
   shouldHoldDiscoverySnapshotUntil930,
+  sumConstituentMainNetInflowYiForTest,
+  toLimitDownStockItemForTest,
 } from '../services/stock/discovery-service.js';
 import type { HotFocusItem } from '../../src/shared/types.js';
 import type { MarketFundFlow, NorthboundFlowSummary } from 'stock-sdk';
@@ -81,6 +83,22 @@ const reconciledSectors = reconcileSectorsWithLocalBoardsForTest(
   localBoardCatalog,
 );
 assert.equal(reconciledSectors[0].amount, 20_000_000);
+
+assert.equal(toLimitDownStockItemForTest({ code: '300407', name: '凯发电气', price: 11.28, changePercent: -12.56 }), undefined);
+assert.deepEqual(toLimitDownStockItemForTest({ code: '300001', name: '创业板测试', price: 8.01, changePercent: -19.82 }), {
+  code: '300001',
+  name: '创业板测试',
+  price: '8.01',
+  changePercent: '-19.82',
+  amount: undefined,
+});
+assert.deepEqual(toLimitDownStockItemForTest({ code: '600001', name: '主板测试', price: 9.01, changePercent: -9.82 }), {
+  code: '600001',
+  name: '主板测试',
+  price: '9.01',
+  changePercent: '-9.82',
+  amount: undefined,
+});
 
 const nextWeekSectorPayload = {
   code: reconciledSectors[0].code,
@@ -253,6 +271,22 @@ assert.deepEqual(localTheme, {
   reason: '板块涨跌幅 +1.23%，主力净流入 +2.5 亿。',
 });
 assert.equal(reconcileHotThemeWithLocalBoard({ name: '未知板块', changePercent: 88 }, undefined, undefined), undefined);
+
+const constituentMainNetInflow = sumConstituentMainNetInflowYiForTest(
+  [
+    { code: '003032' },
+    { code: 'sz002659' },
+    { code: '300010' },
+  ],
+  [
+    { code: '003032', mainNetInflow: 120_000_000 },
+    { code: '002659', mainNetInflow: -20_000_000 },
+    { code: '600000', mainNetInflow: 500_000_000 },
+    { code: '300010', mainNetInflow: null },
+  ],
+);
+assert.equal(constituentMainNetInflow, 1);
+assert.equal(sumConstituentMainNetInflowYiForTest([{ code: 'BK0475' }], []), undefined);
 
 assert.equal(await shouldHoldDiscoverySnapshotUntil930(new Date('2026-07-31T00:30:00.000Z')), true);
 assert.equal(await shouldHoldDiscoverySnapshotUntil930(new Date('2026-07-31T00:00:00.000Z')), true);

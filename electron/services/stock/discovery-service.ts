@@ -176,6 +176,10 @@ export type TLocalBoardSummary = {
 };
 
 type TBoardAmountCacheEntry = { amount?: number; updatedAt: number; promise?: Promise<number | undefined> };
+type TBoardMainNetInflowCacheEntry = { amountYi?: number; updatedAt: number; promise?: Promise<number | undefined> };
+type TFundFlowRankRow = Awaited<ReturnType<typeof sdk.fundFlow.rank>>[number];
+type TConstituentCodeRow = { code?: string | null };
+type TFundFlowMainRow = { code: string; mainNetInflow: number | null };
 
 type TLocalBoardCatalog = {
   rows: TLocalBoardSummary[];
@@ -187,11 +191,17 @@ const SECTOR_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
 const BOARD_AMOUNT_CACHE_TTL_MS = 5 * 60 * 1000;
 const BOARD_AMOUNT_FETCH_LIMIT = 12;
 const BOARD_AMOUNT_FETCH_CONCURRENCY = 3;
+const BOARD_MAIN_FLOW_FETCH_LIMIT = 12;
+const BOARD_MAIN_FLOW_FETCH_CONCURRENCY = 3;
+const BOARD_MAIN_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
+const FUND_FLOW_RANK_CACHE_TTL_MS = 60 * 1000;
 const sectorFlowRankCache = new Map<
   TSectorFlowIndicator,
   { rows: ISectorSummary[]; updatedAt: number; promise?: Promise<ISectorSummary[]> }
 >();
 const boardAmountCache = new Map<string, TBoardAmountCacheEntry>();
+const boardMainNetInflowCache = new Map<string, TBoardMainNetInflowCacheEntry>();
+let fundFlowRankCache: { rows: TFundFlowRankRow[]; updatedAt: number; promise?: Promise<TFundFlowRankRow[]> } | undefined;
 
 function mapMetricToFactor(m: IMarketReviewMetric): { label: string; value: string | number } {
   if (m.value === null || m.value === undefined) return { label: m.label, value: '--' };
@@ -617,10 +627,15 @@ function toStockItem(item: HotFocusItem): TStockItem {
   };
 }
 
+function getLimitDownThresholdPercent(code: string): number {
+  const normalizedCode = code.replace(/^(sh|sz|bj)/i, '');
+  return normalizedCode.startsWith('300') ? 19.8 : 9.8;
+}
+
 function toLimitDownStockItem(row: Awaited<ReturnType<typeof getAllMarketQuoteRows>>[number]): TStockItem | undefined {
   if (!row.code || !row.name) return undefined;
   const changePercent = parseChgPct(row.changePercent);
-  if (changePercent === undefined || changePercent > -9.8) return undefined;
+  if (changePercent === undefined || changePercent > -getLimitDownThresholdPercent(row.code)) return undefined;
   return {
     code: row.code,
     name: row.name,
@@ -629,6 +644,8 @@ function toLimitDownStockItem(row: Awaited<ReturnType<typeof getAllMarketQuoteRo
     amount: row.amount !== undefined ? formatMoney(row.amount) : undefined,
   };
 }
+
+export const toLimitDownStockItemForTest = toLimitDownStockItem;
 
 async function listLimitDownStocksFromQuotes(): Promise<TStockItem[]> {
   const rows = await getAllMarketQuoteRows();
@@ -877,6 +894,37 @@ function finitePositive(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
+function finiteNumber(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function normalizeStockCode(code?: string | null): string | undefined {
+  const normalized = code?.replace(/^(sh|sz|bj)/i, '').trim();
+  return normalized && /^\d{6}$/.test(normalized) ? normalized : undefined;
+}
+
+function sumConstituentMainNetInflowYi(constituents: TConstituentCodeRow[], fundFlows: TFundFlowMainRow[]): number | undefined {
+  const constituentCodes = new Set(
+    constituents
+      .map((item) => normalizeStockCode(item.code))
+      .filter((code): code is string => Boolean(code)),
+  );
+  if (!constituentCodes.size) return undefined;
+
+  const total = fundFlows.reduce(
+    (sum, row) => {
+      const code = normalizeStockCode(row.code);
+      if (!code || !constituentCodes.has(code) || !finiteNumber(row.mainNetInflow)) return sum;
+      return { value: sum.value + row.mainNetInflow, count: sum.count + 1 };
+    },
+    { value: 0, count: 0 },
+  );
+
+  return total.count ? total.value / 100_000_000 : undefined;
+}
+
+export const sumConstituentMainNetInflowYiForTest = sumConstituentMainNetInflowYi;
+
 function boardAmountApis(kind?: string) {
   return kind === 'concept' ? [sdk.board.concept, sdk.board.industry] : [sdk.board.industry, sdk.board.concept];
 }
@@ -929,6 +977,86 @@ async function enrichMissingSectorAmounts(sectors: ISectorSummary[], catalog: TL
   return next;
 }
 
+async function fetchFundFlowRankRows(): Promise<TFundFlowRankRow[]> {
+  const now = Date.now();
+  if (fundFlowRankCache && now - fundFlowRankCache.updatedAt < FUND_FLOW_RANK_CACHE_TTL_MS) {
+    return fundFlowRankCache.rows;
+  }
+  if (fundFlowRankCache?.promise) return fundFlowRankCache.promise;
+
+  const promise = sdk.fundFlow.rank({ indicator: 'today' }).then((rows) => {
+    fundFlowRankCache = { rows, updatedAt: Date.now() };
+    return rows;
+  });
+  fundFlowRankCache = { rows: fundFlowRankCache?.rows ?? [], updatedAt: fundFlowRankCache?.updatedAt ?? 0, promise };
+  return promise;
+}
+
+async function fetchBoardMainNetInflowFromRemote(board: TLocalBoardSummary): Promise<number | undefined> {
+  const fundFlows = await fetchFundFlowRankRows();
+  if (!fundFlows.length) return undefined;
+
+  for (const api of boardAmountApis(board.kind)) {
+    try {
+      const constituents = await api.constituents(board.code);
+      const amountYi = sumConstituentMainNetInflowYi(constituents, fundFlows);
+      if (amountYi !== undefined) return amountYi;
+    } catch {
+      // Try the other real board namespace; keep missing flow explicit if both fail.
+    }
+  }
+  return undefined;
+}
+
+async function fetchBoardMainNetInflow(board: TLocalBoardSummary): Promise<number | undefined> {
+  const cached = boardMainNetInflowCache.get(board.code);
+  const now = Date.now();
+  if (cached && now - cached.updatedAt < BOARD_MAIN_FLOW_CACHE_TTL_MS) return cached.amountYi;
+  if (cached?.promise) return cached.promise;
+
+  const promise = fetchBoardMainNetInflowFromRemote(board)
+    .catch((err) => {
+      console.warn(`[discovery] board main net inflow fetch failed for ${board.code}`, err);
+      return undefined;
+    })
+    .then((amountYi) => {
+      boardMainNetInflowCache.set(board.code, { amountYi, updatedAt: Date.now() });
+      return amountYi;
+    });
+  boardMainNetInflowCache.set(board.code, {
+    amountYi: cached?.amountYi,
+    updatedAt: cached?.updatedAt ?? 0,
+    promise,
+  });
+  return promise;
+}
+
+async function enrichMissingSectorMainNetInflows(
+  sectors: ISectorSummary[],
+  catalog: TLocalBoardCatalog,
+): Promise<ISectorSummary[]> {
+  const next = [...sectors];
+  const targets = next
+    .map((sector, index) => ({ sector, index, board: findLocalBoard(catalog, sector) }))
+    .filter(
+      (item): item is { sector: ISectorSummary; index: number; board: TLocalBoardSummary } =>
+        item.sector.mainNetInflow === 0 && Boolean(item.board),
+    )
+    .slice(0, BOARD_MAIN_FLOW_FETCH_LIMIT);
+
+  for (let start = 0; start < targets.length; start += BOARD_MAIN_FLOW_FETCH_CONCURRENCY) {
+    const chunk = targets.slice(start, start + BOARD_MAIN_FLOW_FETCH_CONCURRENCY);
+    const flows = await Promise.all(chunk.map((item) => fetchBoardMainNetInflow(item.board)));
+    flows.forEach((mainNetInflow, offset) => {
+      if (mainNetInflow !== undefined) {
+        next[chunk[offset].index] = { ...next[chunk[offset].index], mainNetInflow };
+      }
+    });
+  }
+
+  return next;
+}
+
 async function fetchSectorFlowRank(indicator: TSectorFlowIndicator = 'today'): Promise<ISectorSummary[]> {
   const cached = sectorFlowRankCache.get(indicator);
   const now = Date.now();
@@ -957,8 +1085,7 @@ async function loadSectorFlowRank(indicator: TSectorFlowIndicator): Promise<ISec
       code: r.code ?? '',
       name: r.name ?? '',
       changePercent: Number(r.changePercent ?? 0),
-      mainNetInflow:
-        r.mainNetInflow !== null && r.mainNetInflow !== undefined ? Number(r.mainNetInflow) / 100_000_000 : 0,
+      mainNetInflow: finiteNumber(r.mainNetInflow) ? Number(r.mainNetInflow) / 100_000_000 : 0,
       topStockName: r.topStockName,
       topStockCode: r.topStockCode,
     }))
@@ -1206,7 +1333,9 @@ async function buildMarketSummary(
   pools: HotFocusItem[],
 ): Promise<IMarketSummary | undefined> {
   const [boardCatalog, remoteSectors] = await Promise.all([fetchLocalBoardCatalog(), fetchSectorFlowRank()]);
-  const sectors = await enrichMissingSectorAmounts(reconcileSectorsWithLocalBoards(remoteSectors, boardCatalog), boardCatalog);
+  const reconciledSectors = reconcileSectorsWithLocalBoards(remoteSectors, boardCatalog);
+  const sectorsWithFlows = await enrichMissingSectorMainNetInflows(reconciledSectors, boardCatalog);
+  const sectors = await enrichMissingSectorAmounts(sectorsWithFlows, boardCatalog);
 
   const tradeDate = reviewData?.tradeDate;
   const [indices, mainFundFlow, northFundFlow] = await Promise.all([
