@@ -149,6 +149,7 @@ export interface IMonthlyThemeItem {
 }
 
 export interface INextWeekSector {
+  code: string;
   name: string;
   score: number;
   reasoning: {
@@ -809,20 +810,20 @@ async function fetchAllIndices(): Promise<Array<{ code: string; name: string; pr
   return results.filter((item): item is NonNullable<typeof item> => Boolean(item));
 }
 
-async function fetchMainFundFlow(): Promise<number | null> {
+async function fetchMainFundFlow(tradeDate?: string): Promise<number | null> {
   try {
     const rows = await sdk.fundFlow.market();
-    return selectLatestMainFundFlowYi(rows);
+    return selectLatestMainFundFlowYi(rows, tradeDate);
   } catch (err) {
     console.warn('[discovery] main fund flow fetch failed', err);
     return null;
   }
 }
 
-async function fetchNorthFundFlow(): Promise<number | null> {
+async function fetchNorthFundFlow(tradeDate?: string): Promise<number | null> {
   try {
     const rows = await sdk.northbound.summary();
-    return sumNorthFundFlowYi(rows);
+    return sumNorthFundFlowYi(rows, tradeDate);
   } catch (err) {
     console.warn('[discovery] north fund flow fetch failed', err);
     return null;
@@ -1010,6 +1011,7 @@ async function generateNextWeekSectors(
       .map((p) => ({ candidate: p, board: findLocalBoard(boardCatalog, { name: p.name }) }))
       .filter((item): item is { candidate: TNextWeekSectorCandidate; board: TLocalBoardSummary } => Boolean(item.board))
       .map(({ candidate, board }) => ({
+        code: board.code,
         name: board.name,
         score: Math.max(0, Math.min(100, Math.round(candidate.score ?? 70))),
         reasoning: {
@@ -1029,6 +1031,7 @@ async function generateNextWeekSectors(
       .sort((a, b) => b.mainNetInflow - a.mainNetInflow || b.changePercent - a.changePercent)
       .slice(0, 4)
       .map((s) => ({
+        code: s.code,
         name: s.name,
         score: 70,
         reasoning: {
@@ -1181,10 +1184,11 @@ async function buildMarketSummary(
   const [boardCatalog, remoteSectors] = await Promise.all([fetchLocalBoardCatalog(), fetchSectorFlowRank()]);
   const sectors = await enrichMissingSectorAmounts(reconcileSectorsWithLocalBoards(remoteSectors, boardCatalog), boardCatalog);
 
+  const tradeDate = reviewData?.tradeDate;
   const [indices, mainFundFlow, northFundFlow] = await Promise.all([
     fetchAllIndices(),
-    fetchMainFundFlow(),
-    fetchNorthFundFlow(),
+    fetchMainFundFlow(tradeDate),
+    fetchNorthFundFlow(tradeDate),
   ]);
 
   if (!indices.length && !sectors.length) return undefined;

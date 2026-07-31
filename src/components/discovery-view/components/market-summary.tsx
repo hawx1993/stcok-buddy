@@ -27,6 +27,7 @@ interface IMonthlyThemeItem {
 }
 
 interface INextWeekSector {
+  code?: string;
   name: string;
   score: number;
   reasoning: {
@@ -204,6 +205,12 @@ function LegacyMarketSummary({ indices, wealthMetrics, bullets }: Pick<IMarketSu
   );
 }
 
+function isRequestedBoardDetail(detail: BoardDetail, snapshot: BoardDetail) {
+  if (snapshot.code && detail.code && detail.code !== snapshot.code) return false;
+  if (!snapshot.code && detail.name && detail.name !== detail.code && detail.name !== snapshot.name) return false;
+  return true;
+}
+
 export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }: IMarketSummaryProps) {
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
@@ -263,9 +270,25 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
     }
   };
 
-  const handleBoardNameClick = async (name: string) => {
-    await handleSectorClick({ code: '', name, changePercent: 0, mainNetInflow: 0 });
+  const handleBoardNameClick = async (name: string, code?: string) => {
+    const snapshot = { code: code ?? '', name } as BoardDetail;
+    setStockReturnContext(undefined);
+    setSelectedBoard(snapshot);
+    openBoardPanel();
+    try {
+      const detail = await getStocksenseApi().getBoardDetail(snapshot.code, false, name);
+      if (isRequestedBoardDetail(detail, snapshot)) {
+        setSelectedBoard({ ...snapshot, ...detail, name: detail.name === detail.code ? name : detail.name });
+      } else {
+        setSelectedBoard(snapshot);
+      }
+    } catch {
+      setSelectedBoard(snapshot);
+    }
   };
+
+  const getNextWeekSectorCode = (sector: INextWeekSector) =>
+    sector.code ?? sectors.find((item) => item.name === sector.name)?.code;
 
   return (
     <div className={styles.marketSummary}>
@@ -408,7 +431,7 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
               <button
                 key={sector.name}
                 className={styles.msNextWeekCard}
-                onClick={() => handleBoardNameClick(sector.name)}
+                onClick={() => handleBoardNameClick(sector.name, getNextWeekSectorCode(sector))}
                 type="button"
               >
                 <div className={styles.msNextWeekHeader}>

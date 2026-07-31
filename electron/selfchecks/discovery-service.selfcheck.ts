@@ -82,6 +82,21 @@ const reconciledSectors = reconcileSectorsWithLocalBoardsForTest(
 );
 assert.equal(reconciledSectors[0].amount, 20_000_000);
 
+const nextWeekSectorPayload = {
+  code: reconciledSectors[0].code,
+  name: reconciledSectors[0].name,
+  score: 70,
+  reasoning: {
+    fundFlow: '资金关注度一般，需持续跟踪。',
+    news: '消息面暂无重大催化。',
+    policy: '政策面无明确边际变化。',
+    technical: '技术面处于震荡整理阶段。',
+    rotation: '板块轮动中尚未形成明确主线。',
+  },
+};
+assert.equal(nextWeekSectorPayload.code, 'BK0475');
+assert.equal(nextWeekSectorPayload.name, '银行');
+
 const marketFundRows: MarketFundFlow[] = [
   {
     date: '2026-07-28',
@@ -136,6 +151,8 @@ const marketFundRows: MarketFundFlow[] = [
   },
 ];
 assert.equal(selectLatestMainFundFlowYi(marketFundRows), -119.47974656);
+assert.equal(selectLatestMainFundFlowYi(marketFundRows, '2026-07-30'), null);
+assert.equal(selectLatestMainFundFlowYi(marketFundRows, '2026-07-29'), -119.47974656);
 assert.equal(selectLatestMainFundFlowYi([{ ...marketFundRows[0], mainNetInflow: null }]), null);
 
 const northRows: NorthboundFlowSummary[] = [
@@ -189,6 +206,12 @@ const northRows: NorthboundFlowSummary[] = [
   },
 ];
 assert.equal(sumNorthFundFlowYi(northRows), 8);
+assert.equal(sumNorthFundFlowYi(northRows, '2026-07-30'), 8);
+assert.equal(sumNorthFundFlowYi([
+  { ...northRows[0], date: '2026-07-31', netBuyAmount: 0, netInflow: 0 },
+  { ...northRows[1], date: '2026-07-31', netBuyAmount: 0, netInflow: 0 },
+], '2026-07-31'), null);
+assert.equal(sumNorthFundFlowYi(northRows, '2026-07-31'), null);
 assert.equal(sumNorthFundFlowYi([{ ...northRows[0], netBuyAmount: null, netInflow: 300_000_000 }]), 3);
 assert.equal(sumNorthFundFlowYi([{ ...northRows[2] }]), null);
 

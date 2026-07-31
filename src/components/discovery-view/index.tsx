@@ -55,6 +55,7 @@ interface IMonthlyThemeItem {
 }
 
 interface INextWeekSector {
+  code?: string;
   name: string;
   score: number;
   reasoning: {
