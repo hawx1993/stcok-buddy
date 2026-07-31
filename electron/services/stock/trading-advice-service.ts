@@ -3,7 +3,7 @@ import { getBatchQuotes, listDailyDragonTiger, listEastmoneySurgeByDate, listHot
 import { getConfig } from '../config-store.js';
 import { chatWithOpenAICompatible } from '../llm/openai-compatible-client.js';
 import { sdk } from './shared.js';
-import type { ITradingAdvice, ITradingAdviceSector } from '../../../src/shared/types.js';
+import type { ITradingAdvice, ITradingAdviceSector, StockDetail } from '../../../src/shared/types.js';
 
 // ── Data collection ──
 
@@ -186,6 +186,53 @@ const SYSTEM_PROMPT = `你是一位顶级 A 股量化交易策略师，拥有 15
 
 // ── Response parsing ──
 
+type TAdviceQuoteResolver = (codes: string[]) => Promise<Array<Pick<StockDetail, 'code' | 'name'>>>;
+
+function normalizeAdviceStockCode(code: string): string {
+  return code.trim().replace(/^\D+/, '');
+}
+
+function cloneAdviceWithSectors(advice: ITradingAdvice, keySectors: ITradingAdviceSector[]): ITradingAdvice {
+  return { ...advice, keySectors };
+}
+
+export async function reconcileAdviceLeaderStocks(
+  advice: ITradingAdvice,
+  quoteResolver: TAdviceQuoteResolver = getBatchQuotes,
+): Promise<ITradingAdvice> {
+  const codes = [
+    ...new Set(
+      advice.keySectors
+        .map((sector) => normalizeAdviceStockCode(sector.leaderCode))
+        .filter(Boolean),
+    ),
+  ];
+  if (!codes.length) return advice;
+
+  let quotes: Array<Pick<StockDetail, 'code' | 'name'>> = [];
+  try {
+    quotes = await quoteResolver(codes);
+  } catch (error) {
+    console.warn('[trading-advice] leader quote reconcile failed', error);
+    return advice;
+  }
+
+  const quoteByCode = new Map<string, Pick<StockDetail, 'code' | 'name'>>();
+  for (const quote of quotes) {
+    const code = normalizeAdviceStockCode(quote.code);
+    if (code && quote.name) quoteByCode.set(code, quote);
+  }
+  if (!quoteByCode.size) return advice;
+
+  return cloneAdviceWithSectors(
+    advice,
+    advice.keySectors.map((sector) => {
+      const quote = quoteByCode.get(normalizeAdviceStockCode(sector.leaderCode));
+      return quote?.name ? { ...sector, leaderName: quote.name } : sector;
+    }),
+  );
+}
+
 function parseAdviceResponse(raw: string): ITradingAdvice {
   // Try to extract JSON from the response (in case AI adds markdown fences or preamble)
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -279,7 +326,8 @@ export async function getTradingAdvice(): Promise<ITradingAdvice> {
     { role: 'user', content: userPrompt },
   ]);
 
-  const advice = parseAdviceResponse(response);
+  const parsedAdvice = parseAdviceResponse(response);
+  const advice = await reconcileAdviceLeaderStocks(parsedAdvice);
 
   // Cache for the day
   adviceCache = { date: today, advice };

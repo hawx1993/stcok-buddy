@@ -1,0 +1,49 @@
+import assert from 'node:assert/strict';
+import { reconcileAdviceLeaderStocks } from '../services/stock/trading-advice-service.js';
+import type { ITradingAdvice } from '../../src/shared/types.js';
+
+const advice: ITradingAdvice = {
+  starRating: 5,
+  starLabel: '强烈看多',
+  suggestedPosition: 85,
+  positionReason: '情绪亢奋',
+  suitableStrategies: ['打板龙头'],
+  unsuitableStrategies: ['追高杂毛股'],
+  keySectors: [
+    {
+      name: '家居',
+      confidence: 'high',
+      reason: '板块效应强',
+      leaderCode: '603326',
+      leaderName: '爱丽家居',
+    },
+    {
+      name: '教育',
+      confidence: 'medium',
+      reason: '独立高位',
+      leaderCode: '003032',
+      leaderName: '传智教育',
+    },
+  ],
+  marketSummary: '市场放量普涨',
+  riskReminder: '防高位分歧',
+};
+
+const reconciled = await reconcileAdviceLeaderStocks(advice, async (codes) => {
+  assert.deepEqual(codes, ['603326', '003032']);
+  return [
+    { code: '603326', name: '我乐家居' },
+    { code: '003032', name: '传智教育' },
+  ];
+});
+
+assert.equal(reconciled.keySectors[0].leaderCode, '603326');
+assert.equal(reconciled.keySectors[0].leaderName, '我乐家居');
+assert.equal(reconciled.keySectors[1].leaderName, '传智教育');
+
+const failedResolverResult = await reconcileAdviceLeaderStocks(advice, async () => {
+  throw new Error('quote source unavailable');
+});
+assert.equal(failedResolverResult.keySectors[0].leaderName, '爱丽家居');
+
+console.log('trading-advice selfcheck passed');

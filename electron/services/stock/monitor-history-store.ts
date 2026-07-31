@@ -87,6 +87,15 @@ export function saveMonitorEvents(events: IMonitorEvent[], capturedAt = new Date
   if (!events.length) return Promise.resolve();
   return withDb(async () => {
     const captured = capturedAt.toISOString();
+    const eventIds = Array.from(new Set(events.map((event) => event.id)));
+    const existingTimestamps = new Map(
+      (await all<{ id: string; timestamp: string }>(
+        `SELECT id, MIN(timestamp) AS timestamp
+         FROM ai_monitor_events
+         WHERE trade_date = ${sqlValue(tradeDate)} AND id IN (${eventIds.map(sqlValue).join(', ')})
+         GROUP BY id`,
+      )).map((row) => [row.id, row.timestamp] as const),
+    );
     const statements = events.flatMap((event) => [
       `DELETE FROM ai_monitor_events WHERE trade_date = ${sqlValue(tradeDate)} AND id = ${sqlValue(event.id)}`,
       ...(isHighFrequencyMonitorEvent(event)
@@ -105,7 +114,7 @@ export function saveMonitorEvents(events: IMonitorEvent[], capturedAt = new Date
          captured,
          event.id,
          event.category,
-         event.timestamp,
+         existingTimestamps.get(event.id) ?? event.timestamp,
          event.code,
          event.name,
          stringify(event.price),
@@ -125,7 +134,10 @@ export function saveMonitorEvents(events: IMonitorEvent[], capturedAt = new Date
 export function enqueueMonitorEvents(events: IMonitorEvent[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
   if (!events.length) return;
   const group = monitorEventQueue.get(tradeDate) ?? { events: new Map<string, IMonitorEvent>(), capturedAt, tradeDate };
-  for (const event of events) group.events.set(event.id, event);
+  for (const event of events) {
+    const queuedEvent = group.events.get(event.id);
+    group.events.set(event.id, queuedEvent ? { ...event, timestamp: queuedEvent.timestamp } : event);
+  }
   if (capturedAt > group.capturedAt) group.capturedAt = capturedAt;
   monitorEventQueue.set(tradeDate, group);
 }

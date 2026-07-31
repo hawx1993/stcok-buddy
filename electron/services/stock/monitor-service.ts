@@ -475,13 +475,6 @@ function sortMonitorEvents(events: IMonitorEvent[]) {
   });
 }
 
-function mergeMonitorEvents(local: IMonitorEvent[], realtime: IMonitorEvent[]) {
-  const map = new Map<string, IMonitorEvent>();
-  for (const event of local) map.set(event.id, event);
-  for (const event of realtime) map.set(event.id, event);
-  return sortMonitorEvents(Array.from(map.values()));
-}
-
 export async function captureMonitorEvents(now = new Date(), categories: TMonitorCategory[] = CATEGORIES) {
   const timestamp = now.toISOString();
   const tradeDate = toShanghaiMarketTime(now).date;
@@ -615,6 +608,15 @@ export async function getMonitorFeed(options?: {
     };
   }
 
+  let realtimeEvents: IMonitorEvent[] = [];
+  try {
+    realtimeEvents = await captureMonitorEvents(now, enabledCategories);
+    await persistMonitorCapture(realtimeEvents, now);
+    await flushMonitorEventQueue();
+  } catch (error) {
+    console.warn('[monitor] realtime capture failed', error);
+  }
+
   const tradeDate = toShanghaiMarketTime(now).date;
   const sinceTime = options?.since ? new Date(options.since).getTime() : 0;
   let localEvents: IMonitorEvent[] = [];
@@ -628,14 +630,7 @@ export async function getMonitorFeed(options?: {
     console.warn('[monitor] failed to read local realtime history', error);
   }
 
-  let realtimeEvents: IMonitorEvent[] = [];
-  try {
-    realtimeEvents = await captureMonitorEvents(now, enabledCategories);
-    await persistMonitorCapture(realtimeEvents, now);
-  } catch (error) {
-    console.warn('[monitor] realtime capture failed', error);
-  }
-  const events = offset === 0 ? mergeMonitorEvents(localEvents, realtimeEvents).slice(0, limit) : localEvents;
+  const events = localEvents.length || offset > 0 ? localEvents : realtimeEvents.slice(0, limit);
   const availableDates = await listMonitorDates(7);
 
   return {
@@ -645,7 +640,7 @@ export async function getMonitorFeed(options?: {
     isTradingTime: true,
     availableDates,
     selectedDate: tradeDate,
-    total: Math.max(localTotal, offset === 0 ? events.length : localTotal),
+    total: localTotal,
     categoryTotals,
   };
 }

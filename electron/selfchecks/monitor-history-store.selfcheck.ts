@@ -41,6 +41,17 @@ await store.flushMonitorEventQueue();
 assert.equal(store.getQueuedMonitorEventCount(), 0);
 const queued = await store.listMonitorHistory({ date: '2026-07-23', limit: 10 });
 assert.equal(queued.find((item) => item.id === 'queued-1')?.title, '队列写入后');
+assert.equal(queued.find((item) => item.id === 'queued-1')?.timestamp, baseEvent.timestamp);
+
+await store.saveMonitorEvents([
+  { ...baseEvent, id: 'stable-time', category: 'large-order', timestamp: '2026-07-23T02:10:00.000Z', title: '首次生成' },
+], new Date('2026-07-23T02:10:00.000Z'), '2026-07-23');
+await store.saveMonitorEvents([
+  { ...baseEvent, id: 'stable-time', category: 'large-order', timestamp: '2026-07-23T02:11:00.000Z', title: '更新内容' },
+], new Date('2026-07-23T02:11:00.000Z'), '2026-07-23');
+const stableTime = (await store.listMonitorHistory({ date: '2026-07-23', limit: 10 })).find((item) => item.id === 'stable-time');
+assert.equal(stableTime?.title, '更新内容');
+assert.equal(stableTime?.timestamp, '2026-07-23T02:10:00.000Z');
 
 const dates = await store.listMonitorDates(7);
 assert.deepEqual(dates, ['2026-07-23', '2026-07-22']);

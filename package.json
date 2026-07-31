@@ -39,7 +39,8 @@
     "selfcheck:monitor-service": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/monitor-service.selfcheck.js",
     "selfcheck:ai-monitor-history": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/monitor-history-store.selfcheck.js",
     "selfcheck:news-summary": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/news-client.selfcheck.js",
-    "selfcheck:hot-stock-hints": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/hot-stock-hints.selfcheck.js"
+    "selfcheck:hot-stock-hints": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/hot-stock-hints.selfcheck.js",
+    "selfcheck:trading-advice": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/trading-advice.selfcheck.js"
   },
   "keywords": [
     "electron",

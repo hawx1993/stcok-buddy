@@ -2,6 +2,13 @@ import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } fro
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { IStockTimelinePoint, IStockTimelineSnapshot, StockDetail } from '../../../shared/types';
 import { getMarketColors } from '../../../shared/market-color';
+import {
+  A_SHARE_MORNING_CLOSE_MINUTE,
+  A_SHARE_MARKET_OPEN_MINUTE,
+  A_SHARE_TOTAL_TRADING_MINUTES,
+  getAShareTradingMinuteOffset,
+  isChinaMarketOpen,
+} from '../../../shared/market-time';
 import { useAppStore } from '../../../store/app-store';
 import cx from '../../../shared/cx';
 import styles from '../index.module.scss';
@@ -30,6 +37,13 @@ const VIEWBOX_WIDTH = 960;
 const VIEWBOX_HEIGHT = 360;
 const PADDING_X = 58;
 const PADDING_Y = 34;
+const CHART_WIDTH = VIEWBOX_WIDTH - PADDING_X * 2;
+const TIMELINE_REFRESH_INTERVAL_MS = 15_000;
+const TIMELINE_X_LABELS = [
+  { time: '09:30', offset: 0 },
+  { time: '11:30', offset: A_SHARE_MORNING_CLOSE_MINUTE - A_SHARE_MARKET_OPEN_MINUTE },
+  { time: '15:00', offset: A_SHARE_TOTAL_TRADING_MINUTES },
+];
 
 export function StockTimelineChart({ stock, height = '100%', className }: IStockTimelineChartProps) {
   const marketColorMode = useAppStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
@@ -46,23 +60,31 @@ export function StockTimelineChart({ stock, height = '100%', className }: IStock
       return;
     }
     let alive = true;
-    setLoading(true);
-    setError(undefined);
-    getStocksenseApi()
-      .getStockTimelines([stock.code])
-      .then((rows) => {
-        if (alive) setSnapshot(rows[stock.code]);
-      })
-      .catch((err: unknown) => {
-        if (!alive) return;
-        setSnapshot(undefined);
-        setError(err instanceof Error ? err.message : '分时数据加载失败');
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
+    let timer: number | undefined;
+    const refreshTimeline = (showLoading: boolean) => {
+      if (showLoading) setLoading(true);
+      setError(undefined);
+      getStocksenseApi()
+        .getStockTimelines([stock.code])
+        .then((rows) => {
+          if (alive) setSnapshot(rows[stock.code]);
+        })
+        .catch((err: unknown) => {
+          if (!alive) return;
+          setSnapshot(undefined);
+          setError(err instanceof Error ? err.message : '分时数据加载失败');
+        })
+        .finally(() => {
+          if (alive && showLoading) setLoading(false);
+        });
+    };
+
+    refreshTimeline(true);
+    if (isChinaMarketOpen()) timer = window.setInterval(() => refreshTimeline(false), TIMELINE_REFRESH_INTERVAL_MS);
+
     return () => {
       alive = false;
+      window.clearInterval(timer);
     };
   }, [stock?.code]);
 
@@ -74,10 +96,19 @@ export function StockTimelineChart({ stock, height = '100%', className }: IStock
   const style: TTimelineStyle = { height, '--timeline-price-color': isUp ? marketColors.upColor : marketColors.downColor };
 
   const updateHover = (event: MouseEvent<SVGSVGElement>) => {
-    if (!chart?.rows.length) return;
+    if (!chart?.coordinates.length) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    setHoverIndex(Math.round(ratio * (chart.rows.length - 1)));
+    const mouseX = ((event.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
+    let closestIndex = 0;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    chart.coordinates.forEach((point, index) => {
+      const distance = Math.abs(point.x - mouseX);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestIndex = index;
+      }
+    });
+    setHoverIndex(closestIndex);
   };
 
   return (
@@ -136,42 +167,42 @@ function TimelineTooltip({ point, preClose }: { point: IStockTimelinePoint; preC
 
 function buildChartPath(snapshot: IStockTimelineSnapshot | undefined): IChartPathResult | undefined {
   const rows = (snapshot?.points ?? []).filter((point) => Number.isFinite(point.price));
-  if (rows.length < 2) return undefined;
-  const priceValues = rows.map((point) => point.price);
-  const averageValues = rows.map((point) => point.avgPrice).filter((value): value is number => Number.isFinite(value));
+  const timelineRows = rows
+    .map((point) => {
+      const x = toTimelineX(point.time);
+      return x === undefined ? undefined : { point, x };
+    })
+    .filter((row): row is { point: IStockTimelinePoint; x: number } => Boolean(row));
+  if (timelineRows.length < 2) return undefined;
+  const chartRows = timelineRows.map((row) => row.point);
+  const priceValues = chartRows.map((point) => point.price);
+  const averageValues = chartRows.map((point) => point.avgPrice).filter((value): value is number => Number.isFinite(value));
   const preCloseValues = snapshot?.preClose === undefined ? [] : [snapshot.preClose];
   const values = [...priceValues, ...averageValues, ...preCloseValues];
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
-  const step = (VIEWBOX_WIDTH - PADDING_X * 2) / (rows.length - 1);
-  const toPoint = (value: number, index: number) => {
-    const x = PADDING_X + index * step;
-    const y = PADDING_Y + ((max - value) / range) * (VIEWBOX_HEIGHT - PADDING_Y * 2);
-    return { x: round(x), y: round(y) };
-  };
-  const toCoordinate = (value: number, index: number) => {
-    const point = toPoint(value, index);
-    return `${point.x},${point.y}`;
-  };
-  const coordinates = priceValues.map(toPoint);
+  const toY = (value: number) => round(PADDING_Y + ((max - value) / range) * (VIEWBOX_HEIGHT - PADDING_Y * 2));
+  const toCoordinate = (value: number, x: number) => `${round(x)},${toY(value)}`;
+  const coordinates = timelineRows.map(({ point, x }) => ({ x: round(x), y: toY(point.price) }));
   const priceLine = `M ${coordinates.map((point) => `${point.x},${point.y}`).join(' L ')}`;
-  const averageCoordinates = rows
-    .map((point, index) => (point.avgPrice === undefined ? undefined : toCoordinate(point.avgPrice, index)))
+  const averageCoordinates = timelineRows
+    .map(({ point, x }) => (point.avgPrice === undefined ? undefined : toCoordinate(point.avgPrice, x)))
     .filter((value): value is string => Boolean(value));
   const firstX = PADDING_X;
-  const lastX = PADDING_X + (rows.length - 1) * step;
+  const lastDataX = coordinates[coordinates.length - 1].x;
+  const lastX = VIEWBOX_WIDTH - PADDING_X;
   const baseline = VIEWBOX_HEIGHT - PADDING_Y;
-  const preCloseY = snapshot?.preClose === undefined ? undefined : toCoordinate(snapshot.preClose, 0).split(',')[1];
+  const preCloseY = snapshot?.preClose === undefined ? undefined : toY(snapshot.preClose);
   return {
-    rows,
+    rows: chartRows,
     coordinates,
     priceLine,
-    priceArea: `${priceLine} L ${round(lastX)},${baseline} L ${firstX},${baseline} Z`,
+    priceArea: `${priceLine} L ${round(lastDataX)},${baseline} L ${firstX},${baseline} Z`,
     averageLine: averageCoordinates.length >= 2 ? `M ${averageCoordinates.join(' L ')}` : undefined,
     preCloseLine: preCloseY ? `M ${firstX},${preCloseY} L ${round(lastX)},${preCloseY}` : undefined,
     yLabels: buildYLabels(snapshot?.preClose, min, max, range),
-    xLabels: buildXLabels(rows, step),
+    xLabels: buildXLabels(),
   };
 }
 
@@ -183,19 +214,17 @@ function buildYLabels(preClose: number | undefined, min: number, max: number, ra
   }));
 }
 
-function buildXLabels(rows: IStockTimelinePoint[], step: number) {
-  const indices = [0, Math.floor((rows.length - 1) / 2), rows.length - 1];
-  const seen = new Set<number>();
-  return indices
-    .filter((index) => {
-      if (seen.has(index)) return false;
-      seen.add(index);
-      return Boolean(rows[index]?.time);
-    })
-    .map((index) => ({
-      x: round(PADDING_X + index * step),
-      label: rows[index].time,
-    }));
+function buildXLabels() {
+  return TIMELINE_X_LABELS.map((item) => ({
+    x: round(PADDING_X + (item.offset / A_SHARE_TOTAL_TRADING_MINUTES) * CHART_WIDTH),
+    label: item.time,
+  }));
+}
+
+function toTimelineX(time: string): number | undefined {
+  const offset = getAShareTradingMinuteOffset(time);
+  if (offset === undefined) return undefined;
+  return PADDING_X + (offset / A_SHARE_TOTAL_TRADING_MINUTES) * CHART_WIDTH;
 }
 
 function round(value: number) {

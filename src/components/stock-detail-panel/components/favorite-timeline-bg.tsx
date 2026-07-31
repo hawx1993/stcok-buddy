@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { IStockTimelinePoint } from '../../../shared/types';
+import { A_SHARE_TOTAL_TRADING_MINUTES, getAShareTradingMinuteOffset } from '../../../shared/market-time';
 import cx from '../../../shared/cx';
 import styles from '../index.module.scss';
 
@@ -31,20 +32,25 @@ export function FavoriteTimelineBg({ points, isUp }: IFavoriteTimelineBgProps) {
 }
 
 function buildTimelinePath(points: IStockTimelinePoint[] | undefined) {
-  const prices = (points ?? []).map((point) => point.price).filter(Number.isFinite);
-  if (prices.length < 2) return undefined;
+  const timelinePoints = (points ?? [])
+    .map((point) => {
+      const offset = getAShareTradingMinuteOffset(point.time);
+      return offset === undefined || !Number.isFinite(point.price) ? undefined : { price: point.price, offset };
+    })
+    .filter((point): point is { price: number; offset: number } => Boolean(point));
+  if (timelinePoints.length < 2) return undefined;
+  const prices = timelinePoints.map((point) => point.price);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   const range = max - min || 1;
-  const step = (VIEWBOX_WIDTH - PADDING * 2) / (prices.length - 1);
-  const coordinates = prices.map((price, index) => {
-    const x = PADDING + index * step;
-    const y = PADDING + ((max - price) / range) * (VIEWBOX_HEIGHT - PADDING * 2);
+  const coordinates = timelinePoints.map((point) => {
+    const x = PADDING + (point.offset / A_SHARE_TOTAL_TRADING_MINUTES) * (VIEWBOX_WIDTH - PADDING * 2);
+    const y = PADDING + ((max - point.price) / range) * (VIEWBOX_HEIGHT - PADDING * 2);
     return `${round(x)},${round(y)}`;
   });
   const line = `M ${coordinates.join(' L ')}`;
   const firstX = PADDING;
-  const lastX = PADDING + (prices.length - 1) * step;
+  const lastX = PADDING + (timelinePoints[timelinePoints.length - 1].offset / A_SHARE_TOTAL_TRADING_MINUTES) * (VIEWBOX_WIDTH - PADDING * 2);
   const baseline = VIEWBOX_HEIGHT - PADDING;
   return {
     line,

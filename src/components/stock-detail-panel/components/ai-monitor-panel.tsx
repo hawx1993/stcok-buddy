@@ -388,9 +388,15 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
             onChange={(date: string) => handleHistoryDateClick(date)}
           />
         </ConfigProvider>
-        <button className={styles['surge-date-button']} onClick={handleRefresh} type='button'>
-          <RefreshCw size={12} />
-          <span style={{ paddingLeft: '2px' }}> 刷新</span>
+        <button
+          aria-label={loading ? '正在刷新 AI 监控' : '刷新 AI 监控'}
+          className={styles['surge-date-button']}
+          disabled={loading}
+          onClick={handleRefresh}
+          type='button'
+        >
+          <RefreshCw aria-hidden='true' className={loading ? styles['refreshing-icon'] : undefined} size={12} />
+          <span style={{ paddingLeft: '2px' }}>{loading ? '刷新中' : '刷新'}</span>
         </button>
         <button
           className={classNames(styles['surge-monitor-button'], autoRefresh && mode === 'realtime' && styles.active)}
