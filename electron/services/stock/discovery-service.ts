@@ -2,6 +2,7 @@ import StockSDK from 'stock-sdk';
 import { getMarketReview, scoreSentiment } from './market-review-service.js';
 import {
   getBatchQuotes,
+  getAllMarketQuoteRows,
   getMarketPageSnapshot,
   listDailyDragonTiger,
   listEastmoneySurgeByDate,
@@ -17,6 +18,7 @@ import {
 } from '../market-data/market-data-store.js';
 import { fetchMarketIndex } from './market-indices.js';
 import { isRemoteTradingDay } from '../market-data/providers.js';
+import { formatMoney } from './format.js';
 import { buildMonthlyThemesFromHistoricalPools } from './discovery-monthly-themes.js';
 import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from './discovery-hot-themes.js';
 import type { IHotThemeLeader } from './discovery-hot-themes.js';
@@ -613,6 +615,28 @@ function toStockItem(item: HotFocusItem): TStockItem {
     changePercent: item.changePercent !== undefined ? String(item.changePercent) : undefined,
     amount: item.amount !== undefined ? String(item.amount) : undefined,
   };
+}
+
+function toLimitDownStockItem(row: Awaited<ReturnType<typeof getAllMarketQuoteRows>>[number]): TStockItem | undefined {
+  if (!row.code || !row.name) return undefined;
+  const changePercent = parseChgPct(row.changePercent);
+  if (changePercent === undefined || changePercent > -9.8) return undefined;
+  return {
+    code: row.code,
+    name: row.name,
+    price: row.price !== undefined ? String(row.price) : undefined,
+    changePercent: String(changePercent),
+    amount: row.amount !== undefined ? formatMoney(row.amount) : undefined,
+  };
+}
+
+async function listLimitDownStocksFromQuotes(): Promise<TStockItem[]> {
+  const rows = await getAllMarketQuoteRows();
+  const stocks = rows
+    .map(toLimitDownStockItem)
+    .filter((item): item is TStockItem => Boolean(item))
+    .sort((a, b) => (parseChgPct(a.changePercent) ?? 0) - (parseChgPct(b.changePercent) ?? 0));
+  return stocks;
 }
 
 /** Parse 连板 count from description like "6连板·换手3.2%·封单2.5亿..." */
@@ -1223,12 +1247,13 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
 
   const today = new Date().toISOString().slice(0, 10).replaceAll('-', '');
 
-  const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool] = await Promise.allSettled([
+  const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool, quoteLimitDowns] = await Promise.allSettled([
     getMarketReview(),
     getMarketPageSnapshot('sh-main'),
     getMarketPageSnapshot('sz-main'),
     listDailyDragonTiger(),
     listEastmoneySurgeByDate(today),
+    listLimitDownStocksFromQuotes(),
   ]);
 
   // ── Indices ──
@@ -1283,6 +1308,9 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
     } else if (tag === '涨停开板') {
       sentimentStocks.zb.push(toStockItem(item));
     }
+  }
+  if (!sentimentStocks.dt.length && quoteLimitDowns.status === 'fulfilled') {
+    sentimentStocks.dt.push(...quoteLimitDowns.value);
   }
 
   // ── Yesterday pool for 昨日涨停指数 / 昨日连板指数 ──

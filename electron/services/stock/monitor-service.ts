@@ -11,6 +11,8 @@ import {
   pruneMonitorHistory,
 } from './monitor-history-store.js';
 import { listStockSurgeEvents } from './surge-history-store.js';
+import { getStockChip } from '../market-data/market-data-store.js';
+import { getAllMarketQuoteRows } from './market-page.js';
 import { getBatchQuotes, getChipDistribution, listHotFocus } from './stock-client.js';
 import { listStockNewsAnnouncements } from './news-client.js';
 import type {
@@ -21,6 +23,7 @@ import type {
   IMonitorEvent,
   IMonitorFeed,
   MarketNewsItem,
+  MarketQuoteRow,
   StockDetail,
   StockSurgeEvent,
   TMonitorCategory,
@@ -73,6 +76,9 @@ const CATEGORY_META: Record<TMonitorCategory, { label: string; icon: string; ton
 };
 
 const DETAIL_STOCK_LIMIT = 8;
+const CHIP_SCAN_LIMIT = 120;
+const CHIP_SIGNAL_EVENT_LIMIT = 50;
+let chipScanCursor = 0;
 let lastPrunedDate = '';
 
 function numericValue(value: unknown) {
@@ -97,6 +103,106 @@ function quotePrice(quote: StockDetail | HotFocusItem | undefined) {
 
 function quoteName(stock: Pick<FavoriteStock, 'code' | 'name'>, quote: StockDetail | HotFocusItem | undefined) {
   return quote?.name && quote.name !== stock.code ? quote.name : stock.name;
+}
+
+function mergeQuoteMaps(...maps: Array<Map<string, StockDetail>>) {
+  const merged = new Map<string, StockDetail>();
+  for (const map of maps) {
+    for (const [code, quote] of map.entries()) merged.set(code, { ...merged.get(code), ...quote });
+  }
+  return merged;
+}
+
+function marketRowToFavorite(row: MarketQuoteRow): FavoriteStock {
+  return { code: row.code, name: row.name || row.code, createdAt: new Date(0).toISOString() };
+}
+
+function marketRowToStockDetail(row: MarketQuoteRow): StockDetail {
+  return {
+    code: row.code,
+    name: row.name || row.code,
+    price: row.price,
+    changePercent: row.changePercent === undefined ? undefined : String(row.changePercent),
+    open: row.open,
+    high: row.high,
+    low: row.low,
+    prevClose: row.prevClose,
+    marketCap: row.marketCap === undefined ? undefined : String(row.marketCap),
+    turnoverRate: row.turnoverRate,
+    volume: row.volume === undefined ? undefined : String(row.volume),
+    turnover: row.amount === undefined ? undefined : String(row.amount),
+    industry: row.industry,
+  };
+}
+
+function dedupeStocks(stocks: FavoriteStock[]) {
+  const seen = new Set<string>();
+  return stocks.filter((stock) => stock.code && !seen.has(stock.code) && seen.add(stock.code));
+}
+
+function rotateCandidates(stocks: FavoriteStock[], limit: number) {
+  if (stocks.length <= limit) return stocks;
+  const start = chipScanCursor % stocks.length;
+  chipScanCursor = (start + limit) % stocks.length;
+  return [...stocks.slice(start), ...stocks.slice(0, start)].slice(0, limit);
+}
+
+async function buildChipScanUniverse(monitorUniverse: FavoriteStock[]) {
+  const marketRows = await getAllMarketQuoteRows().catch((error) => {
+    console.warn('[monitor] failed to fetch market quote candidates', error);
+    return [];
+  });
+  const marketQuoteByCode = new Map(marketRows.map((row) => [row.code, marketRowToStockDetail(row)]));
+  const marketCapCandidates = marketRows
+    .filter((row) => {
+      const marketCapYi = parseMarketCapYi(row.marketCap);
+      if (marketCapYi === undefined || marketCapYi < 20 || marketCapYi > 100) return false;
+      return numericValue(row.amount) !== 0 || numericValue(row.volume) !== 0;
+    })
+    .sort((a, b) => {
+      const turnoverDelta = (numericValue(b.turnoverRate) ?? 0) - (numericValue(a.turnoverRate) ?? 0);
+      if (turnoverDelta !== 0) return turnoverDelta;
+      return Math.abs(numericValue(b.changePercent) ?? 0) - Math.abs(numericValue(a.changePercent) ?? 0);
+    })
+    .map(marketRowToFavorite);
+  const marketStocks = dedupeStocks(marketCapCandidates);
+  const rotatedMarketStocks = rotateCandidates(
+    marketStocks.filter((stock) => !monitorUniverse.some((item) => item.code === stock.code)),
+    Math.max(0, CHIP_SCAN_LIMIT - monitorUniverse.length),
+  );
+  return {
+    stocks: dedupeStocks([...monitorUniverse, ...rotatedMarketStocks]).slice(0, CHIP_SCAN_LIMIT),
+    quoteByCode: marketQuoteByCode,
+  };
+}
+
+function isChipDistributionResult(value: unknown): value is IChipDistributionResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const result = value as Partial<IChipDistributionResult>;
+  return Array.isArray(result.distributions) && Array.isArray(result.trend) && typeof result.source === 'string';
+}
+
+async function collectCachedChipResults(
+  stocks: FavoriteStock[],
+  quoteByCode: Map<string, StockDetail>,
+  timestamp: string,
+  tradeDate: string,
+  monitorCodes: Set<string>,
+) {
+  const events: IMonitorEvent[] = [];
+  for (const stock of stocks) {
+    const cached = await getStockChip(stock.code).catch(() => undefined);
+    if (!isChipDistributionResult(cached)) continue;
+    const chip = cached;
+    const quote = quoteByCode.get(stock.code);
+    if (monitorCodes.has(stock.code)) {
+      const event = createChipEvent(stock, quote, chip, timestamp);
+      if (event) events.push(event);
+    }
+    const surgeEvents = await listStockSurgeEvents(stock.code, 30).catch(() => []);
+    events.push(...createChipSignalEvents(stock, quote, chip, surgeEvents, timestamp, tradeDate));
+  }
+  return events;
 }
 
 function makeEventBase(
@@ -493,7 +599,7 @@ export async function captureMonitorEvents(now = new Date(), categories: TMonito
       console.warn('[monitor] failed to fetch universe quotes', error);
     }
   }
-  const quoteByCode = new Map(quotes.map((q) => [q.code, q]));
+  let quoteByCode = new Map(quotes.map((q) => [q.code, q]));
 
   const detailStocks = monitorUniverse.slice(0, DETAIL_STOCK_LIMIT);
   const events = monitorUniverse.flatMap((stock) =>
@@ -510,19 +616,45 @@ export async function captureMonitorEvents(now = new Date(), categories: TMonito
   }
 
   if (categories.includes('chip')) {
-    const chipResults = await Promise.allSettled(detailStocks.map((stock) => getChipDistribution(stock.code)));
-    const surgeHistoryResults = await Promise.allSettled(detailStocks.map((stock) => listStockSurgeEvents(stock.code, 30)));
-    warnSettledErrors('chip', chipResults);
-    warnSettledErrors('chip-surge-history', surgeHistoryResults);
-    chipResults.forEach((result, index) => {
-      if (result.status !== 'fulfilled') return;
-      const stock = detailStocks[index];
-      const quote = quoteByCode.get(stock.code);
-      const surgeEvents = surgeHistoryResults[index]?.status === 'fulfilled' ? surgeHistoryResults[index].value : [];
-      const event = createChipEvent(stock, quote, result.value, timestamp);
-      if (event) events.push(event);
-      events.push(...createChipSignalEvents(stock, quote, result.value, surgeEvents, timestamp, tradeDate));
-    });
+    let chipScanStocks = detailStocks;
+    try {
+      const chipScanUniverse = await buildChipScanUniverse(monitorUniverse);
+      chipScanStocks = chipScanUniverse.stocks;
+      quoteByCode = mergeQuoteMaps(chipScanUniverse.quoteByCode, quoteByCode);
+      const missingQuoteCodes = chipScanStocks.filter((stock) => !quoteByCode.has(stock.code)).map((stock) => stock.code);
+      if (missingQuoteCodes.length) {
+        const chipQuotes = await getBatchQuotes(missingQuoteCodes).catch((error) => {
+          console.warn('[monitor] failed to fetch chip scan quotes', error);
+          return [];
+        });
+        quoteByCode = mergeQuoteMaps(quoteByCode, new Map(chipQuotes.map((quote) => [quote.code, quote])));
+      }
+    } catch (error) {
+      console.warn('[monitor] failed to build chip scan universe', error);
+    }
+
+    const monitorCodes = new Set(monitorUniverse.map((stock) => stock.code));
+    const chipEvents = await collectCachedChipResults(chipScanStocks, quoteByCode, timestamp, tradeDate, monitorCodes);
+    if (chipEvents.length) {
+      events.push(...limitChipEvents(chipEvents));
+    } else {
+      const chipResults = await Promise.allSettled(detailStocks.map(async (stock) => {
+        const [chip, surgeEvents] = await Promise.all([
+          getChipDistribution(stock.code),
+          listStockSurgeEvents(stock.code, 30),
+        ]);
+        return { stock, chip, surgeEvents };
+      }));
+      warnSettledErrors('chip', chipResults);
+      chipResults.forEach((result) => {
+        if (result.status !== 'fulfilled') return;
+        const { stock, chip, surgeEvents } = result.value;
+        const quote = quoteByCode.get(stock.code);
+        const event = createChipEvent(stock, quote, chip, timestamp);
+        if (event) events.push(event);
+        events.push(...createChipSignalEvents(stock, quote, chip, surgeEvents, timestamp, tradeDate));
+      });
+    }
   }
 
   if (categories.includes('news')) {
@@ -536,6 +668,12 @@ export async function captureMonitorEvents(now = new Date(), categories: TMonito
   }
 
   return limitQuoteSignals(sortMonitorEvents(events));
+}
+
+function limitChipEvents(events: IMonitorEvent[]) {
+  const regularChipEvents = events.filter((event) => !event.id.startsWith('mo-chip-low-concentration-'));
+  const signalEvents = events.filter((event) => event.id.startsWith('mo-chip-low-concentration-'));
+  return [...regularChipEvents, ...signalEvents.slice(0, CHIP_SIGNAL_EVENT_LIMIT)];
 }
 
 function limitQuoteSignals(events: IMonitorEvent[]) {

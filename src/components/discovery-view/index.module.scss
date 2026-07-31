@@ -1817,6 +1817,9 @@
   }
 }
 :global(.monitor-ai-label) {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   color: #e8b84b;
   font-weight: 600;
   flex-shrink: 0;

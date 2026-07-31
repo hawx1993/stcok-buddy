@@ -41,7 +41,7 @@ import {
   getAllMarketQuoteRows,
 } from './market-page.js';
 
-export { getBoardDetail, getMarketPageSnapshot, onMarketPageSnapshotUpdated };
+export { getBoardDetail, getMarketPageSnapshot, getAllMarketQuoteRows, onMarketPageSnapshotUpdated };
 import {
   fetchMarketIndex,
   normalizeIndexSymbol,

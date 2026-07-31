@@ -11,6 +11,8 @@ import type {
   ThemeMode,
   AgentRunEvent,
   DataSyncTaskType,
+  TMonitorCategory,
+  TMonitorMode,
 } from '../shared/types';
 
 export type SidebarTab = 'all' | 'surge' | 'stock' | 'diagnosis' | 'market';
@@ -44,9 +46,17 @@ export interface SurgeStock extends StockDetail {
   reason: string;
 }
 
+export interface IAiMonitorReturnState {
+  activeTab: Exclude<TMonitorCategory, 'dragon-tiger'> | 'all';
+  currentPage: number;
+  selectedDate: string;
+  mode: TMonitorMode;
+}
+
 interface IStockReturnContext {
   tab: RightPanelTab;
   code: string;
+  aiMonitor?: IAiMonitorReturnState;
 }
 
 interface AppState {

@@ -95,7 +95,7 @@ export function StockDetailPanel() {
           genericBackLabel={showGenericBack && stockReturnContext ? BACK_LABELS[stockReturnContext.tab] : undefined}
         />
       ) : null}
-      {rightPanelTab === 'ai-monitor' ? <AiMonitorPanel isActive={!isRightPanelCollapsed} /> : null}
+      {rightPanelTab === 'ai-monitor' ? <AiMonitorPanel isActive={!isRightPanelCollapsed} restoreState={stockReturnContext?.tab === 'ai-monitor' ? stockReturnContext.aiMonitor : undefined} /> : null}
     </aside>
   );
 }
