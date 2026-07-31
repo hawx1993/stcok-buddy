@@ -222,6 +222,7 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
         setTotalCount(feed.total ?? feed.events.length);
         setCategoryTotals(feed.categoryTotals ?? {});
         setLastUpdated(feed.updatedAt);
+        window.dispatchEvent(new CustomEvent('monitor:feedUpdated'));
       } catch (err) {
         setError(err instanceof Error ? err.message : '监控数据加载失败');
       } finally {
@@ -301,8 +302,13 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
     }
   };
 
-  const toggleStar = (id: string) => {
-    setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, star: !e.star } : e)));
+  const toggleStar = (eventId: string) => {
+    setEvents((prev) => {
+      const target = prev.find((event) => event.id === eventId);
+      if (!target) return prev;
+      const nextStar = !target.star;
+      return prev.map((event) => (event.code === target.code ? { ...event, star: nextStar } : event));
+    });
   };
 
   const goPage = (page: number) => {

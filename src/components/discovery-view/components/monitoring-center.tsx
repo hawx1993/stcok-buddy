@@ -101,6 +101,14 @@ export function MonitoringCenter() {
   }, [loadFeed]);
 
   useEffect(() => {
+    const handleMonitorFeedUpdated = () => {
+      void loadFeed();
+    };
+    window.addEventListener('monitor:feedUpdated', handleMonitorFeedUpdated);
+    return () => window.removeEventListener('monitor:feedUpdated', handleMonitorFeedUpdated);
+  }, [loadFeed]);
+
+  useEffect(() => {
     const handleMonitorHistoryCleared = () => {
       previousEventIdsRef.current = [];
       setFlowInIds([]);

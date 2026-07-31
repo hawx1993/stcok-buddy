@@ -83,11 +83,13 @@ function ensureReady() {
   return ready;
 }
 
-export function saveMonitorEvents(events: IMonitorEvent[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
-  if (!events.length) return Promise.resolve();
+export async function saveMonitorEvents(events: IMonitorEvent[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
+  const dedupedEvents = dedupeMonitorEvents(events);
+  if (!dedupedEvents.length) return Promise.resolve();
   return withDb(async () => {
     const captured = capturedAt.toISOString();
-    const eventIds = Array.from(new Set(events.map((event) => event.id)));
+    const eventIds = Array.from(new Set(dedupedEvents.map((event) => event.id)));
+    const highFrequencyKeys = Array.from(new Set(dedupedEvents.filter(isHighFrequencyMonitorEvent).map(monitorSignalKey)));
     const existingTimestamps = new Map(
       (await all<{ id: string; timestamp: string }>(
         `SELECT id, MIN(timestamp) AS timestamp
@@ -96,8 +98,26 @@ export function saveMonitorEvents(events: IMonitorEvent[], capturedAt = new Date
          GROUP BY id`,
       )).map((row) => [row.id, row.timestamp] as const),
     );
-    const statements = events.flatMap((event) => [
+    const existingSignalTimestamps = highFrequencyKeys.length
+      ? new Map(
+          (await all<{ category: TMonitorCategory; code: string; title: string; timestamp: string }>(
+            `SELECT category, code, title, MIN(timestamp) AS timestamp
+             FROM ai_monitor_events
+             WHERE trade_date = ${sqlValue(tradeDate)}
+               AND (${highFrequencyKeys.map(monitorSignalWhereSql).join(' OR ')})
+             GROUP BY category, code, title`,
+          )).map((row) => [monitorSignalKey(row), row.timestamp] as const),
+        )
+      : new Map<string, string>();
+    const signalTimestamps = new Map(existingSignalTimestamps);
+    for (const event of dedupedEvents) {
+      if (!isHighFrequencyMonitorEvent(event)) continue;
+      const key = monitorSignalKey(event);
+      if (!signalTimestamps.has(key)) signalTimestamps.set(key, event.timestamp);
+    }
+    const statements = dedupedEvents.flatMap((event) => [
       `DELETE FROM ai_monitor_events WHERE trade_date = ${sqlValue(tradeDate)} AND id = ${sqlValue(event.id)}`,
+      monitorDuplicateDeleteSql(tradeDate, event),
       ...(isHighFrequencyMonitorEvent(event)
         ? [
             `DELETE FROM ai_monitor_events
@@ -114,7 +134,7 @@ export function saveMonitorEvents(events: IMonitorEvent[], capturedAt = new Date
          captured,
          event.id,
          event.category,
-         existingTimestamps.get(event.id) ?? event.timestamp,
+         existingTimestamps.get(event.id) ?? signalTimestamps.get(monitorSignalKey(event)) ?? event.timestamp,
          event.code,
          event.name,
          stringify(event.price),
@@ -132,11 +152,13 @@ export function saveMonitorEvents(events: IMonitorEvent[], capturedAt = new Date
 }
 
 export function enqueueMonitorEvents(events: IMonitorEvent[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
-  if (!events.length) return;
+  const dedupedEvents = dedupeMonitorEvents(events);
+  if (!dedupedEvents.length) return;
   const group = monitorEventQueue.get(tradeDate) ?? { events: new Map<string, IMonitorEvent>(), capturedAt, tradeDate };
-  for (const event of events) {
-    const queuedEvent = group.events.get(event.id);
-    group.events.set(event.id, queuedEvent ? { ...event, timestamp: queuedEvent.timestamp } : event);
+  for (const event of dedupedEvents) {
+    const key = findQueuedMonitorEventKey(group.events, event);
+    const queuedEvent = group.events.get(key);
+    group.events.set(key, queuedEvent ? { ...event, timestamp: queuedEvent.timestamp } : event);
   }
   if (capturedAt > group.capturedAt) group.capturedAt = capturedAt;
   monitorEventQueue.set(tradeDate, group);
@@ -341,8 +363,48 @@ async function withConnection<T>(work: (connection: DuckDBConnection) => Promise
   }
 }
 
-function isHighFrequencyMonitorEvent(event: IMonitorEvent) {
+function isHighFrequencyMonitorEvent(event: Pick<IMonitorEvent, 'category'>) {
   return HIGH_FREQUENCY_MONITOR_CATEGORIES.includes(event.category);
+}
+
+function dedupeMonitorEvents(events: IMonitorEvent[]) {
+  const byId = new Map<string, IMonitorEvent>();
+  for (const event of events) byId.set(event.id, event);
+  const byDuplicate = new Map<string, IMonitorEvent>();
+  for (const event of byId.values()) byDuplicate.set(monitorDuplicateKey(event), event);
+  return Array.from(byDuplicate.values());
+}
+
+function findQueuedMonitorEventKey(events: Map<string, IMonitorEvent>, event: IMonitorEvent) {
+  const duplicateKey = monitorDuplicateKey(event);
+  if (events.has(duplicateKey)) return duplicateKey;
+  for (const [key, queuedEvent] of events) {
+    if (queuedEvent.id === event.id) return key;
+  }
+  return duplicateKey;
+}
+
+function monitorDuplicateKey(event: IMonitorEvent) {
+  return `${event.category}\n${event.timestamp}\n${event.code}\n${event.title}\n${event.details.join('\n')}`;
+}
+
+function monitorDuplicateDeleteSql(tradeDate: string, event: IMonitorEvent) {
+  return `DELETE FROM ai_monitor_events
+          WHERE trade_date = ${sqlValue(tradeDate)}
+            AND category = ${sqlValue(event.category)}
+            AND timestamp = ${sqlValue(event.timestamp)}
+            AND code = ${sqlValue(event.code)}
+            AND title = ${sqlValue(event.title)}
+            AND details_json = ${sqlValue(JSON.stringify(event.details))}`;
+}
+
+function monitorSignalKey(event: Pick<IMonitorEvent, 'category' | 'code' | 'title'>) {
+  return `${event.category}\n${event.code}\n${event.title}`;
+}
+
+function monitorSignalWhereSql(eventKey: string) {
+  const [category, code, title] = eventKey.split('\n');
+  return `(category = ${sqlValue(category)} AND code = ${sqlValue(code)} AND title = ${sqlValue(title)})`;
 }
 
 function monitorCategorySql(categories: TMonitorCategory[] | undefined) {
