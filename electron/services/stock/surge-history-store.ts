@@ -90,20 +90,32 @@ function ensureReady() {
       tag TEXT,
       type TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_stock_surge_events_date_id
-      ON stock_surge_events (trade_date, id);
+    DROP INDEX IF EXISTS idx_stock_surge_events_date_id;
   `);
   return ready;
 }
 
+function dedupeHotFocusItems(items: HotFocusItem[]) {
+  const map = new Map<string, HotFocusItem>();
+  for (const item of items) map.set(item.id, item);
+  return Array.from(map.values());
+}
+
+function dedupeStockSurgeEvents(events: StockSurgeEvent[]) {
+  const map = new Map<string, StockSurgeEvent>();
+  for (const event of events) map.set(`${event.tradeDate}|${event.id}`, event);
+  return Array.from(map.values());
+}
+
 export function saveSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
-  if (!items.length) return Promise.resolve();
+  const uniqueItems = dedupeHotFocusItems(items);
+  if (!uniqueItems.length) return Promise.resolve();
   // ponytail: drop writes while the clear marker is active so the DB file is
   // not recreated immediately after a clear.
   if (isSurgeHistoryClearMarkerActive()) return Promise.resolve();
   return withDb(async () => {
     const captured = capturedAt.toISOString();
-    const statements = items.flatMap((item) => [
+    const statements = uniqueItems.flatMap((item) => [
       `DELETE FROM stock_surge_events WHERE trade_date = ${sqlValue(tradeDate)} AND id = ${sqlValue(item.id)}`,
       `INSERT INTO stock_surge_events
         (trade_date, captured_at, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type)
@@ -256,14 +268,15 @@ export function listStockSurgeEvents(code: string, keepDays = 7) {
 }
 
 export function saveIndividualSurgeHistory(events: StockSurgeEvent[]) {
-  if (!events.length) return Promise.resolve();
+  const uniqueEvents = dedupeStockSurgeEvents(events);
+  if (!uniqueEvents.length) return Promise.resolve();
   // ponytail: drop writes while the clear marker is active.
   if (isSurgeHistoryClearMarkerActive()) return Promise.resolve();
   return withDb(async () => {
     const captured = new Date().toISOString();
     // Batch per trade_date to keep transactions manageable
     const groups = new Map<string, StockSurgeEvent[]>();
-    for (const event of events) {
+    for (const event of uniqueEvents) {
       const list = groups.get(event.tradeDate) ?? [];
       list.push(event);
       groups.set(event.tradeDate, list);
@@ -356,18 +369,55 @@ export async function resetSurgeHistoryStore() {
 
 function readDb<T>(work: () => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('surge history store is closing'));
-  return ensureReady().then(work);
+  return ensureReady()
+    .then(work)
+    .catch(async (error) => {
+      if (!isDuckDbFatalInvalidation(error)) throw error;
+      await recoverSurgeHistoryStoreAfterFatal(error);
+      await ensureReady();
+      return work();
+    });
 }
 
 function withDb<T>(work: () => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('surge history store is closing'));
   const next = queue.then(async () => {
     if (isClosing) throw new Error('surge history store is closing');
-    await ensureReady();
-    return work();
+    try {
+      await ensureReady();
+      return await work();
+    } catch (error) {
+      if (!isDuckDbFatalInvalidation(error)) throw error;
+      await recoverSurgeHistoryStoreAfterFatal(error);
+      await ensureReady();
+      return work();
+    }
   });
   queue = next.then(() => undefined, () => undefined);
   return next;
+}
+
+function isDuckDbFatalInvalidation(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('database has been invalidated') ||
+    message.includes('Failed to delete all rows from index') ||
+    message.includes('The database must be restarted prior to being used again')
+  );
+}
+
+async function recoverSurgeHistoryStoreAfterFatal(error: unknown) {
+  console.warn('[surge-history] resetting DuckDB instance after fatal invalidation', error);
+  try {
+    if (dbReady) {
+      const instance = await dbReady;
+      instance.closeSync();
+    }
+  } catch (closeError) {
+    console.warn('[surge-history] failed to close invalid DuckDB instance', closeError);
+  }
+  ready = undefined;
+  dbReady = DuckDBInstance.create(dbPath);
 }
 
 function exec(sql: string) {

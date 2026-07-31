@@ -145,6 +145,7 @@ argument-hint: '用户问题描述'
 
 ```bash
 pnpm run typecheck
+pnpm run test
 ```
 
 若 TypeScript 类型检查失败：
@@ -170,7 +171,7 @@ pnpm run typecheck
 - [ ] 未引入 mock、fake、preview、demo 或伪造行情数据。
 - [ ] 未修改需求以外的代码；未顺手重构相邻逻辑。
 - [ ] 已清理由本次修改产生的无用代码。
-- [ ] 已运行相应测试、自检或构建，并如实报告结果。
+- [ ] 已运行`pnpm run test` 相应测试、自检或构建，并如实报告结果。
 
 ## 最终报告格式
 

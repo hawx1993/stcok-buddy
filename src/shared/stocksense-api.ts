@@ -452,6 +452,9 @@ const webFallbackApi: StocksenseApi = {
   async getBatchQuotes(_codes: string[]) {
     return [];
   },
+  async getStockTimelines(_codes: string[]) {
+    return {};
+  },
   async listMarketNews(_query = '', page = 1, pageSize = 30) {
     return pageItems([], page, pageSize);
   },

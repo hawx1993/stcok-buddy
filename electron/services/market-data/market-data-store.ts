@@ -108,7 +108,7 @@ const schemaSql = `
     source TEXT NOT NULL,
     updated_at TIMESTAMP NOT NULL
   );
-  CREATE INDEX IF NOT EXISTS idx_market_boards_name ON market_boards(name);
+  DROP INDEX IF EXISTS idx_market_boards_name;
 
   CREATE TABLE IF NOT EXISTS board_constituents (
     board_code TEXT NOT NULL,
@@ -118,7 +118,7 @@ const schemaSql = `
     updated_at TIMESTAMP NOT NULL,
     PRIMARY KEY (board_code, stock_code)
   );
-  CREATE INDEX IF NOT EXISTS idx_board_constituents_stock ON board_constituents(stock_code);
+  DROP INDEX IF EXISTS idx_board_constituents_stock;
 `;
 
 export function initializeMarketDataStore() {
@@ -545,13 +545,28 @@ export async function listMarketBoards(): Promise<MarketBoardRecord[]> {
   return read(async (connection) => {
     const rows = await all<Record<string, unknown>>(
       connection,
-      'SELECT board_code, name, kind, change_percent, source, updated_at FROM market_boards ORDER BY name',
+      `
+        SELECT
+          b.board_code,
+          b.name,
+          b.kind,
+          b.change_percent,
+          sum(s.amount) AS amount,
+          b.source,
+          b.updated_at
+        FROM market_boards b
+        LEFT JOIN board_constituents c ON c.board_code = b.board_code
+        LEFT JOIN stock_snapshots s ON s.symbol = c.stock_code
+        GROUP BY b.board_code, b.name, b.kind, b.change_percent, b.source, b.updated_at
+        ORDER BY b.name
+      `,
     );
     return rows.map((row) => ({
       code: String(row.board_code),
       name: String(row.name),
       kind: optionalString(row.kind),
       changePercent: optionalNumber(row.change_percent),
+      amount: optionalNumber(row.amount),
       source: String(row.source),
       updatedAt: String(row.updated_at),
     }));

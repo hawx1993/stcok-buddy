@@ -41,6 +41,36 @@ await store.flushMonitorEventQueue();
 assert.equal(store.getQueuedMonitorEventCount(), 0);
 const queued = await store.listMonitorHistory({ date: '2026-07-23', limit: 10 });
 assert.equal(queued.find((item) => item.id === 'queued-1')?.title, '队列写入后');
+assert.equal(queued.find((item) => item.id === 'queued-1')?.timestamp, baseEvent.timestamp);
+
+store.enqueueMonitorEvents([
+  { ...baseEvent, id: 'queued-duplicate-1', category: 'large-order', code: '300058', name: '蓝色光标', timestamp: '2026-07-23T02:33:46.000Z', title: '特大单买入', details: ['蓝色光标 300058', '买入4.81万手 · 特大单买入'] },
+  { ...baseEvent, id: 'queued-duplicate-2', category: 'large-order', code: '300058', name: '蓝色光标', timestamp: '2026-07-23T02:33:46.000Z', title: '特大单买入', details: ['蓝色光标 300058', '买入4.81万手 · 特大单买入'] },
+], new Date('2026-07-23T02:33:46.000Z'), '2026-07-23');
+assert.equal(store.getQueuedMonitorEventCount(), 1);
+await store.flushMonitorEventQueue();
+const duplicateLargeOrders = await store.listMonitorHistory({ date: '2026-07-23', categories: ['large-order'], limit: 10 });
+assert.equal(duplicateLargeOrders.filter((item) => item.code === '300058' && item.title === '特大单买入').length, 1);
+assert.equal(duplicateLargeOrders.find((item) => item.code === '300058' && item.title === '特大单买入')?.id, 'queued-duplicate-2');
+
+await store.saveMonitorEvents([
+  { ...baseEvent, id: 'stable-time', category: 'large-order', timestamp: '2026-07-23T02:10:00.000Z', title: '首次生成' },
+], new Date('2026-07-23T02:10:00.000Z'), '2026-07-23');
+await store.saveMonitorEvents([
+  { ...baseEvent, id: 'stable-time', category: 'large-order', timestamp: '2026-07-23T02:11:00.000Z', title: '更新内容' },
+], new Date('2026-07-23T02:11:00.000Z'), '2026-07-23');
+const stableTime = (await store.listMonitorHistory({ date: '2026-07-23', limit: 10 })).find((item) => item.id === 'stable-time');
+assert.equal(stableTime?.title, '更新内容');
+assert.equal(stableTime?.timestamp, '2026-07-23T02:10:00.000Z');
+
+await store.saveMonitorEvents([
+  { ...baseEvent, id: 'stable-signal-1', category: 'ai-opportunity', code: '300001', title: '强势量价机会', timestamp: '2026-07-23T02:20:00.000Z' },
+], new Date('2026-07-23T02:20:00.000Z'), '2026-07-23');
+await store.saveMonitorEvents([
+  { ...baseEvent, id: 'stable-signal-2', category: 'ai-opportunity', code: '300001', title: '强势量价机会', timestamp: '2026-07-23T02:21:00.000Z' },
+], new Date('2026-07-23T02:21:00.000Z'), '2026-07-23');
+const stableSignalTime = (await store.listMonitorHistory({ date: '2026-07-23', categories: ['ai-opportunity'], limit: 10 })).find((item) => item.id === 'stable-signal-2');
+assert.equal(stableSignalTime?.timestamp, '2026-07-23T02:20:00.000Z');
 
 const dates = await store.listMonitorDates(7);
 assert.deepEqual(dates, ['2026-07-23', '2026-07-22']);

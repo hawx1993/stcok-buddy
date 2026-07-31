@@ -1,12 +1,13 @@
-import { message as antdMessage } from 'antd';
+import { message as antdMessage, Switch } from 'antd';
 import { Pin, PinOff, Star, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
 import { isChinaMarketOpen } from '../../../shared/market-time';
-import type { StockDetail } from '../../../shared/types';
+import type { IStockTimelineSnapshot, StockDetail } from '../../../shared/types';
 import { useAppStore } from '../../../store/app-store';
 import { Empty } from '../../empty';
+import { FavoriteTimelineBg } from './favorite-timeline-bg';
 import styles from '../index.module.scss';
 
 interface IFavoritesPanelProps {
@@ -15,6 +16,8 @@ interface IFavoritesPanelProps {
 
 export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   const [quotes, setQuotes] = useState<Record<string, StockDetail>>({});
+  const [timelines, setTimelines] = useState<Record<string, IStockTimelineSnapshot>>({});
+  const [showTimeline, setShowTimeline] = useState(true);
   const quoteTimerRef = useRef<number>();
   const favoriteStocks = useAppStore((state) => state.favoriteStocks);
   const setFavoriteStocks = useAppStore((state) => state.setFavoriteStocks);
@@ -38,17 +41,34 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
         });
     };
 
+    const refreshTimelines = () => {
+      if (!showTimeline) return;
+      getStocksenseApi()
+        .getStockTimelines(favoriteStocks.map((item) => item.code))
+        .then((rows) => {
+          if (alive) setTimelines(rows);
+        })
+        .catch((error: unknown) => {
+          if (alive) console.error(error);
+        });
+    };
+
     void refreshQuotes();
+    if (showTimeline) void refreshTimelines();
+    else setTimelines({});
     window.clearInterval(quoteTimerRef.current);
     if (isChinaMarketOpen()) {
-      quoteTimerRef.current = window.setInterval(refreshQuotes, 15_000);
+      quoteTimerRef.current = window.setInterval(() => {
+        refreshQuotes();
+        refreshTimelines();
+      }, 15_000);
     }
 
     return () => {
       alive = false;
       window.clearInterval(quoteTimerRef.current);
     };
-  }, [favoriteStocks, isActive]);
+  }, [favoriteStocks, isActive, showTimeline]);
 
   const openStock = async (stock: StockDetail) => {
     setRightPanelTab('stock');
@@ -66,6 +86,11 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
     const previous = favoriteStocks;
     setFavoriteStocks(previous.filter((stock) => stock.code !== code));
     setQuotes((current) => {
+      const next = { ...current };
+      delete next[code];
+      return next;
+    });
+    setTimelines((current) => {
       const next = { ...current };
       delete next[code];
       return next;
@@ -89,10 +114,14 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
 
   return (
     <>
-      <div className={styles['right-panel-header']}>
+      <div className={cx(styles['right-panel-header'], styles['favorite-panel-header'])}>
         <span className={styles.title}>
           <Star className={styles['panel-title-icon']} size={16} />
           收藏个股
+        </span>
+        <span className={styles['favorite-timeline-switch']}>
+          <small>分时图</small>
+          <Switch size='small' checked={showTimeline} onChange={setShowTimeline} />
         </span>
       </div>
       <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
@@ -104,6 +133,7 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
               <FavoriteStockItem
                 key={item.code}
                 stock={stock}
+                timeline={showTimeline ? timelines[item.code] : undefined}
                 pinned={Boolean(item.pinned)}
                 onOpen={() => void openStock(stock)}
                 onRemove={() => void remove(item.code)}
@@ -127,13 +157,14 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
 
 interface IFavoriteStockItemProps {
   stock: StockDetail;
+  timeline: IStockTimelineSnapshot | undefined;
   pinned: boolean;
   onOpen(): void;
   onRemove(): void;
   onTogglePin(): void;
 }
 
-function FavoriteStockItem({ stock, pinned, onOpen, onRemove, onTogglePin }: IFavoriteStockItemProps) {
+function FavoriteStockItem({ stock, timeline, pinned, onOpen, onRemove, onTogglePin }: IFavoriteStockItemProps) {
   const stop = (event: MouseEvent, action: () => void) => {
     event.stopPropagation();
     action();
@@ -153,6 +184,7 @@ function FavoriteStockItem({ stock, pinned, onOpen, onRemove, onTogglePin }: IFa
       role='button'
       tabIndex={0}
     >
+      <FavoriteTimelineBg points={timeline?.points} isUp={isUp} />
       <span className={styles['favorite-main']}>
         <b>
           {stock.name}

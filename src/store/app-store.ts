@@ -11,6 +11,8 @@ import type {
   ThemeMode,
   AgentRunEvent,
   DataSyncTaskType,
+  TMonitorCategory,
+  TMonitorMode,
 } from '../shared/types';
 
 export type SidebarTab = 'all' | 'surge' | 'stock' | 'diagnosis' | 'market';
@@ -44,9 +46,17 @@ export interface SurgeStock extends StockDetail {
   reason: string;
 }
 
+export interface IAiMonitorReturnState {
+  activeTab: Exclude<TMonitorCategory, 'dragon-tiger'> | 'all';
+  currentPage: number;
+  selectedDate: string;
+  mode: TMonitorMode;
+}
+
 interface IStockReturnContext {
   tab: RightPanelTab;
   code: string;
+  aiMonitor?: IAiMonitorReturnState;
 }
 
 interface AppState {
@@ -67,6 +77,7 @@ interface AppState {
   stockKlines: Record<string, NonNullable<AgentResultCard['chart']>['data']>;
   selectedStock?: StockDetail;
   stockReturnContext?: IStockReturnContext;
+  aiMonitorState?: IAiMonitorReturnState;
   selectedBoard?: BoardDetail;
   isSettingsOpen: boolean;
   isAboutOpen: boolean;
@@ -104,6 +115,7 @@ interface AppState {
   clearMessages(): void;
   setSelectedStock(stock?: StockDetail): void;
   setStockReturnContext(context?: IStockReturnContext): void;
+  setAiMonitorState(state: IAiMonitorReturnState): void;
   setSelectedBoard(board?: BoardDetail): void;
   setSettingsOpen(open: boolean): void;
   setAboutOpen(open: boolean): void;
@@ -130,6 +142,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   stockKlines: {},
   selectedStock: undefined,
   stockReturnContext: undefined,
+  aiMonitorState: undefined,
   selectedBoard: undefined,
   isSettingsOpen: false,
   isAboutOpen: false,
@@ -281,6 +294,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       stockReturnContext: stock ? state.stockReturnContext : undefined,
     })),
   setStockReturnContext: (context) => set({ stockReturnContext: context }),
+  setAiMonitorState: (aiMonitorState) => set({ aiMonitorState }),
   setSelectedBoard: (board) => set({ selectedBoard: board, selectedStock: undefined, stockReturnContext: undefined }),
   setSettingsOpen: (open) => set({ isSettingsOpen: open }),
   setAboutOpen: (open) => set({ isAboutOpen: open }),

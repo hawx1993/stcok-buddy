@@ -42,9 +42,12 @@ const periods: Array<{ id: MarketIndexPeriod; label: string }> = [
 
 type SortDirection = TSortDirection;
 
+type TAshareMarketPhase = { label: string; isTrading: boolean };
+
 export function MarketView() {
   const [activeTab, setActiveTab] = useState<MarketTab>('sh-main');
   const [indexPeriod, setIndexPeriod] = useState<MarketIndexPeriod>('1d');
+  const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase(new Date()));
   const [indices, setIndices] = useState<MarketIndexSnapshot[]>([]);
   const [rowsByTab, setRowsByTab] = useState<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
   const rowsByTabRef = useRef<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
@@ -76,6 +79,13 @@ export function MarketView() {
   const selectedBoard = useAppStore((state) => state.selectedBoard);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
   const openBoardPanel = useAppStore((state) => state.openBoardPanel);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setMarketPhase(getAshareMarketPhase(new Date()));
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     rowsByTabRef.current = rowsByTab;
@@ -405,8 +415,14 @@ export function MarketView() {
       <div className={styles.header}>
         <div>
           <h1>行情</h1>
-          <p>
-            全市场快照 · {updatedAt ? new Date(updatedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '加载中'}
+          <p className={styles.snapshotMeta}>
+            <span>
+              全市场快照 · {updatedAt ? new Date(updatedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '加载中'}
+            </span>
+            <span className={cx(styles.phasePill, !marketPhase.isTrading && styles.phasePillInactive)}>
+              <span className={cx(styles.liveDot, !marketPhase.isTrading && styles.liveDotInactive)} />
+              {marketPhase.label}
+            </span>
           </p>
         </div>
         <div className={styles.headerActions}>
@@ -535,6 +551,20 @@ function toMarketIndexSymbol(code: string | undefined) {
   if (code === '000001') return 'sh000001';
   if (code === '399001') return 'sz399001';
   return undefined;
+}
+
+function getAshareMarketPhase(now: Date): TAshareMarketPhase {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const day = now.getDay();
+  const isWeekday = day >= 1 && day <= 5;
+
+  if (!isWeekday) return { label: '非交易日', isTrading: false };
+  if (minutes < 9 * 60 + 25) return { label: '盘前', isTrading: false };
+  if (minutes < 9 * 60 + 30) return { label: '集合竞价', isTrading: true };
+  if (minutes <= 11 * 60 + 30) return { label: '盘中', isTrading: true };
+  if (minutes < 13 * 60) return { label: '午间休市', isTrading: false };
+  if (minutes <= 15 * 60) return { label: '盘中', isTrading: true };
+  return { label: '已收盘', isTrading: false };
 }
 
 function isChinaMarketOpen(date = new Date()) {

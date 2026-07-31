@@ -37,6 +37,7 @@ interface ISectorSummary {
   name: string;
   changePercent: number;
   mainNetInflow: number;
+  amount?: number;
 }
 
 interface IOpportunityRadarItem {
@@ -54,6 +55,7 @@ interface IMonthlyThemeItem {
 }
 
 interface INextWeekSector {
+  code?: string;
   name: string;
   score: number;
   reasoning: {
@@ -105,6 +107,7 @@ interface IDiscoverySnapshot {
   };
   nextDayFocus?: Array<{ category: string; condition: string; baseline?: number | null }>;
   watchlistQuotes?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
+  unavailableReason?: string;
 }
 
 const PILLS = [
@@ -194,6 +197,10 @@ function HeroGaugeSkeleton() {
   );
 }
 
+function DiscoveryWaitingState({ message }: { message: string }) {
+  return <div className="empty-block">{message}</div>;
+}
+
 export function DiscoveryView() {
   const setMainView = useAppStore((state) => state.setMainView);
   const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
@@ -202,6 +209,7 @@ export function DiscoveryView() {
   const [error, setError] = useState('');
   const [activePill, setActivePill] = useState('hero');
   const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase(new Date()));
+  const [currentDate, setCurrentDate] = useState(() => new Date());
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -224,7 +232,9 @@ export function DiscoveryView() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      setMarketPhase(getAshareMarketPhase(new Date()));
+      const now = new Date();
+      setMarketPhase(getAshareMarketPhase(now));
+      setCurrentDate(now);
     }, 60_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -252,7 +262,8 @@ export function DiscoveryView() {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const dateStr = useMemo(() => formatDate(new Date()), []);
+  const dateStr = useMemo(() => formatDate(currentDate), [currentDate]);
+  const unavailableReason = snapshot?.unavailableReason;
 
   return (
     <section className={styles.wrap}>
@@ -266,7 +277,7 @@ export function DiscoveryView() {
           <Compass size={18} />
           今日机会
         </h1>
-        <span className={styles.date}>{snapshot?.tradeDate ? `${snapshot.tradeDate} ${dateStr.slice(11)}` : dateStr}</span>
+        <span className={styles.date}>{dateStr}</span>
         <div className={styles.topbarRight}>
           <span className={cx(styles.phasePill, !marketPhase.isTrading && styles.phasePillInactive)}>
             <span className={cx(styles.liveDot, !marketPhase.isTrading && styles.liveDotInactive)} />
@@ -305,6 +316,8 @@ export function DiscoveryView() {
             <div className={styles.heroCard}>
               {loading && !snapshot ? (
                 <HeroGaugeSkeleton />
+              ) : unavailableReason ? (
+                <DiscoveryWaitingState message={unavailableReason} />
               ) : (
                 <HeroGauge
                   score={snapshot?.score}
@@ -322,6 +335,8 @@ export function DiscoveryView() {
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
+              ) : unavailableReason ? (
+                <DiscoveryWaitingState message={unavailableReason} />
               ) : (
                 <MarketSummary
                   indices={snapshot?.indices}
@@ -337,7 +352,7 @@ export function DiscoveryView() {
           <div data-discovery-section="sec-watchlist" id="sec-watchlist" className={styles.section}>
             <SectionTitle id="sec-watchlist" title="AI 监控中心" />
             <div className={styles.card}>
-              <MonitoringCenter />
+              {unavailableReason ? <DiscoveryWaitingState message={unavailableReason} /> : <MonitoringCenter />}
             </div>
           </div>
 
@@ -347,6 +362,8 @@ export function DiscoveryView() {
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
+              ) : unavailableReason ? (
+                <DiscoveryWaitingState message={unavailableReason} />
               ) : (
                 <SentimentIndex
                   score={snapshot?.sentimentScore}
@@ -367,6 +384,8 @@ export function DiscoveryView() {
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
+              ) : unavailableReason ? (
+                <DiscoveryWaitingState message={unavailableReason} />
               ) : (
                 <DragonTiger
                   inst={snapshot?.dragonTiger?.inst ?? []}
@@ -381,7 +400,13 @@ export function DiscoveryView() {
           <div data-discovery-section="sec-hotrotation" id="sec-hotrotation" className={styles.section}>
             <SectionTitle id="sec-hotrotation" title="AI 热点轮动" />
             <div className={styles.card}>
-              {loading && !snapshot ? <SectionSkeleton /> : <HotRotation themes={snapshot?.hotThemes} />}
+              {loading && !snapshot ? (
+                <SectionSkeleton />
+              ) : unavailableReason ? (
+                <DiscoveryWaitingState message={unavailableReason} />
+              ) : (
+                <HotRotation themes={snapshot?.hotThemes} />
+              )}
             </div>
           </div>
 
@@ -389,7 +414,13 @@ export function DiscoveryView() {
           <div data-discovery-section="sec-limitup" id="sec-limitup" className={styles.section}>
             <SectionTitle id="sec-limitup" title="AI 涨停复盘" />
             <div className={styles.card}>
-              {loading && !snapshot ? <SectionSkeleton /> : <LimitUpReview items={snapshot?.limitUps} />}
+              {loading && !snapshot ? (
+                <SectionSkeleton />
+              ) : unavailableReason ? (
+                <DiscoveryWaitingState message={unavailableReason} />
+              ) : (
+                <LimitUpReview items={snapshot?.limitUps} />
+              )}
             </div>
           </div>
 
@@ -397,7 +428,13 @@ export function DiscoveryView() {
           <div data-discovery-section="sec-tomorrow" id="sec-tomorrow" className={styles.section}>
             <SectionTitle id="sec-tomorrow" title="AI 明日预判" />
             <div className={styles.card}>
-              {loading && !snapshot ? <SectionSkeleton /> : <TomorrowPreview items={snapshot?.nextDayFocus} />}
+              {loading && !snapshot ? (
+                <SectionSkeleton />
+              ) : unavailableReason ? (
+                <DiscoveryWaitingState message={unavailableReason} />
+              ) : (
+                <TomorrowPreview items={snapshot?.nextDayFocus} />
+              )}
             </div>
           </div>
 
@@ -405,7 +442,7 @@ export function DiscoveryView() {
           <div data-discovery-section="sec-trading-advice" id="sec-trading-advice" className={styles.section}>
             <SectionTitle id="sec-trading-advice" title="AI 交易建议" />
             <div className={styles.card}>
-              <TradingAdvice />
+              {unavailableReason ? <DiscoveryWaitingState message={unavailableReason} /> : <TradingAdvice />}
             </div>
           </div>
           <SubscribeFooter />

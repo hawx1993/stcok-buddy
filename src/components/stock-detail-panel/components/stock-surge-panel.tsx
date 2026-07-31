@@ -79,12 +79,7 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     setPaging(false);
     pagingRef.current = false;
     setLoading(true);
-    const load =
-      selectedDate === today
-        ? getStocksenseApi()
-            .listHotFocus('surge')
-            .then((rows) => rows.slice(0, SURGE_PAGE_SIZE))
-        : getStocksenseApi().listSurgeHistory(selectedDate, 0, SURGE_PAGE_SIZE);
+    const load = getStocksenseApi().listSurgeHistory(selectedDate, 0, SURGE_PAGE_SIZE);
     load
       .then((rows) => {
         if (!alive || loadId !== loadIdRef.current) return;
@@ -147,7 +142,7 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   }, [filteredItems, isActive, onClearReturnCode, returnCode, virtualizer]);
 
   const loadMore = useCallback(() => {
-    if (!isActive || pagingRef.current || loading || !hasMore || selectedDate === today) return;
+    if (!isActive || pagingRef.current || loading || !hasMore) return;
     const loadId = loadIdRef.current;
     pagingRef.current = true;
     setPaging(true);
@@ -169,7 +164,7 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
           setPaging(false);
         }
       });
-  }, [hasMore, isActive, items.length, loading, selectedDate, today]);
+  }, [hasMore, isActive, items.length, loading, selectedDate]);
 
   useEffect(() => {
     const virtualItems = virtualizer.getVirtualItems();

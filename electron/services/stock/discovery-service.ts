@@ -2,6 +2,7 @@ import StockSDK from 'stock-sdk';
 import { getMarketReview, scoreSentiment } from './market-review-service.js';
 import {
   getBatchQuotes,
+  getAllMarketQuoteRows,
   getMarketPageSnapshot,
   listDailyDragonTiger,
   listEastmoneySurgeByDate,
@@ -16,6 +17,8 @@ import {
   writeDiscoverySnapshot,
 } from '../market-data/market-data-store.js';
 import { fetchMarketIndex } from './market-indices.js';
+import { isRemoteTradingDay } from '../market-data/providers.js';
+import { formatMoney } from './format.js';
 import { buildMonthlyThemesFromHistoricalPools } from './discovery-monthly-themes.js';
 import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from './discovery-hot-themes.js';
 import type { IHotThemeLeader } from './discovery-hot-themes.js';
@@ -30,6 +33,7 @@ import type {
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 export const DISCOVERY_CACHE_TTL_MS = 60_000;
+export const DISCOVERY_WAITING_930_MESSAGE = '数据9:30更新，请稍后';
 const DISCOVERY_SNAPSHOT_KEY = 'default';
 let discoveryRefreshPromise: Promise<IDiscoverySnapshot> | undefined;
 let discoveryRefreshTimer: NodeJS.Timeout | undefined;
@@ -106,6 +110,7 @@ export interface IDiscoverySnapshot {
   // watchlist
   watchlist?: Array<{ code: string; name: string }>;
   watchlistQuotes?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
+  unavailableReason?: string;
 }
 
 export interface IMarketSummary {
@@ -126,6 +131,7 @@ export interface ISectorSummary {
   name: string;
   changePercent: number;
   mainNetInflow: number;
+  amount?: number;
   topStockName?: string;
   topStockCode?: string;
 }
@@ -145,6 +151,7 @@ export interface IMonthlyThemeItem {
 }
 
 export interface INextWeekSector {
+  code: string;
   name: string;
   score: number;
   reasoning: {
@@ -160,11 +167,19 @@ type TSectorFlowIndicator = 'today';
 export type TLocalBoardSummary = {
   code: string;
   name: string;
+  kind?: string;
   changePercent: number;
   mainNetInflow: number;
+  amount?: number;
   topStockName?: string;
   topStockCode?: string;
 };
+
+type TBoardAmountCacheEntry = { amount?: number; updatedAt: number; promise?: Promise<number | undefined> };
+type TBoardMainNetInflowCacheEntry = { amountYi?: number; updatedAt: number; promise?: Promise<number | undefined> };
+type TFundFlowRankRow = Awaited<ReturnType<typeof sdk.fundFlow.rank>>[number];
+type TConstituentCodeRow = { code?: string | null };
+type TFundFlowMainRow = { code: string; mainNetInflow: number | null };
 
 type TLocalBoardCatalog = {
   rows: TLocalBoardSummary[];
@@ -173,10 +188,20 @@ type TLocalBoardCatalog = {
 };
 
 const SECTOR_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
+const BOARD_AMOUNT_CACHE_TTL_MS = 5 * 60 * 1000;
+const BOARD_AMOUNT_FETCH_LIMIT = 12;
+const BOARD_AMOUNT_FETCH_CONCURRENCY = 3;
+const BOARD_MAIN_FLOW_FETCH_LIMIT = 12;
+const BOARD_MAIN_FLOW_FETCH_CONCURRENCY = 3;
+const BOARD_MAIN_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
+const FUND_FLOW_RANK_CACHE_TTL_MS = 60 * 1000;
 const sectorFlowRankCache = new Map<
   TSectorFlowIndicator,
   { rows: ISectorSummary[]; updatedAt: number; promise?: Promise<ISectorSummary[]> }
 >();
+const boardAmountCache = new Map<string, TBoardAmountCacheEntry>();
+const boardMainNetInflowCache = new Map<string, TBoardMainNetInflowCacheEntry>();
+let fundFlowRankCache: { rows: TFundFlowRankRow[]; updatedAt: number; promise?: Promise<TFundFlowRankRow[]> } | undefined;
 
 function mapMetricToFactor(m: IMarketReviewMetric): { label: string; value: string | number } {
   if (m.value === null || m.value === undefined) return { label: m.label, value: '--' };
@@ -231,6 +256,53 @@ function shouldRefreshDiscoverySnapshot(updatedAt?: string): boolean {
   if (!updatedAt) return true;
   const updatedAtMs = new Date(updatedAt).getTime();
   return !Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs >= DISCOVERY_CACHE_TTL_MS;
+}
+
+function formatShanghaiDateKey(now: Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
+
+function shanghaiMinutesOfDay(now: Date): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+  const hour = value('hour');
+  const minute = value('minute');
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) throw new Error('无法解析北京时间');
+  return hour * 60 + minute;
+}
+
+export async function shouldHoldDiscoverySnapshotUntil930(now = new Date()): Promise<boolean> {
+  const today = formatShanghaiDateKey(now);
+  const minutes = shanghaiMinutesOfDay(now);
+  const isTradingDay = await isRemoteTradingDay(today);
+  return isTradingDay && minutes >= 8 * 60 && minutes < 9 * 60 + 30;
+}
+
+export async function shouldDeferDiscoveryRefresh(now = new Date()): Promise<boolean> {
+  const today = formatShanghaiDateKey(now);
+  const minutes = shanghaiMinutesOfDay(now);
+  const isTradingDay = await isRemoteTradingDay(today);
+  return !isTradingDay || minutes < 8 * 60 || (minutes >= 8 * 60 && minutes < 9 * 60 + 30);
+}
+
+function buildDiscoveryWaitingSnapshot(now = new Date()): IDiscoverySnapshot {
+  return {
+    tradeDate: formatShanghaiDateKey(now),
+    generatedAt: now.toISOString(),
+    unavailableReason: DISCOVERY_WAITING_930_MESSAGE,
+  };
 }
 
 function addQuoteCode(codes: Set<string>, code?: string) {
@@ -348,7 +420,8 @@ function refreshDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
   return discoveryRefreshPromise;
 }
 
-function triggerDiscoveryRefresh() {
+async function triggerDiscoveryRefresh() {
+  if (await shouldDeferDiscoveryRefresh()) return;
   void refreshDiscoverySnapshot().catch((error) => console.warn('[discovery] background refresh failed', error));
 }
 
@@ -367,13 +440,17 @@ export function stopDiscoveryRefreshLoop() {
 
 export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
   ensureDiscoveryRefreshLoop();
+  if (await shouldHoldDiscoverySnapshotUntil930()) return buildDiscoveryWaitingSnapshot();
+
   const cached = await readDiscoverySnapshot(DISCOVERY_SNAPSHOT_KEY);
   const cachedSnapshot = cached ? toCachedDiscoverySnapshot(cached.snapshot) : undefined;
 
   if (cachedSnapshot && cached) {
-    if (shouldRefreshDiscoverySnapshot(cached.updatedAt) && !discoveryRefreshPromise) triggerDiscoveryRefresh();
+    if (shouldRefreshDiscoverySnapshot(cached.updatedAt) && !discoveryRefreshPromise) void triggerDiscoveryRefresh();
     return withRealtimeQuoteFields(cachedSnapshot);
   }
+
+  if (await shouldDeferDiscoveryRefresh()) return buildDiscoveryWaitingSnapshot();
 
   const snapshot = await refreshDiscoverySnapshot();
   return withRealtimeQuoteFields(snapshot);
@@ -389,7 +466,7 @@ function isNextWeekSectorCandidate(value: unknown): value is TNextWeekSectorCand
 }
 
 export function normalizeBoardLookupName(name: string) {
-  return name.replace(/行业|板块|Ⅱ|Ⅲ|II|III|\s/g, '');
+  return name.replace(/行业|板块|Ⅱ|Ⅲ|III|II|\s/g, '');
 }
 
 export function buildLocalBoardCatalog(rows: TLocalBoardSummary[]): TLocalBoardCatalog {
@@ -523,19 +600,22 @@ function reconcileSectorsWithLocalBoards(sectors: ISectorSummary[], catalog: TLo
   const matched = sectors
     .map((sector) => {
       const local = findLocalBoard(catalog, sector);
-      return local
-        ? {
-            ...sector,
-            code: local.code,
-            name: local.name,
-            changePercent: local.changePercent,
-          }
-        : undefined;
+      if (!local) return undefined;
+      const merged: ISectorSummary = {
+        ...sector,
+        code: local.code,
+        name: local.name,
+        changePercent: local.changePercent,
+      };
+      if (local.amount !== undefined) merged.amount = local.amount;
+      return merged;
     })
     .filter((sector): sector is ISectorSummary => Boolean(sector));
   if (matched.length) return matched;
   return catalog.rows.slice(0, 30);
 }
+
+export const reconcileSectorsWithLocalBoardsForTest = reconcileSectorsWithLocalBoards;
 
 function toStockItem(item: HotFocusItem): TStockItem {
   return {
@@ -545,6 +625,35 @@ function toStockItem(item: HotFocusItem): TStockItem {
     changePercent: item.changePercent !== undefined ? String(item.changePercent) : undefined,
     amount: item.amount !== undefined ? String(item.amount) : undefined,
   };
+}
+
+function getLimitDownThresholdPercent(code: string): number {
+  const normalizedCode = code.replace(/^(sh|sz|bj)/i, '');
+  return normalizedCode.startsWith('300') ? 19.8 : 9.8;
+}
+
+function toLimitDownStockItem(row: Awaited<ReturnType<typeof getAllMarketQuoteRows>>[number]): TStockItem | undefined {
+  if (!row.code || !row.name) return undefined;
+  const changePercent = parseChgPct(row.changePercent);
+  if (changePercent === undefined || changePercent > -getLimitDownThresholdPercent(row.code)) return undefined;
+  return {
+    code: row.code,
+    name: row.name,
+    price: row.price !== undefined ? String(row.price) : undefined,
+    changePercent: String(changePercent),
+    amount: row.amount !== undefined ? formatMoney(row.amount) : undefined,
+  };
+}
+
+export const toLimitDownStockItemForTest = toLimitDownStockItem;
+
+async function listLimitDownStocksFromQuotes(): Promise<TStockItem[]> {
+  const rows = await getAllMarketQuoteRows();
+  const stocks = rows
+    .map(toLimitDownStockItem)
+    .filter((item): item is TStockItem => Boolean(item))
+    .sort((a, b) => (parseChgPct(a.changePercent) ?? 0) - (parseChgPct(b.changePercent) ?? 0));
+  return stocks;
 }
 
 /** Parse 连板 count from description like "6连板·换手3.2%·封单2.5亿..." */
@@ -742,20 +851,20 @@ async function fetchAllIndices(): Promise<Array<{ code: string; name: string; pr
   return results.filter((item): item is NonNullable<typeof item> => Boolean(item));
 }
 
-async function fetchMainFundFlow(): Promise<number | null> {
+async function fetchMainFundFlow(tradeDate?: string): Promise<number | null> {
   try {
     const rows = await sdk.fundFlow.market();
-    return selectLatestMainFundFlowYi(rows);
+    return selectLatestMainFundFlowYi(rows, tradeDate);
   } catch (err) {
     console.warn('[discovery] main fund flow fetch failed', err);
     return null;
   }
 }
 
-async function fetchNorthFundFlow(): Promise<number | null> {
+async function fetchNorthFundFlow(tradeDate?: string): Promise<number | null> {
   try {
     const rows = await sdk.northbound.summary();
-    return sumNorthFundFlowYi(rows);
+    return sumNorthFundFlowYi(rows, tradeDate);
   } catch (err) {
     console.warn('[discovery] north fund flow fetch failed', err);
     return null;
@@ -769,14 +878,183 @@ async function fetchLocalBoardCatalog(): Promise<TLocalBoardCatalog> {
       .map((row) => ({
         code: row.code,
         name: row.name,
+        kind: row.kind,
         changePercent: row.changePercent ?? 0,
         mainNetInflow: 0,
+        amount: row.amount,
       }))
       .filter((row) => row.code && row.name);
     return buildLocalBoardCatalog(summaries);
   } catch {
     return buildLocalBoardCatalog([]);
   }
+}
+
+function finitePositive(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function finiteNumber(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function normalizeStockCode(code?: string | null): string | undefined {
+  const normalized = code?.replace(/^(sh|sz|bj)/i, '').trim();
+  return normalized && /^\d{6}$/.test(normalized) ? normalized : undefined;
+}
+
+function sumConstituentMainNetInflowYi(constituents: TConstituentCodeRow[], fundFlows: TFundFlowMainRow[]): number | undefined {
+  const constituentCodes = new Set(
+    constituents
+      .map((item) => normalizeStockCode(item.code))
+      .filter((code): code is string => Boolean(code)),
+  );
+  if (!constituentCodes.size) return undefined;
+
+  const total = fundFlows.reduce(
+    (sum, row) => {
+      const code = normalizeStockCode(row.code);
+      if (!code || !constituentCodes.has(code) || !finiteNumber(row.mainNetInflow)) return sum;
+      return { value: sum.value + row.mainNetInflow, count: sum.count + 1 };
+    },
+    { value: 0, count: 0 },
+  );
+
+  return total.count ? total.value / 100_000_000 : undefined;
+}
+
+export const sumConstituentMainNetInflowYiForTest = sumConstituentMainNetInflowYi;
+
+function boardAmountApis(kind?: string) {
+  return kind === 'concept' ? [sdk.board.concept, sdk.board.industry] : [sdk.board.industry, sdk.board.concept];
+}
+
+async function fetchBoardAmountFromRemote(board: TLocalBoardSummary): Promise<number | undefined> {
+  for (const api of boardAmountApis(board.kind)) {
+    try {
+      const constituents = await api.constituents(board.code);
+      const amounts = constituents.map((item) => item.amount).filter(finitePositive);
+      if (amounts.length) return amounts.reduce((sum, amount) => sum + amount, 0);
+    } catch {
+      // Try the other real board namespace; keep missing amount explicit if both fail.
+    }
+  }
+  return undefined;
+}
+
+async function fetchBoardAmount(board: TLocalBoardSummary): Promise<number | undefined> {
+  const cached = boardAmountCache.get(board.code);
+  const now = Date.now();
+  if (cached && now - cached.updatedAt < BOARD_AMOUNT_CACHE_TTL_MS) return cached.amount;
+  if (cached?.promise) return cached.promise;
+
+  const promise = fetchBoardAmountFromRemote(board).then((amount) => {
+    boardAmountCache.set(board.code, { amount, updatedAt: Date.now() });
+    return amount;
+  });
+  boardAmountCache.set(board.code, { amount: cached?.amount, updatedAt: cached?.updatedAt ?? 0, promise });
+  return promise;
+}
+
+async function enrichMissingSectorAmounts(sectors: ISectorSummary[], catalog: TLocalBoardCatalog): Promise<ISectorSummary[]> {
+  const next = [...sectors];
+  const targets = next
+    .map((sector, index) => ({ sector, index, board: findLocalBoard(catalog, sector) }))
+    .filter(
+      (item): item is { sector: ISectorSummary; index: number; board: TLocalBoardSummary } =>
+        item.sector.amount === undefined && Boolean(item.board),
+    )
+    .slice(0, BOARD_AMOUNT_FETCH_LIMIT);
+
+  for (let start = 0; start < targets.length; start += BOARD_AMOUNT_FETCH_CONCURRENCY) {
+    const chunk = targets.slice(start, start + BOARD_AMOUNT_FETCH_CONCURRENCY);
+    const amounts = await Promise.all(chunk.map((item) => fetchBoardAmount(item.board)));
+    amounts.forEach((amount, offset) => {
+      if (amount !== undefined) next[chunk[offset].index] = { ...next[chunk[offset].index], amount };
+    });
+  }
+
+  return next;
+}
+
+async function fetchFundFlowRankRows(): Promise<TFundFlowRankRow[]> {
+  const now = Date.now();
+  if (fundFlowRankCache && now - fundFlowRankCache.updatedAt < FUND_FLOW_RANK_CACHE_TTL_MS) {
+    return fundFlowRankCache.rows;
+  }
+  if (fundFlowRankCache?.promise) return fundFlowRankCache.promise;
+
+  const promise = sdk.fundFlow.rank({ indicator: 'today' }).then((rows) => {
+    fundFlowRankCache = { rows, updatedAt: Date.now() };
+    return rows;
+  });
+  fundFlowRankCache = { rows: fundFlowRankCache?.rows ?? [], updatedAt: fundFlowRankCache?.updatedAt ?? 0, promise };
+  return promise;
+}
+
+async function fetchBoardMainNetInflowFromRemote(board: TLocalBoardSummary): Promise<number | undefined> {
+  const fundFlows = await fetchFundFlowRankRows();
+  if (!fundFlows.length) return undefined;
+
+  for (const api of boardAmountApis(board.kind)) {
+    try {
+      const constituents = await api.constituents(board.code);
+      const amountYi = sumConstituentMainNetInflowYi(constituents, fundFlows);
+      if (amountYi !== undefined) return amountYi;
+    } catch {
+      // Try the other real board namespace; keep missing flow explicit if both fail.
+    }
+  }
+  return undefined;
+}
+
+async function fetchBoardMainNetInflow(board: TLocalBoardSummary): Promise<number | undefined> {
+  const cached = boardMainNetInflowCache.get(board.code);
+  const now = Date.now();
+  if (cached && now - cached.updatedAt < BOARD_MAIN_FLOW_CACHE_TTL_MS) return cached.amountYi;
+  if (cached?.promise) return cached.promise;
+
+  const promise = fetchBoardMainNetInflowFromRemote(board)
+    .catch((err) => {
+      console.warn(`[discovery] board main net inflow fetch failed for ${board.code}`, err);
+      return undefined;
+    })
+    .then((amountYi) => {
+      boardMainNetInflowCache.set(board.code, { amountYi, updatedAt: Date.now() });
+      return amountYi;
+    });
+  boardMainNetInflowCache.set(board.code, {
+    amountYi: cached?.amountYi,
+    updatedAt: cached?.updatedAt ?? 0,
+    promise,
+  });
+  return promise;
+}
+
+async function enrichMissingSectorMainNetInflows(
+  sectors: ISectorSummary[],
+  catalog: TLocalBoardCatalog,
+): Promise<ISectorSummary[]> {
+  const next = [...sectors];
+  const targets = next
+    .map((sector, index) => ({ sector, index, board: findLocalBoard(catalog, sector) }))
+    .filter(
+      (item): item is { sector: ISectorSummary; index: number; board: TLocalBoardSummary } =>
+        item.sector.mainNetInflow === 0 && Boolean(item.board),
+    )
+    .slice(0, BOARD_MAIN_FLOW_FETCH_LIMIT);
+
+  for (let start = 0; start < targets.length; start += BOARD_MAIN_FLOW_FETCH_CONCURRENCY) {
+    const chunk = targets.slice(start, start + BOARD_MAIN_FLOW_FETCH_CONCURRENCY);
+    const flows = await Promise.all(chunk.map((item) => fetchBoardMainNetInflow(item.board)));
+    flows.forEach((mainNetInflow, offset) => {
+      if (mainNetInflow !== undefined) {
+        next[chunk[offset].index] = { ...next[chunk[offset].index], mainNetInflow };
+      }
+    });
+  }
+
+  return next;
 }
 
 async function fetchSectorFlowRank(indicator: TSectorFlowIndicator = 'today'): Promise<ISectorSummary[]> {
@@ -807,8 +1085,7 @@ async function loadSectorFlowRank(indicator: TSectorFlowIndicator): Promise<ISec
       code: r.code ?? '',
       name: r.name ?? '',
       changePercent: Number(r.changePercent ?? 0),
-      mainNetInflow:
-        r.mainNetInflow !== null && r.mainNetInflow !== undefined ? Number(r.mainNetInflow) / 100_000_000 : 0,
+      mainNetInflow: finiteNumber(r.mainNetInflow) ? Number(r.mainNetInflow) / 100_000_000 : 0,
       topStockName: r.topStockName,
       topStockCode: r.topStockCode,
     }))
@@ -885,6 +1162,7 @@ async function generateNextWeekSectors(
       .map((p) => ({ candidate: p, board: findLocalBoard(boardCatalog, { name: p.name }) }))
       .filter((item): item is { candidate: TNextWeekSectorCandidate; board: TLocalBoardSummary } => Boolean(item.board))
       .map(({ candidate, board }) => ({
+        code: board.code,
         name: board.name,
         score: Math.max(0, Math.min(100, Math.round(candidate.score ?? 70))),
         reasoning: {
@@ -904,6 +1182,7 @@ async function generateNextWeekSectors(
       .sort((a, b) => b.mainNetInflow - a.mainNetInflow || b.changePercent - a.changePercent)
       .slice(0, 4)
       .map((s) => ({
+        code: s.code,
         name: s.name,
         score: 70,
         reasoning: {
@@ -1054,12 +1333,15 @@ async function buildMarketSummary(
   pools: HotFocusItem[],
 ): Promise<IMarketSummary | undefined> {
   const [boardCatalog, remoteSectors] = await Promise.all([fetchLocalBoardCatalog(), fetchSectorFlowRank()]);
-  const sectors = reconcileSectorsWithLocalBoards(remoteSectors, boardCatalog);
+  const reconciledSectors = reconcileSectorsWithLocalBoards(remoteSectors, boardCatalog);
+  const sectorsWithFlows = await enrichMissingSectorMainNetInflows(reconciledSectors, boardCatalog);
+  const sectors = await enrichMissingSectorAmounts(sectorsWithFlows, boardCatalog);
 
+  const tradeDate = reviewData?.tradeDate;
   const [indices, mainFundFlow, northFundFlow] = await Promise.all([
     fetchAllIndices(),
-    fetchMainFundFlow(),
-    fetchNorthFundFlow(),
+    fetchMainFundFlow(tradeDate),
+    fetchNorthFundFlow(tradeDate),
   ]);
 
   if (!indices.length && !sectors.length) return undefined;
@@ -1094,12 +1376,13 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
 
   const today = new Date().toISOString().slice(0, 10).replaceAll('-', '');
 
-  const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool] = await Promise.allSettled([
+  const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool, quoteLimitDowns] = await Promise.allSettled([
     getMarketReview(),
     getMarketPageSnapshot('sh-main'),
     getMarketPageSnapshot('sz-main'),
     listDailyDragonTiger(),
     listEastmoneySurgeByDate(today),
+    listLimitDownStocksFromQuotes(),
   ]);
 
   // ── Indices ──
@@ -1154,6 +1437,9 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
     } else if (tag === '涨停开板') {
       sentimentStocks.zb.push(toStockItem(item));
     }
+  }
+  if (!sentimentStocks.dt.length && quoteLimitDowns.status === 'fulfilled') {
+    sentimentStocks.dt.push(...quoteLimitDowns.value);
   }
 
   // ── Yesterday pool for 昨日涨停指数 / 昨日连板指数 ──

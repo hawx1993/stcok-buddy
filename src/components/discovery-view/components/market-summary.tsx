@@ -9,6 +9,7 @@ interface ISectorSummary {
   name: string;
   changePercent: number;
   mainNetInflow: number;
+  amount?: number;
 }
 
 interface IOpportunityRadarItem {
@@ -26,6 +27,7 @@ interface IMonthlyThemeItem {
 }
 
 interface INextWeekSector {
+  code?: string;
   name: string;
   score: number;
   reasoning: {
@@ -76,25 +78,23 @@ function formatMoneyYi(value?: number | null) {
   return `${sign}${value.toFixed(1)}亿`;
 }
 
-function formatMainFlow(value: number) {
-  if (value === 0) return '资金暂无';
-  return `主力${value >= 0 ? '净流入' : '净流出'} ${formatMoneyYi(value)}`;
+function formatAmountYi(value?: number | null) {
+  if (value === undefined || value === null) return '成交额暂无';
+  return `成交额 ${(value / 100_000_000).toFixed(1)}亿`;
+}
+
+function sectorTone(changePercent: number) {
+  return changePercent >= 0 ? 'var(--market-up)' : 'var(--market-down)';
 }
 
 function sectorCellBg(changePercent: number) {
   const abs = Math.min(Math.abs(changePercent) / 5, 1);
-  if (changePercent >= 0) {
-    return `rgba(239, 68, 68, ${0.08 + abs * 0.2})`;
-  }
-  return `rgba(34, 197, 94, ${0.08 + abs * 0.2})`;
+  return `color-mix(in srgb, ${sectorTone(changePercent)} ${8 + abs * 12}%, var(--surface) 100%)`;
 }
 
 function sectorCellBorder(changePercent: number) {
   const abs = Math.min(Math.abs(changePercent) / 5, 1);
-  if (changePercent >= 0) {
-    return `rgba(239, 68, 68, ${0.2 + abs * 0.26})`;
-  }
-  return `rgba(34, 197, 94, ${0.2 + abs * 0.26})`;
+  return `color-mix(in srgb, ${sectorTone(changePercent)} ${28 + abs * 18}%, var(--border) 100%)`;
 }
 
 export function getSentimentMarkerPosition(value: number): number {
@@ -205,6 +205,12 @@ function LegacyMarketSummary({ indices, wealthMetrics, bullets }: Pick<IMarketSu
   );
 }
 
+function isRequestedBoardDetail(detail: BoardDetail, snapshot: BoardDetail) {
+  if (snapshot.code && detail.code && detail.code !== snapshot.code) return false;
+  if (!snapshot.code && detail.name && detail.name !== detail.code && detail.name !== snapshot.name) return false;
+  return true;
+}
+
 export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }: IMarketSummaryProps) {
   const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
@@ -264,9 +270,25 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
     }
   };
 
-  const handleBoardNameClick = async (name: string) => {
-    await handleSectorClick({ code: '', name, changePercent: 0, mainNetInflow: 0 });
+  const handleBoardNameClick = async (name: string, code?: string) => {
+    const snapshot = { code: code ?? '', name } as BoardDetail;
+    setStockReturnContext(undefined);
+    setSelectedBoard(snapshot);
+    openBoardPanel();
+    try {
+      const detail = await getStocksenseApi().getBoardDetail(snapshot.code, false, name);
+      if (isRequestedBoardDetail(detail, snapshot)) {
+        setSelectedBoard({ ...snapshot, ...detail, name: detail.name === detail.code ? name : detail.name });
+      } else {
+        setSelectedBoard(snapshot);
+      }
+    } catch {
+      setSelectedBoard(snapshot);
+    }
   };
+
+  const getNextWeekSectorCode = (sector: INextWeekSector) =>
+    sector.code ?? sectors.find((item) => item.name === sector.name)?.code;
 
   return (
     <div className={styles.marketSummary}>
@@ -324,7 +346,7 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
             >
               <span className={styles.msSectorName}>{sector.name}</span>
               <span className={styles.msSectorSub}>
-                {formatChange(sector.changePercent)} · {formatMainFlow(sector.mainNetInflow)}
+                {formatChange(sector.changePercent)} · {formatAmountYi(sector.amount)}
               </span>
             </button>
           ))}
@@ -409,7 +431,7 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
               <button
                 key={sector.name}
                 className={styles.msNextWeekCard}
-                onClick={() => handleBoardNameClick(sector.name)}
+                onClick={() => handleBoardNameClick(sector.name, getNextWeekSectorCode(sector))}
                 type="button"
               >
                 <div className={styles.msNextWeekHeader}>

@@ -50,6 +50,7 @@ async function runCapture(now: Date) {
   isCapturing = true;
   try {
     await listHotFocus('surge');
+    await flushSurgeSnapshotQueue();
     const dateKey = now.toISOString().slice(0, 10);
     if (!isStopped && lastPrunedDate !== dateKey) {
       await pruneSurgeHistory(7);

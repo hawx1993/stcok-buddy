@@ -15,6 +15,7 @@ import {
   LayoutGrid,
 } from 'lucide-react';
 import { useAppStore } from '../../../store/app-store';
+import type { IAiMonitorReturnState } from '../../../store/app-store';
 import styles from '../index.module.scss';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { IMonitorEvent, TMonitorCategory, TMonitorMode, StockDetail } from '../../../shared/types';
@@ -96,6 +97,29 @@ function isVisibleMonitorEvent(event: IMonitorEvent): event is TVisibleMonitorEv
 }
 
 const PAGE_SIZE = 20;
+
+interface IAiMonitorFeedCache {
+  activeTab: TVisibleMonitorCategory | 'all';
+  categoryTotals: Partial<Record<TMonitorCategory, number>>;
+  currentPage: number;
+  events: IMonitorEvent[];
+  isTradingTime: boolean;
+  lastUpdated?: string;
+  mode: TMonitorMode;
+  selectedDate: string;
+  totalCount: number;
+}
+
+let aiMonitorFeedCache: IAiMonitorFeedCache | undefined;
+
+function makeMonitorFeedKey(
+  monitorMode: TMonitorMode,
+  monitorDate: string,
+  monitorPage: number,
+  monitorTab: TVisibleMonitorCategory | 'all',
+) {
+  return `${monitorMode}:${monitorDate}:${monitorPage}:${monitorTab}`;
+}
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -182,26 +206,58 @@ function AiMonitorSkeletonList() {
   );
 }
 
-export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
-  const [events, setEvents] = useState<IMonitorEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<TVisibleMonitorCategory | 'all'>('all');
+export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; restoreState?: IAiMonitorReturnState }) {
+  const restoredFeedKey = restoreState
+    ? makeMonitorFeedKey(restoreState.mode, restoreState.selectedDate, restoreState.currentPage, restoreState.activeTab)
+    : undefined;
+  const cachedFeedKey = aiMonitorFeedCache
+    ? makeMonitorFeedKey(
+        aiMonitorFeedCache.mode,
+        aiMonitorFeedCache.selectedDate,
+        aiMonitorFeedCache.currentPage,
+        aiMonitorFeedCache.activeTab,
+      )
+    : undefined;
+  const initialCache = restoredFeedKey === undefined || restoredFeedKey === cachedFeedKey ? aiMonitorFeedCache : undefined;
+  const initialFeedState: IAiMonitorReturnState | undefined = restoreState ?? (initialCache
+    ? {
+        activeTab: initialCache.activeTab,
+        currentPage: initialCache.currentPage,
+        selectedDate: initialCache.selectedDate,
+        mode: initialCache.mode,
+      }
+    : undefined);
+  const [events, setEvents] = useState<IMonitorEvent[]>(initialCache?.events ?? []);
+  const [loading, setLoading] = useState(!initialCache);
+  const [activeTab, setActiveTab] = useState<TVisibleMonitorCategory | 'all'>(initialFeedState?.activeTab ?? 'all');
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [mode, setMode] = useState<TMonitorMode>('history');
-  const [isTradingTime, setTradingTime] = useState(false);
+  const [mode, setMode] = useState<TMonitorMode>(initialFeedState?.mode ?? 'history');
+  const [isTradingTime, setTradingTime] = useState(initialCache?.isTradingTime ?? false);
   const [dateOptions] = useState(() => makeMonitorDateOptions());
-  const [selectedDate, setSelectedDate] = useState(() => makeMonitorDateOptions()[0]);
-  const [lastUpdated, setLastUpdated] = useState<string>();
+  const [selectedDate, setSelectedDate] = useState(() => initialFeedState?.selectedDate ?? makeMonitorDateOptions()[0]);
+  const [lastUpdated, setLastUpdated] = useState<string | undefined>(initialCache?.lastUpdated);
   const [error, setError] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [categoryTotals, setCategoryTotals] = useState<Partial<Record<TMonitorCategory, number>>>({});
+  const [currentPage, setCurrentPage] = useState(initialFeedState?.currentPage ?? 1);
+  const [totalCount, setTotalCount] = useState(initialCache?.totalCount ?? 0);
+  const [categoryTotals, setCategoryTotals] = useState<Partial<Record<TMonitorCategory, number>>>(
+    initialCache?.categoryTotals ?? {},
+  );
+  const [currentFeedKey, setCurrentFeedKey] = useState(() =>
+    initialCache
+      ? makeMonitorFeedKey(initialCache.mode, initialCache.selectedDate, initialCache.currentPage, initialCache.activeTab)
+      : '',
+  );
   const selectedDateRef = useRef(selectedDate);
+  const currentFeedKeyRef = useRef(currentFeedKey);
+  const eventsLengthRef = useRef(events.length);
+  const restoreStateRef = useRef(restoreState);
+  const didRestoreRef = useRef(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
   const setSelectedStock = useAppStore((state) => state.setSelectedStock);
   const openRightPanel = useAppStore((state) => state.openRightPanel);
   const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setAiMonitorState = useAppStore((state) => state.setAiMonitorState);
 
   const loadFeed = useCallback(
     async (nextMode: TMonitorMode, nextDate: string, nextPage: number, nextTab: TVisibleMonitorCategory | 'all') => {
@@ -215,20 +271,40 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
           mode: nextMode,
           date: nextMode === 'history' ? nextDate : undefined,
         });
+        const nextEvents = feed.events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        const nextTotalCount = feed.total ?? feed.events.length;
+        const nextCategoryTotals = feed.categoryTotals ?? {};
+        const nextFeedKey = makeMonitorFeedKey(feed.mode, feed.selectedDate ?? nextDate, nextPage, nextTab);
         setMode(feed.mode);
+        setActiveTab(nextTab);
+        setCurrentPage(nextPage);
         setTradingTime(feed.isTradingTime);
         setSelectedDate(feed.selectedDate ?? nextDate);
-        setEvents(feed.events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-        setTotalCount(feed.total ?? feed.events.length);
-        setCategoryTotals(feed.categoryTotals ?? {});
+        setEvents(nextEvents);
+        setTotalCount(nextTotalCount);
+        setCategoryTotals(nextCategoryTotals);
         setLastUpdated(feed.updatedAt);
+        setCurrentFeedKey(nextFeedKey);
+        setAiMonitorState({ activeTab: nextTab, currentPage: nextPage, selectedDate: feed.selectedDate ?? nextDate, mode: feed.mode });
+        aiMonitorFeedCache = {
+          activeTab: nextTab,
+          categoryTotals: nextCategoryTotals,
+          currentPage: nextPage,
+          events: nextEvents,
+          isTradingTime: feed.isTradingTime,
+          lastUpdated: feed.updatedAt,
+          mode: feed.mode,
+          selectedDate: feed.selectedDate ?? nextDate,
+          totalCount: nextTotalCount,
+        };
+        window.dispatchEvent(new CustomEvent('monitor:feedUpdated'));
       } catch (err) {
         setError(err instanceof Error ? err.message : '监控数据加载失败');
       } finally {
         setLoading(false);
       }
     },
-    [],
+    [setAiMonitorState],
   );
 
   useEffect(() => {
@@ -236,11 +312,32 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
   }, [selectedDate]);
 
   useEffect(() => {
-    if (!isActive) return;
+    currentFeedKeyRef.current = currentFeedKey;
+  }, [currentFeedKey]);
+
+  useEffect(() => {
+    eventsLengthRef.current = events.length;
+  }, [events.length]);
+
+  useEffect(() => {
+    restoreStateRef.current = restoreState;
+  }, [restoreState]);
+
+  useEffect(() => {
+    if (!isActive || didRestoreRef.current) return;
+    didRestoreRef.current = true;
+    const restoreState = restoreStateRef.current;
+    const nextPage = restoreState?.currentPage ?? currentPage;
+    const nextMode = restoreState?.mode ?? mode;
+    const nextDate = restoreState?.selectedDate ?? selectedDateRef.current;
+    const nextTab = restoreState?.activeTab ?? activeTab;
+    setActiveTab(nextTab);
+    setCurrentPage(nextPage);
+    const nextFeedKey = makeMonitorFeedKey(nextMode, nextDate, nextPage, nextTab);
+    if (eventsLengthRef.current && currentFeedKeyRef.current === nextFeedKey) return;
     setLoading(true);
-    setCurrentPage(1);
-    void loadFeed('realtime', selectedDateRef.current, 1, activeTab);
-  }, [activeTab, isActive, loadFeed]);
+    void loadFeed(nextMode, nextDate, nextPage, nextTab);
+  }, [activeTab, currentPage, isActive, loadFeed, mode]);
 
   useEffect(() => {
     if (!isActive || !autoRefresh || !isTradingTime || mode !== 'realtime') return;
@@ -255,6 +352,8 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
       setCategoryTotals({});
       setCurrentPage(1);
       setLastUpdated(undefined);
+      setCurrentFeedKey('');
+      aiMonitorFeedCache = undefined;
       if (!isActive) return;
       setLoading(true);
       void loadFeed('history', selectedDateRef.current, 1, activeTab);
@@ -279,9 +378,9 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
   const pageEvents = filteredEvents;
 
   useEffect(() => {
-    if (currentPage <= totalPages) return;
+    if (loading || totalCount === 0 || currentPage <= totalPages) return;
     setCurrentPage(totalPages);
-  }, [currentPage, totalPages]);
+  }, [currentPage, loading, totalCount, totalPages]);
 
   // Scroll feed to top when page changes.
   useEffect(() => {
@@ -290,8 +389,9 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
 
   const handleStockClick = async (code: string, name: string) => {
     const snapshot = { code, name } as StockDetail;
+    const aiMonitorState = useAppStore.getState().aiMonitorState ?? { activeTab, currentPage, selectedDate, mode };
     openRightPanel();
-    setStockReturnContext({ tab: 'ai-monitor', code });
+    setStockReturnContext({ tab: 'ai-monitor', code, aiMonitor: aiMonitorState });
     setSelectedStock(snapshot);
     try {
       const detail = await getStocksenseApi().getStockDetail(code);
@@ -301,13 +401,19 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
     }
   };
 
-  const toggleStar = (id: string) => {
-    setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, star: !e.star } : e)));
+  const toggleStar = (eventId: string) => {
+    setEvents((prev) => {
+      const target = prev.find((event) => event.id === eventId);
+      if (!target) return prev;
+      const nextStar = !target.star;
+      return prev.map((event) => (event.code === target.code ? { ...event, star: nextStar } : event));
+    });
   };
 
   const goPage = (page: number) => {
     const next = Math.max(1, Math.min(totalPages, page));
     setCurrentPage(next);
+    setAiMonitorState({ activeTab, currentPage: next, selectedDate, mode });
     setLoading(true);
     void loadFeed(mode, selectedDate, next, activeTab);
   };
@@ -346,12 +452,14 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
     if (!isTradingTime) return;
     setLoading(true);
     setCurrentPage(1);
+    setAiMonitorState({ activeTab, currentPage: 1, selectedDate, mode: 'realtime' });
     void loadFeed('realtime', selectedDate, 1, activeTab);
   };
 
   const handleHistoryDateClick = (date: string) => {
     setLoading(true);
     setCurrentPage(1);
+    setAiMonitorState({ activeTab, currentPage: 1, selectedDate: date, mode: 'history' });
     void loadFeed('history', date, 1, activeTab);
   };
 
@@ -388,9 +496,15 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
             onChange={(date: string) => handleHistoryDateClick(date)}
           />
         </ConfigProvider>
-        <button className={styles['surge-date-button']} onClick={handleRefresh} type='button'>
-          <RefreshCw size={12} />
-          <span style={{ paddingLeft: '2px' }}> 刷新</span>
+        <button
+          aria-label={loading ? '正在刷新 AI 监控' : '刷新 AI 监控'}
+          className={styles['surge-date-button']}
+          disabled={loading}
+          onClick={handleRefresh}
+          type='button'
+        >
+          <RefreshCw aria-hidden='true' className={loading ? styles['refreshing-icon'] : undefined} size={12} />
+          <span style={{ paddingLeft: '2px' }}>{loading ? '刷新中' : '刷新'}</span>
         </button>
         <button
           className={classNames(styles['surge-monitor-button'], autoRefresh && mode === 'realtime' && styles.active)}
@@ -426,7 +540,13 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
       <div className={styles['ai-monitor-panel-tabs']}>
         <button
           className={classNames(styles['monitor-tab'], activeTab === 'all' && styles.active)}
-          onClick={() => setActiveTab('all')}
+          onClick={() => {
+            setActiveTab('all');
+            setCurrentPage(1);
+            setAiMonitorState({ activeTab: 'all', currentPage: 1, selectedDate, mode });
+            setLoading(true);
+            void loadFeed(mode, selectedDate, 1, 'all');
+          }}
           type='button'
           style={categoryStyle('#a855f7', 'rgba(168, 85, 247, 0.45)')}
         >
@@ -442,7 +562,13 @@ export function AiMonitorPanel({ isActive }: { isActive: boolean }) {
             <button
               key={cat}
               className={classNames(styles['monitor-tab'], activeTab === cat && styles.active)}
-              onClick={() => setActiveTab(cat)}
+              onClick={() => {
+                setActiveTab(cat);
+                setCurrentPage(1);
+                setAiMonitorState({ activeTab: cat, currentPage: 1, selectedDate, mode });
+                setLoading(true);
+                void loadFeed(mode, selectedDate, 1, cat);
+              }}
               type='button'
               style={categoryStyle(cfg.color, cfg.glow)}
             >

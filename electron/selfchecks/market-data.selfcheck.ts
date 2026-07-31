@@ -94,13 +94,40 @@ const updatedAt = new Date().toISOString();
 await store.upsertMarketBoards([
   { code: 'BK1556', name: '教育运营及其他', source: 'selfcheck', updatedAt },
   { code: 'BK1556', name: '教育运营及其他', kind: 'industry', changePercent: 1.2, source: 'selfcheck', updatedAt },
+  { code: 'BK0465', name: '化学制药', kind: 'industry', source: 'selfcheck', updatedAt },
+  { code: 'BK0465', name: '化学制药', kind: 'industry', changePercent: 0.8, source: 'selfcheck', updatedAt },
 ]);
+await store.upsertStockSnapshots([
+  { symbol: '600519', name: '贵州茅台', amount: 12_000_000 },
+  { symbol: '000001', name: '平安银行', amount: 8_000_000 },
+]);
+await store.replaceBoardConstituents('BK1556', [
+  { boardCode: 'BK1556', stockCode: '600519', stockName: '贵州茅台', position: 1, updatedAt },
+  { boardCode: 'BK1556', stockCode: '000001', stockName: '平安银行', position: 2, updatedAt },
+]);
+const repeatedConstituents = Array.from({ length: 66 }, (_, index) => ({
+  boardCode: 'BK1608',
+  stockCode: `${300000 + index}`,
+  stockName: `成分股${index}`,
+  position: index,
+  updatedAt,
+}));
+await store.replaceBoardConstituents('BK1608', repeatedConstituents);
+await store.replaceBoardConstituents('BK1608', repeatedConstituents);
+const repeatedRows = await store.listBoardConstituents('BK1608');
+assert.equal(repeatedRows.length, 66);
 const boards = await store.listMarketBoards();
 assert.equal(boards.filter((row) => row.code === 'BK1556').length, 1);
+assert.equal(boards.filter((row) => row.code === 'BK0465').length, 1);
+const nullableBoard = boards.find((row) => row.code === 'BK0465');
+assert.equal(nullableBoard?.name, '化学制药');
+assert.equal(nullableBoard?.kind, 'industry');
+assert.equal(nullableBoard?.changePercent, 0.8);
 const board = boards.find((row) => row.code === 'BK1556');
 assert.equal(board?.name, '教育运营及其他');
 assert.equal(board?.kind, 'industry');
 assert.equal(board?.changePercent, 1.2);
+assert.equal(board?.amount, 20_000_000);
 assert.equal(board?.source, 'selfcheck');
 assert(board?.updatedAt);
 

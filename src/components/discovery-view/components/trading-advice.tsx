@@ -183,7 +183,7 @@ export function TradingAdvice() {
                   </span>
                 </div>
                 <span className='advice-sector-reason'>{sector.reason}</span>
-                {sector.leaderName && (
+                {sector.leaderName && sector.leaderCode && (
                   <button
                     className='advice-sector-leader'
                     onClick={() => handleStockClick(sector.leaderCode, sector.leaderName)}

@@ -1,5 +1,5 @@
 import type { AgentResultCard, StockDetail } from '../../../src/shared/types.js';
-import { formatNumber, formatPercent, normalizeMarketCap, pickNumber, pickString } from './format.js';
+import { formatMoney, formatMoneyFromWan, formatNumber, formatPercentPoints, normalizeMarketCap, pickNumber, pickString } from './format.js';
 import { inferExchange } from './symbols.js';
 
 type AnyRecord = Record<string, unknown>;
@@ -15,7 +15,8 @@ export function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
   const changePercent = pickNumber(record, ['changePercent', '涨跌幅', 'pctChg', 'f3']);
   const change = pickNumber(record, ['change', '涨跌额', 'f4']);
   const volume = pickNumber(record, ['volume', '成交量', 'f5']);
-  const turnover = pickNumber(record, ['turnover', '成交额', 'amount', 'f6']);
+  const turnoverInYuan = pickNumber(record, ['turnover', '成交额', 'f6']);
+  const turnoverInWan = turnoverInYuan === undefined ? pickNumber(record, ['amount']) : undefined;
   const pe = pickNumber(record, ['pe', 'PE', '市盈率', 'f9']);
   const pb = pickNumber(record, ['pb', 'PB', '市净率', 'f23']);
   const marketCap = pickNumber(record, ['marketCap', 'totalMarketCap', '总市值', 'f20']);
@@ -33,7 +34,7 @@ export function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
     exchange: inferExchange(code),
     price: price === undefined ? '--' : price,
     change: change === undefined ? '--' : `${change >= 0 ? '+' : ''}${formatNumber(change)}`,
-    changePercent: changePercent === undefined ? '--' : formatPercent(changePercent),
+    changePercent: changePercent === undefined ? '--' : formatPercentPoints(changePercent),
     open: open === undefined ? '--' : formatNumber(open),
     high: high === undefined ? '--' : formatNumber(high),
     low: low === undefined ? '--' : formatNumber(low),
@@ -42,11 +43,11 @@ export function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
     pb: pb === undefined ? '--' : formatNumber(pb),
     marketCap: normalizedMarketCap === undefined ? '--' : `${normalizedMarketCap.toFixed(1)}亿`,
     volume: volume === undefined ? '--' : `${(volume / 10000).toFixed(1)}万手`,
-    turnover: turnover === undefined ? '--' : `${(turnover / 100000000).toFixed(2)}亿`,
+    turnover: turnoverInYuan !== undefined ? formatMoney(turnoverInYuan) : formatMoneyFromWan(turnoverInWan),
     turnoverRate: turnoverRate === undefined ? '--' : `${formatNumber(turnoverRate)}%`,
     industry,
     rating: deriveStockRating({ pe, pb, changePercent, turnoverRate }),
-    summary: `${name}（${code}）实时行情来自 stock-sdk。当前价格 ${price === undefined ? '--' : price}，涨跌幅 ${changePercent === undefined ? '--' : formatPercent(changePercent)}。`,
+    summary: `${name}（${code}）实时行情来自 stock-sdk。当前价格 ${price === undefined ? '--' : price}，涨跌幅 ${changePercent === undefined ? '--' : formatPercentPoints(changePercent)}。`,
   };
 }
 

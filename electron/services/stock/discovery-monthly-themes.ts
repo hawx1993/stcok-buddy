@@ -2,7 +2,7 @@ import type { HotFocusItem } from '../../../src/shared/types.js';
 import type { IMonthlyThemeItem, TLocalBoardSummary } from './discovery-service.js';
 
 export function normalizeBoardLookupName(name: string) {
-  return name.replace(/行业|板块|Ⅱ|Ⅲ|II|III|\s/g, '');
+  return name.replace(/行业|板块|Ⅱ|Ⅲ|III|II|\s/g, '');
 }
 
 function buildLocalBoardCatalog(rows: TLocalBoardSummary[]) {

@@ -1,455 +1,452 @@
 ---
 name: stock-dev
-description: StockBuddy 项目开发导航。覆盖 DuckDB 数据、stock-sdk 用法、a-stock-data 用法、项目 API、IPC 通道、编码规范。
+description: StockBuddy 项目开发导航。覆盖 Electron/React 结构、stock-sdk 数据源、Provider/Service 数据流、IPC 通道、数据库、测试与编码规范。
 argument-hint: '[开发任务描述]'
 ---
 
 # StockBuddy 开发技能
 
-> 本技能是项目的开发导航和速查手册。每次开发新功能、修改数据层、或接入数据源前，先查阅本技能。
+> 本技能是项目开发导航和速查手册。开发新功能、修改数据层、接入数据源、调整 UI/IPC 前，先按本文件确认项目结构与强制规范。
 
 ---
 
-## 1. 规则优先级
+## 1. 必读规则与优先级
 
-开始编码前必须阅读 `.claude/rules/` 下的规则文件，优先级从高到低：
+开始编码前必须阅读并遵守 `.claude/rules/` 下的规则文件：
 
-| 优先级 | 规则文件 | 适用场景 |
-|--------|---------|---------|
-| 1 | `.claude/rules/typescript-react.md` | 所有 TS/TSX/React 代码 |
-| 2 | `.claude/rules/data.md` | 行情、数据访问、存储 |
-| 3 | `.claude/rules/emoji.md` | AI 投研输出、文案 |
-| 4 | `.claude/rules/bug-fix.md` | 修 Bug |
+| 优先级 | 规则文件                            | 适用场景               |
+| ------ | ----------------------------------- | ---------------------- |
+| 1      | `.claude/rules/typescript-react.md` | 所有 TS/TSX/React 代码 |
+| 2      | `.claude/rules/data.md`             | 行情、数据访问、存储   |
+| 3      | `.claude/rules/emoji.md`            | AI 投研输出、文案      |
+| 4      | `.claude/rules/bug-fix.md`          | Bug 修复               |
 
-核心原则：
-- **禁止 any / @ts-ignore / as any** — 类型错误必须修正类型，不得绕过
-- **禁止 Mock 数据** — 生产 UI/API 不得使用 fake/mock/preview/demo/sample 数据
-- **数据流必须走 Provider 层** — UI → Service → Provider → Data Source，组件不得直接请求第三方接口
-- **禁止浮点数做金融计算** — 金额计算必须用整数（分）或 Decimal
-- **文件命名 kebab-case** — 目录和文件名小写+连字符
+核心红线：
+
+- **真实数据优先**：面向用户的股票、行情、板块、新闻、图表、投研响应必须使用真实数据。
+- **数据源优先级**：`stock-sdk` → `a-stock-data skill` → 明确空状态/错误状态/加载状态。
+- **禁止伪造 fallback**：不得使用 fake/mock/preview/demo/sample/hardcoded 行情、新闻、K 线、板块排行或合成走势图。
+- **统一数据流**：UI → Service → Provider → Data Source；React 组件不得直接请求第三方行情接口。
+- **类型安全**：禁止新增 `any`、`as any`、`as unknown as`、`@ts-ignore`；优先补类型和泛型。
+- **精准修改**：不得改动需求之外的文件、逻辑和公共 API。
+- **金融计算**：禁止用浮点数做金额/收益等金融计算；必要时使用整数单位或可靠数值工具。
 
 ---
 
-## 2. 项目架构
+## 2. 当前项目结构
 
-```
-src/                              ← React 渲染进程
-  app.tsx                         ← 主布局，view router
-  store/app-store.ts              ← Zustand 全局状态
-  shared/stocksense-api.ts        ← 数据访问门面（Electron: window.stocksense → IPC）
-  shared/types.ts                 ← 全部共享类型定义
+```text
+src/                                  # React 渲染进程
+  app.tsx                             # 主布局、主视图路由、右侧栏入口、全局 ErrorBoundary
+  store/app-store.ts                  # Zustand 全局状态；MainView/RightPanelTab 等 UI 状态
+  shared/
+    stocksense-api.ts                 # 渲染进程数据门面；Electron: window.stocksense → IPC；Browser: 空/错误状态
+    types.ts                          # 渲染/主进程共享类型
+    analytics.ts                      # 前端埋点
+  hooks/                              # 组件级/应用级 hooks
   components/
-    sidebar/                      ← 左侧栏（会话列表、行情入口）
-    chat-view/                    ← 聊天区（AI 对话）
-    market-view/                  ← 行情区（指数卡片 + 股票表格）
-    news-reader/                  ← 新闻阅读器
-    stock-detail-panel/           ← 右侧栏（个股/板块/异动/新闻）
-    kline-chart/                  ← K 线图表
+    chat-view/                        # AI 对话区
+    discovery-view/                   # 探索页：市场摘要、情绪、涨停复盘、龙虎榜、AI 监控等
+    market-view/                      # 行情页：指数卡片、行情表格、指数 K 线弹层
+    news-reader/                      # 新闻详情阅读器
+    stock-detail-panel/               # 右侧栏：收藏、个股、板块、异动、新闻、AI 监控
+    kline-chart/                      # K 线图表
+    error-boundary/                   # React 错误边界
 
-electron/                         ← Electron 主进程
-  ipc.ts                          ← 全部 IPC handler 注册
+electron/                             # Electron 主进程
+  main.ts                             # Electron 启动入口
+  preload.cjs                         # contextBridge 暴露 window.stocksense；新增 IPC 时需同步
+  ipc.ts                              # IPC handler 注册中心
   services/
-    stock/                        ← 股票数据服务
-      stock-client.ts             ← 核心股票数据客户端（K线、行情、搜索、筹码）
-      shared.ts                   ← 共享工具 + StockSDK 实例
-      fund-flow.ts                ← 资金流数据
-      hot-focus.ts                ← 热点/异动/龙虎榜
-      market-page.ts              ← 行情页数据快照
-      market-indices.ts           ← 指数行情
-      market-review-service.ts    ← 市场复盘报告生成
-      board-detail.ts             ← 板块详情
-      chip-distribution.ts        ← 筹码分布计算
-      indicators.ts               ← 技术指标分析
-      symbols.ts                  ← 股票代码标准化
-      format.ts                   ← 数值格式化
-    market-data/                  ← DuckDB 市场数据持久层
-      market-data-store.ts        ← DuckDB 表定义 + CRUD
-      market-data-query.ts        ← 查询入口（本地优先 + 远程补齐）
-      market-data-sync.ts         ← K线数据同步调度
-      market-data-scheduler.ts    ← 同步计划
-      trade-date-resolver.ts      ← 交易日判定
-    agent/                        ← AI Agent 系统
-      orchestrator.ts             ← Agent 编排器
-      analysis-agent.ts           ← 技术分析 Agent
-      data-agent.ts               ← 数据获取 Agent
-      report-agent.ts             ← 报告生成 Agent
-      news-analysis-agent.ts      ← 新闻分析 Agent
-      stock-analysis-agents.ts    ← 股票分析 Agent 组
-      agent-tool-runtime.ts       ← Agent 工具运行时
-    tools/                        ← Agent Tools
-      stock-tools.ts              ← 股票相关 Tools
-      tool-registry.ts            ← Tool 注册表
-    llm/                          ← LLM 客户端
+    stock/                            # 股票、板块、新闻、探索、监控、投研数据服务
+      stock-client.ts                 # 股票详情、搜索、K 线、批量行情、分时等聚合入口
+      shared.ts                       # stock-sdk 实例、通用请求/格式化工具
+      market-page.ts                  # 行情页快照
+      discovery-service.ts            # 探索页快照聚合
+      discovery-*.ts                  # 探索页分模块数据
+      monitor-service.ts              # AI 监控数据
+      monitor-history-store.ts        # AI 监控历史 DuckDB
+      trading-advice-service.ts       # AI 交易建议
+      news-client.ts                  # 新闻、公告、新闻摘要
+      board-detail.ts                 # 板块详情
+      fund-flow.ts                    # 个股资金流
+      hot-focus.ts                    # 热点/异动/板块资金流
+      hot-stock-hints-service.ts      # 热点股票提示
+      surge-history-*.ts              # 异动历史存储/调度/服务
+      quote-store.ts                  # SQLite 实时行情缓存
+      chip-distribution.ts            # 筹码分布
+      indicators.ts                   # 技术指标
+      symbols.ts                      # 股票/板块代码标准化
+      schemas.ts                      # 数据 schema/校验
+      format.ts                       # 数值格式化
+    market-data/                      # DuckDB 市场数据持久层
+      market-data-store.ts            # DuckDB 表结构 + CRUD
+      market-data-query.ts            # 本地优先查询入口
+      market-data-sync.ts             # K 线同步调度
+      data-sync-handlers.ts           # 同步按钮触发的任务
+      providers.ts                    # 市场数据 Provider
+      quality.ts                      # 数据质量检查
+      trade-date-resolver.ts          # 交易日解析
+    agent/                            # AI Agent 系统
+      orchestrator.ts                 # Chat 核心编排入口
+      dag-executor.ts                 # DAG 执行器
+      intent-routing.ts               # 意图路由
+      analysis-agent.ts               # 技术/结构化分析 Agent
+      data-agent.ts                   # 数据获取 Agent
+      report-agent.ts                 # 报告生成 Agent
+      risk-agent.ts                   # 风险 Agent
+      compliance-critic.ts            # 合规/伪造数据/Emoji 检查
+      evidence.ts                     # 证据链工具
+      agent-tool-runtime.ts           # Agent 工具运行时
+    tools/                            # Agent Tool 注册与股票工具
+    llm/                              # LLM 客户端与埋点
+selfchecks/                           # Electron/Node 自检脚本
 ```
 
-### MainView 路由
+### 主视图路由
 
-`src/app.tsx:148` — 当前支持的 3 个主视图：
+`MainView` 定义在 `src/store/app-store.ts`：
 
-```tsx
-{mainView === 'news-reader' ? <NewsReader /> : mainView === 'market' ? <MarketView /> : <ChatView />}
-```
+| MainView        | 组件               | 说明                                     |
+| --------------- | ------------------ | ---------------------------------------- |
+| `'chat'`        | `<ChatView />`     | 默认 AI 对话视图                         |
+| `'market'`      | `<MarketView />`   | 行情页                                   |
+| `'discovery'`   | `<DiscoveryView />`| 探索页/监控/复盘                         |
+| `'news-reader'` | `<NewsReader />`   | 新闻阅读覆盖视图；关闭后恢复 previousView |
 
-| MainView | 组件 | 说明 |
-|----------|------|------|
-| `'chat'` | `<ChatView />` | 默认视图，AI 对话 |
-| `'market'` | `<MarketView />` | 行情表格 |
-| `'news-reader'` | `<NewsReader />` | 新闻详情（覆盖层，退出时恢复 previousView） |
+新增主视图时通常需要同步：
 
-新增视图需要：修改 `MainView` 类型在 `app-store.ts:20`，在 `app.tsx:148` 添加分支。
+1. `src/store/app-store.ts` 的 `MainView` 类型与状态方法。
+2. `src/app.tsx` 的 ErrorBoundary 名称和组件分支。
+3. 入口按钮/侧边栏逻辑。
+4. 必要的埋点、测试和空状态。
 
 ---
 
-## 3. DuckDB 数据库（15 张表）
+## 3. 数据访问与 Provider 规则
 
-### 3.1 行情市场库 `stocksense-market.duckdb`
+### 3.1 标准数据流
 
-**文件**: `electron/services/market-data/market-data-store.ts`
-
-| 表名 | 用途 | 关键列 |
-|------|------|--------|
-| `securities` | A 股证券主表 | symbol(PK), name, exchange(SH/SZ/BJ), industry, is_st |
-| `trade_calendar` | 交易日历 | market+trade_date(PK), is_open, previous/next_trade_date |
-| `daily_bars` | 日线 K 线（最大表） | symbol+trade_date+adjust_type(PK), OHLCV, amount, turnover_rate |
-| `sync_jobs` | 同步任务记录 | id(PK), job_type, status, progress counters |
-| `sync_failures` | 同步失败详情 | job_id+symbol+stage(PK), error_message, retry_count |
-| `market_board_snapshots` | 板块快照 JSON | snapshot_key(PK), rows_json |
-| `stock_chips` | 筹码分布缓存 | symbol(PK), data_json |
-| `stock_snapshots` | 实时行情快照 | symbol(PK), price/change/pe/pb/market_cap 等 |
-| `market_board_details` | 板块详情缓存 | board_code(PK), detail_json |
-| `market_boards` | 板块列表 | board_code(PK), name, kind(industry/concept), change_percent |
-| `board_constituents` | 板块成分股 | board_code+stock_code(PK), stock_name, position |
-
-### 3.2 异动库 `stocksense-surge.duckdb`
-
-**文件**: `electron/services/stock/surge-history-store.ts`
-
-| 表名 | 用途 | 关键列 |
-|------|------|--------|
-| `stock_surge_events` | 异动事件历史 | trade_date, code, name, title, tag(涨停/跌停/炸板/强势) |
-
-### 3.3 聊天库 `stocksense-chat.sqlite` (SQLite)
-
-| 表名 | 用途 | 关键列 |
-|------|------|--------|
-| `conversations` | 会话列表 | id(PK), title, preview, updated_at |
-| `messages` | 聊天消息 | id(PK), conversation_id(FK), payload(JSON) |
-
-### 3.4 行情缓存库 `stocksense-quotes.sqlite` (SQLite)
-
-| 表名 | 用途 | 关键列 |
-|------|------|--------|
-| `stock_quote` | 实时行情缓存 | code(PK), price, change_percent, volume, amount 等 |
-
-### 关键读写函数
-
-```ts
-// 从 market-data-store 导入
-import { listDailyBars, upsertDailyBars, upsertSecurities,
-         upsertStockSnapshots, readBoardSnapshot, writeBoardSnapshot,
-         upsertMarketBoards, getStockChip, upsertStockChip } from './market-data-store.js';
-
-// 查询入口（本地优先 + 远程补齐）
-import { queryHistoricalBars, queryLatestQuote } from './market-data-query.js';
+```text
+React Component
+  ↓ getStocksenseApi().someMethod()
+src/shared/stocksense-api.ts
+  ↓ window.stocksense.someMethod() [Electron] / empty-or-error [Browser]
+electron/preload.cjs
+  ↓ ipcRenderer.invoke('channel:name')
+electron/ipc.ts
+  ↓ service function
+electron/services/**
+  ↓ stock-sdk / a-stock-data skill / DuckDB / SQLite / LLM
+Data Source
 ```
+
+要求：
+
+- React 组件只调用 `getStocksenseApi()` 或已有 service/hook，不直接 `fetch` 东财、腾讯、Tushare 等第三方接口。
+- 新增第三方数据访问必须放在 Electron service/provider 层。
+- Browser/PWA fallback 只能返回空状态、错误状态、加载状态，或调用真实 API；不得展示预览行情/模拟 K 线/示例新闻。
+- 图表必须有真实序列才渲染；没有真实 K 线/分时数据时显示“暂无图表数据”。
+- 搜索/自动补全必须支持代码和名称部分匹配，优先 `stock-sdk`，其次 `a-stock-data skill`。
+
+### 3.2 stock-sdk 使用原则
+
+项目已依赖 `stock-sdk`，新增或修改股票数据接口时先查：
+
+- API 文档：https://stock-sdk.linkdiary.cn/api/
+- skills 文档：https://stock-sdk.linkdiary.cn/skills/catalog
+
+常见能力：
+
+| 能力           | 优先入口/说明                                      |
+| -------------- | -------------------------------------------------- |
+| A 股行情       | `sdk.quotes.cn(codes)`，批量优先                   |
+| 搜索           | `sdk.search(keyword)`                              |
+| 历史 K 线      | `sdk.kline.cn(symbol, opts)`                       |
+| 板块/行业      | `sdk.board.industry` / `sdk.board.concept`         |
+| 资金流         | `sdk.fundFlow.*`                                   |
+| 市场异动/涨停池| `sdk.marketEvent.*`                                |
+| 筹码分布       | `sdk.chips.cn(symbol, opts)`                       |
+| 交易日历       | `sdk.calendar.isTradingDay` / `prevTradingDay`     |
+
+实践要求：
+
+- 批量接口优先，避免逐个请求。
+- 远程请求必须有超时、错误暴露和用户可理解的错误/空状态。
+- 同参数高频请求应复用缓存或 in-flight Promise。
+- 如果 `stock-sdk` 不支持或返回空，再考虑 `a-stock-data skill`。
+- 如果所有真实数据源都不可用，返回空/错误，不得合成假数据。
+
+### 3.3 a-stock-data 使用原则
+
+`a-stock-data` 是次级真实数据源能力，适用于 `stock-sdk` 无接口、不适合当前场景或暂不可用的情况。
+
+- 使用前先确认 `stock-sdk` 是否已有能力。
+- 不得把 a-stock-data 失败降级为 mock/fake 数据。
+- 如果输出中存在 `warnings`/`source` 字段，应标明真实数据来源。
+- 所有东财/腾讯等直接 HTTP 接入都必须封装在 service/provider 层，不能散落到 UI。
 
 ---
 
-## 4. stock-sdk 用法
+## 4. 本地数据库与缓存
 
-### 4.1 SDK 实例化
+### 4.1 市场数据 DuckDB
 
-```ts
-// Electron 主进程（shared.ts）
-import StockSDK from 'stock-sdk';
-export const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
+**文件**：`electron/services/market-data/market-data-store.ts`
+
+| 表名                     | 用途                         |
+| ------------------------ | ---------------------------- |
+| `securities`             | A 股证券主表                 |
+| `trade_calendar`         | 交易日历                     |
+| `daily_bars`             | 日线 K 线                    |
+| `sync_jobs`              | 同步任务记录                 |
+| `sync_failures`          | 同步失败详情                 |
+| `market_board_snapshots` | 板块/行情快照 JSON           |
+| `discovery_snapshots`    | 探索页快照缓存               |
+| `stock_chips`            | 筹码分布缓存                 |
+| `stock_snapshots`        | 实时行情快照                 |
+| `market_board_details`   | 板块详情缓存                 |
+| `market_boards`          | 板块列表                     |
+| `board_constituents`     | 板块成分股                   |
+
+常用入口：
+
+- `market-data-query.ts`：本地优先查询，例如历史 K 线/最新行情。
+- `market-data-sync.ts`：同步状态、启动、取消、重试失败。
+- `data-sync-handlers.ts`：UI 手动同步入口。
+- `providers.ts`：市场数据 Provider。
+
+### 4.2 异动与监控 DuckDB
+
+| 文件 | 表名 | 用途 |
+| ---- | ---- | ---- |
+| `electron/services/stock/surge-history-store.ts` | `stock_surge_events` | 异动/涨停/跌停/炸板/强势历史 |
+| `electron/services/stock/monitor-history-store.ts` | `ai_monitor_events` | AI 监控事件历史 |
+
+### 4.3 SQLite
+
+| 文件 | 数据库/表 | 用途 |
+| ---- | --------- | ---- |
+| `electron/services/conversation-store.ts` | `stocksense-chat.sqlite` / `conversations`, `messages` | 会话和消息 |
+| `electron/services/stock/quote-store.ts` | `stocksense-quotes.sqlite` / `stock_quote` | 实时行情缓存 |
+
+实时行情存储规则：
+
+```text
+Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地，再远程补齐
 ```
 
-### 4.2 项目中实际使用的 14 个 SDK 方法
-
-| SDK 方法 | 使用位置 | 用途 |
-|----------|---------|------|
-| `sdk.search(keyword)` | `stock-client.ts:64` | 股票/板块模糊搜索 |
-| `sdk.quotes.cn(codes)` | `stock-client.ts:99` | A 股批量实时行情 |
-| `sdk.kline.cn(symbol, opts)` | `stock-client.ts:246` | A 股 K 线（日/周/月，含复权） |
-| `sdk.chips.cn(symbol, opts)` | `stock-client.ts:859` | 筹码分布 |
-| `sdk.board.industry` | `shared.ts:169` | 行业板块列表 |
-| `sdk.board.concept` | `shared.ts:169` | 概念板块列表 |
-| `sdk.board.industry.getList()` | 板块扫描 | 行业板块成分股 |
-| `sdk.board.concept.getList()` | 板块扫描 | 概念板块成分股 |
-| `sdk.fundFlow.individual(symbol, opts)` | `fund-flow.ts:12` | 个股资金流 |
-| `sdk.fundFlow.market(opts)` | `hot-focus.ts` | 市场资金流排名 |
-| `sdk.fundFlow.rank(opts)` | `hot-focus.ts` | 资金流排名 |
-| `sdk.fundFlow.sectorRank(opts)` | `hot-focus.ts`, `stocksense-api.ts` | 板块资金流排名 |
-| `sdk.marketEvent.individualChanges(symbol, opts)` | `fund-flow.ts:29` | 个股异动事件 |
-| `sdk.marketEvent.individualChangesHistory(symbol, date)` | `hot-focus.ts` | 个股异动历史 |
-| `sdk.marketEvent.stockChanges(type)` | `hot-focus.ts`, `stocksense-api.ts` | 全市场异动 |
-| `sdk.codes.cn()` | `stock-client.ts` | A 股代码列表 |
-| `sdk.calendar.isTradingDay(date)` | `stocksense-api.ts:231` | 判定交易日 |
-| `sdk.calendar.prevTradingDay(date)` | `stocksense-api.ts:232` | 上一个交易日 |
-
-### 4.3 MCP 工具（stock-sdk MCP server）
-
-通过 MCP 协议在 Claude Code 中可直接调用的工具（参数略有不同）：
-
-| MCP Tool | 对应 SDK 方法 | 说明 |
-|----------|-------------|------|
-| `get_a_share_quotes` | `sdk.quotes.cn` | 批量行情 |
-| `get_history_kline` | `sdk.kline.cn` | 历史 K 线 |
-| `get_minute_kline` | — | 分钟 K 线/分时 |
-| `get_chip_distribution` | `sdk.chips.cn` | 筹码分布 |
-| `get_concept_list` | `sdk.board.concept` | 概念板块 |
-| `get_industry_list` | `sdk.board.industry` | 行业板块 |
-| `get_concept_constituents` | — | 概念板块成分股 |
-| `get_industry_constituents` | — | 行业板块成分股 |
-| `get_dragon_tiger_detail` | — | 龙虎榜 |
-| `get_zt_pool` | — | 涨停池 |
-| `get_fund_flow_rank` | `sdk.fundFlow.rank` | 资金流排名 |
-| `get_individual_fund_flow` | `sdk.fundFlow.individual` | 个股资金流 |
-| `get_market_status` | — | 市场状态（盘中/盘后/休市） |
-| `get_northbound_flow_summary` | — | 北向资金汇总 |
-| `get_kline_signals` | — | 技术信号（金叉/死叉等） |
-| `get_kline_with_indicators` | — | 带技术指标的 K 线 |
-| `get_today_timeline` | — | 当日分时 |
-| `get_hk_quotes` | — | 港股行情 |
-| `get_us_quotes` | — | 美股行情 |
-| `search` | `sdk.search` | 搜索 |
-| `is_trading_day` | `sdk.calendar.isTradingDay` | 交易日判定 |
-
-### 4.4 最佳实践
-
-- **批量优先**：`sdk.quotes.cn(codes[])` 一次传多只股票，比逐个查快得多
-- **并发控制**：同一参数的 K 线请求会共享 Promise（`klineInFlight` Map）
-- **超时处理**：SDK 自带 12s 超时 + 1 次重试；额外用 `withTimeoutReject` 做外层保护
-- **Fallback 链**：腾讯 → stock-sdk → 东方财富，每层有超时兜底
+禁止收到每条行情立即写库。
 
 ---
 
-## 5. a-stock-data 用法
+## 5. IPC 与 stocksenseApi 速查
 
-### 5.1 定位
+### 5.1 新增 API 必改位置
 
-`a-stock-data` 是项目中作为 **降级 fallback 数据源** 使用的 skill。当 stock-sdk 不可用或数据为空时，使用 a-stock-data 的数据源补充。
+新增渲染进程可调用能力时，按顺序同步：
 
-### 5.2 实际使用场景
+1. `src/shared/types.ts`：共享类型与 `StocksenseApi` 接口。
+2. `src/shared/stocksense-api.ts`：Electron 门面和 Browser fallback（空/错误状态，不造假数据）。
+3. `electron/preload.cjs`：`contextBridge.exposeInMainWorld('stocksense', api)` 中暴露方法。
+4. `electron/ipc.ts`：注册 `ipcMain.handle('channel:name', handler)`。
+5. `electron/services/**`：真实数据 service/provider 实现。
+6. 调用方组件/hook：通过 `getStocksenseApi()` 调用。
+7. 测试或 selfcheck：覆盖关键成功/失败/空状态。
 
-**场景 1: 资金流降级** (`fund-flow.ts`)
-```
-stock-sdk fundFlow.individual → 东财 push2his（a-stock-data 日级）→ 东财 push2（a-stock-data 分钟级）
-```
+### 5.2 常用 IPC Channel
 
-**场景 2: 筹码分布降级** (`stock-client.ts:864`)
-```
-stock-sdk chips.cn → a-stock-data 百度日K（本地 CYQ 算法计算）
-```
+| 分类 | Channel | 说明 |
+| ---- | ------- | ---- |
+| 配置/运行时 | `config:get`, `config:set`, `config:testModel`, `app:getRuntimeInfo` | 应用配置、模型测试、版本信息 |
+| 收藏 | `favorite:list`, `favorite:upsert`, `favorite:remove`, `favorite:togglePin` | 收藏股票 |
+| 会话 | `conversation:list/create/delete/rename`, `message:list/save`, `chat:send` | 会话、消息、AI 聊天 |
+| 股票 | `stock:getDetail`, `stock:search`, `stock:getKline`, `stock:getChipDistribution`, `stock:getBatchQuotes`, `stock:getTimelines` | 个股、搜索、K 线、筹码、行情、分时 |
+| 板块/行情 | `board:getDetail`, `market:getPageSnapshot` | 板块详情、行情页快照 |
+| 探索/监控 | `discovery:getSnapshot`, `monitor:getFeed`, `trading-advice:get` | 探索页、AI 监控、交易建议 |
+| 热点/异动 | `hot:list`, `hot:hintSource`, `hot:historyDates`, `hot:history`, `stock:surgeEvents` | 热点、异动历史、个股异动 |
+| 新闻 | `news:list`, `news:stockList`, `news:stockFeed`, `news:stockPreferences`, `news:getSummary`, `news:getDetail` | 新闻和公告 |
+| 数据同步 | `marketData:getStatus`, `marketData:startSync`, `marketData:retryFailures`, `marketData:cancelSync`, `marketData:getStats`, `dataSync:*` | 市场数据同步 |
+| 存储/升级 | `storage:getStats`, `storage:clear`, `system:getDiskInfo`, `appUpdate:*` | 存储管理、应用升级 |
+| 商店 | `store:list`, `store:installed`, `store:install`, `store:uninstall` | 命令/扩展商店 |
 
-**场景 3: K 线降级** (`stock-client.ts:253`)
-```
-腾讯 → stock-sdk → 东财 push2his
-```
+### 5.3 Push 事件
 
-**场景 4: 搜索降级** (`stock-client.ts:583`)
-```
-stock-sdk search → 板块/行情缓存 → 东财 suggest API
-```
-
-**场景 5: 异动/热点** (`hot-focus.ts`)
-```
-stock-sdk marketEvent → 东财异动接口 → local DB cache
-```
-
-### 5.3 使用原则
-
-- a-stock-data **总是作为 fallback**，不优先于 stock-sdk
-- 所有东财直接 HTTP 请求视为 a-stock-data 能力
-- 降级获取的数据需在 `warnings` 字段中标明来源
-
----
-
-## 6. IPC 通道速查
-
-**文件**: `electron/ipc.ts`
-
-### 6.1 配置与会话
-
-| Channel | Handler |
-|---------|---------|
-| `config:get` | 获取配置 |
-| `config:set` | 保存配置 |
-| `config:testModel` | 测试 LLM 连接 |
-| `conversation:list/create/delete/rename` | 会话 CRUD |
-| `message:list/save` | 消息读写 |
-| `chat:send` | 发送聊天消息（核心 AI 入口） |
-| `chat:token` | SSE token 推送（main → renderer） |
-
-### 6.2 股票数据（最常用）
-
-| Channel | Handler | 说明 |
-|---------|---------|------|
-| `stock:getDetail` | `getStockDetail(symbol)` | 个股详情（含本地 K 线） |
-| `stock:search` | `searchStocks(query)` | 搜索股票/板块 |
-| `stock:getKline` | `getKline(symbol, limit, period)` | K 线（本地优先） |
-| `stock:getChipDistribution` | `getChipDistribution(symbol)` | 筹码分布 |
-| `stock:getBatchQuotes` | `getBatchQuotes(codes)` | 批量行情 |
-| `board:getDetail` | `getBoardDetail(symbol)` | 板块详情 |
-| `market:getPageSnapshot` | `getMarketPageSnapshot(tab, period)` | 行情页快照 |
-
-### 6.3 热点/异动
-
-| Channel | Handler |
-|---------|---------|
-| `hot:list` | `listHotFocus(tab)` — tab: 'sector'/'market'/'surge'/'strategy'/'diagnosis'/'flow' |
-| `hot:hintSource` | `listHotStockHintSource()` |
-| `hot:historyDates` | `listSurgeDates()` |
-| `hot:history` | `listSurgeHistoryWithBackfill(date)` |
-| `stock:surgeEvents` | `listStockSurgeEvents(code)` |
-
-### 6.4 数据同步
-
-| Channel | Handler |
-|---------|---------|
-| `marketData:getStatus` | 同步状态 |
-| `marketData:startSync` | 启动 K 线同步 |
-| `marketData:cancelSync` | 取消同步 |
-| `marketData:getStats` | 数据库统计 |
-| `dataSync:syncKlines` | 强制 K 线同步 |
-| `dataSync:syncSurgeHistory` | 异动历史同步 |
-| `dataSync:syncStockDetails` | 个股详情同步 |
-| `dataSync:syncSnapshot` | 行情快照同步 |
-
-### 6.5 Push 事件（main → renderer）
-
-| Channel | 数据 |
-|---------|------|
-| `market:pageSnapshotUpdated` | 行情页实时更新 |
-| `marketData:progress` | 同步进度 |
-| `appUpdate:stateChanged` | 更新状态变更 |
-| `notification:aiResponse` | AI 回复完成通知 |
-| `storage:clearProgress` | 清理进度 |
+| Channel | 说明 |
+| ------- | ---- |
+| `chat:token` | AI SSE token / runEvent 推送 |
+| `notification:aiResponse` | AI 回复完成的应用内兜底通知 |
+| `market:pageSnapshotUpdated` | 行情页快照更新 |
+| `marketData:progress` | 市场数据同步进度 |
+| `storage:clearProgress` | 存储清理进度 |
+| `favorite:cleared` | 收藏被清空 |
+| `appUpdate:stateChanged` | 应用升级状态变化 |
+| `dataSync:taskProgress` | 数据同步任务进度（preload 已暴露监听） |
 
 ---
 
-## 7. stocksenseApi 接口速查
+## 6. 主要前端模块约定
 
-**文件**: `src/shared/stocksense-api.ts`
-**类型**: `src/shared/types.ts` → `StocksenseApi`
+### 6.1 组件组织
 
-### 配置与收藏
-- `getConfig()` / `setConfig(config)`
-- `listFavoriteStocks()` / `upsertFavoriteStock(stock)` / `removeFavoriteStock(code)`
-- `toggleFavoriteStockPin(code)`
+- React 组件文件原则上只维护一个主组件。
+- 子组件放当前目录 `components/` 子目录。
+- 单组件文件超过 400 行应拆分；超过 500 行必须拆分。
+- 复杂逻辑提取 hook 或纯函数；单 hook 不超过 300 行。
+- 大列表优先复用项目已有虚拟列表方案；当前依赖包含 `@tanstack/react-virtual`。
+- 复杂组件外层应包 `ErrorBoundary`，现有主布局已对主区/右侧栏/弹层做保护。
 
-### 会话与消息
-- `listConversations()` / `createConversation()` / `deleteConversation(id)` / `renameConversation(id, title)`
-- `listMessages(conversationId)` / `saveMessage(conversationId, message)`
-- `sendChat(request)` — 核心聊天接口
+### 6.2 重点模块
 
-### 股票数据
-- `getStockDetail(symbol)` → `StockDetail`
-- `searchStocks(query)` → `MarketSearchResult[]`
-- `getKline(symbol, limit?, period?, beforeTimestamp?)` → `KlinePoint[]`
-- `getChipDistribution(symbol)` → `IChipDistributionResult`
-- `getBatchQuotes(codes)` → `StockDetail[]`
-- `getBoardDetail(symbol, forceRefresh?, boardName?)` → `BoardDetail`
+| 模块 | 入口 | 注意事项 |
+| ---- | ---- | -------- |
+| 行情页 | `src/components/market-view/index.tsx` | 子组件在 `market-view/components/`；数据来自 `getMarketPageSnapshot` 和 push 更新 |
+| 探索页 | `src/components/discovery-view/index.tsx` | 数据来自 `getDiscoverySnapshot`、`getMonitorFeed`、`getTradingAdvice`；不得在组件里拼假榜单 |
+| 右侧栏 | `src/components/stock-detail-panel/index.tsx` | 面板子组件放 `components/`；右侧 tab 定义在 app-store |
+| K 线 | `src/components/kline-chart/` | 只能渲染真实序列；无数据展示空状态 |
+| 新闻阅读 | `src/components/news-reader/` | `news-reader` 是覆盖视图，关闭需恢复 previousView |
 
-### 行情页
-- `getMarketPageSnapshot(tab, period?)` → `MarketPageSnapshot`
-- `onMarketPageSnapshotUpdated(callback)` — 订阅实时更新
+---
 
-### 热点
-- `listHotFocus(tab)` → `HotFocusItem[]`
-- `listSurgeHistoryDates()` → `string[]`
-- `listSurgeHistory(date, offset?, limit?)` → `StockSurgeEvent[]`
-- `listStockSurgeEvents(code)` → `StockSurgeEvent[]`
+## 7. AI Agent 与投研输出约定
 
-### 新闻
-- `listMarketNews(query?, page?, pageSize?)` → `PagedMarketNews`
-- `getMarketNewsSummaryState()` → `IMarketNewsSummaryState`
-- `getMarketNewsItem(item)` → `MarketNewsItem`
-- `listStockNews(code, limit)` → `MarketNewsItem[]`
-- `listStockNewsFeed()` → `StockNewsFeedItem[]`
+主要入口：
+
+- `electron/services/agent/orchestrator.ts`：聊天请求入口。
+- `electron/services/agent/intent-routing.ts`：命令/意图识别。
+- `electron/services/agent/dag-executor.ts`：多 Agent 流程执行。
+- `electron/services/agent/evidence.ts`：证据链聚合。
+- `electron/services/agent/compliance-critic.ts`：合规检查。
+- `electron/services/tools/stock-tools.ts`：股票工具。
+
+要求：
+
+- 投研报告必须基于证据链和真实数据源；缺数据要明确“暂无数据/数据源暂不可用”。
+- 不得输出确定性买卖指令；必须保留风险提示。
+- Emoji 遵守 `.claude/rules/emoji.md`，保持专业金融风格；禁止娱乐化/炒作型 Emoji。
+- Agent fallback 文案可以提示数据不可用，但不得生成虚假市场数值。
 
 ---
 
 ## 8. 新增功能 Checklist
 
-当开发一个全新的页面/面板/数据展示功能时，按以下步骤检查：
+开发全新页面、面板、数据展示、IPC/API 时按以下顺序：
 
-1. **类型定义** → `src/shared/types.ts` 新增接口/类型
-2. **API 接口声明** → `stocksense-api.ts` 的 `StocksenseApi` 接口中新增方法声明
-3. **浏览器 Fallback** → 同一文件 `webFallbackApi` 中实现返回空/错误状态的方法
-4. **Electron 服务** → `electron/services/stock/` 实现真实数据获取逻辑
-5. **IPC Handler** → `electron/ipc.ts` 注册 `ipcMain.handle('xxx:yyy', ...)` 通道
-6. **渲染进程组件** → `src/components/<feature>/` 创建组件，通过 `getStocksenseApi()` 调用数据
-7. **路由/入口** → 在 `app.tsx` 或 sidebar 中添加入口
-8. **App Store** → 如需全局状态，在 `app-store.ts` 中扩展
-
-### 数据流标准模式
-
-```
-React Component
-  ↓ getStocksenseApi().someMethod()
-stocksenseApi (门面)
-  ↓ window.stocksense.someMethod()  [Electron] 或 fallback [Browser]
-IPC (contextBridge)
-  ↓ ipcMain.handle('channel:method', handler)
-Electron Service
-  ↓ stock-sdk / DuckDB / 东财 HTTP / LLM
-Data Source
-```
+1. **确认数据源**：先查 `stock-sdk` 文档和现有 service/provider；不支持再考虑 `a-stock-data skill`。
+2. **确认类型**：优先复用 `src/shared/types.ts` 现有类型；新增类型遵守 `I*` interface / `T*` type 命名。
+3. **Service/Provider**：在 `electron/services/**` 实现真实数据逻辑；异步失败路径要暴露并处理。
+4. **IPC/Preload/API**：同步 `types.ts` → `stocksense-api.ts` → `preload.cjs` → `ipc.ts`。
+5. **Browser fallback**：只能返回空状态/错误状态/加载状态，或真实 API 数据；不得造假。
+6. **UI 组件**：放入对应 `src/components/<feature>/`；子组件放 `components/`；主组件加空/错/加载状态。
+7. **状态管理**：如需全局状态，扩展 `src/store/app-store.ts`；不得新增状态管理库。
+8. **验证**：运行针对性单测/selfcheck/typecheck；说明未运行项和原因。
 
 ---
 
-## 9. 编码规范速查
+## 9. Bug 修复 Checklist
 
-### 文件与命名
-- 文件/目录: `kebab-case`
-- Interface: `I` + PascalCase
-- Type: `T` + PascalCase
-- Enum: PascalCase
+修 Bug 必须优先定位根因，不得隐藏错误或删除业务逻辑。修改前先回答：
 
-### 组件约束
-- 单文件 ≤ 400 行
-- 子组件放 `components/` 子目录
-- 大列表用虚拟化（`react-virtualized`）
-- 复杂逻辑抽 hook（≤ 300 行）
+1. Bug 的根因是什么？
+2. 为什么会发生？
+3. 为什么当前实现失效？
+4. 修复是否影响其他功能？
+5. 是否引入新的性能问题？
+6. 是否改动了需求之外的地方？
+7. 是否引入新的问题？
+
+完成后按以下格式说明：
+
+```md
+### Root Cause
+### Fix
+### Impact
+### Risk
+### Verification
+```
+
+修 Bug 优先使用 `stock-fix-bug` skill。
+
+---
+
+## 10. 编码规范速查
+
+### 命名
+
+- 文件/目录：`kebab-case`。
+- Interface：`I` + PascalCase。
+- Type：`T` + PascalCase。
+- Enum：PascalCase。
 
 ### 禁止事项
-- `any` / `as any` / `as unknown as` / `@ts-ignore`
-- 组件直接请求第三方 API
-- 收到每条行情立刻写库（应批量 15-30s）
-- 浮点数做金融计算
-- mock/fake/preview/demo/sample 数据进入生产代码
-- 新增状态管理库（只用 zustand）
-- 改动需求之外的东西
 
-### 必须遵守
-- `pnpm typecheck` 通过（`tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json`）
-- React Hook 依赖完整
-- 异步函数处理失败路径
-- 列表 key 稳定（非 index/random）
+- `any` / `as any` / `as unknown as` / `@ts-ignore` / 降低 tsconfig 严格度。
+- React 组件直接请求第三方行情 API。
+- 用 `catch { return [] }`、`catch { return null }`、`catch { return {} }` 隐藏错误。
+- 用 fallback/mock/fake/preview/demo/sample 数据掩盖数据源失败。
+- 为消除 Hook 警告删除依赖项。
+- 收到每条行情立即写库。
+- 关键列表使用 index/random/频繁变化值作为 key。
+- 新增状态管理库。
+- 改动需求之外的代码。
+
+### 必须做到
+
+- React Hook 依赖完整，分析闭包和状态同步。
+- 异步函数处理失败路径并给出可理解错误/空状态。
+- 类型表达业务含义，公共类型放共享位置。
+- 未使用 import/变量/函数及时清理。
+- 修改公共 API 类型时说明影响范围。
 
 ---
 
-## 10. 常用命令
+## 11. 常用命令
 
 ```bash
-pnpm dev                    # 启动 Electron 开发模式
-pnpm build                  # 构建（含 typecheck）
-pnpm typecheck              # TS 类型检查
-pnpm selfcheck:market-data  # 行情数据库自检
-pnpm selfcheck:market-page  # 行情页自检
+pnpm dev                         # 启动 Electron 开发模式
+pnpm dev:web                     # 启动 Vite 浏览器预览（不得展示假行情）
+pnpm test                        # 运行 Vitest
+pnpm test:watch                  # Vitest watch
+pnpm test:coverage               # 测试覆盖率
+pnpm typecheck                   # TS 类型检查：renderer + node
+pnpm build                       # typecheck + Vite + Electron build
+
+pnpm selfcheck:market-data        # 市场数据库自检
+pnpm selfcheck:market-page        # 行情页自检
+pnpm selfcheck:index-kline        # 指数 K 线自检
+pnpm selfcheck:board-detail       # 板块详情自检
 pnpm selfcheck:chip-distribution  # 筹码分布自检
-pnpm selfcheck:surge-monitor     # 异动监控自检
+pnpm selfcheck:market-review      # 市场复盘自检
+pnpm selfcheck:discovery-service  # 探索服务自检
+pnpm selfcheck:orchestrator       # Agent 编排器自检
+pnpm selfcheck:trade-date         # 交易日解析自检
+pnpm selfcheck:surge-monitor      # 异动监控自检
+pnpm selfcheck:monitor-service    # AI 监控服务自检
+pnpm selfcheck:ai-monitor-history # AI 监控历史自检
+pnpm selfcheck:news-summary       # 新闻摘要自检
+pnpm selfcheck:hot-stock-hints    # 热点股票提示自检
+pnpm selfcheck:trading-advice     # 交易建议自检
 ```
 
 ---
 
-## 11. 相关技能
+## 12. 相关技能
 
 | 技能 | 用途 |
-|------|------|
-| `stock-fix-bug` | Bug 修复（强制根因定位流程） |
-| `stock-deep-analyzer:*` | 深度股票分析（22 维 + 评委面板 + Bloomberg 报告） |
+| ---- | ---- |
+| `stock-fix-bug` | Stock Agents Bug 修复：根因定位、最小改动、验证闭环 |
+| `a-stock-data` | `stock-sdk` 不覆盖或不适合时的次级真实数据源能力 |
 | `code-review` | 代码审查 |
-| `ponytail:*` | 简洁代码审查/技术债审计 |
+| `simplify` | 对已改代码做复用、简化、效率和技术债清理 |
+| `klinecharts` | K 线图表相关实现参考 |
+
+---
+
+## 13. 历史风险提醒
+
+项目历史上存在过 preview/fallback/hardcoded 数据模式。后续触碰相关文件时不得扩展这些模式，应逐步替换为真实数据源或明确空/错状态：
+
+- `src/shared/stocksense-api.ts`：Browser fallback 必须谨慎，不能加入假行情/假新闻/假榜单。
+- `electron/services/stock/stock-client.ts`：不得新增合成行情、合成指数、伪造板块数据。
+- `src/components/kline-chart/index.tsx`：不得根据单个价格或涨跌幅生成走势图。
+- Agent fallback 文案只能表达数据不可用，不能伪造市场数值。

@@ -27,6 +27,12 @@ export async function getMarketIndices(period: MarketIndexPeriod): Promise<Marke
   return indices;
 }
 
+function toStoredIndexSymbol(code: string) {
+  if (code === '000001') return 'sh000001';
+  if (code === '399001') return 'sz399001';
+  return undefined;
+}
+
 export function normalizeIndexSymbol(input: string): 'sh000001' | 'sz399001' | undefined {
   const text = input.trim().toLowerCase();
   if (text === '上证指数' || text === 'sh000001') return 'sh000001';
@@ -72,7 +78,7 @@ async function persistIndexSnapshots(indices: MarketIndexSnapshot[], period: Mar
   const fetchedAt = new Date().toISOString();
   const bars: DailyBarRecord[] = [];
   for (const index of indices) {
-    const symbol = index.code;
+    const symbol = toStoredIndexSymbol(index.code);
     if (!symbol || !index.minutes?.length) continue;
     for (const point of index.minutes) {
       if (!point.time) continue;
@@ -110,8 +116,9 @@ export async function fetchMarketIndex(
       fetchIndexSeries(code, period, limit, beforeTimestamp),
     ]);
     if (!quote) return undefined;
-    // 仅最新序列用实时报价修补最后一根 bar；历史序列（beforeTimestamp）保持原样，避免污染历史 K 线
-    const minutes = beforeTimestamp === undefined ? patchLatestIndexBar(series, quote) : series;
+    // 仅日线/分钟线最新序列用实时报价修补最后一根 bar；周/月线必须保留真实周期 OHLC，避免被当日日内价格污染。
+    const shouldPatchLatestBar = beforeTimestamp === undefined && period !== '1w' && period !== '1mo';
+    const minutes = shouldPatchLatestBar ? patchLatestIndexBar(series, quote) : series;
     return { ...quote, minutes };
   } catch {
     return undefined;
