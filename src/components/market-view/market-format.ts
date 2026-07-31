@@ -1,3 +1,9 @@
+function toFiniteNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '' || value === '--') return undefined;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : undefined;
+}
+
 export function tone(value: unknown) {
   return Number(value) < 0 || String(value).startsWith('-') ? 'down' : 'up';
 }
@@ -8,8 +14,8 @@ export function parsePercent(value: unknown) {
 }
 
 export function formatSigned(value: unknown) {
-  const num = Number(value);
-  return Number.isFinite(num) ? `${num > 0 ? '+' : ''}${num.toFixed(2)}` : '--';
+  const num = toFiniteNumber(value);
+  return num !== undefined ? `${num > 0 ? '+' : ''}${num.toFixed(2)}` : '--';
 }
 
 export function formatPercent(value: unknown) {
@@ -19,8 +25,8 @@ export function formatPercent(value: unknown) {
 }
 
 export function formatVolume(value: unknown) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return String(value ?? '--');
+  const num = toFiniteNumber(value);
+  if (num === undefined) return String(value ?? '--');
   return num >= 100_000_000
     ? `${(num / 100_000_000).toFixed(2)}亿手`
     : num >= 10_000
@@ -29,8 +35,8 @@ export function formatVolume(value: unknown) {
 }
 
 export function formatMoney(value: unknown) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return String(value ?? '--');
+  const num = toFiniteNumber(value);
+  if (num === undefined) return String(value ?? '--');
   return num >= 100_000_000
     ? `${(num / 100_000_000).toFixed(2)}亿`
     : num >= 10_000
@@ -39,8 +45,8 @@ export function formatMoney(value: unknown) {
 }
 
 export function formatMarketCap(value: unknown) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return String(value ?? '--');
+  const num = toFiniteNumber(value);
+  if (num === undefined) return String(value ?? '--');
   const yi = num / 100_000_000;
   return yi >= 10_000 ? `${(yi / 10_000).toFixed(2)}万亿` : `${yi.toFixed(1)}亿`;
 }
