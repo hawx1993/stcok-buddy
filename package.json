@@ -23,6 +23,9 @@
     "release:github:mac": "node scripts/release-github.cjs --target mac-arm64,mac-x64",
     "release:github:all": "node scripts/release-github.cjs --target all",
     "release": "pnpm run release:github",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "tsc --noEmit -p tsconfig.json",
@@ -97,6 +100,7 @@
     "@types/react-dom": "^18.3.1",
     "@typescript/native": "npm:typescript@7.0.2",
     "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/coverage-v8": "^4.1.10",
     "concurrently": "^9.1.0",
     "electron": "43.1.0",
     "electron-builder": "26.15.3",
@@ -105,6 +109,7 @@
     "tailwindcss": "^4.3.2",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vite": "^8.1.4",
+    "vitest": "^4.1.10",
     "wait-on": "^8.0.1"
   }
 }

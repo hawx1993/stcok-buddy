@@ -466,7 +466,7 @@ function isNextWeekSectorCandidate(value: unknown): value is TNextWeekSectorCand
 }
 
 export function normalizeBoardLookupName(name: string) {
-  return name.replace(/行业|板块|Ⅱ|Ⅲ|II|III|\s/g, '');
+  return name.replace(/行业|板块|Ⅱ|Ⅲ|III|II|\s/g, '');
 }
 
 export function buildLocalBoardCatalog(rows: TLocalBoardSummary[]): TLocalBoardCatalog {
