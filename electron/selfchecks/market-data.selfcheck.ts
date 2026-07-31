@@ -94,6 +94,8 @@ const updatedAt = new Date().toISOString();
 await store.upsertMarketBoards([
   { code: 'BK1556', name: '教育运营及其他', source: 'selfcheck', updatedAt },
   { code: 'BK1556', name: '教育运营及其他', kind: 'industry', changePercent: 1.2, source: 'selfcheck', updatedAt },
+  { code: 'BK0465', name: '化学制药', kind: 'industry', source: 'selfcheck', updatedAt },
+  { code: 'BK0465', name: '化学制药', kind: 'industry', changePercent: 0.8, source: 'selfcheck', updatedAt },
 ]);
 await store.upsertStockSnapshots([
   { symbol: '600519', name: '贵州茅台', amount: 12_000_000 },
@@ -116,6 +118,11 @@ const repeatedRows = await store.listBoardConstituents('BK1608');
 assert.equal(repeatedRows.length, 66);
 const boards = await store.listMarketBoards();
 assert.equal(boards.filter((row) => row.code === 'BK1556').length, 1);
+assert.equal(boards.filter((row) => row.code === 'BK0465').length, 1);
+const nullableBoard = boards.find((row) => row.code === 'BK0465');
+assert.equal(nullableBoard?.name, '化学制药');
+assert.equal(nullableBoard?.kind, 'industry');
+assert.equal(nullableBoard?.changePercent, 0.8);
 const board = boards.find((row) => row.code === 'BK1556');
 assert.equal(board?.name, '教育运营及其他');
 assert.equal(board?.kind, 'industry');

@@ -5,7 +5,9 @@ import path from 'node:path';
 import os from 'node:os';
 
 const dbPath = path.join(os.tmpdir(), `stocksense-discovery-selfcheck-${process.pid}.duckdb`);
+const surgeDbPath = path.join(os.tmpdir(), `stocksense-discovery-surge-selfcheck-${process.pid}.duckdb`);
 process.env.STOCKSENSE_MARKET_DB_PATH = dbPath;
+process.env.STOCKSENSE_SURGE_DB_PATH = surgeDbPath;
 
 import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from '../services/stock/discovery-hot-themes.js';
 import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from '../services/stock/discovery-market-summary.js';
@@ -13,6 +15,8 @@ import { buildMonthlyThemesFromHistoricalPools } from '../services/stock/discove
 import {
   buildLocalBoardCatalog,
   reconcileSectorsWithLocalBoardsForTest,
+  shouldDeferDiscoveryRefresh,
+  shouldHoldDiscoverySnapshotUntil930,
 } from '../services/stock/discovery-service.js';
 import type { HotFocusItem } from '../../src/shared/types.js';
 import type { MarketFundFlow, NorthboundFlowSummary } from 'stock-sdk';
@@ -227,6 +231,14 @@ assert.deepEqual(localTheme, {
 });
 assert.equal(reconcileHotThemeWithLocalBoard({ name: '未知板块', changePercent: 88 }, undefined, undefined), undefined);
 
+assert.equal(await shouldHoldDiscoverySnapshotUntil930(new Date('2026-07-31T00:30:00.000Z')), true);
+assert.equal(await shouldHoldDiscoverySnapshotUntil930(new Date('2026-07-31T00:00:00.000Z')), true);
+assert.equal(await shouldHoldDiscoverySnapshotUntil930(new Date('2026-07-31T01:29:00.000Z')), true);
+assert.equal(await shouldHoldDiscoverySnapshotUntil930(new Date('2026-07-31T01:30:00.000Z')), false);
+assert.equal(await shouldDeferDiscoveryRefresh(new Date('2026-08-01T02:00:00.000Z')), true);
+assert.equal(await shouldDeferDiscoveryRefresh(new Date('2026-08-03T00:00:00.000Z')), true);
+assert.equal(await shouldDeferDiscoveryRefresh(new Date('2026-08-03T01:30:00.000Z')), false);
+
 const marketStore = await import('../services/market-data/market-data-store.js');
 await marketStore.initializeMarketDataStore();
 const updatedAt = '2026-07-30T09:30:00.000Z';
@@ -246,11 +258,13 @@ assert.deepEqual(cachedSnapshot?.snapshot, {
   indices: [{ code: 'sh000001', name: '上证指数', price: 3200, changePercent: 0.5 }],
 });
 await marketStore.closeMarketDataStore();
-for (const suffix of ['', '.wal']) {
-  try {
-    rmSync(`${dbPath}${suffix}`);
-  } catch {
-    /* already removed */
+for (const basePath of [dbPath, surgeDbPath]) {
+  for (const suffix of ['', '.wal']) {
+    try {
+      rmSync(`${basePath}${suffix}`);
+    } catch {
+      /* already removed */
+    }
   }
 }
 

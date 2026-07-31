@@ -108,7 +108,7 @@ const schemaSql = `
     source TEXT NOT NULL,
     updated_at TIMESTAMP NOT NULL
   );
-  CREATE INDEX IF NOT EXISTS idx_market_boards_name ON market_boards(name);
+  DROP INDEX IF EXISTS idx_market_boards_name;
 
   CREATE TABLE IF NOT EXISTS board_constituents (
     board_code TEXT NOT NULL,

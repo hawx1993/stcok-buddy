@@ -1490,6 +1490,21 @@
   gap: 12px;
   width: 100%;
 }
+@keyframes monitor-card-flow-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :global(.monitor-card.compact.monitor-card-flow-in) {
+    animation: none;
+  }
+}
 :global(.monitor-card) {
   position: relative;
   gap: 12px;
@@ -1524,6 +1539,9 @@
       min-width: 0;
       width: 100%;
       overflow: hidden;
+    }
+    &.monitor-card-flow-in {
+      animation: monitor-card-flow-in 0.52s cubic-bezier(0.2, 0.8, 0.2, 1);
     }
     .monitor-card-dot {
       flex-shrink: 0;

@@ -16,6 +16,7 @@ import {
   writeDiscoverySnapshot,
 } from '../market-data/market-data-store.js';
 import { fetchMarketIndex } from './market-indices.js';
+import { isRemoteTradingDay } from '../market-data/providers.js';
 import { buildMonthlyThemesFromHistoricalPools } from './discovery-monthly-themes.js';
 import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from './discovery-hot-themes.js';
 import type { IHotThemeLeader } from './discovery-hot-themes.js';
@@ -30,6 +31,7 @@ import type {
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 export const DISCOVERY_CACHE_TTL_MS = 60_000;
+export const DISCOVERY_WAITING_930_MESSAGE = '数据9:30更新，请稍后';
 const DISCOVERY_SNAPSHOT_KEY = 'default';
 let discoveryRefreshPromise: Promise<IDiscoverySnapshot> | undefined;
 let discoveryRefreshTimer: NodeJS.Timeout | undefined;
@@ -106,6 +108,7 @@ export interface IDiscoverySnapshot {
   // watchlist
   watchlist?: Array<{ code: string; name: string }>;
   watchlistQuotes?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
+  unavailableReason?: string;
 }
 
 export interface IMarketSummary {
@@ -242,6 +245,53 @@ function shouldRefreshDiscoverySnapshot(updatedAt?: string): boolean {
   return !Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs >= DISCOVERY_CACHE_TTL_MS;
 }
 
+function formatShanghaiDateKey(now: Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
+
+function shanghaiMinutesOfDay(now: Date): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+  const hour = value('hour');
+  const minute = value('minute');
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) throw new Error('无法解析北京时间');
+  return hour * 60 + minute;
+}
+
+export async function shouldHoldDiscoverySnapshotUntil930(now = new Date()): Promise<boolean> {
+  const today = formatShanghaiDateKey(now);
+  const minutes = shanghaiMinutesOfDay(now);
+  const isTradingDay = await isRemoteTradingDay(today);
+  return isTradingDay && minutes >= 8 * 60 && minutes < 9 * 60 + 30;
+}
+
+export async function shouldDeferDiscoveryRefresh(now = new Date()): Promise<boolean> {
+  const today = formatShanghaiDateKey(now);
+  const minutes = shanghaiMinutesOfDay(now);
+  const isTradingDay = await isRemoteTradingDay(today);
+  return !isTradingDay || minutes < 8 * 60 || (minutes >= 8 * 60 && minutes < 9 * 60 + 30);
+}
+
+function buildDiscoveryWaitingSnapshot(now = new Date()): IDiscoverySnapshot {
+  return {
+    tradeDate: formatShanghaiDateKey(now),
+    generatedAt: now.toISOString(),
+    unavailableReason: DISCOVERY_WAITING_930_MESSAGE,
+  };
+}
+
 function addQuoteCode(codes: Set<string>, code?: string) {
   if (code && /^\d{6}$/.test(code)) codes.add(code);
 }
@@ -357,7 +407,8 @@ function refreshDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
   return discoveryRefreshPromise;
 }
 
-function triggerDiscoveryRefresh() {
+async function triggerDiscoveryRefresh() {
+  if (await shouldDeferDiscoveryRefresh()) return;
   void refreshDiscoverySnapshot().catch((error) => console.warn('[discovery] background refresh failed', error));
 }
 
@@ -376,13 +427,17 @@ export function stopDiscoveryRefreshLoop() {
 
 export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
   ensureDiscoveryRefreshLoop();
+  if (await shouldHoldDiscoverySnapshotUntil930()) return buildDiscoveryWaitingSnapshot();
+
   const cached = await readDiscoverySnapshot(DISCOVERY_SNAPSHOT_KEY);
   const cachedSnapshot = cached ? toCachedDiscoverySnapshot(cached.snapshot) : undefined;
 
   if (cachedSnapshot && cached) {
-    if (shouldRefreshDiscoverySnapshot(cached.updatedAt) && !discoveryRefreshPromise) triggerDiscoveryRefresh();
+    if (shouldRefreshDiscoverySnapshot(cached.updatedAt) && !discoveryRefreshPromise) void triggerDiscoveryRefresh();
     return withRealtimeQuoteFields(cachedSnapshot);
   }
+
+  if (await shouldDeferDiscoveryRefresh()) return buildDiscoveryWaitingSnapshot();
 
   const snapshot = await refreshDiscoverySnapshot();
   return withRealtimeQuoteFields(snapshot);
