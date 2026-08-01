@@ -37,11 +37,13 @@ export function formatVolume(value: unknown) {
 export function formatMoney(value: unknown) {
   const num = toFiniteNumber(value);
   if (num === undefined) return String(value ?? '--');
-  return num >= 100_000_000
-    ? `${(num / 100_000_000).toFixed(2)}亿`
-    : num >= 10_000
-      ? `${(num / 10_000).toFixed(2)}万`
-      : `${num.toFixed(0)}`;
+  const sign = num < 0 ? '-' : '';
+  const abs = Math.abs(num);
+  return abs >= 100_000_000
+    ? `${sign}${(abs / 100_000_000).toFixed(2)}亿`
+    : abs >= 10_000
+      ? `${sign}${(abs / 10_000).toFixed(2)}万`
+      : `${sign}${abs.toFixed(0)}`;
 }
 
 export function formatMarketCap(value: unknown) {

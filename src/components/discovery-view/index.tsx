@@ -30,6 +30,14 @@ import { SubscribeFooter } from './components/subscribe-footer';
 import styles from './index.module.scss';
 
 type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
+type TDragonTigerRow = { code: string; name: string; changePercent?: number; netBuy: number; reason: string };
+type TDragonTigerDay = {
+  date: string;
+  weekday: string;
+  inst: TDragonTigerRow[];
+  hot: TDragonTigerRow[];
+  first: TDragonTigerRow[];
+};
 
 interface ISectorSummary {
   code: string;
@@ -96,14 +104,31 @@ interface IDiscoverySnapshot {
   consecutiveStocks?: TStockItem[];
   yesterdayZt?: TStockItem[];
   yesterdayLb?: TStockItem[];
-  leaders?: Array<{ code: string; name: string; height?: number | null; amount?: number | null; concepts?: string[]; changePercent?: number | null }>;
-  hotThemes?: Array<{ name: string; score?: number | null; changePercent?: number | null; limitUpCount?: number | null; reason?: string | null; leaderName?: string | null; leaderCode?: string | null; leaders?: Array<{ code: string; name: string; height?: number | null }> }>;
+  leaders?: Array<{
+    code: string;
+    name: string;
+    height?: number | null;
+    amount?: number | null;
+    concepts?: string[];
+    changePercent?: number | null;
+  }>;
+  hotThemes?: Array<{
+    name: string;
+    score?: number | null;
+    changePercent?: number | null;
+    limitUpCount?: number | null;
+    reason?: string | null;
+    leaderName?: string | null;
+    leaderCode?: string | null;
+    leaders?: Array<{ code: string; name: string; height?: number | null }>;
+  }>;
   limitUps?: Array<{ code: string; name: string; height: string; reason: string }>;
   dragonTiger?: {
-    inst: Array<{ code: string; name: string; changePercent?: number; netBuy: number; reason: string }>;
-    hot: Array<{ code: string; name: string; changePercent?: number; netBuy: number; reason: string }>;
-    north: Array<{ code: string; name: string; changePercent?: number; netBuy: number; reason: string }>;
+    inst: TDragonTigerRow[];
+    hot: TDragonTigerRow[];
+    first: TDragonTigerRow[];
   };
+  dragonTigerHistory?: TDragonTigerDay[];
   nextDayFocus?: Array<{ category: string; condition: string; baseline?: number | null }>;
   watchlistQuotes?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
   unavailableReason?: string;
@@ -170,20 +195,20 @@ function SectionSkeleton() {
 
 function HeroGaugeSkeleton() {
   return (
-    <div className="hero-gauge-wrap hero-gauge-skeleton" aria-label="机会评分加载中">
-      <div className="hero-gauge-skeleton-arc" />
-      <div className="hero-gauge-skeleton-body">
-        <div className="hero-gauge-skeleton-line short" />
-        <div className="hero-gauge-skeleton-line" />
-        <div className="hero-gauge-skeleton-line" />
-        <div className="hero-gauge-skeleton-trend" />
+    <div className='hero-gauge-wrap hero-gauge-skeleton' aria-label='机会评分加载中'>
+      <div className='hero-gauge-skeleton-arc' />
+      <div className='hero-gauge-skeleton-body'>
+        <div className='hero-gauge-skeleton-line short' />
+        <div className='hero-gauge-skeleton-line' />
+        <div className='hero-gauge-skeleton-line' />
+        <div className='hero-gauge-skeleton-trend' />
       </div>
     </div>
   );
 }
 
 function DiscoveryWaitingState({ message }: { message: string }) {
-  return <div className="empty-block">{message}</div>;
+  return <div className='empty-block'>{message}</div>;
 }
 
 export function DiscoveryView() {
@@ -234,7 +259,7 @@ export function DiscoveryView() {
         const visible = entries.filter((e) => e.isIntersecting);
         if (visible.length) {
           const target = visible[0].target as HTMLElement;
-      setActivePill(target.dataset.discoverySection ?? 'hero');
+          setActivePill(target.dataset.discoverySection ?? 'hero');
         }
       },
       { root: scroll, rootMargin: '-10% 0px -70% 0px', threshold: 0 },
@@ -254,7 +279,7 @@ export function DiscoveryView() {
     <section className={styles.wrap}>
       {/* ── Topbar ── */}
       <div className={cx(styles.topbar, isLeftSidebarCollapsed && styles.topbarCollapsed)}>
-        <button className={styles.backBtn} onClick={() => setMainView('chat')} type="button">
+        <button className={styles.backBtn} onClick={() => setMainView('chat')} type='button'>
           <ArrowLeft size={15} />
           返回
         </button>
@@ -278,7 +303,7 @@ export function DiscoveryView() {
             key={pill.id}
             className={cx(styles.pill, activePill === pill.id && styles.pillActive)}
             onClick={() => scrollTo(pill.id)}
-            type="button"
+            type='button'
           >
             {pill.label}
           </button>
@@ -292,12 +317,14 @@ export function DiscoveryView() {
             <div className={styles.inlineErrorState}>
               <AlertTriangle size={16} />
               <p>{error}</p>
-              <button className={styles.retryBtn} onClick={load} type="button">重试</button>
+              <button className={styles.retryBtn} onClick={load} type='button'>
+                重试
+              </button>
             </div>
           ) : null}
 
           {/* Hero Gauge */}
-          <div data-discovery-section="hero" id="hero" className={styles.section}>
+          <div data-discovery-section='hero' id='hero' className={styles.section}>
             <div className={styles.heroCard}>
               {loading && !snapshot ? (
                 <HeroGaugeSkeleton />
@@ -315,8 +342,8 @@ export function DiscoveryView() {
           </div>
 
           {/* Market Summary */}
-          <div data-discovery-section="sec-summary" id="sec-summary" className={styles.section}>
-            <SectionTitle id="sec-summary" title="AI 今日市场总结" />
+          <div data-discovery-section='sec-summary' id='sec-summary' className={styles.section}>
+            <SectionTitle id='sec-summary' title='AI 今日市场总结' />
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
@@ -334,16 +361,16 @@ export function DiscoveryView() {
           </div>
 
           {/* AI Monitor Center */}
-          <div data-discovery-section="sec-watchlist" id="sec-watchlist" className={styles.section}>
-            <SectionTitle id="sec-watchlist" title="AI 监控中心" />
+          <div data-discovery-section='sec-watchlist' id='sec-watchlist' className={styles.section}>
+            <SectionTitle id='sec-watchlist' title='AI 监控中心' />
             <div className={styles.card}>
               {unavailableReason ? <DiscoveryWaitingState message={unavailableReason} /> : <MonitoringCenter />}
             </div>
           </div>
 
           {/* Sentiment Index */}
-          <div data-discovery-section="sec-sentiment" id="sec-sentiment" className={styles.section}>
-            <SectionTitle id="sec-sentiment" title="AI 情绪指数" />
+          <div data-discovery-section='sec-sentiment' id='sec-sentiment' className={styles.section}>
+            <SectionTitle id='sec-sentiment' title='AI 情绪指数' />
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
@@ -364,8 +391,8 @@ export function DiscoveryView() {
           </div>
 
           {/* Dragon Tiger */}
-          <div data-discovery-section="sec-dragontiger" id="sec-dragontiger" className={styles.section}>
-            <SectionTitle id="sec-dragontiger" title="AI 今日龙虎榜" />
+          <div data-discovery-section='sec-dragontiger' id='sec-dragontiger' className={styles.section}>
+            <SectionTitle id='sec-dragontiger' title='AI 今日龙虎榜' />
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
@@ -375,15 +402,16 @@ export function DiscoveryView() {
                 <DragonTiger
                   inst={snapshot?.dragonTiger?.inst ?? []}
                   hot={snapshot?.dragonTiger?.hot ?? []}
-                  north={snapshot?.dragonTiger?.north ?? []}
+                  first={snapshot?.dragonTiger?.first ?? []}
+                  history={snapshot?.dragonTigerHistory}
                 />
               )}
             </div>
           </div>
 
           {/* Hot Rotation */}
-          <div data-discovery-section="sec-hotrotation" id="sec-hotrotation" className={styles.section}>
-            <SectionTitle id="sec-hotrotation" title="AI 热点轮动" />
+          <div data-discovery-section='sec-hotrotation' id='sec-hotrotation' className={styles.section}>
+            <SectionTitle id='sec-hotrotation' title='AI 热点轮动' />
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
@@ -396,8 +424,8 @@ export function DiscoveryView() {
           </div>
 
           {/* Limit Up Review */}
-          <div data-discovery-section="sec-limitup" id="sec-limitup" className={styles.section}>
-            <SectionTitle id="sec-limitup" title="AI 涨停复盘" />
+          <div data-discovery-section='sec-limitup' id='sec-limitup' className={styles.section}>
+            <SectionTitle id='sec-limitup' title='AI 涨停复盘' />
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
@@ -410,8 +438,8 @@ export function DiscoveryView() {
           </div>
 
           {/* Tomorrow Preview */}
-          <div data-discovery-section="sec-tomorrow" id="sec-tomorrow" className={styles.section}>
-            <SectionTitle id="sec-tomorrow" title="AI 明日预判" />
+          <div data-discovery-section='sec-tomorrow' id='sec-tomorrow' className={styles.section}>
+            <SectionTitle id='sec-tomorrow' title='AI 明日预判' />
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
@@ -424,8 +452,8 @@ export function DiscoveryView() {
           </div>
 
           {/* Trading Advice */}
-          <div data-discovery-section="sec-trading-advice" id="sec-trading-advice" className={styles.section}>
-            <SectionTitle id="sec-trading-advice" title="AI 交易建议" />
+          <div data-discovery-section='sec-trading-advice' id='sec-trading-advice' className={styles.section}>
+            <SectionTitle id='sec-trading-advice' title='AI 交易建议' />
             <div className={styles.card}>
               {unavailableReason ? <DiscoveryWaitingState message={unavailableReason} /> : <TradingAdvice />}
             </div>

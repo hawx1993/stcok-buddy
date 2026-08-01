@@ -960,9 +960,9 @@ export async function analyzeTechnical(symbolInput: string): Promise<AgentResult
 export {
   clearSurgeCache,
   listHotFocus,
-  listDailyDragonTiger,
   listStockSurgeEvents,
   listEastmoneySurgeByDate,
   getBoardSnapshot,
 } from './hot-focus.js';
-export type { DailyDragonTigerItem } from './hot-focus.js';
+export { getDragonTigerSnapshot, listDailyDragonTiger, listRecentDragonTigerDays } from './dragon-tiger.js';
+export type { DailyDragonTigerGroup, DailyDragonTigerItem } from './dragon-tiger.js';

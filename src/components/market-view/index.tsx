@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DragonTigerPanel } from './components/dragon-tiger-panel';
 import { IndexCard } from './components/index-card';
 import { IndexKlineModal } from './components/index-kline-modal';
 import { StockTable } from './components/stock-table';
@@ -37,9 +38,13 @@ interface IMarketViewProps {
 }
 
 type SortDirection = TSortDirection;
+type TMarketViewTab = MarketTab | 'dragon-tiger';
+
+const viewTabs: Array<{ id: TMarketViewTab; label: string }> = [...tabs, { id: 'dragon-tiger', label: '龙虎榜' }];
 
 export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
   const [activeTab, setActiveTab] = useState<MarketTab>('sh-main');
+  const [activeViewTab, setActiveViewTab] = useState<TMarketViewTab>('sh-main');
   const [indexPeriod, setIndexPeriod] = useState<MarketIndexPeriod>('1d');
   const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase(new Date()));
   const [indices, setIndices] = useState<MarketIndexSnapshot[]>([]);
@@ -275,8 +280,14 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
     }, MARKET_SCROLL_IDLE_MS);
   };
 
-  const changeTab = (tab: MarketTab) => {
+  const changeTab = (tab: TMarketViewTab) => {
     window.clearTimeout(updateTimer.current);
+    setActiveViewTab(tab);
+    if (tab === 'dragon-tiger') {
+      setChangedCodes([]);
+      setReorderingVersion(0);
+      return;
+    }
     setActiveTab(tab);
     activeTabRef.current = tab;
     setChangedCodes([]);
@@ -347,10 +358,10 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
         )}
       </div>
       <div className={styles.tabs}>
-        {tabs.map((tab) => (
+        {viewTabs.map((tab) => (
           <button
             key={tab.id}
-            className={cx(activeTab === tab.id && styles.active)}
+            className={cx(activeViewTab === tab.id && styles.active)}
             onClick={() => changeTab(tab.id)}
             type='button'
           >
@@ -358,21 +369,25 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
           </button>
         ))}
       </div>
-      <div ref={tableWrapRef} className={styles.tableWrap} onScroll={handleTableScroll}>
-        <StockTable
-          key={activeTab}
-          rows={sortedRows}
-          scrollRef={tableWrapRef}
-          sortField={sortField}
-          sortDirection={sortDirection}
-          updateVersion={updateVersion}
-          reorderingVersion={reorderingVersion}
-          changedCodes={changedCodes}
-          onSortChange={changeSortDirection}
-          onOpen={openStock}
-        />
-        {sortedRows.length ? <div className={styles.loadState}>共 {sortedRows.length} 只</div> : null}
-      </div>
+      {activeViewTab === 'dragon-tiger' ? (
+        <DragonTigerPanel onOpen={openStock} />
+      ) : (
+        <div ref={tableWrapRef} className={styles.tableWrap} onScroll={handleTableScroll}>
+          <StockTable
+            key={activeTab}
+            rows={sortedRows}
+            scrollRef={tableWrapRef}
+            sortField={sortField}
+            sortDirection={sortDirection}
+            updateVersion={updateVersion}
+            reorderingVersion={reorderingVersion}
+            changedCodes={changedCodes}
+            onSortChange={changeSortDirection}
+            onOpen={openStock}
+          />
+          {sortedRows.length ? <div className={styles.loadState}>共 {sortedRows.length} 只</div> : null}
+        </div>
+      )}
       {expandedIndex ? (
         <IndexKlineModal
           index={expandedIndex}

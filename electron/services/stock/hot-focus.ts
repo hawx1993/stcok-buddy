@@ -15,6 +15,7 @@ import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from
 import { getBoardDetail } from './board-detail.js';
 import { normalizeASymbol } from './symbols.js';
 import { withTimeoutReject } from './shared.js';
+import type { DailyDragonTigerItem } from './dragon-tiger.js';
 import {
   isSurgeHistoryClearMarkerActive,
   listStockSurgeEvents as listLocalStockSurgeEvents,
@@ -28,19 +29,7 @@ const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 
 type AnyRecord = Record<string, unknown>;
 
-export interface DailyDragonTigerItem {
-  id: string;
-  date: string;
-  code: string;
-  name: string;
-  reason: string;
-  close?: number;
-  changePercent?: number;
-  netBuy: number;
-  buy: number;
-  sell: number;
-  turnover?: number;
-}
+export type { DailyDragonTigerItem };
 
 export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
   // ponytail: user explicitly cleared surge history — keep the panel empty
@@ -93,69 +82,6 @@ function mergeHotFocusItems(local: HotFocusItem[], remote: HotFocusItem[]): HotF
 
 function toTradeDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-export async function listDailyDragonTiger(): Promise<DailyDragonTigerItem[]> {
-  for (const date of recentIsoTradeDateCandidates()) {
-    const url = new URL('https://datacenter-web.eastmoney.com/api/data/v1/get');
-    url.search = new URLSearchParams({
-      reportName: 'RPT_DAILYBILLBOARD_DETAILSNEW',
-      columns: 'ALL',
-      filter: `(TRADE_DATE>='${date}')(TRADE_DATE<='${date}')`,
-      pageNumber: '1',
-      pageSize: '500',
-      sortColumns: 'BILLBOARD_NET_AMT',
-      sortTypes: '-1',
-      source: 'WEB',
-      client: 'WEB',
-    }).toString();
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(10_000),
-      headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://data.eastmoney.com/' },
-    });
-    if (!response.ok) continue;
-    const payload = (await response.json()) as { result?: { data?: AnyRecord[] } };
-    const rows = (payload.result?.data ?? [])
-      .map(toDailyDragonTigerItem)
-      .filter((item): item is DailyDragonTigerItem => Boolean(item));
-    if (rows.length) return rows;
-  }
-  return [];
-}
-
-function toDailyDragonTigerItem(row: AnyRecord): DailyDragonTigerItem | undefined {
-  const code = pickString(row, ['SECURITY_CODE']);
-  const name = pickString(row, ['SECURITY_NAME_ABBR']);
-  if (!code || !name) return undefined;
-  const date = (pickString(row, ['TRADE_DATE']) ?? '').slice(0, 10);
-  const netBuy = pickNumber(row, ['BILLBOARD_NET_AMT']) ?? 0;
-  const buy = pickNumber(row, ['BILLBOARD_BUY_AMT']) ?? 0;
-  const sell = pickNumber(row, ['BILLBOARD_SELL_AMT']) ?? 0;
-  return {
-    id: `daily-lhb-${date}-${code}`,
-    date,
-    code,
-    name,
-    reason: pickString(row, ['EXPLANATION']) ?? '',
-    close: pickNumber(row, ['CLOSE_PRICE']),
-    changePercent: pickNumber(row, ['CHANGE_RATE']),
-    netBuy,
-    buy,
-    sell,
-    turnover: pickNumber(row, ['TURNOVERRATE']),
-  };
-}
-
-function recentIsoTradeDateCandidates() {
-  const result: string[] = [];
-  const date = new Date();
-  for (let i = 0; i < 7; i += 1) {
-    result.push(
-      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
-    );
-    date.setDate(date.getDate() - 1);
-  }
-  return result;
 }
 
 async function listSectorHot(): Promise<HotFocusItem[]> {

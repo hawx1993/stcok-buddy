@@ -14,6 +14,7 @@ import type {
   MarketIndexPeriod,
   MarketNewsItem,
   MarketTab,
+  TDragonTigerRange,
 } from '../src/shared/types.js';
 import {
   addStockNewsSubscription,
@@ -58,6 +59,7 @@ import {
   getChipDistribution,
   getKline,
   getMarketPageSnapshot,
+  getDragonTigerSnapshot,
   getStockDetail,
   getStockTimelines,
   listHotFocus,
@@ -66,6 +68,7 @@ import {
   searchStocks,
 } from './services/stock/stock-client.js';
 import { getDiscoverySnapshot } from './services/stock/discovery-service.js';
+import { getBoardDashboard } from './services/stock/board-dashboard.js';
 import { getMonitorFeed } from './services/stock/monitor-service.js';
 import { getTradingAdvice } from './services/stock/trading-advice-service.js';
 import { listHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
@@ -198,6 +201,9 @@ export function registerIpcHandlers() {
   ipcMain.handle('board:getDetail', (_event, symbol: string, forceRefresh?: boolean, boardName?: string) =>
     getBoardDetail(symbol, forceRefresh, boardName),
   );
+  ipcMain.handle('board:getDashboard', (_event, range?: Parameters<typeof getBoardDashboard>[0], forceRefresh?: boolean) =>
+    getBoardDashboard(range, forceRefresh),
+  );
   ipcMain.handle(
     'stock:getKline',
     (_event, symbol: string, limit?: number, period?: string, beforeTimestamp?: number) =>
@@ -209,6 +215,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('market:getPageSnapshot', (_event, tab: MarketTab, period?: MarketIndexPeriod) =>
     getMarketPageSnapshot(tab, period),
   );
+  ipcMain.handle('dragonTiger:getSnapshot', (_event, range?: TDragonTigerRange) => getDragonTigerSnapshot(range));
   ipcMain.handle('discovery:getSnapshot', () => getDiscoverySnapshot());
   ipcMain.handle('monitor:getFeed', (_event, options?: Parameters<typeof getMonitorFeed>[0]) => getMonitorFeed(options));
   ipcMain.handle('trading-advice:get', () => getTradingAdvice());

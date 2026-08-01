@@ -10,7 +10,7 @@ vi.mock('electron', () => ({
   },
 }));
 
-import type { BoardDetail, MarketBoardRow } from '../../../../src/shared/types.js';
+import type { BoardDetail, IBoardDashboardSnapshot, MarketBoardRow } from '../../../../src/shared/types.js';
 import type { DailyBarRecord, SecurityRecord } from '../types.js';
 
 type TMarketDataStore = typeof import('../market-data-store.js');
@@ -150,7 +150,7 @@ describe('市场数据 DuckDB 存储', () => {
     await currentStore.upsertMarketBoards([
       { code: 'BK1556', name: '教育运营及其他', source: 'vitest', updatedAt },
       { code: 'BK1556', name: '教育运营及其他', kind: 'industry', changePercent: 1.2, source: 'vitest', updatedAt },
-      { code: 'BK0465', name: '化学制药', kind: 'industry', changePercent: 0.8, source: 'vitest', updatedAt },
+      { code: 'BK0465', name: '化学制药', kind: 'industry', changePercent: 0.8, amount: 32_000_000, source: 'vitest', updatedAt },
     ]);
     await currentStore.upsertStockSnapshots([
       { symbol: '600519', name: '贵州茅台', amount: 12_000_000 },
@@ -208,7 +208,7 @@ describe('市场数据 DuckDB 存储', () => {
     const boards = await currentStore.listMarketBoards();
     expect(boards.filter((row) => row.code === 'BK1556')).toHaveLength(1);
     expect(boards.find((row) => row.code === 'BK1556')).toMatchObject({ kind: 'industry', changePercent: 1.2, amount: 8_000_000 });
-    expect(boards.find((row) => row.code === 'BK0465')).toMatchObject({ amount: undefined });
+    expect(boards.find((row) => row.code === 'BK0465')).toMatchObject({ amount: 32_000_000 });
   });
 
   it('可以读写 JSON 缓存记录', async () => {
@@ -223,10 +223,23 @@ describe('市场数据 DuckDB 存储', () => {
       constituents: [{ code: '600519', name: '贵州茅台' }],
     };
     const chip = { latest: { date: '2026-07-09', profitRatio: 0.62 }, source: 'vitest' };
+    const dashboardSnapshot: IBoardDashboardSnapshot = {
+      range: 'today',
+      tradeDate: '2026-07-09',
+      updatedAt: '2026-07-09T10:03:00.000Z',
+      summary: {},
+      rankings: [],
+      potential: [],
+      hot: [],
+      avoid: [],
+      leaders: [],
+      warnings: ['测试缓存'],
+    };
 
     await currentStore.writeDiscoverySnapshot({ snapshot: { rows: [{ code: '600519' }] }, updatedAt: '2026-07-09T10:00:00.000Z' }, 'home');
     await currentStore.writeBoardSnapshot({ rows: boardRows, updatedAt: '2026-07-09T10:01:00.000Z' }, 'industry');
     await currentStore.writeBoardDetail({ detail: boardDetail, updatedAt: '2026-07-09T10:02:00.000Z' });
+    await currentStore.writeBoardDashboardSnapshot(dashboardSnapshot);
     await currentStore.upsertStockFundFlowDaily([
       { symbol: '600519', tradeDate: '2026-07-08', mainNetInflow: 1200, source: 'vitest', fetchedAt: '2026-07-09T10:00:00.000Z' },
       { symbol: '600519', tradeDate: '2026-07-09', mainNetInflow: -300, source: 'vitest', fetchedAt: '2026-07-09T10:00:00.000Z' },
@@ -236,6 +249,10 @@ describe('市场数据 DuckDB 存储', () => {
     expect(await currentStore.readDiscoverySnapshot('home')).toMatchObject({ snapshot: { rows: [{ code: '600519' }] }, updatedAt: expect.any(String) });
     expect(await currentStore.readBoardSnapshot('industry')).toMatchObject({ rows: boardRows, updatedAt: expect.any(String) });
     expect(await currentStore.readBoardDetail('BK1556')).toMatchObject({ detail: boardDetail, updatedAt: expect.any(String) });
+    expect(await currentStore.readBoardDashboardSnapshot('today', '2026-07-09')).toMatchObject({
+      snapshot: dashboardSnapshot,
+      updatedAt: expect.any(String),
+    });
     expect(await currentStore.listStockFundFlowDaily('600519', ['2026-07-08', '2026-07-09'])).toEqual([
       expect.objectContaining({ tradeDate: '2026-07-08', mainNetInflow: 1200 }),
       expect.objectContaining({ tradeDate: '2026-07-09', mainNetInflow: -300 }),

@@ -1358,6 +1358,29 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.board-dashboard-back {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--list-item-active);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+}
+.board-dashboard-back:hover,
+.board-dashboard-back:focus-visible {
+  background: var(--accent);
+  color: #fff;
+}
+.board-dashboard-back:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .board-header-side {
   flex-shrink: 0;
 }
@@ -2416,4 +2439,323 @@
   text-align: center;
   padding: 0 0 4px;
   flex-shrink: 0;
+}
+
+
+.board-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+.board-dashboard-header {
+  align-items: center;
+  justify-content: space-between;
+}
+.board-dashboard-tabs,
+.board-dashboard-view-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.board-dashboard-view-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.board-dashboard-tabs button,
+.board-dashboard-view-tabs button {
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-hover);
+  color: var(--fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.board-dashboard-tabs button:hover:not(:disabled),
+.board-dashboard-tabs button:focus-visible,
+.board-dashboard-view-tabs button:hover:not(:disabled),
+.board-dashboard-view-tabs button:focus-visible {
+  background: var(--surface-active);
+  color: var(--fg);
+}
+.board-dashboard-tabs button.active,
+.board-dashboard-tabs button[aria-selected='true'],
+.board-dashboard-view-tabs button.active,
+.board-dashboard-view-tabs button[aria-selected='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  color: var(--fg);
+}
+.board-dashboard-tabs button:disabled,
+.board-dashboard-view-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.board-dashboard-warning {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning, #d69e2e) 45%, var(--border));
+  border-radius: 8px;
+  color: var(--fg-secondary);
+  background: color-mix(in srgb, var(--warning, #d69e2e) 12%, var(--surface));
+  font-size: 12px;
+  line-height: 1.45;
+}
+.board-dashboard-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.board-dashboard-kpi {
+  min-height: 118px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-hover);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.board-dashboard-kpi:hover:not(:disabled),
+.board-dashboard-kpi:focus-visible:not(:disabled) {
+  background: var(--surface-active);
+}
+.board-dashboard-kpi:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+.board-dashboard-kpi span,
+.board-dashboard-kpi em,
+.board-dashboard-kpi small {
+  display: block;
+}
+.board-dashboard-kpi span {
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+.board-dashboard-kpi strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 15px;
+}
+.board-dashboard-kpi em {
+  margin-top: 4px;
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 700;
+}
+.board-dashboard-kpi small {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.board-dashboard-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.board-dashboard-quadrant {
+  position: relative;
+  height: 220px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 1px), var(--border) 50%, transparent calc(50% + 1px)),
+    linear-gradient(0deg, transparent calc(50% - 1px), var(--border) 50%, transparent calc(50% + 1px)),
+    var(--surface-hover);
+}
+.quadrant-axis-x,
+.quadrant-axis-y {
+  position: absolute;
+  pointer-events: none;
+}
+.quadrant-label {
+  position: absolute;
+  z-index: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  color: var(--muted);
+  font-size: 10px;
+}
+.quadrant-label-hot { right: 8px; top: 8px; }
+.quadrant-label-potential { right: 8px; bottom: 8px; }
+.quadrant-label-risk { left: 8px; top: 8px; }
+.quadrant-label-avoid { left: 8px; bottom: 8px; }
+.quadrant-point {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--accent);
+  cursor: pointer;
+}
+.quadrant-point:hover,
+.quadrant-point:focus-visible {
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.bucket-hot { background: var(--market-up, #2fbf71); }
+.bucket-potential { background: var(--accent); }
+.bucket-avoid { background: var(--market-down, #e05a5a); }
+.bucket-leader { background: var(--warning, #d69e2e); }
+.board-dashboard-ranking {
+  height: 330px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-hover);
+}
+.board-dashboard-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.board-dashboard-row:hover,
+.board-dashboard-row:focus-visible {
+  background: var(--surface-active);
+}
+.board-rank {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 12px;
+}
+.board-row-main,
+.board-row-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.board-row-main strong,
+.board-row-main em,
+.board-row-side b,
+.board-row-side em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-row-main em,
+.board-row-side em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 11px;
+}
+.board-row-side {
+  align-items: flex-end;
+}
+.board-row-side b {
+  color: var(--fg);
+}
+.board-dashboard-simple-ranking {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-hover);
+}
+.board-dashboard-simple-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 72px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.board-dashboard-simple-row:last-child {
+  border-bottom: 0;
+}
+.board-dashboard-simple-row:hover,
+.board-dashboard-simple-row:focus-visible {
+  background: var(--surface-active);
+}
+.board-dashboard-rank-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.board-dashboard-leaders {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.board-dashboard-leaders button {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--surface-hover);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.board-dashboard-leaders button:hover,
+.board-dashboard-leaders button:focus-visible {
+  background: var(--surface-active);
+}
+.board-dashboard-leaders button > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.board-dashboard-leaders em,
+.board-dashboard-leaders small {
+  color: var(--muted);
+  font-style: normal;
+}
+.board-dashboard-leaders .board-leader-score {
+  color: var(--accent);
+  font-weight: 700;
+}
+.board-dashboard-leaders .board-leader-board-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg);
+}
+.board-dashboard-leaders .board-leader-stock-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+}
+.board-dashboard-leaders ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.board-dashboard-leaders li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
 }

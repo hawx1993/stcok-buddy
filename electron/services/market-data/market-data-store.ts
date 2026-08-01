@@ -3,8 +3,13 @@ import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type {
+  IBoardDashboardSnapshot,
+  TBoardDashboardRange,
+} from '../../../src/shared/types.js';
+import type {
   AdjustType,
   BoardConstituentRecord,
+  BoardDashboardSnapshotRecord,
   BoardDetailCacheRecord,
   BoardSnapshotRecord,
   DailyBarRecord,
@@ -84,6 +89,14 @@ const schemaSql = `
     snapshot_key TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS board_dashboard_snapshots (
+    snapshot_key TEXT PRIMARY KEY,
+    range TEXT NOT NULL,
+    trade_date DATE NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS stock_chips (
     symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TIMESTAMP NOT NULL
   );
@@ -115,9 +128,11 @@ const schemaSql = `
     name TEXT NOT NULL,
     kind TEXT,
     change_percent DOUBLE,
+    amount DOUBLE,
     source TEXT NOT NULL,
     updated_at TIMESTAMP NOT NULL
   );
+  ALTER TABLE market_boards ADD COLUMN IF NOT EXISTS amount DOUBLE;
   DROP INDEX IF EXISTS idx_market_boards_name;
 
   CREATE TABLE IF NOT EXISTS board_constituents (
@@ -429,6 +444,49 @@ export function writeDiscoverySnapshot(record: DiscoverySnapshotCacheRecord, sna
   );
 }
 
+export async function readBoardDashboardSnapshot(
+  range: TBoardDashboardRange,
+  tradeDate: string,
+): Promise<BoardDashboardSnapshotRecord | undefined> {
+  const snapshotKey = boardDashboardSnapshotKey(range, tradeDate);
+  return read(async (connection) => {
+    const row = (
+      await all<{ snapshot_json?: string; updated_at?: string }>(
+        connection,
+        'SELECT snapshot_json, updated_at FROM board_dashboard_snapshots WHERE snapshot_key = $snapshotKey',
+        { snapshotKey },
+      )
+    )[0];
+    if (!row?.snapshot_json) return undefined;
+    return { snapshot: JSON.parse(row.snapshot_json) as IBoardDashboardSnapshot, updatedAt: String(row.updated_at ?? '') };
+  });
+}
+
+export function writeBoardDashboardSnapshot(snapshot: IBoardDashboardSnapshot) {
+  const snapshotKey = boardDashboardSnapshotKey(snapshot.range, snapshot.tradeDate);
+  return write((connection) =>
+    connection
+      .run(
+        `
+    INSERT OR REPLACE INTO board_dashboard_snapshots (snapshot_key, range, trade_date, snapshot_json, updated_at)
+    VALUES ($snapshotKey, $range, CAST($tradeDate AS DATE), $snapshotJson, $updatedAt)
+  `,
+        {
+          snapshotKey,
+          range: snapshot.range,
+          tradeDate: snapshot.tradeDate,
+          snapshotJson: JSON.stringify(snapshot),
+          updatedAt: snapshot.updatedAt,
+        },
+      )
+      .then(() => undefined),
+  );
+}
+
+function boardDashboardSnapshotKey(range: TBoardDashboardRange, tradeDate: string) {
+  return `${range}:${tradeDate}`;
+}
+
 export async function readBoardSnapshot(snapshotKey = 'all'): Promise<BoardSnapshotRecord | undefined> {
   return read(async (connection) => {
     const row = (
@@ -542,12 +600,13 @@ export function upsertMarketBoards(items: MarketBoardRecord[]) {
     try {
       const statement = await connection.prepare(`
         INSERT INTO market_boards
-        (board_code, name, kind, change_percent, source, updated_at)
-        VALUES ($code, $name, $kind, $changePercent, $source, $updatedAt)
+        (board_code, name, kind, change_percent, amount, source, updated_at)
+        VALUES ($code, $name, $kind, $changePercent, $amount, $source, $updatedAt)
         ON CONFLICT(board_code) DO UPDATE SET
           name = excluded.name,
           kind = excluded.kind,
           change_percent = excluded.change_percent,
+          amount = excluded.amount,
           source = excluded.source,
           updated_at = excluded.updated_at
       `);
@@ -557,6 +616,7 @@ export function upsertMarketBoards(items: MarketBoardRecord[]) {
           name: item.name,
           kind: item.kind ?? null,
           changePercent: item.changePercent ?? null,
+          amount: item.amount ?? null,
           source: item.source,
           updatedAt: item.updatedAt,
         });
@@ -611,13 +671,14 @@ export async function listMarketBoards(): Promise<MarketBoardRecord[]> {
           b.name,
           b.kind,
           b.change_percent,
-          sum(s.amount) AS amount,
+          b.amount AS board_amount,
+          sum(s.amount) AS constituent_amount,
           b.source,
           b.updated_at
         FROM market_boards b
         LEFT JOIN board_constituents c ON c.board_code = b.board_code
         LEFT JOIN stock_snapshots s ON s.symbol = c.stock_code
-        GROUP BY b.board_code, b.name, b.kind, b.change_percent, b.source, b.updated_at
+        GROUP BY b.board_code, b.name, b.kind, b.change_percent, b.amount, b.source, b.updated_at
         ORDER BY b.name
       `,
     );
@@ -626,7 +687,7 @@ export async function listMarketBoards(): Promise<MarketBoardRecord[]> {
       name: String(row.name),
       kind: optionalString(row.kind),
       changePercent: optionalNumber(row.change_percent),
-      amount: optionalNumber(row.amount),
+      amount: optionalNumber(row.board_amount) ?? optionalNumber(row.constituent_amount),
       source: String(row.source),
       updatedAt: String(row.updated_at),
     }));

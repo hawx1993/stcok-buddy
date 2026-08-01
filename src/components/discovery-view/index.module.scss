@@ -661,6 +661,16 @@
 }
 
 // ── Dragon Tiger ──
+:global(.dt-date-tabs) {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
 :global(.dt-tabs) {
   display: flex;
   gap: 6px;
@@ -683,6 +693,10 @@
   background: rgba(232, 184, 75, 0.14);
   color: #e8b84b;
   border-color: rgba(232, 184, 75, 0.38);
+}
+:global(.dt-table-wrap) {
+  max-height: 444px;
+  overflow-y: auto;
 }
 :global(.dt-table) {
   width: 100%;

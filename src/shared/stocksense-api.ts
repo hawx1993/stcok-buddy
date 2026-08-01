@@ -6,6 +6,7 @@ import type {
   ConversationSummary,
   FavoriteStock,
   BoardDetail,
+  IBoardDashboardSnapshot,
   StocksenseApi,
   HotFocusTab,
   HotFocusItem,
@@ -105,6 +106,11 @@ export function getStocksenseApi(): StocksenseApi {
       if (typeof window.stocksense!.getTradingAdvice === 'function')
         return window.stocksense!.getTradingAdvice();
       return Promise.reject(new Error('AI 交易建议不可用，请重启客户端'));
+    },
+    getDragonTigerSnapshot: (range) => {
+      if (typeof window.stocksense!.getDragonTigerSnapshot === 'function')
+        return window.stocksense!.getDragonTigerSnapshot(range);
+      return webFallbackApi.getDragonTigerSnapshot(range);
     },
   };
 }
@@ -443,6 +449,21 @@ const webFallbackApi: StocksenseApi = {
   async getBoardDetail(symbol: string, _forceRefresh?: boolean, _boardName?: string): Promise<BoardDetail> {
     return { code: symbol, name: symbol, kline: [], constituents: [] };
   },
+  async getBoardDashboard(range = 'today'): Promise<IBoardDashboardSnapshot> {
+    const updatedAt = new Date().toISOString();
+    return {
+      range,
+      tradeDate: updatedAt.slice(0, 10),
+      updatedAt,
+      summary: {},
+      rankings: [],
+      potential: [],
+      hot: [],
+      avoid: [],
+      leaders: [],
+      warnings: ['板块 Dashboard 仅在 Electron 桌面端可用'],
+    };
+  },
   async getKline(_symbol: string, _limit = 120, _period = '1d', _beforeTimestamp?: number) {
     return [];
   },
@@ -542,6 +563,32 @@ const webFallbackApi: StocksenseApi = {
   },
   async getMarketPageSnapshot(tab: MarketTab, period = '1d') {
     return { tab, period, updatedAt: new Date().toISOString(), indices: [], rows: [], boards: [] };
+  },
+  async getDragonTigerSnapshot(range = 'today') {
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+      range,
+      summary: {
+        tradeDate: today,
+        startDate: today,
+        endDate: today,
+        totalCount: 0,
+        netBuyAmount: 0,
+        buyAmount: 0,
+        sellAmount: 0,
+        netBuyCount: 0,
+        netSellCount: 0,
+        dataSource: 'stock-sdk' as const,
+        updatedAt: new Date().toISOString(),
+      },
+      topNetBuy: [],
+      topNetSell: [],
+      activeReasons: [],
+      institutionTop: [],
+      branchTop: [],
+      rows: [],
+      warnings: ['龙虎榜数据仅在 Electron 桌面端可用'],
+    };
   },
   async getDiscoverySnapshot() {
     throw new Error('探索功能仅在 Electron 桌面端可用');

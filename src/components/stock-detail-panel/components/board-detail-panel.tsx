@@ -1,5 +1,5 @@
 import { message as antdMessage } from 'antd';
-import { Layers, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Layers, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
@@ -141,10 +141,24 @@ export function BoardDetailPanel() {
     }
   };
 
+  const returnToDashboard = () => {
+    setSelectedBoard(undefined);
+  };
+
   return (
     <div className={styles['board-detail']}>
       <div className={cx(styles['stock-header'], styles['board-header'])}>
         <div className={cx(styles['stock-name'], styles['board-title'])}>
+          <button
+            className={styles['board-dashboard-back']}
+            onClick={returnToDashboard}
+            type='button'
+            title='返回板块 Dashboard'
+            aria-label='返回板块 Dashboard'
+          >
+            <ArrowLeft size={13} />
+            <span>Dashboard</span>
+          </button>
           <Layers className={styles['panel-title-icon']} size={16} />
           <span className={styles['board-title-text']}>{board.name}</span>
           <span className={styles.code}>{board.code} · 板块</span>
