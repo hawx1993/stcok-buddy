@@ -100,6 +100,16 @@ const schemaSql = `
     board_code TEXT PRIMARY KEY, detail_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS stock_fund_flow_daily (
+    symbol TEXT NOT NULL,
+    trade_date DATE NOT NULL,
+    main_net_inflow DOUBLE NOT NULL,
+    source TEXT NOT NULL,
+    fetched_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (symbol, trade_date)
+  );
+  CREATE INDEX IF NOT EXISTS idx_stock_fund_flow_daily_symbol_date ON stock_fund_flow_daily(symbol, trade_date);
+
   CREATE TABLE IF NOT EXISTS market_boards (
     board_code TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -475,6 +485,56 @@ export function writeBoardDetail(record: BoardDetailCacheRecord) {
   );
 }
 
+export async function listStockFundFlowDaily(symbol: string, tradeDates: string[]) {
+  if (!tradeDates.length) return [];
+  return read(async (connection) => {
+    const rows = await all<{ trade_date: string; main_net_inflow: number; source: string; fetched_at: string }>(
+      connection,
+      `
+        SELECT trade_date::VARCHAR AS trade_date, main_net_inflow, source, fetched_at::VARCHAR AS fetched_at
+        FROM stock_fund_flow_daily
+        WHERE symbol = $symbol AND trade_date IN (${tradeDates.map((_, index) => `$date${index}`).join(', ')})
+        ORDER BY trade_date
+      `,
+      { symbol, ...Object.fromEntries(tradeDates.map((tradeDate, index) => [`date${index}`, tradeDate])) },
+    );
+    return rows.map((row) => ({
+      tradeDate: row.trade_date,
+      mainNetInflow: row.main_net_inflow,
+      source: row.source,
+      fetchedAt: row.fetched_at,
+    }));
+  });
+}
+
+export function upsertStockFundFlowDaily(items: Array<{
+  symbol: string;
+  tradeDate: string;
+  mainNetInflow: number;
+  source: string;
+  fetchedAt: string;
+}>) {
+  if (!items.length) return Promise.resolve();
+  return write(async (connection) => {
+    await connection.run('BEGIN TRANSACTION');
+    try {
+      const statement = await connection.prepare(`
+        INSERT OR REPLACE INTO stock_fund_flow_daily
+        (symbol, trade_date, main_net_inflow, source, fetched_at)
+        VALUES ($symbol, CAST($tradeDate AS DATE), $mainNetInflow, $source, $fetchedAt)
+      `);
+      for (const item of items) {
+        statement.bind(item);
+        await statement.run();
+      }
+      await connection.run('COMMIT');
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
 export function upsertMarketBoards(items: MarketBoardRecord[]) {
   if (!items.length) return Promise.resolve();
   return write(async (connection) => {
@@ -587,6 +647,91 @@ export async function listBoardConstituents(boardCode: string): Promise<BoardCon
       position: Number(row.position),
       updatedAt: String(row.updated_at),
     }));
+  });
+}
+
+export function getBoardWeekMetrics(boardCode: string, dayLimit = 5) {
+  return getBoardRangeMetrics(boardCode, dayLimit);
+}
+
+export async function getBoardRangeMetrics(boardCode: string, dayLimit = 5) {
+  return read(async (connection) => {
+    const tradeDateRows = await all<{ trade_date: string }>(
+      connection,
+      `
+        SELECT DISTINCT b.trade_date::VARCHAR AS trade_date
+        FROM daily_bars b
+        INNER JOIN board_constituents c ON c.stock_code = b.symbol
+        WHERE c.board_code = $boardCode AND b.adjust_type = 'qfq'
+        ORDER BY trade_date DESC
+        LIMIT ${Math.max(1, Math.floor(dayLimit))}
+      `,
+      { boardCode },
+    );
+    const tradeDates = tradeDateRows.map((row) => row.trade_date).sort();
+    if (!tradeDates.length) {
+      return {
+        tradeDates,
+        maxDailyChangePercent: null,
+        avgTurnoverRate: null,
+        avgAmplitude: null,
+        sampledCodes: 0,
+        netInflow: null,
+        fundFlowSampleSize: 0,
+      };
+    }
+    const dateBindings = Object.fromEntries(tradeDates.map((tradeDate, index) => [`date${index}`, tradeDate]));
+    const dateParams = tradeDates.map((_, index) => `$date${index}`).join(', ');
+    const values = { boardCode, ...dateBindings };
+    const barMetrics = (
+      await all<{
+        max_daily_change: number | null;
+        avg_turnover_rate: number | null;
+        avg_amplitude: number | null;
+        sampled_codes: bigint | number;
+      }>(
+        connection,
+        `
+          SELECT
+            max(b.change_percent) AS max_daily_change,
+            avg(b.turnover_rate) FILTER (WHERE b.turnover_rate IS NOT NULL) AS avg_turnover_rate,
+            avg(((b.high - b.low) / NULLIF(b.low, 0)) * 100) AS avg_amplitude,
+            count(DISTINCT b.symbol) AS sampled_codes
+          FROM daily_bars b
+          INNER JOIN board_constituents c ON c.stock_code = b.symbol
+          WHERE c.board_code = $boardCode
+            AND b.adjust_type = 'qfq'
+            AND b.trade_date IN (${dateParams})
+        `,
+        values,
+      )
+    )[0];
+    const flowMetrics = (
+      await all<{
+        net_inflow: number | null;
+        sampled_codes: bigint | number;
+      }>(
+        connection,
+        `
+          SELECT
+            sum(f.main_net_inflow) AS net_inflow,
+            count(DISTINCT f.symbol) AS sampled_codes
+          FROM stock_fund_flow_daily f
+          INNER JOIN board_constituents c ON c.stock_code = f.symbol
+          WHERE c.board_code = $boardCode AND f.trade_date IN (${dateParams})
+        `,
+        values,
+      )
+    )[0];
+    return {
+      tradeDates,
+      maxDailyChangePercent: nullableNumber(barMetrics?.max_daily_change),
+      avgTurnoverRate: nullableNumber(barMetrics?.avg_turnover_rate),
+      avgAmplitude: nullableNumber(barMetrics?.avg_amplitude),
+      sampledCodes: Number(barMetrics?.sampled_codes ?? 0),
+      netInflow: nullableNumber(flowMetrics?.net_inflow),
+      fundFlowSampleSize: Number(flowMetrics?.sampled_codes ?? 0),
+    };
   });
 }
 
@@ -941,6 +1086,11 @@ function toDateString(value: unknown) {
   const compact = text.match(/^(\d{4})(\d{2})(\d{2})/);
   if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
   return text;
+}
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 function optionalNumber(value: unknown) {
   return value === null || value === undefined ? undefined : Number(value);

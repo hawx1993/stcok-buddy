@@ -39,7 +39,7 @@
   --glass-bg: rgba(26, 35, 50, 0.72);
   --sidebar-bg: linear-gradient(180deg, rgba(19, 31, 52, 0.94) 0%, rgba(12, 22, 39, 0.96) 100%);
   --glass-border: rgba(42, 58, 82, 0.5);
-  --dropdown-bg: rgba(26, 35, 50, 0.85);
+  --dropdown-bg: rgba(26, 35, 50, 0.9);
   --tab-border: #2a3a52;
   --list-item-hover: rgba(59, 130, 246, 0.08);
   --list-item-active: rgba(59, 130, 246, 0.15);
@@ -90,7 +90,7 @@
   --glass-bg: rgba(255, 255, 255, 0.72);
   --sidebar-bg: linear-gradient(180deg, rgba(246, 249, 254, 0.98) 0%, rgba(237, 243, 252, 0.98) 100%);
   --glass-border: rgba(223, 227, 233, 0.7);
-  --dropdown-bg: rgba(255, 255, 255, 0.85);
+  --dropdown-bg: rgba(255, 255, 255, 0.9);
   --tab-border: #d1d1d6;
   --list-item-hover: rgba(37, 99, 235, 0.06);
   --list-item-active: rgba(37, 99, 235, 0.055);

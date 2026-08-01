@@ -3,21 +3,13 @@ import { IndexCard } from './components/index-card';
 import { IndexKlineModal } from './components/index-kline-modal';
 import { StockTable } from './components/stock-table';
 import type { TMarketCellField, TSortDirection } from './components/stock-table';
-import { formatMarketCap, formatMoney, formatPercent, formatVolume, parsePercent } from './market-format';
+import { parsePercent } from './market-format';
 import { applyMarketRowValueUpdate, sameMarketRows } from './market-row-updates';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import type {
-  BoardDetail,
-  MarketBoardRow,
-  MarketIndexPeriod,
-  MarketIndexSnapshot,
-  MarketPageSnapshot,
-  MarketQuoteRow,
-  MarketSearchResult,
-  MarketTab,
-  StockDetail,
-} from '../../shared/types';
-import { useAppStore } from '../../store/app-store';
+import { getAshareMarketPhase } from '../../shared/market-time';
+import type { MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketTab } from '../../shared/types';
+import { useOpenMarketSearchResult } from '../../hooks/use-open-market-search-result';
+import { getGlobalSearchShortcutLabel } from '../global-stock-search/shortcut';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
 
@@ -40,11 +32,13 @@ const periods: Array<{ id: MarketIndexPeriod; label: string }> = [
   { id: '1mo', label: '月' },
 ];
 
+interface IMarketViewProps {
+  onOpenGlobalSearch?(): void;
+}
+
 type SortDirection = TSortDirection;
 
-type TAshareMarketPhase = { label: string; isTrading: boolean };
-
-export function MarketView() {
+export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
   const [activeTab, setActiveTab] = useState<MarketTab>('sh-main');
   const [indexPeriod, setIndexPeriod] = useState<MarketIndexPeriod>('1d');
   const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase(new Date()));
@@ -53,10 +47,6 @@ export function MarketView() {
   const rowsByTabRef = useRef<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
   const [updatedAt, setUpdatedAt] = useState('');
   const [loading, setLoading] = useState(false);
-  const [searchText, setSearchText] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [suggestions, setSuggestions] = useState<MarketSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
   const [sortField, setSortField] = useState<TMarketCellField | undefined>('changePercent');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [expandedIndexCode, setExpandedIndexCode] = useState<string>();
@@ -73,12 +63,8 @@ export function MarketView() {
   const [updateVersion, setUpdateVersion] = useState(0);
   const [reorderingVersion, setReorderingVersion] = useState(0);
   const [changedCodes, setChangedCodes] = useState<string[]>([]);
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const selectedBoard = useAppStore((state) => state.selectedBoard);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
+  const { openStock } = useOpenMarketSearchResult();
+  const shortcutLabel = getGlobalSearchShortcutLabel();
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -243,37 +229,6 @@ export function MarketView() {
     };
   }, [activeTab, indexPeriod, queueSnapshotRows]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(searchText.trim()), 250);
-    return () => window.clearTimeout(timer);
-  }, [searchText]);
-
-  useEffect(() => {
-    let alive = true;
-    if (!debouncedSearch) {
-      setSuggestions([]);
-      setSearching(false);
-      return () => {
-        alive = false;
-      };
-    }
-    setSearching(true);
-    getStocksenseApi()
-      .searchStocks(debouncedSearch)
-      .then((items) => {
-        if (alive) setSuggestions(items);
-      })
-      .catch(() => {
-        if (alive) setSuggestions([]);
-      })
-      .finally(() => {
-        if (alive) setSearching(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [debouncedSearch]);
-
   const visibleRows = rowsByTab[activeTab] ?? [];
   const expandedIndex = indices.find((item) => item.code === expandedIndexCode);
   const selectIndexPeriod = (period: MarketIndexPeriod) => {
@@ -341,75 +296,6 @@ export function MarketView() {
     schedulePendingRowUpdate();
   };
 
-  const openStock = useCallback(
-    async (row: MarketQuoteRow) => {
-      const rowSnapshot: StockDetail = {
-        code: row.code,
-        name: row.name,
-        price: row.price,
-        changePercent: formatPercent(row.changePercent),
-        open: row.open,
-        high: row.high,
-        low: row.low,
-        prevClose: row.prevClose,
-        volume: formatVolume(row.volume),
-        turnover: formatMoney(row.amount),
-        turnoverRate: formatPercent(row.turnoverRate),
-        marketCap: formatMarketCap(row.marketCap),
-        industry: row.industry,
-      };
-      setStockReturnContext(undefined);
-      openRightPanel();
-      setSelectedStock(rowSnapshot);
-      try {
-        const detail = await getStocksenseApi().getStockDetail(row.code);
-        setSelectedStock({
-          ...rowSnapshot,
-          ...detail,
-          name: detail.name === detail.code ? rowSnapshot.name : detail.name,
-        });
-      } catch {
-        setSelectedStock(rowSnapshot);
-      }
-    },
-    [openRightPanel, setSelectedStock, setStockReturnContext],
-  );
-
-  const openBoard = useCallback(
-    async (row: MarketBoardRow) => {
-      const rowSnapshot: BoardDetail = {
-        code: row.code,
-        name: row.name,
-        changePercent: formatPercent(row.changePercent),
-        kline: row.minutes ?? [],
-        constituents: row.constituents ?? [],
-      };
-      openBoardPanel();
-      if (selectedBoard?.code !== row.code) setSelectedBoard(rowSnapshot);
-      try {
-        const detail = await getStocksenseApi().getBoardDetail(row.code, false, row.name);
-        if (useAppStore.getState().selectedBoard?.code !== row.code) return;
-        setSelectedBoard({
-          ...detail,
-          name: detail.name === detail.code ? row.name : detail.name,
-          changePercent: detail.changePercent ?? rowSnapshot.changePercent,
-        });
-      } catch {
-        if (useAppStore.getState().selectedBoard?.code !== row.code) return;
-        setSelectedBoard(rowSnapshot);
-      }
-    },
-    [openBoardPanel, selectedBoard?.code, setSelectedBoard],
-  );
-
-  const openSearchResult = (row: MarketSearchResult) => {
-    setSearchText('');
-    setDebouncedSearch('');
-    setSuggestions([]);
-    if (row.kind === 'board') void openBoard(row);
-    else void openStock(row);
-  };
-
   return (
     <section className={styles.wrap}>
       <div className={styles.header}>
@@ -426,43 +312,10 @@ export function MarketView() {
           </p>
         </div>
         <div className={styles.headerActions}>
-          <div className={styles.searchBox}>
-            <input
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') setSuggestions([]);
-              }}
-              placeholder='搜索代码 / 股票名称 / 板块'
-            />
-            {searchText ? (
-              <div className={styles.suggestions}>
-                {searching ? (
-                  <div className={styles.suggestionEmpty}>搜索中…</div>
-                ) : suggestions.length ? (
-                  suggestions.map((row) => (
-                    <button
-                      key={`${row.kind ?? 'stock'}-${row.code}`}
-                      className={styles.suggestionItem}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        openSearchResult(row);
-                      }}
-                      type='button'
-                    >
-                      <span>
-                        {row.name}
-                        <em>{row.kind === 'board' ? '板块' : '股票'}</em>
-                      </span>
-                      <code>{row.code}</code>
-                    </button>
-                  ))
-                ) : debouncedSearch ? (
-                  <div className={styles.suggestionEmpty}>无匹配结果</div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+          <button className={styles.searchBox} onClick={onOpenGlobalSearch} type='button'>
+            <span>搜索代码 / 股票名称 / 板块</span>
+            <kbd>{shortcutLabel}</kbd>
+          </button>
           <div className={styles.periods}>
             {periods.map((period) => (
               <button
@@ -553,25 +406,8 @@ function toMarketIndexSymbol(code: string | undefined) {
   return undefined;
 }
 
-function getAshareMarketPhase(now: Date): TAshareMarketPhase {
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  const day = now.getDay();
-  const isWeekday = day >= 1 && day <= 5;
-
-  if (!isWeekday) return { label: '非交易日', isTrading: false };
-  if (minutes < 9 * 60 + 25) return { label: '盘前', isTrading: false };
-  if (minutes < 9 * 60 + 30) return { label: '集合竞价', isTrading: true };
-  if (minutes <= 11 * 60 + 30) return { label: '盘中', isTrading: true };
-  if (minutes < 13 * 60) return { label: '午间休市', isTrading: false };
-  if (minutes <= 15 * 60) return { label: '盘中', isTrading: true };
-  return { label: '已收盘', isTrading: false };
-}
-
 function isChinaMarketOpen(date = new Date()) {
-  const day = date.getDay();
-  if (day === 0 || day === 6) return false;
-  const minutes = date.getHours() * 60 + date.getMinutes();
-  return (minutes >= 9 * 60 + 25 && minutes <= 11 * 60 + 30) || (minutes >= 13 * 60 && minutes <= 15 * 60);
+  return getAshareMarketPhase(date).isTrading;
 }
 
 function quoteMatchesTab(code: string, tab: MarketTab) {

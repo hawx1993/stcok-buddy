@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../shared/stocksense-api';
+import { getAshareMarketPhase } from '../../shared/market-time';
 import { useAppStore } from '../../store/app-store';
 import cx from '../../shared/cx';
 import { HeroGauge } from './components/hero-gauge';
@@ -29,8 +30,6 @@ import { SubscribeFooter } from './components/subscribe-footer';
 import styles from './index.module.scss';
 
 type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
-
-type TAshareMarketPhase = { label: string; isTrading: boolean };
 
 interface ISectorSummary {
   code: string;
@@ -121,20 +120,6 @@ const PILLS = [
   { id: 'sec-tomorrow', label: '明日预判' },
   { id: 'sec-trading-advice', label: '交易建议' },
 ];
-
-function getAshareMarketPhase(now: Date): TAshareMarketPhase {
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  const day = now.getDay();
-  const isWeekday = day >= 1 && day <= 5;
-
-  if (!isWeekday) return { label: '非交易日', isTrading: false };
-  if (minutes < 9 * 60 + 25) return { label: '盘前', isTrading: false };
-  if (minutes < 9 * 60 + 30) return { label: '集合竞价', isTrading: true };
-  if (minutes <= 11 * 60 + 30) return { label: '盘中', isTrading: true };
-  if (minutes < 13 * 60) return { label: '午间休市', isTrading: false };
-  if (minutes <= 15 * 60) return { label: '盘中', isTrading: true };
-  return { label: '已收盘', isTrading: false };
-}
 
 function formatDate(date: Date) {
   const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];

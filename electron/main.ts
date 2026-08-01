@@ -6,7 +6,7 @@ import path from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { registerIpcHandlers } from './ipc.js';
 import { closeMarketDataStore, initializeMarketDataStore } from './services/market-data/market-data-store.js';
-import { stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
+import { stopMarketDataScheduler, startMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
 import {
   startMarketNewsSummaryScheduler,
   stopMarketNewsSummaryScheduler,
@@ -119,7 +119,11 @@ app.whenReady().then(() => {
   setInstallUpdateHandler(prepareForUpdateInstall);
   initializeQuoteStore();
   registerIpcHandlers();
-  void initializeMarketDataStore().catch((error) => console.warn('[market-data] initialization failed', error));
+  void initializeMarketDataStore()
+    .then(() => {
+      startMarketDataScheduler();
+    })
+    .catch((error) => console.warn('[market-data] initialization failed', error));
   void startMarketNewsSummaryScheduler().catch((error) =>
     console.warn('[news-summary] scheduler initialization failed', error),
   );

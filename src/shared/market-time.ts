@@ -5,6 +5,11 @@ export const A_SHARE_MARKET_CLOSE_MINUTE = 15 * 60;
 export const A_SHARE_TOTAL_TRADING_MINUTES =
   A_SHARE_MORNING_CLOSE_MINUTE - A_SHARE_MARKET_OPEN_MINUTE + A_SHARE_MARKET_CLOSE_MINUTE - A_SHARE_AFTERNOON_OPEN_MINUTE;
 
+export interface IAshareMarketPhase {
+  label: string;
+  isTrading: boolean;
+}
+
 export interface IShanghaiMarketTime {
   date: string;
   minutes: number;
@@ -35,10 +40,19 @@ export function toShanghaiMarketTime(now: Date): IShanghaiMarketTime {
   return { date: `${year}-${month}-${day}`, minutes: hour * 60 + minute, weekday };
 }
 
-export function isChinaMarketOpen(now = new Date()): boolean {
+export function getAshareMarketPhase(now = new Date()): IAshareMarketPhase {
   const { minutes, weekday } = toShanghaiMarketTime(now);
-  if (weekday === 0 || weekday === 6) return false;
-  return (minutes >= 9 * 60 + 25 && minutes <= 11 * 60 + 30) || (minutes >= 13 * 60 && minutes <= 15 * 60);
+  if (weekday === 0 || weekday === 6) return { label: '非交易日', isTrading: false };
+  if (minutes < 9 * 60 + 25) return { label: '盘前', isTrading: false };
+  if (minutes < A_SHARE_MARKET_OPEN_MINUTE) return { label: '集合竞价', isTrading: true };
+  if (minutes <= A_SHARE_MORNING_CLOSE_MINUTE) return { label: '盘中', isTrading: true };
+  if (minutes < A_SHARE_AFTERNOON_OPEN_MINUTE) return { label: '午间休市', isTrading: false };
+  if (minutes <= A_SHARE_MARKET_CLOSE_MINUTE) return { label: '盘中', isTrading: true };
+  return { label: '已收盘', isTrading: false };
+}
+
+export function isChinaMarketOpen(now = new Date()): boolean {
+  return getAshareMarketPhase(now).isTrading;
 }
 
 export function getAShareTradingMinuteOffset(time: string): number | undefined {

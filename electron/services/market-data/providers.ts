@@ -11,16 +11,24 @@ const sdk = new StockSDK({
   timeout: 12_000,
   retry: { maxRetries: 2, baseDelay: 500 },
 });
+const historicalSdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 0 } });
+const HISTORICAL_REQUEST_ATTEMPTS = 2;
+const HISTORICAL_RETRY_DELAY_MS = 400;
+const HISTORICAL_REQUEST_CONCURRENCY = 6;
+let activeHistoricalRequests = 0;
+const historicalRequestWaiters: Array<() => void> = [];
 
 export const stockSdkHistoricalProvider: HistoricalBarProvider = {
   name: 'stock-sdk',
   async getDailyBars(symbol, options) {
-    const rows = await sdk.kline.cn(symbol, {
-      period: 'daily',
-      adjust: options.adjustType === 'qfq' ? 'qfq' : '',
-      startDate: compactDate(options.startDate),
-      endDate: compactDate(options.endDate),
-    });
+    const rows = await retryHistoricalKline(() =>
+      historicalSdk.kline.cn(symbol, {
+        period: 'daily',
+        adjust: options.adjustType === 'qfq' ? 'qfq' : '',
+        startDate: compactDate(options.startDate),
+        endDate: compactDate(options.endDate),
+      }),
+    );
     const fetchedAt = new Date().toISOString();
     const bars = rows.map((row) => toDailyBar(symbol, row, options.adjustType, fetchedAt));
     return bars;
@@ -88,6 +96,28 @@ export async function getRemoteFullQuote(symbol: string): Promise<FullQuote> {
   const quote = (await sdk.quotes.cn([symbol]))[0];
   if (!quote) throw new Error(`未获取到 ${symbol} 实时行情`);
   return quote;
+}
+
+async function retryHistoricalKline<T>(request: () => Promise<T>): Promise<T> {
+  if (activeHistoricalRequests >= HISTORICAL_REQUEST_CONCURRENCY)
+    await new Promise<void>((resolve) => historicalRequestWaiters.push(resolve));
+  activeHistoricalRequests += 1;
+  try {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < HISTORICAL_REQUEST_ATTEMPTS; attempt += 1) {
+      try {
+        return await request();
+      } catch (error) {
+        lastError = error;
+        if (attempt + 1 < HISTORICAL_REQUEST_ATTEMPTS)
+          await new Promise((resolve) => setTimeout(resolve, HISTORICAL_RETRY_DELAY_MS * (attempt + 1)));
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('stock-sdk 历史日线请求失败');
+  } finally {
+    activeHistoricalRequests -= 1;
+    historicalRequestWaiters.shift()?.();
+  }
 }
 
 function toDailyBar(symbol: string, row: HistoryKline, adjustType: AdjustType, fetchedAt: string): DailyBarRecord {

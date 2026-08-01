@@ -280,9 +280,10 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
   // Local-first: if we already have cached events, render them immediately and
   // refresh from the network in the background. This avoids keeping the
   // skeleton spinner for several seconds when offline or on a slow connection.
+  const tradeDate = formatIsoDate(new Date());
   let localEvents: StockSurgeEvent[] = [];
   try {
-    localEvents = await listLocalStockSurgeEvents(symbol);
+    localEvents = await listLocalStockSurgeEvents(symbol, tradeDate);
   } catch (error) {
     console.warn('[surge] local read failed', symbol, error);
   }
@@ -290,6 +291,9 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     refreshStockSurgeEventsFromRemote(symbol);
     return localEvents;
   }
+
+  const isTradingDay = await isRemoteTradingDay(tradeDate).catch(() => true);
+  if (!isTradingDay) return [];
 
   // No local cache yet: fetch from remote, persist, and return.
   const [historyResult, currentResult] = await Promise.allSettled([
@@ -316,7 +320,7 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     symbol,
     historyEvents,
     currentResult.status === 'fulfilled' ? currentResult.value : [],
-  );
+  ).filter((item) => item.tradeDate === tradeDate);
 }
 
 function refreshStockSurgeEventsFromRemote(symbol: string) {

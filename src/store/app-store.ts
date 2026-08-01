@@ -295,7 +295,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   setStockReturnContext: (context) => set({ stockReturnContext: context }),
   setAiMonitorState: (aiMonitorState) => set({ aiMonitorState }),
-  setSelectedBoard: (board) => set({ selectedBoard: board, selectedStock: undefined, stockReturnContext: undefined }),
+  setSelectedBoard: (board) =>
+    set({ selectedBoard: board, selectedStock: undefined, stockReturnContext: undefined }),
   setSettingsOpen: (open) => set({ isSettingsOpen: open }),
   setAboutOpen: (open) => set({ isAboutOpen: open }),
   setStorageManagerOpen: (open) => set({ isStorageManagerOpen: open }),

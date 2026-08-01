@@ -1,8 +1,57 @@
 import StockSDK from 'stock-sdk';
 import type { IStockFundFlowSnapshot } from '../../../src/shared/types.js';
 import { normalizeASymbol } from './symbols.js';
+import { listStockFundFlowDaily, upsertStockFundFlowDaily } from '../market-data/market-data-store.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
+
+export async function getStockWeeklyMainNetInflow(symbolInput: string, tradeDates: string[]): Promise<number | null> {
+  const symbol = normalizeASymbol(symbolInput);
+  const normalizedTradeDates = tradeDates.map(normalizeTradeDate);
+  const cached = await listStockFundFlowDaily(symbol, normalizedTradeDates);
+  const cachedDates = new Set(cached.map((row) => normalizeTradeDate(row.tradeDate)));
+  const missingDates = normalizedTradeDates.filter((tradeDate) => !cachedDates.has(tradeDate));
+  if (missingDates.length) {
+    const rows = await fetchStockFundFlowDaily(symbol);
+    const requested = rows.filter((row) => normalizedTradeDates.includes(normalizeTradeDate(row.tradeDate)));
+    if (requested.length) await upsertStockFundFlowDaily(requested);
+    cached.push(...requested.filter((row) => !cachedDates.has(row.tradeDate)));
+  }
+  const values = cached.map((row) => row.mainNetInflow).filter((value) => Number.isFinite(value));
+  return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+}
+
+async function fetchStockFundFlowDaily(symbol: string): Promise<Array<{
+  symbol: string;
+  tradeDate: string;
+  mainNetInflow: number;
+  source: string;
+  fetchedAt: string;
+}>> {
+  let rows: Array<{
+    symbol: string;
+    tradeDate: string;
+    mainNetInflow: number;
+    source: string;
+    fetchedAt: string;
+  }>;
+  try {
+    const stockSdkRows = await sdk.fundFlow.individual(symbol, { period: 'daily' });
+    const fetchedAt = new Date().toISOString();
+    rows = stockSdkRows
+      .filter((row) => Number.isFinite(row.mainNetInflow))
+      .map((row) => ({
+        symbol,
+        tradeDate: normalizeTradeDate(row.date),
+        mainNetInflow: row.mainNetInflow!,
+        source: 'stock-sdk',
+        fetchedAt,
+      }));
+  } catch {
+    rows = await fetchEastmoneyFundFlowDaily(symbol);
+  }
+  return rows;
+}
 
 export async function getStockFundFlowSnapshot(symbolInput: string): Promise<IStockFundFlowSnapshot> {
   const symbol = normalizeASymbol(symbolInput);
@@ -107,6 +156,35 @@ async function eastmoneyGet(url: URL, timeoutMs = 15_000): Promise<Response> {
   throw lastError;
 }
 
+async function fetchEastmoneyFundFlowDaily(symbol: string): Promise<Array<{
+  symbol: string;
+  tradeDate: string;
+  mainNetInflow: number;
+  source: string;
+  fetchedAt: string;
+}>> {
+  const secid = `${symbol.startsWith('6') ? 1 : 0}.${symbol}`;
+  const url = new URL('https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get');
+  url.search = new URLSearchParams({
+    secid,
+    fields1: 'f1,f2,f3,f7',
+    fields2: 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65',
+    lmt: '20',
+  }).toString();
+  const response = await eastmoneyGet(url);
+  const payload = (await response.json()) as { data?: { klines?: string[] } };
+  const fetchedAt = new Date().toISOString();
+  return (payload.data?.klines ?? [])
+    .map((line) => {
+      const parts = line.split(',');
+      const mainNetInflow = parseNullableNumber(parts[1]);
+      return mainNetInflow === null
+        ? undefined
+        : { symbol, tradeDate: normalizeTradeDate(parts[0]), mainNetInflow, source: 'a-stock-data:eastmoney', fetchedAt };
+    })
+    .filter((row): row is { symbol: string; tradeDate: string; mainNetInflow: number; source: string; fetchedAt: string } => Boolean(row));
+}
+
 async function fetchEastmoneyFundFlowSnapshot(symbol: string, warnings: string[]): Promise<IStockFundFlowSnapshot> {
   const secid = `${symbol.startsWith('6') ? 1 : 0}.${symbol}`;
   const url = new URL('https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get');
@@ -184,6 +262,11 @@ async function fetchEastmoneyMinuteFundFlowSnapshot(
     smallNetInflowPercent: null,
     source: 'a-stock-data',
   };
+}
+
+function normalizeTradeDate(value: string) {
+  const match = String(value).match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : value;
 }
 
 function parseNullableNumber(value: string | undefined) {

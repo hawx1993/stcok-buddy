@@ -160,12 +160,48 @@ describe('市场数据 DuckDB 存储', () => {
       { boardCode: 'BK1556', stockCode: '600519', stockName: '贵州茅台', position: 1, updatedAt },
       { boardCode: 'BK1556', stockCode: '000001', stockName: '平安银行', position: 2, updatedAt },
     ]);
-    await currentStore.replaceBoardConstituents('BK1556', [
-      { boardCode: 'BK1556', stockCode: '000001', stockName: '平安银行', position: 1, updatedAt },
+
+    await currentStore.upsertDailyBars([
+      createBar({ symbol: '600519', tradeDate: '2026-07-07', changePercent: 1.2, turnoverRate: 2, high: 102, low: 100 }),
+      createBar({ symbol: '600519', tradeDate: '2026-07-08', changePercent: 5.4, turnoverRate: 4, high: 110, low: 100 }),
+      createBar({ symbol: '000001', tradeDate: '2026-07-07', changePercent: -1, turnoverRate: 6, high: 103, low: 100 }),
+      createBar({ symbol: '000001', tradeDate: '2026-07-08', changePercent: 3.1, turnoverRate: 8, high: 106, low: 100 }),
     ]);
+    await currentStore.upsertStockFundFlowDaily([
+      { symbol: '600519', tradeDate: '2026-07-07', mainNetInflow: 100, source: 'vitest', fetchedAt: updatedAt },
+      { symbol: '600519', tradeDate: '2026-07-08', mainNetInflow: -20, source: 'vitest', fetchedAt: updatedAt },
+      { symbol: '000001', tradeDate: '2026-07-07', mainNetInflow: 50, source: 'vitest', fetchedAt: updatedAt },
+      { symbol: '000001', tradeDate: '2026-07-08', mainNetInflow: 70, source: 'vitest', fetchedAt: updatedAt },
+    ]);
+
+    const metrics = await currentStore.getBoardWeekMetrics('BK1556');
+    expect(metrics).toEqual({
+      tradeDates: ['2026-07-07', '2026-07-08'],
+      maxDailyChangePercent: 5.4,
+      avgTurnoverRate: 5,
+      avgAmplitude: 5.25,
+      sampledCodes: 2,
+      netInflow: 200,
+      fundFlowSampleSize: 2,
+    });
+
+    const todayMetrics = await currentStore.getBoardRangeMetrics('BK1556', 1);
+    expect(todayMetrics).toMatchObject({
+      tradeDates: ['2026-07-08'],
+      maxDailyChangePercent: 5.4,
+      netInflow: 50,
+    });
 
     const constituents = await currentStore.listBoardConstituents('BK1556');
     expect(constituents).toEqual([
+      expect.objectContaining({ boardCode: 'BK1556', stockCode: '600519', stockName: '贵州茅台', position: 1, updatedAt: expect.any(String) }),
+      expect.objectContaining({ boardCode: 'BK1556', stockCode: '000001', stockName: '平安银行', position: 2, updatedAt: expect.any(String) }),
+    ]);
+
+    await currentStore.replaceBoardConstituents('BK1556', [
+      { boardCode: 'BK1556', stockCode: '000001', stockName: '平安银行', position: 1, updatedAt },
+    ]);
+    expect(await currentStore.listBoardConstituents('BK1556')).toEqual([
       expect.objectContaining({ boardCode: 'BK1556', stockCode: '000001', stockName: '平安银行', position: 1, updatedAt: expect.any(String) }),
     ]);
 
@@ -191,11 +227,19 @@ describe('市场数据 DuckDB 存储', () => {
     await currentStore.writeDiscoverySnapshot({ snapshot: { rows: [{ code: '600519' }] }, updatedAt: '2026-07-09T10:00:00.000Z' }, 'home');
     await currentStore.writeBoardSnapshot({ rows: boardRows, updatedAt: '2026-07-09T10:01:00.000Z' }, 'industry');
     await currentStore.writeBoardDetail({ detail: boardDetail, updatedAt: '2026-07-09T10:02:00.000Z' });
+    await currentStore.upsertStockFundFlowDaily([
+      { symbol: '600519', tradeDate: '2026-07-08', mainNetInflow: 1200, source: 'vitest', fetchedAt: '2026-07-09T10:00:00.000Z' },
+      { symbol: '600519', tradeDate: '2026-07-09', mainNetInflow: -300, source: 'vitest', fetchedAt: '2026-07-09T10:00:00.000Z' },
+    ]);
     await currentStore.upsertStockChip('600519', chip);
 
     expect(await currentStore.readDiscoverySnapshot('home')).toMatchObject({ snapshot: { rows: [{ code: '600519' }] }, updatedAt: expect.any(String) });
     expect(await currentStore.readBoardSnapshot('industry')).toMatchObject({ rows: boardRows, updatedAt: expect.any(String) });
     expect(await currentStore.readBoardDetail('BK1556')).toMatchObject({ detail: boardDetail, updatedAt: expect.any(String) });
+    expect(await currentStore.listStockFundFlowDaily('600519', ['2026-07-08', '2026-07-09'])).toEqual([
+      expect.objectContaining({ tradeDate: '2026-07-08', mainNetInflow: 1200 }),
+      expect.objectContaining({ tradeDate: '2026-07-09', mainNetInflow: -300 }),
+    ]);
     expect(await currentStore.getStockChip('600519')).toEqual(chip);
     expect(await currentStore.getStockChip('000001')).toBeUndefined();
   });

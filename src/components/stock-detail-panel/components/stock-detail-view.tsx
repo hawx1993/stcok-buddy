@@ -19,7 +19,12 @@ interface IStockDetailViewProps {
   genericBackLabel?: string;
 }
 
-export function StockDetailView({ returnToSurge, onReturnToSurge, onGenericBack, genericBackLabel }: IStockDetailViewProps) {
+export function StockDetailView({
+  returnToSurge,
+  onReturnToSurge,
+  onGenericBack,
+  genericBackLabel,
+}: IStockDetailViewProps) {
   const detailRef = useRef<HTMLDivElement>(null);
   const quoteTimerRef = useRef<number>();
   const [isKlineModalOpen, setKlineModalOpen] = useState(false);

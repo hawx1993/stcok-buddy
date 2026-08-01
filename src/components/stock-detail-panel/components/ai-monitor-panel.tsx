@@ -1,4 +1,4 @@
-import { ConfigProvider, Select } from 'antd';
+import { ConfigProvider, Select, Tooltip } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
@@ -18,6 +18,7 @@ import { useAppStore } from '../../../store/app-store';
 import type { IAiMonitorReturnState } from '../../../store/app-store';
 import styles from '../index.module.scss';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
+import { getAshareMarketPhase } from '../../../shared/market-time';
 import type { IMonitorEvent, TMonitorCategory, TMonitorMode, StockDetail } from '../../../shared/types';
 import type { LucideIcon } from 'lucide-react';
 
@@ -232,7 +233,8 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   const [activeTab, setActiveTab] = useState<TVisibleMonitorCategory | 'all'>(initialFeedState?.activeTab ?? 'all');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [mode, setMode] = useState<TMonitorMode>(initialFeedState?.mode ?? 'history');
-  const [isTradingTime, setTradingTime] = useState(initialCache?.isTradingTime ?? false);
+  const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase());
+  const [isTradingTime, setTradingTime] = useState(initialCache?.isTradingTime ?? marketPhase.isTrading);
   const [dateOptions] = useState(() => makeMonitorDateOptions());
   const [selectedDate, setSelectedDate] = useState(() => initialFeedState?.selectedDate ?? makeMonitorDateOptions()[0]);
   const [lastUpdated, setLastUpdated] = useState<string | undefined>(initialCache?.lastUpdated);
@@ -338,6 +340,14 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
     setLoading(true);
     void loadFeed(nextMode, nextDate, nextPage, nextTab);
   }, [activeTab, currentPage, isActive, loadFeed, mode]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const updateMarketPhase = () => setMarketPhase(getAshareMarketPhase());
+    updateMarketPhase();
+    const id = window.setInterval(updateMarketPhase, 60_000);
+    return () => window.clearInterval(id);
+  }, [isActive]);
 
   useEffect(() => {
     if (!isActive || !autoRefresh || !isTradingTime || mode !== 'realtime') return;
@@ -506,35 +516,41 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
           <RefreshCw aria-hidden='true' className={loading ? styles['refreshing-icon'] : undefined} size={12} />
           <span style={{ paddingLeft: '2px' }}>{loading ? '刷新中' : '刷新'}</span>
         </button>
-        <button
-          className={classNames(styles['surge-monitor-button'], autoRefresh && mode === 'realtime' && styles.active)}
-          onClick={() => {
-            if (!isTradingTime) return;
-            if (mode !== 'realtime') {
-              handleRealtimeClick();
-              return;
-            }
-            setAutoRefresh((value) => !value);
-          }}
-          disabled={!isTradingTime}
-          title={
-            isTradingTime
-              ? autoRefresh && mode === 'realtime'
-                ? '关闭实时监控'
-                : '开启实时监控'
-              : '非交易时段不可开启实时监控'
-          }
-          aria-label={
-            isTradingTime
-              ? autoRefresh && mode === 'realtime'
-                ? '关闭实时监控'
-                : '开启实时监控'
-              : '非交易时段不可开启实时监控'
-          }
-          type='button'
-        >
-          <span />
-        </button>
+        <Tooltip title={marketPhase.label}>
+          <span className={styles['phase-pill-tooltip-anchor']}>
+            <button
+              className={classNames(
+                styles.phasePill,
+                (!isTradingTime || !(autoRefresh && mode === 'realtime')) && styles.phasePillInactive,
+              )}
+              onClick={() => {
+                if (!isTradingTime) return;
+                if (mode !== 'realtime') {
+                  handleRealtimeClick();
+                  return;
+                }
+                setAutoRefresh((value) => !value);
+              }}
+              disabled={!isTradingTime}
+              aria-label={
+                isTradingTime
+                  ? autoRefresh && mode === 'realtime'
+                    ? '关闭实时监控'
+                    : '开启实时监控'
+                  : '非交易时段不可开启实时监控'
+              }
+              type='button'
+            >
+              <span
+                className={classNames(
+                  styles.liveDot,
+                  (!isTradingTime || !(autoRefresh && mode === 'realtime')) && styles.liveDotInactive,
+                )}
+              />
+              {autoRefresh && mode === 'realtime' ? '监控中' : '监控'}
+            </button>
+          </span>
+        </Tooltip>
       </div>
 
       <div className={styles['ai-monitor-panel-tabs']}>

@@ -296,7 +296,10 @@ function validateOptions(options: HistoricalBarsOptions, adjustType: AdjustType)
 
 function yearsAgoForLimit(limit: number) {
   const date = new Date();
-  date.setFullYear(date.getFullYear() - Math.ceil(limit / 220) - 1);
+  // Daily-bar requests need calendar days rather than a multi-year range. The
+  // former implementation rounded every request below 220 bars to two years,
+  // which made short-range calculations download years of data.
+  date.setDate(date.getDate() - Math.max(14, Math.ceil(limit * 2) + 14));
   return isoDate(date);
 }
 function dayBefore(value: string) {

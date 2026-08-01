@@ -2,7 +2,8 @@ import { AlertTriangle, BadgeCent, BarChart3, Bot, CircleAlert, Newspaper, Trend
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
-import type { IMonitorEvent, TMonitorCategory, StockDetail } from '../../../shared/types';
+import type { IMonitorEvent, IMonitorFeed, TMonitorCategory, StockDetail } from '../../../shared/types';
+import cx from '../../../shared/cx';
 
 type TVisibleMonitorCategory = Exclude<TMonitorCategory, 'dragon-tiger'>;
 type TVisibleMonitorEvent = IMonitorEvent & { category: TVisibleMonitorCategory };
@@ -51,12 +52,17 @@ function isVisibleMonitorEvent(event: IMonitorEvent): event is TVisibleMonitorEv
   return event.category !== 'dragon-tiger';
 }
 
+export function getLatestVisibleMonitorEvents(feed: IMonitorFeed) {
+  return feed.events
+    .filter(isVisibleMonitorEvent)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 8);
+}
+
 export function MonitoringCenter() {
   const [events, setEvents] = useState<TVisibleMonitorEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [isTradingTime, setTradingTime] = useState(false);
-  const [mode, setMode] = useState<'realtime' | 'history'>('history');
   const [flowInIds, setFlowInIds] = useState<string[]>([]);
   const previousEventIdsRef = useRef<string[]>([]);
 
@@ -70,14 +76,7 @@ export function MonitoringCenter() {
       setError('');
       const api = getStocksenseApi();
       const feed = await api.getMonitorFeed({ categories: ALL_CATEGORIES, limit: 8, offset: 0, mode: 'realtime' });
-      setTradingTime(feed.isTradingTime);
-      setMode(feed.mode);
-      const nextEvents: TVisibleMonitorEvent[] = feed.isTradingTime && feed.mode === 'realtime'
-        ? feed.events
-            .filter(isVisibleMonitorEvent)
-            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-            .slice(0, 8)
-        : [];
+      const nextEvents = getLatestVisibleMonitorEvents(feed);
       const previousIds = previousEventIdsRef.current;
       const nextIds = nextEvents.map((event) => event.id);
       setFlowInIds(previousIds.length ? nextIds.filter((id, index) => previousIds[index] !== id) : []);
@@ -127,7 +126,6 @@ export function MonitoringCenter() {
   }, [flowInIds]);
 
   const previewEvents = useMemo(() => events.slice(0, 8), [events]);
-  const realtimeUnavailable = !isTradingTime || mode !== 'realtime';
 
   const handleStockClick = async (code: string, name: string) => {
     const snapshot = { code, name } as StockDetail;
@@ -148,7 +146,7 @@ export function MonitoringCenter() {
 
   return (
     <div className='monitor-center compact'>
-      <div className='monitor-feed compact-feed'>
+      <div className={cx('monitor-feed compact-feed', previewEvents.length === 0 && 'empty-feed')}>
         {loading && !events.length ? (
           <div className='monitor-skeleton-grid'>
             {Array.from({ length: 6 }).map((_, index) => (
@@ -176,7 +174,7 @@ export function MonitoringCenter() {
           </div>
         ) : error ? (
           <div className='empty-block'>{error}</div>
-        ) : realtimeUnavailable || previewEvents.length === 0 ? (
+        ) : previewEvents.length === 0 ? (
           <div className='empty-block'>暂无监控事件</div>
         ) : (
           previewEvents.map((event) => {

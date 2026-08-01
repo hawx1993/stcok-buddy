@@ -1483,6 +1483,9 @@
     }
   }
 }
+:global(.monitor-feed.empty-feed) {
+  display: block;
+}
 :global(.monitor-feed.compact-feed > .monitor-skeleton-grid) {
   grid-column: 1 / -1;
   display: grid;
