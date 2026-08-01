@@ -1,9 +1,10 @@
 import { getMarketReview } from './market-review-service.js';
-import { getBatchQuotes, listDailyDragonTiger, listEastmoneySurgeByDate, listHotFocus } from './stock-client.js';
+import { getDiscoverySnapshot } from './discovery-service.js';
+import { getBatchQuotes, listDailyDragonTiger, listEastmoneySurgeByDate } from './stock-client.js';
 import { getConfig } from '../config-store.js';
 import { chatWithOpenAICompatible } from '../llm/openai-compatible-client.js';
 import { sdk } from './shared.js';
-import type { ITradingAdvice, ITradingAdviceSector, StockDetail } from '../../../src/shared/types.js';
+import type { IMarketReviewMetric, ITradingAdvice, ITradingAdviceOptions, ITradingAdviceSector, StockDetail, TMarketReviewReport, TMarketReviewWatchCategory } from '../../../src/shared/types.js';
 
 // ── Data collection ──
 
@@ -29,7 +30,9 @@ async function collectMarketData() {
 
 // ── Prompt building ──
 
-function buildUserPrompt(data: Awaited<ReturnType<typeof collectMarketData>>): string {
+type TTradingAdviceData = Awaited<ReturnType<typeof collectMarketData>>;
+
+function buildUserPrompt(data: TTradingAdviceData): string {
   const { reviewData, dtItems, fundFlows, poolItems, concepts } = data;
 
   const parts: string[] = [];
@@ -299,25 +302,147 @@ function parseAdviceResponse(raw: string): ITradingAdvice {
   };
 }
 
+function isIsoTradeDate(value?: string): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function compactTradeDate(date: string) {
+  return date.replaceAll('-', '');
+}
+
+function isMarketReviewMetricUnit(value: string): value is NonNullable<IMarketReviewMetric['unit']> {
+  return value === '家' || value === '%' || value === '板' || value === '亿' || value === '分';
+}
+
+function hasHistoricalAdviceData(data: TTradingAdviceData): boolean {
+  return Boolean(
+    data.reviewData?.nextDayFocus?.length ||
+      data.reviewData?.hotThemes?.length ||
+      data.dtItems.length ||
+      data.poolItems.length ||
+      data.reviewData?.sentiment?.length,
+  );
+}
+
+function toMarketReviewWatchCategory(value: string): TMarketReviewWatchCategory {
+  if (
+    value === 'leader' ||
+    value === 'theme' ||
+    value === 'liquidity' ||
+    value === 'sentiment' ||
+    value === 'risk' ||
+    value === 'northbound'
+  ) {
+    return value;
+  }
+  return 'theme';
+}
+
+async function collectHistoricalMarketData(tradeDate: string): Promise<TTradingAdviceData> {
+  const snapshot = await getDiscoverySnapshot({ tradeDate });
+  if (snapshot.unavailableReason) throw new Error(snapshot.unavailableReason);
+  const dragonTiger = snapshot.dragonTiger;
+  const dtItems = [
+    ...(dragonTiger?.inst ?? []),
+    ...(dragonTiger?.hot ?? []),
+    ...(dragonTiger?.first ?? []),
+  ].map((item, index) => ({
+    id: `${tradeDate}-${item.code}-${index}`,
+    date: tradeDate,
+    code: item.code,
+    name: item.name,
+    reason: item.reason,
+    changePercent: item.changePercent,
+    netBuy: item.netBuy,
+    buy: Math.max(item.netBuy, 0),
+    sell: item.netBuy < 0 ? Math.abs(item.netBuy) : 0,
+  }));
+  const poolItems = await listEastmoneySurgeByDate(compactTradeDate(tradeDate));
+  const reviewData: TMarketReviewReport = {
+    tradeDate: snapshot.tradeDate,
+    generatedAt: snapshot.generatedAt,
+    dataSources: ['discovery-snapshot'],
+    dataGaps: [],
+    indexSummary: snapshot.marketSummary?.indices.map((item) => ({ name: item.name, changePercent: item.changePercent, amount: null })) ?? [],
+    sentimentScore: snapshot.sentimentScore ?? null,
+    profitDirections: [],
+    lossDirections: [],
+    leaders: snapshot.leaders?.map((item) => ({
+      code: item.code,
+      name: item.name,
+      concepts: item.concepts ?? [],
+      height: item.height ?? null,
+      amount: item.amount ?? null,
+      turnoverRate: null,
+      sealAmount: null,
+      changePercent: item.changePercent ?? null,
+    })) ?? [],
+    wealthEffect: snapshot.wealthMetrics?.map((item) => ({
+      label: item.label,
+      value: item.value,
+      unit: isMarketReviewMetricUnit(item.unit) ? item.unit : undefined,
+    })) ?? [],
+    sentiment: snapshot.sentimentFactors?.map((item) => ({
+      label: item.label,
+      value: typeof item.value === 'number' ? item.value : null,
+      unit: undefined,
+    })) ?? [],
+    hotThemes: snapshot.hotThemes?.map((item) => ({
+      id: item.code ?? item.name,
+      name: item.name,
+      boardCode: item.code ?? null,
+      score: null,
+      changePercent: item.changePercent ?? null,
+      limitUpCount: item.limitUpCount ?? null,
+      reason: item.reason ?? null,
+      leaderName: item.leaderName ?? null,
+      leaderCode: item.leaderCode ?? null,
+      leaderHeight: item.leaders?.[0]?.height ?? null,
+      mainNetInflow: null,
+      amount: null,
+      limitUpStocks: item.leaders?.map((leader) => ({ code: leader.code, name: leader.name, height: leader.height ?? null })) ?? [],
+      coreStocks: [],
+      trackingNote: null,
+    })) ?? [],
+    nextDayFocus: snapshot.nextDayFocus?.map((item) => ({
+      id: item.category,
+      category: toMarketReviewWatchCategory(item.category),
+      condition: item.condition,
+      baseline: item.baseline ?? null,
+      tone: 'neutral' as const,
+    })) ?? [],
+  };
+  const data = { reviewData, dtItems, fundFlows: [], poolItems, concepts: [], today: compactTradeDate(tradeDate) };
+  if (!hasHistoricalAdviceData(data)) throw new Error('该交易日暂无足够数据生成交易建议');
+  return data;
+}
+
+function resolveAdviceTradeDate(options: ITradingAdviceOptions = {}) {
+  return isIsoTradeDate(options.tradeDate) ? options.tradeDate : new Date().toISOString().slice(0, 10);
+}
+
+async function collectTradingAdviceData(tradeDate: string): Promise<TTradingAdviceData> {
+  const today = new Date().toISOString().slice(0, 10);
+  return tradeDate === today ? collectMarketData() : collectHistoricalMarketData(tradeDate);
+}
+
 // ── Cache ──
-let adviceCache: { date: string; advice: ITradingAdvice } | undefined;
+const adviceCache = new Map<string, ITradingAdvice>();
 
 // ── Main export ──
 
-export async function getTradingAdvice(): Promise<ITradingAdvice> {
-  const today = new Date().toISOString().slice(0, 10);
+export async function getTradingAdvice(options: ITradingAdviceOptions = {}): Promise<ITradingAdvice> {
+  const tradeDate = resolveAdviceTradeDate(options);
 
-  // Return cached result for the same day
-  if (adviceCache?.date === today) return adviceCache.advice;
+  const cachedAdvice = adviceCache.get(tradeDate);
+  if (cachedAdvice) return cachedAdvice;
 
-  // Collect market data
-  const data = await collectMarketData();
+  const data = await collectTradingAdviceData(tradeDate);
 
   if (!data.reviewData) {
     throw new Error('市场数据获取失败，无法生成交易建议');
   }
 
-  // Build prompt and call AI
   const userPrompt = buildUserPrompt(data);
   const cfg = getConfig();
 
@@ -329,8 +454,7 @@ export async function getTradingAdvice(): Promise<ITradingAdvice> {
   const parsedAdvice = parseAdviceResponse(response);
   const advice = await reconcileAdviceLeaderStocks(parsedAdvice);
 
-  // Cache for the day
-  adviceCache = { date: today, advice };
+  adviceCache.set(tradeDate, advice);
 
   return advice;
 }

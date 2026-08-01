@@ -66,7 +66,7 @@ function BoardRankList({ title, emptyText, kind, items, onOpenBoard }: IBoardRan
               <span className={styles['board-rank']}>{index + 1}</span>
               <span className={styles['board-row-main']}>
                 <strong>{item.boardName}</strong>
-                <em>{item.boardKind ?? 'unknown'} · {item.reason}</em>
+                <em>{formatBoardDescription(item)}</em>
               </span>
               <span className={styles['board-row-side']}>
                 <b className={cx(kind === 'change' ? trendClass(item.changePercent) : trendClass(item.mainNetInflow))}>{formatRankingValue(item, kind)}</b>
@@ -80,6 +80,11 @@ function BoardRankList({ title, emptyText, kind, items, onOpenBoard }: IBoardRan
       )}
     </section>
   );
+}
+
+function formatBoardDescription(item: IBoardDashboardMetric): string {
+  const kindLabel = item.boardKind === 'industry' ? '行业' : item.boardKind === 'concept' ? '概念' : '';
+  return kindLabel ? `${kindLabel} · ${item.reason}` : item.reason;
 }
 
 function formatRankingValue(item: IBoardDashboardMetric, kind: TBoardRankingKind): string {

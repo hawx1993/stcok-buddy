@@ -30,6 +30,7 @@ vi.mock('../stock-client.js', () => ({
   getMarketPageSnapshot: vi.fn(),
   listDailyDragonTiger: vi.fn(),
   listEastmoneySurgeByDate: vi.fn(),
+  listRecentDragonTigerDays: vi.fn(),
 }));
 
 vi.mock('../../config-store.js', () => ({
@@ -59,13 +60,17 @@ vi.mock('../market-indices.js', () => ({
 
 vi.mock('../../market-data/providers.js', () => ({
   isRemoteTradingDay: vi.fn(),
+  previousRemoteTradingDay: vi.fn(),
 }));
 
-import { isRemoteTradingDay } from '../../market-data/providers.js';
+import { isRemoteTradingDay, previousRemoteTradingDay } from '../../market-data/providers.js';
+import { writeDiscoverySnapshot } from '../../market-data/market-data-store.js';
 import {
+  buildDiscoverySnapshotFromHistoricalPoolsForTest,
   buildLocalBoardCatalog,
   buildDiscoveryDragonTigerForTest,
   buildDiscoveryDragonTigerHistoryForTest,
+  buildDiscoveryHistoryLoadingSnapshotForTest,
   enrichMissingSectorMainNetInflowsForTest,
   findLocalBoard,
   formatDiscoveryDataErrorForTest,
@@ -77,10 +82,14 @@ import {
   sumConstituentMainNetInflowYiForTest,
   toLimitDownStockItemForTest,
   withOptionalTimeoutForTest,
+  withSelectedDiscoveryTradeDateForTest,
+  writeDiscoverySnapshotCachesForTest,
 } from '../discovery-service.js';
 import type { TLocalBoardSummary } from '../discovery-service.js';
 
 const mockedIsRemoteTradingDay = vi.mocked(isRemoteTradingDay);
+const mockedPreviousRemoteTradingDay = vi.mocked(previousRemoteTradingDay);
+const mockedWriteDiscoverySnapshot = vi.mocked(writeDiscoverySnapshot);
 
 const boards: TLocalBoardSummary[] = [
   { code: 'BK0001', name: '半导体行业Ⅱ', kind: 'industry', changePercent: 2.1, mainNetInflow: 0, amount: 10 },
@@ -250,6 +259,147 @@ describe('发现页股票和资金流工具', () => {
       dragonTiger: { inst: [], hot: [], first: [] },
     })).toBe(false);
   });
+
+  it('按选中交易日只保留该日龙虎榜数据', () => {
+    const history = buildDiscoveryDragonTigerHistoryForTest([
+      {
+        date: '2026-07-31',
+        items: [
+          {
+            id: 'latest',
+            date: '2026-07-31',
+            code: '600001',
+            name: '最新股',
+            reason: '首板上榜',
+            changePercent: 10,
+            netBuy: 90_000_000,
+            buy: 100_000_000,
+            sell: 10_000_000,
+          },
+        ],
+      },
+      {
+        date: '2026-07-30',
+        items: [
+          {
+            id: 'previous',
+            date: '2026-07-30',
+            code: '600002',
+            name: '前日股',
+            reason: '机构专用',
+            changePercent: 8,
+            netBuy: 80_000_000,
+            buy: 90_000_000,
+            sell: 10_000_000,
+          },
+        ],
+      },
+    ]);
+
+    const selected = withSelectedDiscoveryTradeDateForTest({
+      tradeDate: '2026-07-31',
+      generatedAt: '2026-07-31T10:00:00.000Z',
+      dragonTiger: { inst: [], hot: [], first: [{ code: '600001', name: '最新股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }] },
+      dragonTigerHistory: history,
+    }, '2026-07-30');
+
+    expect(selected.tradeDate).toBe('2026-07-30');
+    expect(selected.dragonTiger).toEqual({
+      inst: [{ code: '600002', name: '前日股', changePercent: 8, netBuy: 80_000_000, reason: '机构专用' }],
+      hot: [],
+      first: [],
+    });
+  });
+
+  it('选中无龙虎榜交易日时返回真实空态而不是回退最新日', () => {
+    const selected = withSelectedDiscoveryTradeDateForTest({
+      tradeDate: '2026-07-31',
+      generatedAt: '2026-07-31T10:00:00.000Z',
+      dragonTiger: { inst: [], hot: [], first: [{ code: '600001', name: '最新股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }] },
+      dragonTigerHistory: [],
+    }, '2026-07-29');
+
+    expect(selected.tradeDate).toBe('2026-07-29');
+    expect(selected.dragonTiger).toEqual({ inst: [], hot: [], first: [] });
+  });
+
+  it('指定历史日期缺少本地缓存时返回空态，不拼接最新日数据', () => {
+    const snapshot = buildDiscoveryHistoryLoadingSnapshotForTest('2026-07-29', new Date('2026-07-31T10:00:00.000Z'));
+
+    expect(snapshot).toEqual({
+      tradeDate: '2026-07-29',
+      generatedAt: '2026-07-31T10:00:00.000Z',
+      tradeDates: [{ date: '2026-07-29', weekday: '星期三' }],
+      unavailableReason: '该交易日暂无本地历史数据，正在后台同步',
+    });
+    expect(snapshot).not.toHaveProperty('marketSummary');
+    expect(snapshot).not.toHaveProperty('dragonTiger');
+  });
+
+  it('将近一个月龙虎榜历史按交易日写入发现页 DuckDB 快照', async () => {
+    mockedWriteDiscoverySnapshot.mockResolvedValue(undefined);
+    const history = Array.from({ length: 24 }, (_, index) => {
+      const date = new Date('2026-07-31T00:00:00.000Z');
+      date.setUTCDate(date.getUTCDate() - index);
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      return {
+        date: `2026-07-${day}`,
+        weekday: '星期五',
+        inst: [],
+        hot: [],
+        first: [{ code: `6000${String(index).padStart(2, '0')}`, name: `样本${index}`, changePercent: 10, netBuy: 10_000_000, reason: '首板上榜' }],
+      };
+    });
+
+    await writeDiscoverySnapshotCachesForTest({
+      tradeDate: '2026-07-31',
+      generatedAt: '2026-07-31T10:00:00.000Z',
+      dragonTiger: { inst: [], hot: [], first: history[0].first },
+      dragonTigerHistory: history,
+    });
+
+    expect(mockedWriteDiscoverySnapshot).toHaveBeenCalledWith(expect.any(Object), 'default');
+    expect(mockedWriteDiscoverySnapshot).toHaveBeenCalledWith(expect.any(Object), 'trade-date:2026-07-31');
+    expect(mockedWriteDiscoverySnapshot).toHaveBeenCalledWith(expect.any(Object), 'trade-date:2026-07-24');
+    const cacheKeys = mockedWriteDiscoverySnapshot.mock.calls.map((call) => call[1]);
+    const uniqueTradeDateKeys = new Set(cacheKeys.filter((key) => String(key).startsWith('trade-date:')));
+    expect(uniqueTradeDateKeys).toHaveLength(20);
+  });
+
+  it('历史涨停池生成明日预判观察项，空池保持无预判空态', () => {
+    const snapshot = buildDiscoverySnapshotFromHistoricalPoolsForTest({
+      tradeDate: '2026-07-30',
+      generatedAt: '2026-07-30T15:30:00.000Z',
+      poolItems: [
+        { id: '600001', title: '机器人A', code: '600001', name: '机器人A', tag: '封涨停板', description: '机器人·2连板·成交额 12亿', changePercent: '10.00%' },
+        { id: '600002', title: '机器人B', code: '600002', name: '机器人B', tag: '涨停开板', description: '机器人·开板', changePercent: '6.00%' },
+      ],
+      dragonTiger: { inst: [], hot: [], first: [] },
+      tradeDates: [{ date: '2026-07-30', weekday: '星期四' }],
+    });
+
+    expect(snapshot.marketSummary?.sectors).toEqual([
+      expect.objectContaining({
+        name: '机器人',
+        changePercent: 8,
+        amount: 1_200_000_000,
+        topStockName: '机器人A',
+        topStockCode: '600001',
+      }),
+    ]);
+    expect(snapshot.nextDayFocus?.length).toBeGreaterThan(0);
+    expect(snapshot.nextDayFocus?.some((item) => item.category === 'theme')).toBe(true);
+    const emptySnapshot = buildDiscoverySnapshotFromHistoricalPoolsForTest({
+      tradeDate: '2026-07-29',
+      generatedAt: '2026-07-30T15:30:00.000Z',
+      poolItems: [],
+      dragonTiger: { inst: [], hot: [], first: [] },
+      tradeDates: [{ date: '2026-07-29', weekday: '星期三' }],
+    });
+    expect(emptySnapshot.marketSummary?.sectors).toEqual([]);
+    expect(emptySnapshot.nextDayFocus).toBeUndefined();
+  });
+
 
   it('格式化 stock-sdk 网络错误时不输出完整堆栈对象', () => {
     const error = new Error('fetch failed');

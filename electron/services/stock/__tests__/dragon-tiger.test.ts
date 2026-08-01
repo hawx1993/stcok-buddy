@@ -178,6 +178,41 @@ describe('龙虎榜快照服务', () => {
       expect.objectContaining({ reason: '日涨幅偏离值达7%', count: 2, netBuyAmount: 30_000_000 }),
     ]);
   });
+
+  it('保留更多龙虎榜和席位排行数据供 UI 展示', () => {
+    const rows = Array.from({ length: 24 }, (_, index) =>
+      createMappedDetail({
+        id: `buy-${index}`,
+        code: `${600000 + index}`,
+        netBuyAmount: 100_000_000 - index,
+      }),
+    );
+    const institutionTop = Array.from({ length: 14 }, (_, index) => ({
+      code: `${300000 + index}`,
+      name: `机构股${index}`,
+      date: '2026-07-31',
+      price: null,
+      changePercent: null,
+      buyOrgCount: 1,
+      sellOrgCount: 0,
+      orgBuyAmount: 10_000_000 + index,
+      orgSellAmount: 0,
+      orgNetAmount: 10_000_000 + index,
+    }));
+
+    const snapshot = dragonTigerTestExports.buildDragonTigerSnapshot({
+      range: 'today',
+      startDate: '20260731',
+      endDate: '20260731',
+      rows,
+      institutionTop,
+      branchTop: [],
+      warnings: [],
+    });
+
+    expect(snapshot.topNetBuy).toHaveLength(20);
+    expect(snapshot.institutionTop).toHaveLength(12);
+  });
 });
 
 function createDetail(overrides: Partial<TDetailFixture> = {}): TDetailFixture {

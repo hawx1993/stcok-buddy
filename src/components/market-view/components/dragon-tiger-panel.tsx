@@ -14,6 +14,8 @@ const ranges: Array<{ id: TDragonTigerRange; label: string }> = [
   { id: '30d', label: '30日' },
 ];
 
+const DRAGON_TIGER_INSTITUTION_VISIBLE_SIZE = 8;
+
 export function DragonTigerPanel({ onOpen }: { onOpen(row: MarketQuoteRow): void }) {
   const [range, setRange] = useState<TDragonTigerRange>('today');
   const [snapshot, setSnapshot] = useState<IDragonTigerSnapshot>();
@@ -74,7 +76,7 @@ function DragonTigerSkeleton() {
   return (
     <div className={styles.dragonTigerSkeleton} aria-label='龙虎榜加载中'>
       <div className={styles.dragonTigerSummary}>
-        {[0, 1, 2].map((item) => (
+        {[0, 1, 2, 3].map((item) => (
           <div key={item} className={styles.dragonTigerMetricSkeleton}>
             <span />
             <strong />
@@ -85,13 +87,23 @@ function DragonTigerSkeleton() {
         {[0, 1, 2].map((card) => (
           <div key={card} className={styles.dragonTigerRankSkeletonCard}>
             <div className={styles.dragonTigerSkeletonTitle} />
-            {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((row) => (
-              <div key={row} className={styles.dragonTigerSkeletonRow}>
-                <span />
-                <em />
-                <strong />
-              </div>
-            ))}
+            {card === 2
+              ? [0, 1, 2, 3, 4, 5, 6, 7].map((row) => (
+                  <div key={row} className={styles.dragonTigerCompactSkeletonRow}>
+                    <span />
+                    <em />
+                    <em />
+                  </div>
+                ))
+              : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((row) => (
+                  <div key={row} className={styles.dragonTigerSkeletonRow}>
+                    <span />
+                    <span />
+                    <em />
+                    <em />
+                    <strong />
+                  </div>
+                ))}
           </div>
         ))}
       </div>
@@ -117,12 +129,16 @@ function DragonTigerContent({
         <DragonTigerRankList title='净买入 TOP' rows={snapshot.topNetBuy} emptyText='暂无净买入记录' onOpen={onOpen} />
         <DragonTigerRankList title='净卖出 TOP' rows={snapshot.topNetSell} emptyText='暂无净卖出记录' onOpen={onOpen} />
         <div className={styles.dragonTigerReasonCard}>
-          <div className={styles.dragonTigerSubTitle}>机构净买入</div>
+          <div className={styles.dragonTigerSubTitle}>
+            <span>机构净买入</span>
+            <em>{snapshot.institutionTop.length ? `共 ${snapshot.institutionTop.length} 条` : '暂无'}</em>
+          </div>
           {snapshot.institutionTop.length ? (
             <div className={styles.dragonTigerCompactList}>
-              {snapshot.institutionTop.slice(0, 6).map((item) => (
+              {snapshot.institutionTop.slice(0, DRAGON_TIGER_INSTITUTION_VISIBLE_SIZE).map((item) => (
                 <button
                   key={`${item.date}-${item.code}`}
+                  className={(item.orgNetAmount ?? 0) > 0 ? styles.dragonTigerInstitutionBuy : undefined}
                   onClick={() =>
                     onOpen({
                       code: item.code,
@@ -135,7 +151,8 @@ function DragonTigerContent({
                 >
                   <span>{item.name}</span>
                   <em>
-                    现价 {item.price ?? '--'} · <span className={tone(item.changePercent)}>{formatPercent(item.changePercent)}</span>
+                    现价 {item.price ?? '--'} ·{' '}
+                    <span className={tone(item.changePercent)}>{formatPercent(item.changePercent)}</span>
                   </em>
                   <em>
                     {item.buyOrgCount ?? 0}买/{item.sellOrgCount ?? 0}卖 · {formatMoney(item.orgNetAmount)}

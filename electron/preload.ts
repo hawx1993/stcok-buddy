@@ -91,9 +91,10 @@ const api: StocksenseApi = {
   getMarketPageSnapshot: (tab: MarketTab, period?: MarketIndexPeriod) =>
     ipcRenderer.invoke('market:getPageSnapshot', tab, period),
   getDragonTigerSnapshot: (range?: TDragonTigerRange) => ipcRenderer.invoke('dragonTiger:getSnapshot', range),
-  getDiscoverySnapshot: () => ipcRenderer.invoke('discovery:getSnapshot'),
+  getDiscoverySnapshot: (options?: Parameters<StocksenseApi['getDiscoverySnapshot']>[0]) =>
+    ipcRenderer.invoke('discovery:getSnapshot', options),
   getMonitorFeed: (options?: Parameters<StocksenseApi['getMonitorFeed']>[0]) => ipcRenderer.invoke('monitor:getFeed', options),
-  getTradingAdvice: () => ipcRenderer.invoke('trading-advice:get'),
+  getTradingAdvice: (options?: Parameters<StocksenseApi['getTradingAdvice']>[0]) => ipcRenderer.invoke('trading-advice:get', options),
   onMarketPageSnapshotUpdated: (handler: (snapshot: MarketPageSnapshot) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: MarketPageSnapshot) => handler(snapshot);
     ipcRenderer.on('market:pageSnapshotUpdated', listener);

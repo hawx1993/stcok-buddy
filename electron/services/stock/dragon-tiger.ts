@@ -10,6 +10,8 @@ import { pickNumber, pickString } from './format.js';
 import { sdk, withTimeoutReject } from './shared.js';
 
 const DRAGON_TIGER_TIMEOUT_MS = 10_000;
+const DRAGON_TIGER_RANK_SIZE = 20;
+const DRAGON_TIGER_SEAT_RANK_SIZE = 12;
 const TODAY_LOOKBACK_DAYS = 7;
 const EASTMONEY_DATACENTER_URL = 'https://datacenter-web.eastmoney.com/api/data/v1/get';
 
@@ -67,8 +69,8 @@ export async function getDragonTigerSnapshot(range: TDragonTigerRange = 'today')
     startDate: effectiveRange.startDate,
     endDate: effectiveRange.endDate,
     rows: filteredRows,
-    institutionTop: institutionTop.slice(0, 8),
-    branchTop: branchResult.status === 'fulfilled' ? branchResult.value.map(toBranchRow).slice(0, 8) : [],
+    institutionTop: institutionTop.slice(0, DRAGON_TIGER_SEAT_RANK_SIZE),
+    branchTop: branchResult.status === 'fulfilled' ? branchResult.value.map(toBranchRow).slice(0, DRAGON_TIGER_SEAT_RANK_SIZE) : [],
     warnings,
   });
 }
@@ -249,11 +251,11 @@ function buildDragonTigerSnapshot({
   const topNetBuy = rows
     .filter((row) => (row.netBuyAmount ?? 0) > 0)
     .sort((a, b) => (b.netBuyAmount ?? 0) - (a.netBuyAmount ?? 0) || a.code.localeCompare(b.code))
-    .slice(0, 10);
+    .slice(0, DRAGON_TIGER_RANK_SIZE);
   const topNetSell = rows
     .filter((row) => (row.netBuyAmount ?? 0) < 0)
     .sort((a, b) => (a.netBuyAmount ?? 0) - (b.netBuyAmount ?? 0) || a.code.localeCompare(b.code))
-    .slice(0, 10);
+    .slice(0, DRAGON_TIGER_RANK_SIZE);
   const buyAmount = sumRows(rows, 'buyAmount');
   const sellAmount = sumRows(rows, 'sellAmount');
   const netBuyAmount = sumRows(rows, 'netBuyAmount');
@@ -289,10 +291,10 @@ function buildDragonTigerSnapshot({
     activeReasons: buildReasonStats(rows),
     institutionTop: institutionTop
       .sort((a, b) => (b.orgNetAmount ?? 0) - (a.orgNetAmount ?? 0) || a.code.localeCompare(b.code))
-      .slice(0, 8),
+      .slice(0, DRAGON_TIGER_SEAT_RANK_SIZE),
     branchTop: branchTop
       .sort((a, b) => (b.totalBuyAmount ?? 0) - (a.totalBuyAmount ?? 0) || a.code.localeCompare(b.code))
-      .slice(0, 8),
+      .slice(0, DRAGON_TIGER_SEAT_RANK_SIZE),
     rows,
     warnings,
   };

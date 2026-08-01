@@ -1,4 +1,5 @@
 import type {
+  IBoardDashboardMetric,
   IBoardDashboardSnapshot,
   IBoardLeaderCandidate,
   MarketBoardRow,
@@ -16,8 +17,9 @@ import {
 } from '../market-data/market-data-store.js';
 import type { BoardConstituentRecord, MarketBoardRecord } from '../market-data/types.js';
 import { getBoardDetail } from './board-detail.js';
+import { getBatchQuotes } from './stock-client.js';
 import { normalizeASymbol } from './symbols.js';
-import { getCachedMarketBoardRows, sdk } from './shared.js';
+import { boardKindCache, getCachedMarketBoardRows, sdk } from './shared.js';
 import {
   type IBoardDashboardInput,
   type ILeaderInput,
@@ -30,7 +32,7 @@ import {
   toFiniteNumber,
 } from './board-dashboard-utils.js';
 
-const DASHBOARD_BOARD_LIMIT = 80;
+const DASHBOARD_BOARD_LIMIT = 200;
 const DETAIL_BACKFILL_LIMIT = 24;
 const DETAIL_BACKFILL_CONCURRENCY = 4;
 
@@ -90,7 +92,7 @@ async function loadBoardDashboard(
   forceRefresh: boolean,
 ): Promise<IBoardDashboardSnapshot> {
   const cached = await readBoardDashboardSnapshot(range, tradeDate).catch(() => undefined);
-  if (cached && !forceRefresh && !shouldRefreshCachedSnapshot(cached.snapshot)) return cached.snapshot;
+  if (cached && !forceRefresh && !shouldRefreshCachedSnapshot(cached.snapshot)) return withLeaderQuotes(cached.snapshot);
 
   try {
     const snapshot = await buildDashboardSnapshot(range, tradeDate);
@@ -100,13 +102,13 @@ async function loadBoardDashboard(
     return snapshot;
   } catch (error: unknown) {
     if (cached?.snapshot) {
-      return {
+      return withLeaderQuotes({
         ...cached.snapshot,
         warnings: [
           ...(cached.snapshot.warnings ?? []),
           `最新板块 Dashboard 刷新失败，当前展示本地缓存：${errorMessage(error)}`,
         ],
-      };
+      });
     }
     throw new Error(`板块 Dashboard 暂不可用：${errorMessage(error)}`);
   }
@@ -119,7 +121,10 @@ function shouldRefreshCachedSnapshot(snapshot: IBoardDashboardSnapshot): boolean
   const hasQuadrantPoint = snapshot.rankings.some(
     (metric) => metric.fundScore !== null && metric.momentumScore !== null,
   );
-  return hasAbnormalChangePercent || (snapshot.rankings.length > 0 && !hasQuadrantPoint);
+  const hasSparseLeaderCandidates = snapshot.rankings.some(
+    (metric) => metric.constituentCount >= 3 && metric.leaders.length < 3,
+  );
+  return hasAbnormalChangePercent || (snapshot.rankings.length > 0 && !hasQuadrantPoint) || hasSparseLeaderCandidates;
 }
 
 async function buildDashboardSnapshot(
@@ -134,20 +139,23 @@ async function buildDashboardSnapshot(
   }
 
   const selectedBoards = boards.slice(0, DASHBOARD_BOARD_LIMIT);
-  if (boards.length > selectedBoards.length) warnings.push(`本次基于前 ${selectedBoards.length} 个真实板块样本计算。`);
+  const tips = boards.length > selectedBoards.length
+    ? [`本次基于前 ${selectedBoards.length} 个真实板块样本计算。`]
+    : undefined;
 
   const [quoteByCode, stockFlowByCode, sectorFlowMaps] = await Promise.all([
     loadQuoteMap(),
     loadStockFundFlowMap(range),
     loadSectorFundFlowMaps(range),
   ]);
-  const sources = await runLimited(selectedBoards, DETAIL_BACKFILL_CONCURRENCY, (board) =>
-    buildMetricSource(board, range, quoteByCode, stockFlowByCode, sectorFlowMaps),
+  const sources = await runLimited(selectedBoards, DETAIL_BACKFILL_CONCURRENCY, (board, index) =>
+    buildMetricSource(board, range, quoteByCode, stockFlowByCode, sectorFlowMaps, index < DETAIL_BACKFILL_LIMIT),
   );
   const inputs = sources.map((source) => toDashboardInput(source, range, tradeDate, updatedAt));
-  const snapshot = rankBoardMetrics(inputs);
+  const snapshot = await withLeaderQuotes(rankBoardMetrics(inputs));
   return {
     ...snapshot,
+    tips,
     warnings: mergeWarnings(warnings, sectorFlowMaps.warnings, snapshot.warnings),
   };
 }
@@ -166,9 +174,10 @@ async function buildMetricSource(
   quoteByCode: Map<string, IQuoteLike>,
   stockFlowByCode: Map<string, number>,
   sectorFlowMaps: ISectorFundFlowMaps,
+  allowRemoteBackfill: boolean,
 ): Promise<IBoardMetricSource> {
   const localConstituents = await listBoardConstituents(board.code).catch(() => []);
-  const constituents = localConstituents.length ? localConstituents : await backfillBoardConstituents(board);
+  const constituents = localConstituents.length || !allowRemoteBackfill ? localConstituents : await backfillBoardConstituents(board);
   const rangeMetrics = await getBoardRangeMetrics(board.code, rangeToDayLimit(range)).catch(() => ({
     tradeDates: [],
     maxDailyChangePercent: null,
@@ -193,7 +202,7 @@ async function buildMetricSource(
     };
   });
   const leaders = pickBoardLeaders(leaderInputs);
-  const sectorFlow = await resolveSectorFlow(board, range, rangeMetrics.netInflow, sectorFlowMaps);
+  const sectorFlow = await resolveSectorFlow(board, range, rangeMetrics.netInflow, sectorFlowMaps, allowRemoteBackfill);
   const breadth = calculateBreadth(constituents, quoteByCode);
   const warnings = sectorFlow.source === 'history'
     ? [`${board.name} 使用 stock-sdk 板块历史资金流修复本区间净流入。`]
@@ -224,6 +233,50 @@ async function backfillBoardConstituents(board: MarketBoardRecord): Promise<Boar
   }).then((groups) => groups.flat());
 }
 
+async function withLeaderQuotes(snapshot: IBoardDashboardSnapshot): Promise<IBoardDashboardSnapshot> {
+  const displayedMetrics = [...snapshot.hot, ...snapshot.potential, ...snapshot.avoid, ...snapshot.leaders];
+  const leaderCodes = [...new Set(displayedMetrics.flatMap((metric) => metric.leaders.map((leader) => leader.code)))];
+  const missingCodes = leaderCodes.filter((code) => {
+    const leader = displayedMetrics.flatMap((metric) => metric.leaders).find((item) => item.code === code);
+    return leader && (leader.price === null || leader.changePercent === null);
+  });
+  if (!missingCodes.length) return snapshot;
+
+  const quotes = await getBatchQuotes(missingCodes).catch(() => []);
+  const quoteByCode = new Map(quotes.map((quote) => [normalizeASymbol(quote.code), quote]));
+  if (!quoteByCode.size) return snapshot;
+
+  const enrichMetric = (metric: IBoardDashboardMetric): IBoardDashboardMetric => ({
+    ...metric,
+    leaders: metric.leaders.map((leader) => {
+      const quote = quoteByCode.get(normalizeASymbol(leader.code));
+      if (!quote) return leader;
+      const price = toFiniteNumber(quote.price);
+      const changePercent = toFiniteNumber(quote.changePercent);
+      return {
+        ...leader,
+        price: price ?? leader.price,
+        changePercent: changePercent ?? leader.changePercent,
+      };
+    }),
+  });
+
+  return {
+    ...snapshot,
+    summary: {
+      hottest: snapshot.summary.hottest ? enrichMetric(snapshot.summary.hottest) : undefined,
+      potential: snapshot.summary.potential ? enrichMetric(snapshot.summary.potential) : undefined,
+      avoid: snapshot.summary.avoid ? enrichMetric(snapshot.summary.avoid) : undefined,
+      strongestLeader: snapshot.summary.strongestLeader ? enrichMetric(snapshot.summary.strongestLeader) : undefined,
+    },
+    rankings: snapshot.rankings.map(enrichMetric),
+    potential: snapshot.potential.map(enrichMetric),
+    hot: snapshot.hot.map(enrichMetric),
+    avoid: snapshot.avoid.map(enrichMetric),
+    leaders: snapshot.leaders.map(enrichMetric),
+  };
+}
+
 function toDashboardInput(
   source: IBoardMetricSource,
   range: TBoardDashboardRange,
@@ -231,10 +284,6 @@ function toDashboardInput(
   updatedAt: string,
 ): IBoardDashboardInput {
   const mainNetInflow = source.rangeMetrics.netInflow ?? null;
-  const warnings = mergeWarnings(
-    source.warnings,
-    source.constituents.length ? undefined : ['板块成分股缓存不足，部分评分维度为空。'],
-  );
   return {
     boardCode: source.board.code,
     boardName: source.board.name,
@@ -254,7 +303,7 @@ function toDashboardInput(
     averageAmplitude: source.rangeMetrics.avgAmplitude,
     leaders: source.leaders,
     updatedAt,
-    warnings,
+    warnings: source.warnings,
   };
 }
 
@@ -346,10 +395,11 @@ async function resolveSectorFlow(
   range: TBoardDashboardRange,
   dbNetInflow: number | null,
   sectorFlowMaps: ISectorFundFlowMaps,
+  allowRemoteBackfill: boolean,
 ): Promise<{ value: number | null; source: 'rank' | 'history' | 'database' | 'empty' }> {
   const rankFlow = sectorFlowMaps.byCode.get(board.code) ?? sectorFlowMaps.byName.get(normalizeDashboardBoardName(board.name));
   if (rankFlow !== undefined) return { value: rankFlow, source: 'rank' };
-  const historyFlow = await loadSectorHistoryNetInflow(board.code, range);
+  const historyFlow = allowRemoteBackfill ? await loadSectorHistoryNetInflow(board.code, range) : null;
   if (historyFlow !== null) return { value: historyFlow, source: 'history' };
   if (dbNetInflow !== null) return { value: dbNetInflow, source: 'database' };
   return { value: null, source: 'empty' };
@@ -387,7 +437,7 @@ function marketBoardRowToRecord(row: MarketBoardRow): MarketBoardRecord | undefi
   return {
     code: row.code,
     name: row.name,
-    kind: undefined,
+    kind: normalizeBoardKind(boardKindCache.get(row.code)),
     changePercent: normalizeBoardChangePercent(row.changePercent, 'twenty-days') ?? undefined,
     amount: toFiniteNumber(row.amount) ?? undefined,
     source: 'stock-sdk',
@@ -457,14 +507,15 @@ function calculateAmplitude(high: number | null, low: number | null): number | n
   return Number((((high - low) / low) * 100).toFixed(2));
 }
 
-async function runLimited<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+async function runLimited<T, R>(items: T[], limit: number, task: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results: R[] = [];
   let index = 0;
   async function worker() {
     while (index < items.length) {
-      const item = items[index];
+      const itemIndex = index;
+      const item = items[itemIndex];
       index += 1;
-      if (item !== undefined) results.push(await task(item));
+      if (item !== undefined) results.push(await task(item, itemIndex));
     }
   }
   await Promise.all(Array.from({ length: Math.max(1, limit) }, () => worker()));

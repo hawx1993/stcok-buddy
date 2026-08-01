@@ -227,17 +227,20 @@
 .dragonTigerPanel {
   flex: 1 0 320px;
   margin-top: 0;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 86%, transparent);
-  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 12%, transparent), transparent 28%),
+    color-mix(in srgb, var(--surface) 88%, transparent);
+  padding: 14px;
+  box-shadow: 0 14px 36px color-mix(in srgb, #000 16%, transparent);
 }
 .dragonTigerHeader {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 .dragonTigerHeader h2 {
   margin: 0;
@@ -285,10 +288,23 @@
   margin-bottom: 8px;
 }
 .dragonTigerMetric {
+  position: relative;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--bg) 36%, transparent);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--surface) 88%, transparent),
+    color-mix(in srgb, var(--bg) 34%, transparent)
+  );
+}
+.dragonTigerMetric::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: color-mix(in srgb, var(--accent) 72%, transparent);
 }
 .dragonTigerMetric span {
   display: block;
@@ -302,22 +318,33 @@
 }
 .dragonTigerGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: 2.15fr 2.15fr 1fr;
+  gap: 10px;
 }
 .dragonTigerRankCard,
 .dragonTigerReasonCard {
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg) 30%, transparent);
-  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 34%, transparent);
+  padding: 10px;
+  overflow: auto;
 }
 .dragonTigerSubTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   color: var(--fg);
   font-size: 13px;
   font-weight: 700;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+}
+.dragonTigerSubTitle em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
 }
 .dragonTigerRankList,
 .dragonTigerReasons,
@@ -339,10 +366,10 @@
 }
 .dragonTigerRankItem {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 54px 62px;
+  grid-template-columns: 22px minmax(70px, 0.78fr) minmax(90px, 1fr) 62px 72px;
   align-items: center;
-  gap: 6px;
-  padding: 3px 4px;
+  gap: 8px;
+  padding: 7px 6px;
 }
 .dragonTigerRankItem:hover,
 .dragonTigerCompactList button:hover {
@@ -360,6 +387,7 @@
 }
 .dragonTigerStock strong,
 .dragonTigerStock em,
+.dragonTigerRankReason,
 .dragonTigerReasonHead span,
 .dragonTigerReasonHead em,
 .dragonTigerCompactList span,
@@ -377,6 +405,10 @@
 .dragonTigerCompactList em {
   color: var(--muted);
   font-style: normal;
+  font-size: 11px;
+}
+.dragonTigerRankReason {
+  color: var(--muted);
   font-size: 11px;
 }
 .dragonTigerMoney {
@@ -413,7 +445,10 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 7px 6px;
+  padding: 8px;
+}
+.dragonTigerInstitutionBuy {
+  background: color-mix(in srgb, var(--accent) 9%, transparent) !important;
 }
 .dragonTigerEmpty,
 .dragonTigerWarning {
@@ -436,19 +471,24 @@
   background: color-mix(in srgb, var(--bg) 30%, transparent);
 }
 .dragonTigerMetricSkeleton {
-  border-radius: 10px;
-  padding: 10px 12px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  padding: 12px 14px;
 }
 .dragonTigerRankSkeletonCard {
-  border-radius: 12px;
-  padding: 8px;
+  border-radius: 14px;
+  padding: 10px;
+  overflow: hidden;
 }
 .dragonTigerMetricSkeleton span,
 .dragonTigerMetricSkeleton strong,
 .dragonTigerSkeletonTitle,
 .dragonTigerSkeletonRow span,
 .dragonTigerSkeletonRow em,
-.dragonTigerSkeletonRow strong {
+.dragonTigerSkeletonRow strong,
+.dragonTigerCompactSkeletonRow span,
+.dragonTigerCompactSkeletonRow em {
   display: block;
   border-radius: 999px;
   background: color-mix(in srgb, var(--border) 58%, transparent);
@@ -464,16 +504,38 @@
   height: 18px;
 }
 .dragonTigerSkeletonTitle {
-  width: 84px;
+  width: 128px;
   height: 14px;
   margin-bottom: 12px;
 }
-.dragonTigerSkeletonRow {
+.dragonTigerSkeletonRow,
+.dragonTigerCompactSkeletonRow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 54px 62px;
   gap: 8px;
   align-items: center;
-  padding: 7px 4px;
+  padding: 7px 6px;
+}
+.dragonTigerSkeletonRow {
+  grid-template-columns: 22px minmax(54px, 0.72fr) minmax(70px, 1fr) minmax(42px, 56px) minmax(48px, 64px);
+}
+.dragonTigerCompactSkeletonRow {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  align-items: stretch;
+}
+.dragonTigerCompactSkeletonRow span,
+.dragonTigerCompactSkeletonRow em {
+  height: 12px;
+}
+.dragonTigerCompactSkeletonRow span {
+  width: 64%;
+  height: 14px;
+}
+.dragonTigerCompactSkeletonRow em:first-of-type {
+  width: 88%;
+}
+.dragonTigerCompactSkeletonRow em:last-child {
+  width: 72%;
 }
 .dragonTigerSkeletonRow span {
   height: 14px;

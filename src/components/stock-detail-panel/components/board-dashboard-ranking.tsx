@@ -43,7 +43,7 @@ export function BoardDashboardRanking({ title, items, onOpenBoard }: IBoardDashb
                   <span className={styles['board-rank']}>{item.heatRank ?? row.index + 1}</span>
                   <span className={styles['board-row-main']}>
                     <strong>{item.boardName}</strong>
-                    <em>{item.boardKind ?? 'unknown'} · {item.reason}</em>
+                    <em>{formatBoardDescription(item)}</em>
                   </span>
                   <span className={styles['board-row-side']}>
                     <b>{item.heatScore === null ? '--' : item.heatScore?.toFixed(1)}</b>
@@ -59,6 +59,11 @@ export function BoardDashboardRanking({ title, items, onOpenBoard }: IBoardDashb
       )}
     </section>
   );
+}
+
+function formatBoardDescription(item: IBoardDashboardMetric): string {
+  const kindLabel = item.boardKind === 'industry' ? '行业' : item.boardKind === 'concept' ? '概念' : '';
+  return kindLabel ? `${kindLabel} · ${item.reason}` : item.reason;
 }
 
 function formatPercent(value: number | null): string {

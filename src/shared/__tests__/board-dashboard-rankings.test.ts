@@ -80,6 +80,19 @@ describe('板块 Dashboard 榜单排序', () => {
     ]);
   });
 
+  it('资金流入榜只展示正净流入板块', () => {
+    const metrics = [
+      createMetric({ boardCode: 'BK0001', boardName: '净流入', mainNetInflow: 100000000 }),
+      createMetric({ boardCode: 'BK0002', boardName: '净流出', mainNetInflow: -200000000 }),
+      createMetric({ boardCode: 'BK0003', boardName: '持平', mainNetInflow: 0 }),
+      createMetric({ boardCode: 'BK0004', boardName: '无数据', mainNetInflow: null }),
+    ];
+
+    const rankings = selectTopBoardFundInflowRankings(metrics);
+
+    expect(rankings.map((item) => item.boardCode)).toEqual(['BK0001']);
+  });
+
   it('空数据返回空榜单', () => {
     expect(selectTopBoardChangeRankings([])).toEqual([]);
     expect(selectTopBoardFundInflowRankings([createMetric({ boardCode: 'BK0001' })])).toEqual([]);

@@ -11,6 +11,7 @@ import type {
   IAppUpdateSettings,
   IDiskInfo,
   IStorageStats,
+  ITradingAdviceOptions,
   MarketIndexPeriod,
   MarketNewsItem,
   MarketTab,
@@ -216,9 +217,11 @@ export function registerIpcHandlers() {
     getMarketPageSnapshot(tab, period),
   );
   ipcMain.handle('dragonTiger:getSnapshot', (_event, range?: TDragonTigerRange) => getDragonTigerSnapshot(range));
-  ipcMain.handle('discovery:getSnapshot', () => getDiscoverySnapshot());
+  ipcMain.handle('discovery:getSnapshot', (_event, options?: Parameters<typeof getDiscoverySnapshot>[0]) =>
+    getDiscoverySnapshot(options),
+  );
   ipcMain.handle('monitor:getFeed', (_event, options?: Parameters<typeof getMonitorFeed>[0]) => getMonitorFeed(options));
-  ipcMain.handle('trading-advice:get', () => getTradingAdvice());
+  ipcMain.handle('trading-advice:get', (_event, options?: ITradingAdviceOptions) => getTradingAdvice(options));
   const removeMarketPageListener = onMarketPageSnapshotUpdated((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('market:pageSnapshotUpdated', snapshot);
   });

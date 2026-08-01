@@ -134,7 +134,7 @@ export function pickBoardLeaders(items: ILeaderInput[], limit = 5): IBoardLeader
         reason: buildLeaderReason(mainNetInflow, changePercent, amount),
       };
     })
-    .filter((item) => item.code && item.name && item.leaderScore !== null)
+    .filter((item) => item.code && item.name)
     .sort((left, right) => (right.leaderScore ?? -Infinity) - (left.leaderScore ?? -Infinity))
     .slice(0, limit);
 }

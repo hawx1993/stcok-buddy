@@ -2,6 +2,8 @@ import type { IDragonTigerDetailRow, MarketQuoteRow } from '../../../shared/type
 import { formatMoney, formatPercent, tone } from '../market-format';
 import styles from '../index.module.scss';
 
+const DRAGON_TIGER_RANK_VISIBLE_SIZE = 10;
+
 export function DragonTigerRankList({
   title,
   rows,
@@ -13,12 +15,17 @@ export function DragonTigerRankList({
   emptyText: string;
   onOpen(row: MarketQuoteRow): void;
 }) {
+  const visibleRows = rows.slice(0, DRAGON_TIGER_RANK_VISIBLE_SIZE);
+
   return (
     <div className={styles.dragonTigerRankCard}>
-      <div className={styles.dragonTigerSubTitle}>{title}</div>
-      {rows.length ? (
+      <div className={styles.dragonTigerSubTitle}>
+        <span>{title}</span>
+        <em>{visibleRows.length ? `共 ${visibleRows.length} 条` : '暂无'}</em>
+      </div>
+      {visibleRows.length ? (
         <div className={styles.dragonTigerRankList}>
-          {rows.slice(0, 6).map((row, index) => (
+          {visibleRows.map((row, index) => (
             <button
               key={row.id}
               className={styles.dragonTigerRankItem}
@@ -30,6 +37,7 @@ export function DragonTigerRankList({
                 <strong>{row.name}</strong>
                 <em>{row.code}</em>
               </span>
+              <span className={styles.dragonTigerRankReason}>{row.reason}</span>
               <span className={tone(row.changePercent)}>{formatPercent(row.changePercent)}</span>
               <span className={styles.dragonTigerMoney}>{formatMoney(row.netBuyAmount)}</span>
             </button>

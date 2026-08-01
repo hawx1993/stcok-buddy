@@ -129,6 +129,7 @@ interface IDiscoverySnapshot {
     first: TDragonTigerRow[];
   };
   dragonTigerHistory?: TDragonTigerDay[];
+  tradeDates?: Array<{ date: string; weekday: string }>;
   nextDayFocus?: Array<{ category: string; condition: string; baseline?: number | null }>;
   watchlistQuotes?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
   unavailableReason?: string;
@@ -152,6 +153,37 @@ function formatDate(date: Date) {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d} ${weekdays[date.getDay()]}`;
+}
+
+function formatTradeDateLabel(date: string) {
+  if (!date) return '数据交易日：--';
+  const parsed = new Date(`${date}T00:00:00+08:00`);
+  const weekday = Number.isNaN(parsed.getTime()) ? '' : ` ${['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][parsed.getDay()]}`;
+  return `数据交易日：${date}${weekday}`;
+}
+
+function formatTradeDateTab(date: string, weekday?: string) {
+  const parts = date.split('-');
+  const parsed = new Date(`${date}T00:00:00+08:00`);
+  const week = weekday?.replace('星期', '周') || (Number.isNaN(parsed.getTime()) ? '交易日' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][parsed.getDay()]);
+  return {
+    weekday: week,
+    date: parts.length === 3 ? `${parts[1]}-${parts[2]}` : date,
+  };
+}
+
+function getTradeDateOptions(snapshot?: IDiscoverySnapshot) {
+  const seen = new Set<string>();
+  const options: Array<{ date: string; weekday?: string }> = [];
+  const add = (date?: string, weekday?: string) => {
+    if (!date || seen.has(date)) return;
+    seen.add(date);
+    options.push({ date, weekday });
+  };
+  snapshot?.tradeDates?.forEach((day) => add(day.date, day.weekday));
+  snapshot?.dragonTigerHistory?.forEach((day) => add(day.date, day.weekday));
+  add(snapshot?.tradeDate);
+  return options.sort((left, right) => left.date.localeCompare(right.date));
 }
 
 const SECTION_ICONS: Record<string, typeof Newspaper> = {
@@ -220,15 +252,20 @@ export function DiscoveryView() {
   const [activePill, setActivePill] = useState('hero');
   const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase(new Date()));
   const [currentDate, setCurrentDate] = useState(() => new Date());
+  const [selectedTradeDate, setSelectedTradeDate] = useState('');
+  const [hasScrolled, setHasScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const tradeDateNavRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (tradeDate = '') => {
     setLoading(true);
     setError('');
     try {
       const api = getStocksenseApi();
-      const data = await api.getDiscoverySnapshot();
-      setSnapshot(toDiscoverySnapshot(data));
+      const data = await api.getDiscoverySnapshot(tradeDate ? { tradeDate } : undefined);
+      const nextSnapshot = toDiscoverySnapshot(data);
+      setSnapshot(nextSnapshot);
+      setSelectedTradeDate(tradeDate || nextSnapshot.tradeDate);
     } catch (err) {
       setError(err instanceof Error ? err.message : '数据加载失败');
     } finally {
@@ -237,7 +274,7 @@ export function DiscoveryView() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load('');
   }, [load]);
 
   useEffect(() => {
@@ -247,6 +284,19 @@ export function DiscoveryView() {
       setCurrentDate(now);
     }, 60_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+
+    const syncScrolledState = () => {
+      setHasScrolled(scroll.scrollTop > 0);
+    };
+
+    syncScrolledState();
+    scroll.addEventListener('scroll', syncScrolledState, { passive: true });
+    return () => scroll.removeEventListener('scroll', syncScrolledState);
   }, []);
 
   // IntersectionObserver for pill active state
@@ -273,12 +323,27 @@ export function DiscoveryView() {
   };
 
   const dateStr = useMemo(() => formatDate(currentDate), [currentDate]);
+  const tradeDateLabel = useMemo(() => formatTradeDateLabel(selectedTradeDate || snapshot?.tradeDate || ''), [snapshot?.tradeDate, selectedTradeDate]);
+  const tradeDateOptions = useMemo(() => getTradeDateOptions(snapshot), [snapshot]);
+  const displayedTradeDate = selectedTradeDate || snapshot?.tradeDate || '';
   const unavailableReason = snapshot?.unavailableReason;
 
+  useEffect(() => {
+    const nav = tradeDateNavRef.current;
+    if (!nav || !displayedTradeDate) return;
+    const activeButton = nav.querySelector<HTMLElement>(`[data-trade-date="${displayedTradeDate}"]`);
+    activeButton?.scrollIntoView({ block: 'nearest', inline: 'end' });
+  }, [displayedTradeDate, tradeDateOptions]);
+
+  const handleSelectTradeDate = (tradeDate: string) => {
+    setSelectedTradeDate(tradeDate);
+    void load(tradeDate);
+  };
+
   return (
-    <section className={styles.wrap}>
+    <section className={cx(styles.wrap, tradeDateOptions.length && styles.wrapWithTradeDate)}>
       {/* ── Topbar ── */}
-      <div className={cx(styles.topbar, isLeftSidebarCollapsed && styles.topbarCollapsed)}>
+      <div className={cx(styles.topbar, hasScrolled && styles.topbarScrolled, isLeftSidebarCollapsed && styles.topbarCollapsed)}>
         <button className={styles.backBtn} onClick={() => setMainView('chat')} type='button'>
           <ArrowLeft size={15} />
           返回
@@ -287,7 +352,8 @@ export function DiscoveryView() {
           <Compass size={18} />
           今日机会
         </h1>
-        <span className={styles.date}>{dateStr}</span>
+        <span className={styles.date}>{tradeDateLabel}</span>
+        <span className={styles.currentDate}>当前日期：{dateStr}</span>
         <div className={styles.topbarRight}>
           <span className={cx(styles.phasePill, !marketPhase.isTrading && styles.phasePillInactive)}>
             <span className={cx(styles.liveDot, !marketPhase.isTrading && styles.liveDotInactive)} />
@@ -295,6 +361,27 @@ export function DiscoveryView() {
           </span>
         </div>
       </div>
+
+      {/* ── Trade Date Selector ── */}
+      {tradeDateOptions.length ? (
+        <div className={cx(styles.tradeDateNav, hasScrolled && styles.tradeDateNavScrolled)} ref={tradeDateNavRef} aria-label='选择探索页交易日'>
+          {tradeDateOptions.map((item) => {
+            const label = formatTradeDateTab(item.date, item.weekday);
+            return (
+              <button
+                key={item.date}
+                className={cx(styles.tradeDateButton, displayedTradeDate === item.date && styles.tradeDateButtonActive)}
+                data-trade-date={item.date}
+                onClick={() => handleSelectTradeDate(item.date)}
+                type='button'
+              >
+                <span>{label.weekday}</span>
+                <strong>{label.date}</strong>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
 
       {/* ── Pill Nav ── */}
       <div className={styles.pillNav}>
@@ -317,7 +404,7 @@ export function DiscoveryView() {
             <div className={styles.inlineErrorState}>
               <AlertTriangle size={16} />
               <p>{error}</p>
-              <button className={styles.retryBtn} onClick={load} type='button'>
+              <button className={styles.retryBtn} onClick={() => load()} type='button'>
                 重试
               </button>
             </div>
@@ -343,7 +430,7 @@ export function DiscoveryView() {
 
           {/* Market Summary */}
           <div data-discovery-section='sec-summary' id='sec-summary' className={styles.section}>
-            <SectionTitle id='sec-summary' title='AI 今日市场总结' />
+            <SectionTitle id='sec-summary' title={`AI 市场总结 · ${displayedTradeDate || '--'}`} />
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
@@ -392,7 +479,7 @@ export function DiscoveryView() {
 
           {/* Dragon Tiger */}
           <div data-discovery-section='sec-dragontiger' id='sec-dragontiger' className={styles.section}>
-            <SectionTitle id='sec-dragontiger' title='AI 今日龙虎榜' />
+            <SectionTitle id='sec-dragontiger' title={`AI 龙虎榜 · ${displayedTradeDate || '--'}`} />
             <div className={styles.card}>
               {loading && !snapshot ? (
                 <SectionSkeleton />
@@ -404,6 +491,7 @@ export function DiscoveryView() {
                   hot={snapshot?.dragonTiger?.hot ?? []}
                   first={snapshot?.dragonTiger?.first ?? []}
                   history={snapshot?.dragonTigerHistory}
+                  selectedDate={displayedTradeDate}
                 />
               )}
             </div>
@@ -455,7 +543,7 @@ export function DiscoveryView() {
           <div data-discovery-section='sec-trading-advice' id='sec-trading-advice' className={styles.section}>
             <SectionTitle id='sec-trading-advice' title='AI 交易建议' />
             <div className={styles.card}>
-              {unavailableReason ? <DiscoveryWaitingState message={unavailableReason} /> : <TradingAdvice />}
+              {unavailableReason ? <DiscoveryWaitingState message={unavailableReason} /> : <TradingAdvice tradeDate={displayedTradeDate} />}
             </div>
           </div>
           <SubscribeFooter />

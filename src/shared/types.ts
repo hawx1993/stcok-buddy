@@ -416,6 +416,7 @@ export interface IBoardDashboardSnapshot {
   hot: IBoardDashboardMetric[];
   avoid: IBoardDashboardMetric[];
   leaders: IBoardDashboardMetric[];
+  tips?: string[];
   warnings?: string[];
 }
 
@@ -953,6 +954,14 @@ export interface ITradingAdvice {
   riskReminder: string;
 }
 
+export interface IDiscoverySnapshotOptions {
+  tradeDate?: string;
+}
+
+export interface ITradingAdviceOptions {
+  tradeDate?: string;
+}
+
 export interface StocksenseApi {
   getStorageStats(): Promise<IStorageStats>;
   clearStorage(keys: string[]): Promise<IStorageStats>;
@@ -1006,9 +1015,9 @@ export interface StocksenseApi {
   getMarketDataStats(): Promise<MarketDataStats>;
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
   getDragonTigerSnapshot(range?: TDragonTigerRange): Promise<IDragonTigerSnapshot>;
-  getDiscoverySnapshot(): Promise<Record<string, unknown>>;
+  getDiscoverySnapshot(options?: IDiscoverySnapshotOptions): Promise<Record<string, unknown>>;
   getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number; offset?: number; date?: string; mode?: TMonitorMode }): Promise<IMonitorFeed>;
-  getTradingAdvice(): Promise<ITradingAdvice>;
+  getTradingAdvice(options?: ITradingAdviceOptions): Promise<ITradingAdvice>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;
   syncKlines(): Promise<MarketDataSyncStatus>;

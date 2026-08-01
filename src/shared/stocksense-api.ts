@@ -92,9 +92,9 @@ export function getStocksenseApi(): StocksenseApi {
         return window.stocksense!.listStockNews(code, limit).catch(fallbackFavoriteError(() => webFallbackApi.listStockNews(code, limit)));
       return Promise.reject(new Error('个股快讯功能不可用，请重启客户端'));
     },
-    getDiscoverySnapshot: () => {
+    getDiscoverySnapshot: (options) => {
       if (typeof window.stocksense!.getDiscoverySnapshot === 'function')
-        return window.stocksense!.getDiscoverySnapshot();
+        return window.stocksense!.getDiscoverySnapshot(options);
       return Promise.reject(new Error('探索功能不可用，请重启客户端'));
     },
     getMonitorFeed: (options) => {
@@ -102,9 +102,9 @@ export function getStocksenseApi(): StocksenseApi {
         return window.stocksense!.getMonitorFeed(options);
       return Promise.reject(new Error('AI 监控中心不可用，请重启客户端'));
     },
-    getTradingAdvice: () => {
+    getTradingAdvice: (options) => {
       if (typeof window.stocksense!.getTradingAdvice === 'function')
-        return window.stocksense!.getTradingAdvice();
+        return window.stocksense!.getTradingAdvice(options);
       return Promise.reject(new Error('AI 交易建议不可用，请重启客户端'));
     },
     getDragonTigerSnapshot: (range) => {

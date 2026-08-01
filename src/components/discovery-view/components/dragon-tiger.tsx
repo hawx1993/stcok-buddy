@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useAppStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { StockDetail } from '../../../shared/types';
@@ -18,6 +18,7 @@ interface IDragonTigerProps {
   hot: TDragonTigerRow[];
   first: TDragonTigerRow[];
   history?: TDragonTigerDay[];
+  selectedDate?: string;
 }
 
 function formatNetBuy(value: number) {
@@ -37,18 +38,11 @@ function formatHistoryLabel(date: string, weekday: string) {
   return parts.length === 3 ? `${parts[1]}-${parts[2]} ${shortWeekday}` : `${date} ${shortWeekday}`;
 }
 
-export function DragonTiger({ inst, hot, first, history }: IDragonTigerProps) {
-  const [selectedDate, setSelectedDate] = useState(() => history?.[0]?.date ?? '');
-
-  useEffect(() => {
-    if (!history?.length) return;
-    if (!history.some((item) => item.date === selectedDate)) setSelectedDate(history[0].date);
-  }, [history, selectedDate]);
-
-  const selectedDay = history?.find((item) => item.date === selectedDate) ?? history?.[0];
-  const currentInst = selectedDay?.inst ?? inst;
-  const currentHot = selectedDay?.hot ?? hot;
-  const currentFirst = selectedDay?.first ?? first;
+export function DragonTiger({ inst, hot, first, history, selectedDate }: IDragonTigerProps) {
+  const selectedDay = selectedDate ? history?.find((item) => item.date === selectedDate) : undefined;
+  const currentInst = inst;
+  const currentHot = hot;
+  const currentFirst = first;
   const tabs = [
     { key: 'inst', label: '机构榜', rows: currentInst },
     { key: 'hot', label: '游资营业部', rows: currentHot },
@@ -79,20 +73,7 @@ export function DragonTiger({ inst, hot, first, history }: IDragonTigerProps) {
 
   return (
     <div>
-      {history?.length ? (
-        <div className='dt-date-tabs' aria-label='龙虎榜历史交易日'>
-          {history.map((day) => (
-            <button
-              key={day.date}
-              className={`tab-btn${(selectedDay?.date ?? selectedDate) === day.date ? ' active' : ''}`}
-              onClick={() => setSelectedDate(day.date)}
-              type='button'
-            >
-              {formatHistoryLabel(day.date, day.weekday)}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <div className='dt-date-note'>当前龙虎榜交易日：{selectedDay ? formatHistoryLabel(selectedDay.date, selectedDay.weekday) : selectedDate || '--'}</div>
       <div className='dt-tabs'>
         {tabs.map((tab) => (
           <button

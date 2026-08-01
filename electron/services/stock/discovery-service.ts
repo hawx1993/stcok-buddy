@@ -16,8 +16,9 @@ import {
   readDiscoverySnapshot,
   writeDiscoverySnapshot,
 } from '../market-data/market-data-store.js';
-import { fetchMarketIndex } from './market-indices.js';
-import { isRemoteTradingDay } from '../market-data/providers.js';
+import { fetchMarketIndex, normalizeIndexDate } from './market-indices.js';
+import { isRemoteTradingDay, previousRemoteTradingDay } from '../market-data/providers.js';
+import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
 import { formatMoney } from './format.js';
 import { buildMonthlyThemesFromHistoricalPools } from './discovery-monthly-themes.js';
 import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from './discovery-hot-themes.js';
@@ -34,13 +35,17 @@ import type {
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 export const DISCOVERY_CACHE_TTL_MS = 60_000;
 export const DISCOVERY_WAITING_930_MESSAGE = '数据9:30更新，请稍后';
+const DISCOVERY_HISTORY_LOADING_MESSAGE = '该交易日暂无本地历史数据，正在后台同步';
 const DISCOVERY_SNAPSHOT_KEY = 'default';
+const DISCOVERY_TRADE_DATE_SNAPSHOT_PREFIX = 'trade-date:';
+const DISCOVERY_RECENT_TRADE_DAYS = 20;
 let discoveryRefreshPromise: Promise<IDiscoverySnapshot> | undefined;
 let discoveryRefreshTimer: NodeJS.Timeout | undefined;
 let lastDiscoveryRefreshStartedAt = 0;
 
 type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
 type TRealtimeQuote = Awaited<ReturnType<typeof getBatchQuotes>>[number];
+type TDailyDragonTigerGroup = Awaited<ReturnType<typeof listRecentDragonTigerDays>>[number];
 type TDiscoveryDragonTigerItem = { code: string; name: string; changePercent?: number; netBuy: number; reason: string };
 type TDiscoveryDragonTigerDay = {
   date: string;
@@ -49,6 +54,10 @@ type TDiscoveryDragonTigerDay = {
   hot: TDiscoveryDragonTigerItem[];
   first: TDiscoveryDragonTigerItem[];
 };
+
+export interface IDiscoverySnapshotOptions {
+  tradeDate?: string;
+}
 
 export interface IDiscoverySnapshot {
   tradeDate: string;
@@ -114,6 +123,7 @@ export interface IDiscoverySnapshot {
     first: TDiscoveryDragonTigerItem[];
   };
   dragonTigerHistory?: TDiscoveryDragonTigerDay[];
+  tradeDates?: Array<{ date: string; weekday: string }>;
   // tomorrow preview
   nextDayFocus?: Array<{ category: string; condition: string; baseline?: number | null }>;
   // watchlist
@@ -366,6 +376,39 @@ function hasDragonTigerRows(snapshot: IDiscoverySnapshot): boolean {
 
 export const hasDragonTigerRowsForTest = hasDragonTigerRows;
 
+function discoveryTradeDateSnapshotKey(tradeDate: string) {
+  return `${DISCOVERY_TRADE_DATE_SNAPSHOT_PREFIX}${tradeDate}`;
+}
+
+function isIsoTradeDate(value?: string): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function emptyDiscoveryDragonTiger(): NonNullable<IDiscoverySnapshot['dragonTiger']> {
+  return { inst: [], hot: [], first: [] };
+}
+
+function pickDragonTigerForTradeDate(
+  snapshot: IDiscoverySnapshot,
+  tradeDate: string,
+): NonNullable<IDiscoverySnapshot['dragonTiger']> {
+  const day = snapshot.tradeDate === tradeDate
+    ? snapshot.dragonTigerHistory?.find((item) => item.date === tradeDate) ?? snapshot.dragonTiger
+    : snapshot.dragonTigerHistory?.find((item) => item.date === tradeDate);
+  if (!day) return emptyDiscoveryDragonTiger();
+  return { inst: day.inst, hot: day.hot, first: day.first };
+}
+
+function withSelectedDiscoveryTradeDate(snapshot: IDiscoverySnapshot, tradeDate: string): IDiscoverySnapshot {
+  return {
+    ...snapshot,
+    tradeDate,
+    dragonTiger: pickDragonTigerForTradeDate(snapshot, tradeDate),
+  };
+}
+
+export const withSelectedDiscoveryTradeDateForTest = withSelectedDiscoveryTradeDate;
+
 function toCachedDiscoverySnapshot(value: unknown): IDiscoverySnapshot | undefined {
   return isDiscoverySnapshot(value) ? value : undefined;
 }
@@ -423,6 +466,37 @@ function buildDiscoveryWaitingSnapshot(now = new Date()): IDiscoverySnapshot {
   };
 }
 
+function buildDiscoveryHistoryLoadingSnapshot(tradeDate: string, now = new Date()): IDiscoverySnapshot {
+  return {
+    tradeDate,
+    generatedAt: now.toISOString(),
+    tradeDates: [{ date: tradeDate, weekday: formatDragonTigerWeekday(tradeDate) }],
+    unavailableReason: DISCOVERY_HISTORY_LOADING_MESSAGE,
+  };
+}
+
+export const buildDiscoveryHistoryLoadingSnapshotForTest = buildDiscoveryHistoryLoadingSnapshot;
+
+function toTradeDateOption(date: string) {
+  return { date, weekday: formatDragonTigerWeekday(date) };
+}
+
+async function listRecentTradingDates(endDate: string, limit = DISCOVERY_RECENT_TRADE_DAYS): Promise<string[]> {
+  if (!isIsoTradeDate(endDate)) return [];
+  const dates = [endDate];
+  let current = endDate;
+  while (dates.length < limit) {
+    current = await previousRemoteTradingDay(current);
+    if (!isIsoTradeDate(current) || dates.includes(current)) break;
+    dates.push(current);
+  }
+  return dates;
+}
+
+function compactTradeDate(date: string) {
+  return date.replaceAll('-', '');
+}
+
 function addQuoteCode(codes: Set<string>, code?: string) {
   if (code && /^\d{6}$/.test(code)) codes.add(code);
 }
@@ -438,14 +512,6 @@ function collectRealtimeQuoteCodes(snapshot: IDiscoverySnapshot): string[] {
   snapshot.yesterdayZt?.forEach((item) => addQuoteCode(codes, item.code));
   snapshot.yesterdayLb?.forEach((item) => addQuoteCode(codes, item.code));
   snapshot.leaders?.forEach((item) => addQuoteCode(codes, item.code));
-  snapshot.dragonTiger?.inst?.forEach((item) => addQuoteCode(codes, item.code));
-  snapshot.dragonTiger?.hot?.forEach((item) => addQuoteCode(codes, item.code));
-  snapshot.dragonTiger?.first?.forEach((item) => addQuoteCode(codes, item.code));
-  snapshot.dragonTigerHistory?.forEach((day) => {
-    day.inst.forEach((item) => addQuoteCode(codes, item.code));
-    day.hot.forEach((item) => addQuoteCode(codes, item.code));
-    day.first.forEach((item) => addQuoteCode(codes, item.code));
-  });
   return Array.from(codes);
 }
 
@@ -518,39 +584,63 @@ async function withRealtimeQuoteFields(snapshot: IDiscoverySnapshot): Promise<ID
     next.yesterdayZt = snapshot.yesterdayZt?.map((item) => patchStockItemQuote(item, quoteByCode));
     next.yesterdayLb = snapshot.yesterdayLb?.map((item) => patchStockItemQuote(item, quoteByCode));
     next.leaders = snapshot.leaders?.map((item) => patchStockItemQuote(item, quoteByCode));
-    next.dragonTiger = snapshot.dragonTiger
-      ? {
-          inst: snapshot.dragonTiger.inst?.map((item) => patchStockItemQuote(item, quoteByCode)) ?? [],
-          hot: snapshot.dragonTiger.hot?.map((item) => patchStockItemQuote(item, quoteByCode)) ?? [],
-          first: snapshot.dragonTiger.first?.map((item) => patchStockItemQuote(item, quoteByCode)) ?? [],
-        }
-      : undefined;
-    next.dragonTigerHistory = snapshot.dragonTigerHistory?.map((day) => ({
-      ...day,
-      inst: day.inst.map((item) => patchStockItemQuote(item, quoteByCode)),
-      hot: day.hot.map((item) => patchStockItemQuote(item, quoteByCode)),
-      first: day.first.map((item) => patchStockItemQuote(item, quoteByCode)),
-    }));
   }
 
   return next;
 }
 
+interface IDiscoverySnapshotBuildResult {
+  snapshot: IDiscoverySnapshot;
+  historicalSnapshots: IDiscoverySnapshot[];
+}
+
+async function writeDiscoverySnapshotCaches(snapshot: IDiscoverySnapshot, historicalSnapshots: IDiscoverySnapshot[] = []) {
+  await writeDiscoverySnapshot(
+    { snapshot: { ...snapshot }, updatedAt: snapshot.generatedAt },
+    DISCOVERY_SNAPSHOT_KEY,
+  );
+  if (isIsoTradeDate(snapshot.tradeDate)) {
+    await writeDiscoverySnapshot(
+      { snapshot: { ...snapshot }, updatedAt: snapshot.generatedAt },
+      discoveryTradeDateSnapshotKey(snapshot.tradeDate),
+    );
+  }
+  for (const historicalSnapshot of historicalSnapshots) {
+    if (!isIsoTradeDate(historicalSnapshot.tradeDate) || historicalSnapshot.tradeDate === snapshot.tradeDate) continue;
+    await writeDiscoverySnapshot(
+      { snapshot: historicalSnapshot, updatedAt: historicalSnapshot.generatedAt },
+      discoveryTradeDateSnapshotKey(historicalSnapshot.tradeDate),
+    );
+  }
+  const historicalDates = new Set(historicalSnapshots.map((item) => item.tradeDate));
+  for (const day of snapshot.dragonTigerHistory?.slice(0, DISCOVERY_RECENT_TRADE_DAYS) ?? []) {
+    if (!isIsoTradeDate(day.date) || day.date === snapshot.tradeDate || historicalDates.has(day.date)) continue;
+    const selected = withSelectedDiscoveryTradeDate(snapshot, day.date);
+    await writeDiscoverySnapshot(
+      { snapshot: selected, updatedAt: snapshot.generatedAt },
+      discoveryTradeDateSnapshotKey(day.date),
+    );
+  }
+}
+
+export const writeDiscoverySnapshotCachesForTest = writeDiscoverySnapshotCaches;
+
 function refreshDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
   if (discoveryRefreshPromise) return discoveryRefreshPromise;
   lastDiscoveryRefreshStartedAt = Date.now();
   discoveryRefreshPromise = buildDiscoverySnapshotFresh()
-    .then(async (snapshot) => {
-      await writeDiscoverySnapshot(
-        { snapshot: { ...snapshot }, updatedAt: snapshot.generatedAt },
-        DISCOVERY_SNAPSHOT_KEY,
-      );
+    .then(async ({ snapshot, historicalSnapshots }) => {
+      await writeDiscoverySnapshotCaches(snapshot, historicalSnapshots);
       return snapshot;
     })
     .finally(() => {
       discoveryRefreshPromise = undefined;
     });
   return discoveryRefreshPromise;
+}
+
+export function ensureRecentDiscoverySnapshots(): Promise<IDiscoverySnapshot> {
+  return refreshDiscoverySnapshot();
 }
 
 async function triggerDiscoveryRefresh() {
@@ -571,8 +661,25 @@ export function stopDiscoveryRefreshLoop() {
   discoveryRefreshTimer = undefined;
 }
 
-export async function getDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
+export async function getDiscoverySnapshot(options: IDiscoverySnapshotOptions = {}): Promise<IDiscoverySnapshot> {
   ensureDiscoveryRefreshLoop();
+  const requestedTradeDate = isIsoTradeDate(options.tradeDate) ? options.tradeDate : undefined;
+
+  if (requestedTradeDate) {
+    const cachedForDate = await readDiscoverySnapshot(discoveryTradeDateSnapshotKey(requestedTradeDate));
+    const cachedDateSnapshot = cachedForDate ? toCachedDiscoverySnapshot(cachedForDate.snapshot) : undefined;
+    if (cachedDateSnapshot) return withRealtimeQuoteFields(cachedDateSnapshot);
+
+    if (await shouldDeferDiscoveryRefresh()) return buildDiscoveryHistoryLoadingSnapshot(requestedTradeDate);
+
+    await refreshDiscoverySnapshot();
+    const refreshedCache = await readDiscoverySnapshot(discoveryTradeDateSnapshotKey(requestedTradeDate));
+    const refreshedSnapshot = refreshedCache ? toCachedDiscoverySnapshot(refreshedCache.snapshot) : undefined;
+    if (refreshedSnapshot) return withRealtimeQuoteFields(refreshedSnapshot);
+
+    return buildDiscoveryHistoryLoadingSnapshot(requestedTradeDate);
+  }
+
   if (await shouldHoldDiscoverySnapshotUntil930()) return buildDiscoveryWaitingSnapshot();
 
   const cached = await readDiscoverySnapshot(DISCOVERY_SNAPSHOT_KEY);
@@ -1494,6 +1601,178 @@ async function enrichHotThemesWithLeaders(
   return enriched.filter((theme): theme is NonNullable<IDiscoverySnapshot['hotThemes']>[number] => Boolean(theme));
 }
 
+interface IHistoricalDiscoveryBuildInput {
+  tradeDate: string;
+  generatedAt: string;
+  poolItems: HotFocusItem[];
+  dragonTiger?: NonNullable<IDiscoverySnapshot['dragonTiger']>;
+  dragonTigerHistory?: TDiscoveryDragonTigerDay[];
+  tradeDates: Array<{ date: string; weekday: string }>;
+  indices?: IMarketSummary['indices'];
+  mainFundFlow?: number | null;
+  northFundFlow?: number | null;
+}
+
+function parseAmountYiFromText(value?: string): number | undefined {
+  const match = value?.match(/成交额\s*([\d.]+)\s*亿/);
+  const parsed = match ? Number(match[1]) : NaN;
+  return Number.isFinite(parsed) ? parsed * 100_000_000 : undefined;
+}
+
+function buildHistoricalSectorsFromPools(
+  poolItems: HotFocusItem[],
+  hotThemes: NonNullable<IDiscoverySnapshot['hotThemes']>,
+): ISectorSummary[] {
+  return hotThemes.map((theme, index) => {
+    const leaders = poolItems.filter((item) => item.tag === '封涨停板' && themeMatches(theme.name, item.description));
+    const amount = leaders
+      .map((item) => parseAmountYiFromText(item.description))
+      .filter((value): value is number => value !== undefined)
+      .reduce((sum, value) => sum + value, 0);
+    const leader = leaders[0];
+    return {
+      code: theme.code ?? `historical-${index}-${theme.name}`,
+      name: theme.name,
+      changePercent: theme.changePercent ?? 0,
+      mainNetInflow: 0,
+      amount: amount || undefined,
+      topStockName: leader?.name ?? leader?.title,
+      topStockCode: leader?.code,
+    };
+  });
+}
+
+function buildLimitUpsFromPools(poolItems: HotFocusItem[]): NonNullable<IDiscoverySnapshot['limitUps']> {
+  return poolItems
+    .filter((item) => item.tag === '封涨停板' && item.code)
+    .map((item) => ({
+      code: item.code ?? '',
+      name: item.name ?? item.title,
+      height: `${parseHeight(item.description)}板`,
+      reason: item.description ?? '涨停',
+      price: item.price,
+      changePercent: parseChgPct(item.changePercent) ?? null,
+      turnoverRate: undefined,
+    }));
+}
+
+function buildHistoricalNextDayFocus(input: {
+  hotThemes: NonNullable<IDiscoverySnapshot['hotThemes']>;
+  limitUpCount: number;
+  limitDownCount: number;
+  brokenCount: number;
+  consecutiveCount: number;
+  dragonTiger?: NonNullable<IDiscoverySnapshot['dragonTiger']>;
+}): NonNullable<IDiscoverySnapshot['nextDayFocus']> {
+  if (!input.limitUpCount && !input.limitDownCount && !input.brokenCount && !input.consecutiveCount && !input.hotThemes.length) {
+    return [];
+  }
+  const leader = input.hotThemes[0];
+  const followUpTheme = input.hotThemes.find((theme) => theme.name !== leader?.name);
+  const dragonTigerCount =
+    (input.dragonTiger?.inst.length ?? 0) + (input.dragonTiger?.hot.length ?? 0) + (input.dragonTiger?.first.length ?? 0);
+  return [
+    {
+      category: 'leader',
+      condition: leader?.leaderName
+        ? `观察 ${leader.leaderName} 是否继续封板或维持高位承接`
+        : `观察最高连板股是否延续强度（该日连板 ${input.consecutiveCount} 家）`,
+      baseline: input.consecutiveCount,
+    },
+    {
+      category: 'theme',
+      condition: followUpTheme
+        ? `观察 ${followUpTheme.name} 是否出现接力与扩散`
+        : leader
+          ? `观察 ${leader.name} 是否继续扩散`
+          : '暂无可验证热点，观察是否出现新的板块接力',
+      baseline: followUpTheme?.changePercent ?? leader?.changePercent ?? null,
+    },
+    {
+      category: 'sentiment',
+      condition: `观察涨停家数是否超过该日 ${input.limitUpCount} 家`,
+      baseline: input.limitUpCount,
+    },
+    {
+      category: 'risk',
+      condition: `观察炸板与跌停风险是否低于该日水平（炸板 ${input.brokenCount} 家，跌停 ${input.limitDownCount} 家）`,
+      baseline: input.brokenCount + input.limitDownCount,
+    },
+    {
+      category: 'liquidity',
+      condition: `观察龙虎榜活跃度是否高于该日 ${dragonTigerCount} 条上榜线索`,
+      baseline: dragonTigerCount,
+    },
+  ];
+}
+
+function buildDiscoverySnapshotFromHistoricalPools(input: IHistoricalDiscoveryBuildInput): IDiscoverySnapshot {
+  const sentimentStocks: NonNullable<IDiscoverySnapshot['sentimentStocks']> = { zt: [], dt: [], zb: [] };
+  const consecutiveStocks: TStockItem[] = [];
+  for (const item of input.poolItems) {
+    if (item.tag === '封涨停板') {
+      const stock = toStockItem(item);
+      sentimentStocks.zt.push(stock);
+      if (parseHeight(item.description) >= 2) consecutiveStocks.push(stock);
+    } else if (item.tag === '封跌停板') {
+      sentimentStocks.dt.push(toStockItem(item));
+    } else if (item.tag === '涨停开板') {
+      sentimentStocks.zb.push(toStockItem(item));
+    }
+  }
+  const brokenCount = sentimentStocks.zb.length;
+  const sentimentScore = scoreSentiment(0, 0, sentimentStocks.zt.length, sentimentStocks.dt.length, brokenCount);
+  const hotThemes = buildHotThemesFromPools(input.poolItems);
+  const historicalSectors = buildHistoricalSectorsFromPools(input.poolItems, hotThemes);
+  const limitUps = buildLimitUpsFromPools(input.poolItems);
+  const dragonTiger = input.dragonTiger ?? emptyDiscoveryDragonTiger();
+  const nextDayFocus = buildHistoricalNextDayFocus({
+    hotThemes,
+    limitUpCount: sentimentStocks.zt.length,
+    limitDownCount: sentimentStocks.dt.length,
+    brokenCount,
+    consecutiveCount: consecutiveStocks.length,
+    dragonTiger,
+  });
+
+  return {
+    tradeDate: input.tradeDate,
+    generatedAt: input.generatedAt,
+    score: sentimentScore ?? undefined,
+    scoreLabel: sentimentScore === null ? undefined : scoreLabel(sentimentScore),
+    scoreVerdict: sentimentScore === null ? undefined : scoreLabel(sentimentScore),
+    marketSummary: {
+      indices: input.indices ?? [],
+      mainFundFlow: input.mainFundFlow ?? null,
+      northFundFlow: input.northFundFlow ?? null,
+      limitUp: sentimentStocks.zt.length,
+      limitDown: sentimentStocks.dt.length,
+      sentimentBar: sentimentScore ?? 50,
+      sectors: historicalSectors,
+      opportunityRadar: buildOpportunityRadar(historicalSectors),
+      monthlyThemes: [],
+      nextWeekSectors: [],
+    },
+    sentimentScore,
+    sentimentFactors: [
+      { label: '涨停', value: `${sentimentStocks.zt.length}家` },
+      { label: '跌停', value: `${sentimentStocks.dt.length}家` },
+      { label: '炸板', value: `${brokenCount}家` },
+      { label: '连板', value: `${consecutiveStocks.length}家` },
+    ],
+    sentimentStocks: sentimentStocks.zt.length || sentimentStocks.dt.length || sentimentStocks.zb.length ? sentimentStocks : undefined,
+    consecutiveStocks: consecutiveStocks.length ? consecutiveStocks : undefined,
+    hotThemes: hotThemes.length ? hotThemes : undefined,
+    limitUps: limitUps.length ? limitUps : undefined,
+    dragonTiger,
+    dragonTigerHistory: input.dragonTigerHistory,
+    tradeDates: input.tradeDates,
+    nextDayFocus: nextDayFocus.length ? nextDayFocus : undefined,
+  };
+}
+
+export const buildDiscoverySnapshotFromHistoricalPoolsForTest = buildDiscoverySnapshotFromHistoricalPools;
+
 async function buildMarketSummary(
   reviewData: Awaited<ReturnType<typeof getMarketReview>> | undefined,
   pools: HotFocusItem[],
@@ -1543,19 +1822,74 @@ async function buildMarketSummary(
   };
 }
 
-async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
+function historyBeforeTimestamp(tradeDate: string): number | undefined {
+  const timestamp = new Date(`${tradeDate}T00:00:00+08:00`).getTime() + 24 * 60 * 60 * 1000;
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+async function fetchHistoricalIndices(tradeDate: string): Promise<IMarketSummary['indices']> {
+  const beforeTimestamp = historyBeforeTimestamp(tradeDate);
+  if (beforeTimestamp === undefined) return [];
+  const codes = ['sh000001', 'sz399001', 'sz399006', 'bj899050'];
+  const results = await Promise.all(
+    codes.map(async (code) => {
+      try {
+        const snapshot = await fetchMarketIndex(code, '1d', 120, beforeTimestamp);
+        const point = snapshot?.minutes.find((item) => normalizeIndexDate(item.time) === tradeDate);
+        if (!snapshot || !point) return undefined;
+        return {
+          code,
+          name: indexCodeToName(code),
+          price: point.close,
+          changePercent: point.changePercent ?? 0,
+        };
+      } catch (error) {
+        console.warn(`[discovery] failed to fetch historical index ${code} ${tradeDate}`, error);
+        return undefined;
+      }
+    }),
+  );
+  return results.filter((item): item is NonNullable<typeof item> => Boolean(item));
+}
+
+async function buildHistoricalMarketSummaryExtras(
+  dates: string[],
+): Promise<Map<string, Pick<IHistoricalDiscoveryBuildInput, 'indices' | 'mainFundFlow' | 'northFundFlow'>>> {
+  const entries = await Promise.all(
+    dates.map(async (date) => {
+      const [indicesResult, mainFundFlowResult, northFundFlowResult] = await Promise.allSettled([
+        fetchHistoricalIndices(date),
+        fetchMainFundFlow(date),
+        fetchNorthFundFlow(date),
+      ]);
+      return [
+        date,
+        {
+          indices: indicesResult.status === 'fulfilled' ? indicesResult.value : [],
+          mainFundFlow: mainFundFlowResult.status === 'fulfilled' ? mainFundFlowResult.value : null,
+          northFundFlow: northFundFlowResult.status === 'fulfilled' ? northFundFlowResult.value : null,
+        },
+      ] as const;
+    }),
+  );
+  return new Map(entries);
+}
+
+async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshotBuildResult> {
   const favStocks = await listFavoriteStocks();
   const favCodes = favStocks.map((f) => f.code);
+  const currentTradeDate = await resolveTradingDate(9 * 60 + 30);
+  const recentTradeDates = await listRecentTradingDates(currentTradeDate);
+  const tradeDates = recentTradeDates.map(toTradeDateOption);
 
-  const today = new Date().toISOString().slice(0, 10).replaceAll('-', '');
-
-  const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool, quoteLimitDowns] = await Promise.allSettled([
+  const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool, quoteLimitDowns, historicalPoolGroups] = await Promise.allSettled([
     getMarketReview(),
     getMarketPageSnapshot('sh-main'),
     getMarketPageSnapshot('sz-main'),
-    listRecentDragonTigerDays(5),
-    listEastmoneySurgeByDate(today),
+    listRecentDragonTigerDays(DISCOVERY_RECENT_TRADE_DAYS),
+    listEastmoneySurgeByDate(compactTradeDate(currentTradeDate)),
     listLimitDownStocksFromQuotes(),
+    Promise.all(recentTradeDates.map((date) => listEastmoneySurgeByDate(compactTradeDate(date)))),
   ]);
 
   // ── Indices ──
@@ -1595,7 +1929,8 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
   }
 
   // ── Sentiment stocks from Eastmoney full-day pool ──
-  const poolItems = eastmoneyPool.status === 'fulfilled' ? eastmoneyPool.value : [];
+  const historicalPoolItems = historicalPoolGroups.status === 'fulfilled' ? historicalPoolGroups.value : [];
+  const poolItems = eastmoneyPool.status === 'fulfilled' ? eastmoneyPool.value : historicalPoolItems[0] ?? [];
   const sentimentStocks: IDiscoverySnapshot['sentimentStocks'] = { zt: [], dt: [], zb: [] };
   const consecutiveStocks: TStockItem[] = [];
   for (const item of poolItems) {
@@ -1631,7 +1966,10 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
 
   // ── Dragon tiger ──
   const dragonTigerGroups = dragonTiger.status === 'fulfilled' ? dragonTiger.value : [];
-  const dragonTigerHistory = buildDiscoveryDragonTigerHistory(dragonTigerGroups);
+  const dragonTigerGroupsByDate = new Map(dragonTigerGroups.map((group) => [group.date, group]));
+  const dragonTigerHistory = buildDiscoveryDragonTigerHistory(
+    recentTradeDates.map((date) => dragonTigerGroupsByDate.get(date) ?? ({ date, items: [] } satisfies TDailyDragonTigerGroup)),
+  );
   const discoveryDragonTiger = dragonTigerHistory[0]
     ? {
         inst: dragonTigerHistory[0].inst,
@@ -1661,7 +1999,7 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
   // ── Score ──
   const score = reviewData?.sentimentScore ?? undefined;
   const sentimentLabel = score !== undefined && score !== null ? scoreLabel(score) : undefined;
-  const tradeDate = reviewData?.tradeDate ?? new Date().toISOString().slice(0, 10);
+  const tradeDate = reviewData?.tradeDate ?? currentTradeDate;
 
   // Build 7-day score trend and AI one-sentence verdict.
   let scoreTrend: number[] | undefined;
@@ -1723,7 +2061,7 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
     poolItems,
   );
 
-  return {
+  const snapshot: IDiscoverySnapshot = {
     tradeDate,
     generatedAt: new Date().toISOString(),
     score: score ?? undefined,
@@ -1753,8 +2091,26 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
     limitUps: limitUps?.length ? limitUps : undefined,
     dragonTiger: discoveryDragonTiger,
     dragonTigerHistory: dragonTigerHistory.length ? dragonTigerHistory : undefined,
+    tradeDates,
     nextDayFocus: reviewData?.nextDayFocus?.map(mapFocusItem),
     watchlist: favStocks.map((f) => ({ code: f.code, name: f.name })),
     watchlistQuotes,
   };
+
+  const dragonTigerHistoryByDate = new Map(dragonTigerHistory.map((day) => [day.date, day]));
+  const historicalPoolItemsByDate = new Map(recentTradeDates.map((date, index) => [date, historicalPoolItems[index] ?? []]));
+  const historicalDates = recentTradeDates.filter((date) => date !== snapshot.tradeDate);
+  const historicalMarketSummaryExtras = await buildHistoricalMarketSummaryExtras(historicalDates);
+  const historicalSnapshots = historicalDates
+    .map((date) => buildDiscoverySnapshotFromHistoricalPools({
+      tradeDate: date,
+      generatedAt: snapshot.generatedAt,
+      poolItems: historicalPoolItemsByDate.get(date) ?? [],
+      dragonTiger: dragonTigerHistoryByDate.get(date),
+      dragonTigerHistory,
+      tradeDates,
+      ...historicalMarketSummaryExtras.get(date),
+    }));
+
+  return { snapshot, historicalSnapshots };
 }
