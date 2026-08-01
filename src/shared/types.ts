@@ -351,6 +351,75 @@ export interface BoardDetail {
   constituents?: BoardConstituent[];
 }
 
+export type TBoardDashboardRange = 'today' | 'five-days' | 'twenty-days';
+export type TBoardDashboardBucket = 'potential' | 'hot' | 'avoid' | 'leader';
+export type TBoardDashboardSource = 'duckdb' | 'stock-sdk' | 'a-stock-data' | 'merged' | 'constituent-aggregate';
+
+export interface IBoardLeaderCandidate {
+  code: string;
+  name: string;
+  price?: number | null;
+  changePercent?: number | null;
+  mainNetInflow?: number | null;
+  amount?: number | null;
+  turnoverRate?: number | null;
+  amplitude?: number | null;
+  leaderScore: number | null;
+  reason: string;
+}
+
+export interface IBoardDashboardMetric {
+  boardCode: string;
+  boardName: string;
+  boardKind?: 'industry' | 'concept' | 'unknown';
+  range: TBoardDashboardRange;
+  tradeDate: string;
+  changePercent: number | null;
+  maxDailyChangePercent: number | null;
+  mainNetInflow: number | null;
+  amount: number | null;
+  limitUpCount: number | null;
+  upCount: number | null;
+  downCount: number | null;
+  constituentCount: number;
+  upRatio: number | null;
+  averageTurnoverRate: number | null;
+  averageAmplitude: number | null;
+  momentumScore: number | null;
+  fundScore: number | null;
+  breadthScore: number | null;
+  leaderScore: number | null;
+  riskScore: number | null;
+  rawScore: number | null;
+  heatScore: number | null;
+  heatRank: number | null;
+  bucket: TBoardDashboardBucket;
+  leaders: IBoardLeaderCandidate[];
+  reason: string;
+  source: TBoardDashboardSource;
+  updatedAt: string;
+  warnings?: string[];
+}
+
+export interface IBoardDashboardSnapshot {
+  range: TBoardDashboardRange;
+  tradeDate: string;
+  updatedAt: string;
+  summary: {
+    hottest?: IBoardDashboardMetric;
+    potential?: IBoardDashboardMetric;
+    avoid?: IBoardDashboardMetric;
+    strongestLeader?: IBoardDashboardMetric;
+  };
+  rankings: IBoardDashboardMetric[];
+  potential: IBoardDashboardMetric[];
+  hot: IBoardDashboardMetric[];
+  avoid: IBoardDashboardMetric[];
+  leaders: IBoardDashboardMetric[];
+  tips?: string[];
+  warnings?: string[];
+}
+
 export interface KlinePoint {
   time: string;
   timestamp?: number;
@@ -498,6 +567,97 @@ export interface IMarketNewsSummaryState {
 export type HotFocusTab = 'sector' | 'market' | 'surge' | 'strategy' | 'diagnosis' | 'flow';
 export type MarketTab = 'sh-main' | 'sz-main' | 'bj' | 'gem' | 'star';
 export type MarketIndexPeriod = '15m' | '1h' | '4h' | '1d' | '1w' | '1mo';
+export type TDragonTigerRange = 'today' | '5d' | '10d' | '30d';
+
+export interface IDragonTigerDetailRow {
+  id: string;
+  code: string;
+  name: string;
+  date: string;
+  reason: string;
+  close: number | null;
+  changePercent: number | null;
+  netBuyAmount: number | null;
+  buyAmount: number | null;
+  sellAmount: number | null;
+  dealAmount: number | null;
+  totalAmount: number | null;
+  netBuyRatio: number | null;
+  dealAmountRatio: number | null;
+  turnoverRate: number | null;
+  floatMarketValue: number | null;
+  afterChange1d: number | null;
+  afterChange2d: number | null;
+  afterChange5d: number | null;
+  afterChange10d: number | null;
+}
+
+export interface IDragonTigerLeader {
+  code: string;
+  name: string;
+  date: string;
+  value: number;
+  changePercent: number | null;
+  reason: string;
+}
+
+export interface IDragonTigerReasonStat {
+  reason: string;
+  count: number;
+  netBuyAmount: number;
+  buyAmount: number;
+  sellAmount: number;
+}
+
+export interface IDragonTigerInstitutionRow {
+  code: string;
+  name: string;
+  date: string;
+  price: number | null;
+  changePercent: number | null;
+  buyOrgCount: number | null;
+  sellOrgCount: number | null;
+  orgBuyAmount: number | null;
+  orgSellAmount: number | null;
+  orgNetAmount: number | null;
+}
+
+export interface IDragonTigerBranchRow {
+  code: string;
+  name: string;
+  totalBuyAmount: number | null;
+  totalSellAmount: number | null;
+  buyCount: number | null;
+  sellCount: number | null;
+  totalCount: number | null;
+}
+
+export interface IDragonTigerSummary {
+  tradeDate: string;
+  startDate: string;
+  endDate: string;
+  totalCount: number;
+  netBuyAmount: number;
+  buyAmount: number;
+  sellAmount: number;
+  netBuyCount: number;
+  netSellCount: number;
+  topNetBuy?: IDragonTigerLeader;
+  dataSource: 'stock-sdk';
+  updatedAt: string;
+}
+
+export interface IDragonTigerSnapshot {
+  range: TDragonTigerRange;
+  summary: IDragonTigerSummary;
+  topNetBuy: IDragonTigerDetailRow[];
+  topNetSell: IDragonTigerDetailRow[];
+  activeReasons: IDragonTigerReasonStat[];
+  institutionTop: IDragonTigerInstitutionRow[];
+  branchTop: IDragonTigerBranchRow[];
+  rows: IDragonTigerDetailRow[];
+  warnings: string[];
+}
 
 export interface MarketQuoteRow {
   code: string;
@@ -794,6 +954,14 @@ export interface ITradingAdvice {
   riskReminder: string;
 }
 
+export interface IDiscoverySnapshotOptions {
+  tradeDate?: string;
+}
+
+export interface ITradingAdviceOptions {
+  tradeDate?: string;
+}
+
 export interface StocksenseApi {
   getStorageStats(): Promise<IStorageStats>;
   clearStorage(keys: string[]): Promise<IStorageStats>;
@@ -819,6 +987,7 @@ export interface StocksenseApi {
   getStockDetail(symbol: string): Promise<StockDetail>;
   searchStocks(query: string): Promise<MarketSearchResult[]>;
   getBoardDetail(symbol: string, forceRefresh?: boolean, boardName?: string): Promise<BoardDetail>;
+  getBoardDashboard(range?: TBoardDashboardRange, forceRefresh?: boolean): Promise<IBoardDashboardSnapshot>;
   getKline(symbol: string, limit?: number, period?: string, beforeTimestamp?: number): Promise<KlinePoint[]>;
   getChipDistribution(symbol: string): Promise<IChipDistributionResult>;
   getBatchQuotes(codes: string[]): Promise<StockDetail[]>;
@@ -845,9 +1014,10 @@ export interface StocksenseApi {
   cancelMarketDataSync(): Promise<MarketDataSyncStatus>;
   getMarketDataStats(): Promise<MarketDataStats>;
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
-  getDiscoverySnapshot(): Promise<Record<string, unknown>>;
+  getDragonTigerSnapshot(range?: TDragonTigerRange): Promise<IDragonTigerSnapshot>;
+  getDiscoverySnapshot(options?: IDiscoverySnapshotOptions): Promise<Record<string, unknown>>;
   getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number; offset?: number; date?: string; mode?: TMonitorMode }): Promise<IMonitorFeed>;
-  getTradingAdvice(): Promise<ITradingAdvice>;
+  getTradingAdvice(options?: ITradingAdviceOptions): Promise<ITradingAdvice>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;
   syncKlines(): Promise<MarketDataSyncStatus>;

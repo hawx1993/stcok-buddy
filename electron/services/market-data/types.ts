@@ -1,4 +1,10 @@
-import type { BoardDetail, KlinePoint, MarketBoardRow, StockDetail } from '../../../src/shared/types.js';
+import type {
+  BoardDetail,
+  IBoardDashboardSnapshot,
+  KlinePoint,
+  MarketBoardRow,
+  StockDetail,
+} from '../../../src/shared/types.js';
 
 export type AdjustType = 'qfq' | 'none' | 'qfq_weekly' | 'qfq_monthly';
 export type DataFreshness = 'live' | 'current' | 'historical' | 'stale' | 'fallback';
@@ -118,6 +124,11 @@ export interface BoardSnapshotRecord {
 
 export interface BoardDetailCacheRecord {
   detail: BoardDetail;
+  updatedAt: string;
+}
+
+export interface BoardDashboardSnapshotRecord {
+  snapshot: IBoardDashboardSnapshot;
   updatedAt: string;
 }
 

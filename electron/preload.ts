@@ -16,6 +16,7 @@ import type {
   MarketPageSnapshot,
   MarketTab,
   StocksenseApi,
+  TDragonTigerRange,
 } from '../src/shared/types.js';
 
 const api: StocksenseApi = {
@@ -59,6 +60,7 @@ const api: StocksenseApi = {
   searchStocks: (query: string) => ipcRenderer.invoke('stock:search', query),
   getBoardDetail: (symbol: string, forceRefresh?: boolean, boardName?: string) =>
     ipcRenderer.invoke('board:getDetail', symbol, forceRefresh, boardName),
+  getBoardDashboard: (range, forceRefresh) => ipcRenderer.invoke('board:getDashboard', range, forceRefresh),
   getKline: (symbol: string, limit?: number, period?: string, beforeTimestamp?: number) =>
     ipcRenderer.invoke('stock:getKline', symbol, limit, period, beforeTimestamp),
   getChipDistribution: (symbol: string) => ipcRenderer.invoke('stock:getChipDistribution', symbol),
@@ -88,9 +90,11 @@ const api: StocksenseApi = {
   getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
   getMarketPageSnapshot: (tab: MarketTab, period?: MarketIndexPeriod) =>
     ipcRenderer.invoke('market:getPageSnapshot', tab, period),
-  getDiscoverySnapshot: () => ipcRenderer.invoke('discovery:getSnapshot'),
+  getDragonTigerSnapshot: (range?: TDragonTigerRange) => ipcRenderer.invoke('dragonTiger:getSnapshot', range),
+  getDiscoverySnapshot: (options?: Parameters<StocksenseApi['getDiscoverySnapshot']>[0]) =>
+    ipcRenderer.invoke('discovery:getSnapshot', options),
   getMonitorFeed: (options?: Parameters<StocksenseApi['getMonitorFeed']>[0]) => ipcRenderer.invoke('monitor:getFeed', options),
-  getTradingAdvice: () => ipcRenderer.invoke('trading-advice:get'),
+  getTradingAdvice: (options?: Parameters<StocksenseApi['getTradingAdvice']>[0]) => ipcRenderer.invoke('trading-advice:get', options),
   onMarketPageSnapshotUpdated: (handler: (snapshot: MarketPageSnapshot) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: MarketPageSnapshot) => handler(snapshot);
     ipcRenderer.on('market:pageSnapshotUpdated', listener);

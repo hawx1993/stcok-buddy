@@ -234,6 +234,7 @@ export async function persistMarketBoardRows(rows: MarketBoardRow[]) {
         name: row.name,
         kind: boardKindCache.get(row.code),
         changePercent: parseBoardChangePercent(row.changePercent),
+        amount: parseBoardAmount(row.amount),
         source: 'stock-sdk',
         updatedAt,
       })),
@@ -245,6 +246,14 @@ function parseBoardChangePercent(value?: string | number): number | undefined {
   if (value === undefined || value === null || value === '' || value === '--') return undefined;
   const num = Number.parseFloat(String(value));
   return Number.isFinite(num) ? num : undefined;
+}
+
+function parseBoardAmount(value?: string | number): number | undefined {
+  if (value === undefined || value === null || value === '' || value === '--') return undefined;
+  const text = String(value).trim();
+  const unit = text.includes('亿') ? 100000000 : text.includes('万') ? 10000 : 1;
+  const num = Number.parseFloat(text.replace(/[,%+，]/g, '').replace(/[亿元万]/g, ''));
+  return Number.isFinite(num) ? num * unit : undefined;
 }
 
 
@@ -481,7 +490,7 @@ export function toMarketBoardRow(row: AnyRecord): MarketBoardRow {
     price: pickNumber(row, ['f2', 'price', 'latestPrice', 'lastPrice', 'close']),
     changePercent: pickNumber(row, ['f3', 'changePercent', 'pctChg', 'pctChange', 'change_rate']),
     volume: pickNumber(row, ['f5', 'volume']),
-    amount: pickNumber(row, ['f6', 'amount', 'turnover']),
+    amount: normalizeAmount(pickNumber(row, ['f6', 'amount', 'turnover'])) ?? parseBoardAmount(pickString(row, ['amount', 'turnover', '成交额'])),
     marketCap: pickNumber(row, ['f20', 'totalMarketCap', 'marketCap']),
     turnoverRate: pickNumber(row, ['f8', 'turnoverRate']),
     minutes: [],

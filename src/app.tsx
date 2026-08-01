@@ -13,6 +13,8 @@ import { SettingsModal } from './components/settings-modal';
 import { AboutModal } from './components/about-modal';
 import { StorageManagerModal } from './components/storage-manager-modal';
 import { DataSyncModal } from './components/data-sync-modal';
+import { GlobalStockSearch } from './components/global-stock-search';
+import { getGlobalSearchShortcutLabel, isGlobalSearchShortcut, isMacPlatform } from './components/global-stock-search/shortcut';
 import { ErrorBoundary } from './components/error-boundary';
 import { getStocksenseApi } from './shared/stocksense-api';
 import { track, trackButtonClick, trackPageView } from './shared/analytics';
@@ -23,6 +25,8 @@ import cx from './shared/cx';
 export function App() {
   useSyncProgressPump();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const globalSearchShortcutLabel = getGlobalSearchShortcutLabel();
   const config = useAppStore((state) => state.config);
   const setConfig = useAppStore((state) => state.setConfig);
   const setConversations = useAppStore((state) => state.setConversations);
@@ -34,6 +38,7 @@ export function App() {
   const isRightPanelCollapsed = useAppStore((state) => state.isRightPanelCollapsed);
   const toggleLeftSidebar = useAppStore((state) => state.toggleLeftSidebar);
   const rightPanelTab = useAppStore((state) => state.rightPanelTab);
+  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
 
   useEffect(() => {
@@ -73,6 +78,18 @@ export function App() {
     document.documentElement.classList.toggle('light', config?.theme === 'light');
   }, [config?.marketColorMode, config?.theme]);
   useEffect(() => {
+    const isMac = isMacPlatform();
+    const openGlobalSearchByShortcut = (event: KeyboardEvent) => {
+      if (!isGlobalSearchShortcut(event, isMac)) return;
+      event.preventDefault();
+      trackButtonClick('open_global_search_shortcut');
+      setGlobalSearchOpen(true);
+    };
+    window.addEventListener('keydown', openGlobalSearchByShortcut);
+    return () => window.removeEventListener('keydown', openGlobalSearchByShortcut);
+  }, []);
+
+  useEffect(() => {
     trackPageView(mainView);
   }, [mainView]);
 
@@ -94,6 +111,10 @@ export function App() {
   const openRightRail = (tab: typeof rightPanelTab) => {
     trackButtonClick(`right_rail_${tab}`);
     trackPageView(`right_panel_${tab}`);
+    if (tab === 'board') {
+      openBoardPanel();
+      return;
+    }
     setRightPanelTab(tab);
   };
   const rightResize = usePanelResize('--right-width', 348, 500, 'w');
@@ -134,7 +155,7 @@ export function App() {
               trackButtonClick('toggle_search');
               setSearchOpen((open) => !open);
             }}
-            title={isLeftSidebarCollapsed ? '新建会话' : '搜索'}
+            title={isLeftSidebarCollapsed ? '新建会话' : `搜索会话 · 全局行情搜索 ${globalSearchShortcutLabel}`}
             type='button'
             aria-label={isLeftSidebarCollapsed ? '新建会话' : '搜索'}
           >
@@ -159,7 +180,7 @@ export function App() {
             {mainView === 'news-reader' ? (
               <NewsReader />
             ) : mainView === 'market' ? (
-              <MarketView />
+              <MarketView onOpenGlobalSearch={() => setGlobalSearchOpen(true)} />
             ) : mainView === 'discovery' ? (
               <DiscoveryView />
             ) : (
@@ -252,6 +273,9 @@ export function App() {
         </ErrorBoundary>
         <ErrorBoundary name='数据同步'>
           <DataSyncModal />
+        </ErrorBoundary>
+        <ErrorBoundary name='全局搜索'>
+          <GlobalStockSearch open={globalSearchOpen} onOpenChange={setGlobalSearchOpen} />
         </ErrorBoundary>
       </div>
     </div>

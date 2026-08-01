@@ -3,8 +3,13 @@ import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type {
+  IBoardDashboardSnapshot,
+  TBoardDashboardRange,
+} from '../../../src/shared/types.js';
+import type {
   AdjustType,
   BoardConstituentRecord,
+  BoardDashboardSnapshotRecord,
   BoardDetailCacheRecord,
   BoardSnapshotRecord,
   DailyBarRecord,
@@ -84,6 +89,14 @@ const schemaSql = `
     snapshot_key TEXT PRIMARY KEY, snapshot_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS board_dashboard_snapshots (
+    snapshot_key TEXT PRIMARY KEY,
+    range TEXT NOT NULL,
+    trade_date DATE NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS stock_chips (
     symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TIMESTAMP NOT NULL
   );
@@ -100,14 +113,26 @@ const schemaSql = `
     board_code TEXT PRIMARY KEY, detail_json TEXT NOT NULL, updated_at TIMESTAMP NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS stock_fund_flow_daily (
+    symbol TEXT NOT NULL,
+    trade_date DATE NOT NULL,
+    main_net_inflow DOUBLE NOT NULL,
+    source TEXT NOT NULL,
+    fetched_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (symbol, trade_date)
+  );
+  CREATE INDEX IF NOT EXISTS idx_stock_fund_flow_daily_symbol_date ON stock_fund_flow_daily(symbol, trade_date);
+
   CREATE TABLE IF NOT EXISTS market_boards (
     board_code TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     kind TEXT,
     change_percent DOUBLE,
+    amount DOUBLE,
     source TEXT NOT NULL,
     updated_at TIMESTAMP NOT NULL
   );
+  ALTER TABLE market_boards ADD COLUMN IF NOT EXISTS amount DOUBLE;
   DROP INDEX IF EXISTS idx_market_boards_name;
 
   CREATE TABLE IF NOT EXISTS board_constituents (
@@ -331,14 +356,33 @@ export async function listLatestMarketRows() {
       `
       WITH latest AS (
         SELECT symbol, max(trade_date) AS trade_date FROM daily_bars WHERE adjust_type = 'qfq' GROUP BY symbol
+      ), symbols AS (
+        SELECT symbol FROM securities WHERE status = 'listed'
+        UNION
+        SELECT symbol FROM stock_snapshots
       )
-      SELECT s.symbol, s.name, s.exchange, s.industry, b.open, b.high, b.low, b.close, b.volume, b.amount, b.change, b.change_percent, b.turnover_rate
-      FROM securities s
-      LEFT JOIN latest l ON l.symbol = s.symbol
-      LEFT JOIN daily_bars b ON b.symbol = s.symbol AND b.trade_date = l.trade_date AND b.adjust_type = 'qfq'
-      WHERE s.status = 'listed'
-      ORDER BY s.symbol
-    `,
+      SELECT
+        symbols.symbol,
+        COALESCE(s.name, ss.name) AS name,
+        s.exchange,
+        s.industry,
+        COALESCE(ss.open, b.open) AS open,
+        COALESCE(ss.high, b.high) AS high,
+        COALESCE(ss.low, b.low) AS low,
+        COALESCE(ss.price, b.close) AS close,
+        COALESCE(ss.volume, b.volume) AS volume,
+        COALESCE(ss.amount, b.amount) AS amount,
+        COALESCE(ss.change, b.change) AS change,
+        COALESCE(ss.change_percent, b.change_percent) AS change_percent,
+        COALESCE(ss.turnover_rate, b.turnover_rate) AS turnover_rate
+      FROM symbols
+      LEFT JOIN securities s ON s.symbol = symbols.symbol AND s.status = 'listed'
+      LEFT JOIN latest l ON l.symbol = symbols.symbol
+      LEFT JOIN daily_bars b ON b.symbol = symbols.symbol AND b.trade_date = l.trade_date AND b.adjust_type = 'qfq'
+      LEFT JOIN stock_snapshots ss ON ss.symbol = symbols.symbol
+      WHERE COALESCE(s.name, ss.name) IS NOT NULL
+      ORDER BY symbols.symbol
+      `,
     );
     return rows.map((row) => ({
       code: String(row.symbol),
@@ -419,6 +463,49 @@ export function writeDiscoverySnapshot(record: DiscoverySnapshotCacheRecord, sna
   );
 }
 
+export async function readBoardDashboardSnapshot(
+  range: TBoardDashboardRange,
+  tradeDate: string,
+): Promise<BoardDashboardSnapshotRecord | undefined> {
+  const snapshotKey = boardDashboardSnapshotKey(range, tradeDate);
+  return read(async (connection) => {
+    const row = (
+      await all<{ snapshot_json?: string; updated_at?: string }>(
+        connection,
+        'SELECT snapshot_json, updated_at FROM board_dashboard_snapshots WHERE snapshot_key = $snapshotKey',
+        { snapshotKey },
+      )
+    )[0];
+    if (!row?.snapshot_json) return undefined;
+    return { snapshot: JSON.parse(row.snapshot_json) as IBoardDashboardSnapshot, updatedAt: String(row.updated_at ?? '') };
+  });
+}
+
+export function writeBoardDashboardSnapshot(snapshot: IBoardDashboardSnapshot) {
+  const snapshotKey = boardDashboardSnapshotKey(snapshot.range, snapshot.tradeDate);
+  return write((connection) =>
+    connection
+      .run(
+        `
+    INSERT OR REPLACE INTO board_dashboard_snapshots (snapshot_key, range, trade_date, snapshot_json, updated_at)
+    VALUES ($snapshotKey, $range, CAST($tradeDate AS DATE), $snapshotJson, $updatedAt)
+  `,
+        {
+          snapshotKey,
+          range: snapshot.range,
+          tradeDate: snapshot.tradeDate,
+          snapshotJson: JSON.stringify(snapshot),
+          updatedAt: snapshot.updatedAt,
+        },
+      )
+      .then(() => undefined),
+  );
+}
+
+function boardDashboardSnapshotKey(range: TBoardDashboardRange, tradeDate: string) {
+  return `${range}:${tradeDate}`;
+}
+
 export async function readBoardSnapshot(snapshotKey = 'all'): Promise<BoardSnapshotRecord | undefined> {
   return read(async (connection) => {
     const row = (
@@ -475,6 +562,56 @@ export function writeBoardDetail(record: BoardDetailCacheRecord) {
   );
 }
 
+export async function listStockFundFlowDaily(symbol: string, tradeDates: string[]) {
+  if (!tradeDates.length) return [];
+  return read(async (connection) => {
+    const rows = await all<{ trade_date: string; main_net_inflow: number; source: string; fetched_at: string }>(
+      connection,
+      `
+        SELECT trade_date::VARCHAR AS trade_date, main_net_inflow, source, fetched_at::VARCHAR AS fetched_at
+        FROM stock_fund_flow_daily
+        WHERE symbol = $symbol AND trade_date IN (${tradeDates.map((_, index) => `$date${index}`).join(', ')})
+        ORDER BY trade_date
+      `,
+      { symbol, ...Object.fromEntries(tradeDates.map((tradeDate, index) => [`date${index}`, tradeDate])) },
+    );
+    return rows.map((row) => ({
+      tradeDate: row.trade_date,
+      mainNetInflow: row.main_net_inflow,
+      source: row.source,
+      fetchedAt: row.fetched_at,
+    }));
+  });
+}
+
+export function upsertStockFundFlowDaily(items: Array<{
+  symbol: string;
+  tradeDate: string;
+  mainNetInflow: number;
+  source: string;
+  fetchedAt: string;
+}>) {
+  if (!items.length) return Promise.resolve();
+  return write(async (connection) => {
+    await connection.run('BEGIN TRANSACTION');
+    try {
+      const statement = await connection.prepare(`
+        INSERT OR REPLACE INTO stock_fund_flow_daily
+        (symbol, trade_date, main_net_inflow, source, fetched_at)
+        VALUES ($symbol, CAST($tradeDate AS DATE), $mainNetInflow, $source, $fetchedAt)
+      `);
+      for (const item of items) {
+        statement.bind(item);
+        await statement.run();
+      }
+      await connection.run('COMMIT');
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
 export function upsertMarketBoards(items: MarketBoardRecord[]) {
   if (!items.length) return Promise.resolve();
   return write(async (connection) => {
@@ -482,12 +619,13 @@ export function upsertMarketBoards(items: MarketBoardRecord[]) {
     try {
       const statement = await connection.prepare(`
         INSERT INTO market_boards
-        (board_code, name, kind, change_percent, source, updated_at)
-        VALUES ($code, $name, $kind, $changePercent, $source, $updatedAt)
+        (board_code, name, kind, change_percent, amount, source, updated_at)
+        VALUES ($code, $name, $kind, $changePercent, $amount, $source, $updatedAt)
         ON CONFLICT(board_code) DO UPDATE SET
           name = excluded.name,
           kind = excluded.kind,
           change_percent = excluded.change_percent,
+          amount = excluded.amount,
           source = excluded.source,
           updated_at = excluded.updated_at
       `);
@@ -497,6 +635,7 @@ export function upsertMarketBoards(items: MarketBoardRecord[]) {
           name: item.name,
           kind: item.kind ?? null,
           changePercent: item.changePercent ?? null,
+          amount: item.amount ?? null,
           source: item.source,
           updatedAt: item.updatedAt,
         });
@@ -551,13 +690,14 @@ export async function listMarketBoards(): Promise<MarketBoardRecord[]> {
           b.name,
           b.kind,
           b.change_percent,
-          sum(s.amount) AS amount,
+          b.amount AS board_amount,
+          sum(s.amount) AS constituent_amount,
           b.source,
           b.updated_at
         FROM market_boards b
         LEFT JOIN board_constituents c ON c.board_code = b.board_code
         LEFT JOIN stock_snapshots s ON s.symbol = c.stock_code
-        GROUP BY b.board_code, b.name, b.kind, b.change_percent, b.source, b.updated_at
+        GROUP BY b.board_code, b.name, b.kind, b.change_percent, b.amount, b.source, b.updated_at
         ORDER BY b.name
       `,
     );
@@ -566,7 +706,7 @@ export async function listMarketBoards(): Promise<MarketBoardRecord[]> {
       name: String(row.name),
       kind: optionalString(row.kind),
       changePercent: optionalNumber(row.change_percent),
-      amount: optionalNumber(row.amount),
+      amount: optionalNumber(row.board_amount) ?? optionalNumber(row.constituent_amount),
       source: String(row.source),
       updatedAt: String(row.updated_at),
     }));
@@ -587,6 +727,91 @@ export async function listBoardConstituents(boardCode: string): Promise<BoardCon
       position: Number(row.position),
       updatedAt: String(row.updated_at),
     }));
+  });
+}
+
+export function getBoardWeekMetrics(boardCode: string, dayLimit = 5) {
+  return getBoardRangeMetrics(boardCode, dayLimit);
+}
+
+export async function getBoardRangeMetrics(boardCode: string, dayLimit = 5) {
+  return read(async (connection) => {
+    const tradeDateRows = await all<{ trade_date: string }>(
+      connection,
+      `
+        SELECT DISTINCT b.trade_date::VARCHAR AS trade_date
+        FROM daily_bars b
+        INNER JOIN board_constituents c ON c.stock_code = b.symbol
+        WHERE c.board_code = $boardCode AND b.adjust_type = 'qfq'
+        ORDER BY trade_date DESC
+        LIMIT ${Math.max(1, Math.floor(dayLimit))}
+      `,
+      { boardCode },
+    );
+    const tradeDates = tradeDateRows.map((row) => row.trade_date).sort();
+    if (!tradeDates.length) {
+      return {
+        tradeDates,
+        maxDailyChangePercent: null,
+        avgTurnoverRate: null,
+        avgAmplitude: null,
+        sampledCodes: 0,
+        netInflow: null,
+        fundFlowSampleSize: 0,
+      };
+    }
+    const dateBindings = Object.fromEntries(tradeDates.map((tradeDate, index) => [`date${index}`, tradeDate]));
+    const dateParams = tradeDates.map((_, index) => `$date${index}`).join(', ');
+    const values = { boardCode, ...dateBindings };
+    const barMetrics = (
+      await all<{
+        max_daily_change: number | null;
+        avg_turnover_rate: number | null;
+        avg_amplitude: number | null;
+        sampled_codes: bigint | number;
+      }>(
+        connection,
+        `
+          SELECT
+            max(b.change_percent) AS max_daily_change,
+            avg(b.turnover_rate) FILTER (WHERE b.turnover_rate IS NOT NULL) AS avg_turnover_rate,
+            avg(((b.high - b.low) / NULLIF(b.low, 0)) * 100) AS avg_amplitude,
+            count(DISTINCT b.symbol) AS sampled_codes
+          FROM daily_bars b
+          INNER JOIN board_constituents c ON c.stock_code = b.symbol
+          WHERE c.board_code = $boardCode
+            AND b.adjust_type = 'qfq'
+            AND b.trade_date IN (${dateParams})
+        `,
+        values,
+      )
+    )[0];
+    const flowMetrics = (
+      await all<{
+        net_inflow: number | null;
+        sampled_codes: bigint | number;
+      }>(
+        connection,
+        `
+          SELECT
+            sum(f.main_net_inflow) AS net_inflow,
+            count(DISTINCT f.symbol) AS sampled_codes
+          FROM stock_fund_flow_daily f
+          INNER JOIN board_constituents c ON c.stock_code = f.symbol
+          WHERE c.board_code = $boardCode AND f.trade_date IN (${dateParams})
+        `,
+        values,
+      )
+    )[0];
+    return {
+      tradeDates,
+      maxDailyChangePercent: nullableNumber(barMetrics?.max_daily_change),
+      avgTurnoverRate: nullableNumber(barMetrics?.avg_turnover_rate),
+      avgAmplitude: nullableNumber(barMetrics?.avg_amplitude),
+      sampledCodes: Number(barMetrics?.sampled_codes ?? 0),
+      netInflow: nullableNumber(flowMetrics?.net_inflow),
+      fundFlowSampleSize: Number(flowMetrics?.sampled_codes ?? 0),
+    };
   });
 }
 
@@ -941,6 +1166,11 @@ function toDateString(value: unknown) {
   const compact = text.match(/^(\d{4})(\d{2})(\d{2})/);
   if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
   return text;
+}
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 function optionalNumber(value: unknown) {
   return value === null || value === undefined ? undefined : Number(value);

@@ -1,8 +1,8 @@
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type { StockDetail } from '../../shared/types';
-import { Empty } from '../empty';
 import { useAppStore } from '../../store/app-store';
 import type { RightPanelTab } from '../../store/app-store';
+import { BoardDashboardPanel } from './components/board-dashboard-panel';
 import { BoardDetailPanel } from './components/board-detail-panel';
 import { FavoritesPanel } from './components/favorites-panel';
 import { MarketNewsPanel } from './components/market-news-panel';
@@ -70,13 +70,7 @@ export function StockDetailPanel() {
         selectedBoard ? (
           <BoardDetailPanel />
         ) : (
-          <Empty
-            text={
-              <>
-                点击行情板块或聊天中的<span className={styles.hl}>板块代码</span>，查看板块详情。
-              </>
-            }
-          />
+          <BoardDashboardPanel isActive={!isRightPanelCollapsed} />
         )
       ) : null}
       {rightPanelTab === 'surge' ? (

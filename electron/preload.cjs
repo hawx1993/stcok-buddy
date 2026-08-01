@@ -40,6 +40,7 @@ var api = {
   getStockDetail: (symbol) => import_electron.ipcRenderer.invoke("stock:getDetail", symbol),
   searchStocks: (query) => import_electron.ipcRenderer.invoke("stock:search", query),
   getBoardDetail: (symbol, forceRefresh, boardName) => import_electron.ipcRenderer.invoke("board:getDetail", symbol, forceRefresh, boardName),
+  getBoardDashboard: (range, forceRefresh) => import_electron.ipcRenderer.invoke("board:getDashboard", range, forceRefresh),
   getKline: (symbol, limit, period, beforeTimestamp) => import_electron.ipcRenderer.invoke("stock:getKline", symbol, limit, period, beforeTimestamp),
   getChipDistribution: (symbol) => import_electron.ipcRenderer.invoke("stock:getChipDistribution", symbol),
   getBatchQuotes: (codes) => import_electron.ipcRenderer.invoke("stock:getBatchQuotes", codes),
@@ -64,9 +65,10 @@ var api = {
   cancelMarketDataSync: () => import_electron.ipcRenderer.invoke("marketData:cancelSync"),
   getMarketDataStats: () => import_electron.ipcRenderer.invoke("marketData:getStats"),
   getMarketPageSnapshot: (tab, period) => import_electron.ipcRenderer.invoke("market:getPageSnapshot", tab, period),
-  getDiscoverySnapshot: () => import_electron.ipcRenderer.invoke("discovery:getSnapshot"),
+  getDragonTigerSnapshot: (range) => import_electron.ipcRenderer.invoke("dragonTiger:getSnapshot", range),
+  getDiscoverySnapshot: (options) => import_electron.ipcRenderer.invoke("discovery:getSnapshot", options),
   getMonitorFeed: (options) => import_electron.ipcRenderer.invoke("monitor:getFeed", options),
-  getTradingAdvice: () => import_electron.ipcRenderer.invoke("trading-advice:get"),
+  getTradingAdvice: (options) => import_electron.ipcRenderer.invoke("trading-advice:get", options),
   onMarketPageSnapshotUpdated: (handler) => {
     const listener = (_event, snapshot) => handler(snapshot);
     import_electron.ipcRenderer.on("market:pageSnapshotUpdated", listener);

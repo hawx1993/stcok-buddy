@@ -107,12 +107,12 @@ selfchecks/                           # Electron/Node 自检脚本
 
 `MainView` 定义在 `src/store/app-store.ts`：
 
-| MainView        | 组件               | 说明                                     |
-| --------------- | ------------------ | ---------------------------------------- |
-| `'chat'`        | `<ChatView />`     | 默认 AI 对话视图                         |
-| `'market'`      | `<MarketView />`   | 行情页                                   |
-| `'discovery'`   | `<DiscoveryView />`| 探索页/监控/复盘                         |
-| `'news-reader'` | `<NewsReader />`   | 新闻阅读覆盖视图；关闭后恢复 previousView |
+| MainView        | 组件                | 说明                                      |
+| --------------- | ------------------- | ----------------------------------------- |
+| `'chat'`        | `<ChatView />`      | 默认 AI 对话视图                          |
+| `'market'`      | `<MarketView />`    | 行情页                                    |
+| `'discovery'`   | `<DiscoveryView />` | 探索页/监控/复盘                          |
+| `'news-reader'` | `<NewsReader />`    | 新闻阅读覆盖视图；关闭后恢复 previousView |
 
 新增主视图时通常需要同步：
 
@@ -158,16 +158,16 @@ Data Source
 
 常见能力：
 
-| 能力           | 优先入口/说明                                      |
-| -------------- | -------------------------------------------------- |
-| A 股行情       | `sdk.quotes.cn(codes)`，批量优先                   |
-| 搜索           | `sdk.search(keyword)`                              |
-| 历史 K 线      | `sdk.kline.cn(symbol, opts)`                       |
-| 板块/行业      | `sdk.board.industry` / `sdk.board.concept`         |
-| 资金流         | `sdk.fundFlow.*`                                   |
-| 市场异动/涨停池| `sdk.marketEvent.*`                                |
-| 筹码分布       | `sdk.chips.cn(symbol, opts)`                       |
-| 交易日历       | `sdk.calendar.isTradingDay` / `prevTradingDay`     |
+| 能力            | 优先入口/说明                                  |
+| --------------- | ---------------------------------------------- |
+| A 股行情        | `sdk.quotes.cn(codes)`，批量优先               |
+| 搜索            | `sdk.search(keyword)`                          |
+| 历史 K 线       | `sdk.kline.cn(symbol, opts)`                   |
+| 板块/行业       | `sdk.board.industry` / `sdk.board.concept`     |
+| 资金流          | `sdk.fundFlow.*`                               |
+| 市场异动/涨停池 | `sdk.marketEvent.*`                            |
+| 筹码分布        | `sdk.chips.cn(symbol, opts)`                   |
+| 交易日历        | `sdk.calendar.isTradingDay` / `prevTradingDay` |
 
 实践要求：
 
@@ -194,20 +194,20 @@ Data Source
 
 **文件**：`electron/services/market-data/market-data-store.ts`
 
-| 表名                     | 用途                         |
-| ------------------------ | ---------------------------- |
-| `securities`             | A 股证券主表                 |
-| `trade_calendar`         | 交易日历                     |
-| `daily_bars`             | 日线 K 线                    |
-| `sync_jobs`              | 同步任务记录                 |
-| `sync_failures`          | 同步失败详情                 |
-| `market_board_snapshots` | 板块/行情快照 JSON           |
-| `discovery_snapshots`    | 探索页快照缓存               |
-| `stock_chips`            | 筹码分布缓存                 |
-| `stock_snapshots`        | 实时行情快照                 |
-| `market_board_details`   | 板块详情缓存                 |
-| `market_boards`          | 板块列表                     |
-| `board_constituents`     | 板块成分股                   |
+| 表名                     | 用途               |
+| ------------------------ | ------------------ |
+| `securities`             | A 股证券主表       |
+| `trade_calendar`         | 交易日历           |
+| `daily_bars`             | 日线 K 线          |
+| `sync_jobs`              | 同步任务记录       |
+| `sync_failures`          | 同步失败详情       |
+| `market_board_snapshots` | 板块/行情快照 JSON |
+| `discovery_snapshots`    | 探索页快照缓存     |
+| `stock_chips`            | 筹码分布缓存       |
+| `stock_snapshots`        | 实时行情快照       |
+| `market_board_details`   | 板块详情缓存       |
+| `market_boards`          | 板块列表           |
+| `board_constituents`     | 板块成分股         |
 
 常用入口：
 
@@ -218,17 +218,17 @@ Data Source
 
 ### 4.2 异动与监控 DuckDB
 
-| 文件 | 表名 | 用途 |
-| ---- | ---- | ---- |
-| `electron/services/stock/surge-history-store.ts` | `stock_surge_events` | 异动/涨停/跌停/炸板/强势历史 |
-| `electron/services/stock/monitor-history-store.ts` | `ai_monitor_events` | AI 监控事件历史 |
+| 文件                                               | 表名                 | 用途                         |
+| -------------------------------------------------- | -------------------- | ---------------------------- |
+| `electron/services/stock/surge-history-store.ts`   | `stock_surge_events` | 异动/涨停/跌停/炸板/强势历史 |
+| `electron/services/stock/monitor-history-store.ts` | `ai_monitor_events`  | AI 监控事件历史              |
 
 ### 4.3 SQLite
 
-| 文件 | 数据库/表 | 用途 |
-| ---- | --------- | ---- |
-| `electron/services/conversation-store.ts` | `stocksense-chat.sqlite` / `conversations`, `messages` | 会话和消息 |
-| `electron/services/stock/quote-store.ts` | `stocksense-quotes.sqlite` / `stock_quote` | 实时行情缓存 |
+| 文件                                      | 数据库/表                                              | 用途         |
+| ----------------------------------------- | ------------------------------------------------------ | ------------ |
+| `electron/services/conversation-store.ts` | `stocksense-chat.sqlite` / `conversations`, `messages` | 会话和消息   |
+| `electron/services/stock/quote-store.ts`  | `stocksense-quotes.sqlite` / `stock_quote`             | 实时行情缓存 |
 
 实时行情存储规则：
 
@@ -256,32 +256,32 @@ Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地�
 
 ### 5.2 常用 IPC Channel
 
-| 分类 | Channel | 说明 |
-| ---- | ------- | ---- |
-| 配置/运行时 | `config:get`, `config:set`, `config:testModel`, `app:getRuntimeInfo` | 应用配置、模型测试、版本信息 |
-| 收藏 | `favorite:list`, `favorite:upsert`, `favorite:remove`, `favorite:togglePin` | 收藏股票 |
-| 会话 | `conversation:list/create/delete/rename`, `message:list/save`, `chat:send` | 会话、消息、AI 聊天 |
-| 股票 | `stock:getDetail`, `stock:search`, `stock:getKline`, `stock:getChipDistribution`, `stock:getBatchQuotes`, `stock:getTimelines` | 个股、搜索、K 线、筹码、行情、分时 |
-| 板块/行情 | `board:getDetail`, `market:getPageSnapshot` | 板块详情、行情页快照 |
-| 探索/监控 | `discovery:getSnapshot`, `monitor:getFeed`, `trading-advice:get` | 探索页、AI 监控、交易建议 |
-| 热点/异动 | `hot:list`, `hot:hintSource`, `hot:historyDates`, `hot:history`, `stock:surgeEvents` | 热点、异动历史、个股异动 |
-| 新闻 | `news:list`, `news:stockList`, `news:stockFeed`, `news:stockPreferences`, `news:getSummary`, `news:getDetail` | 新闻和公告 |
-| 数据同步 | `marketData:getStatus`, `marketData:startSync`, `marketData:retryFailures`, `marketData:cancelSync`, `marketData:getStats`, `dataSync:*` | 市场数据同步 |
-| 存储/升级 | `storage:getStats`, `storage:clear`, `system:getDiskInfo`, `appUpdate:*` | 存储管理、应用升级 |
-| 商店 | `store:list`, `store:installed`, `store:install`, `store:uninstall` | 命令/扩展商店 |
+| 分类        | Channel                                                                                                                                  | 说明                               |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| 配置/运行时 | `config:get`, `config:set`, `config:testModel`, `app:getRuntimeInfo`                                                                     | 应用配置、模型测试、版本信息       |
+| 收藏        | `favorite:list`, `favorite:upsert`, `favorite:remove`, `favorite:togglePin`                                                              | 收藏股票                           |
+| 会话        | `conversation:list/create/delete/rename`, `message:list/save`, `chat:send`                                                               | 会话、消息、AI 聊天                |
+| 股票        | `stock:getDetail`, `stock:search`, `stock:getKline`, `stock:getChipDistribution`, `stock:getBatchQuotes`, `stock:getTimelines`           | 个股、搜索、K 线、筹码、行情、分时 |
+| 板块/行情   | `board:getDetail`, `market:getPageSnapshot`                                                                                              | 板块详情、行情页快照               |
+| 探索/监控   | `discovery:getSnapshot`, `monitor:getFeed`, `trading-advice:get`                                                                         | 探索页、AI 监控、交易建议          |
+| 热点/异动   | `hot:list`, `hot:hintSource`, `hot:historyDates`, `hot:history`, `stock:surgeEvents`                                                     | 热点、异动历史、个股异动           |
+| 新闻        | `news:list`, `news:stockList`, `news:stockFeed`, `news:stockPreferences`, `news:getSummary`, `news:getDetail`                            | 新闻和公告                         |
+| 数据同步    | `marketData:getStatus`, `marketData:startSync`, `marketData:retryFailures`, `marketData:cancelSync`, `marketData:getStats`, `dataSync:*` | 市场数据同步                       |
+| 存储/升级   | `storage:getStats`, `storage:clear`, `system:getDiskInfo`, `appUpdate:*`                                                                 | 存储管理、应用升级                 |
+| 商店        | `store:list`, `store:installed`, `store:install`, `store:uninstall`                                                                      | 命令/扩展商店                      |
 
 ### 5.3 Push 事件
 
-| Channel | 说明 |
-| ------- | ---- |
-| `chat:token` | AI SSE token / runEvent 推送 |
-| `notification:aiResponse` | AI 回复完成的应用内兜底通知 |
-| `market:pageSnapshotUpdated` | 行情页快照更新 |
-| `marketData:progress` | 市场数据同步进度 |
-| `storage:clearProgress` | 存储清理进度 |
-| `favorite:cleared` | 收藏被清空 |
-| `appUpdate:stateChanged` | 应用升级状态变化 |
-| `dataSync:taskProgress` | 数据同步任务进度（preload 已暴露监听） |
+| Channel                      | 说明                                   |
+| ---------------------------- | -------------------------------------- |
+| `chat:token`                 | AI SSE token / runEvent 推送           |
+| `notification:aiResponse`    | AI 回复完成的应用内兜底通知            |
+| `market:pageSnapshotUpdated` | 行情页快照更新                         |
+| `marketData:progress`        | 市场数据同步进度                       |
+| `storage:clearProgress`      | 存储清理进度                           |
+| `favorite:cleared`           | 收藏被清空                             |
+| `appUpdate:stateChanged`     | 应用升级状态变化                       |
+| `dataSync:taskProgress`      | 数据同步任务进度（preload 已暴露监听） |
 
 ---
 
@@ -298,13 +298,13 @@ Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地�
 
 ### 6.2 重点模块
 
-| 模块 | 入口 | 注意事项 |
-| ---- | ---- | -------- |
-| 行情页 | `src/components/market-view/index.tsx` | 子组件在 `market-view/components/`；数据来自 `getMarketPageSnapshot` 和 push 更新 |
-| 探索页 | `src/components/discovery-view/index.tsx` | 数据来自 `getDiscoverySnapshot`、`getMonitorFeed`、`getTradingAdvice`；不得在组件里拼假榜单 |
-| 右侧栏 | `src/components/stock-detail-panel/index.tsx` | 面板子组件放 `components/`；右侧 tab 定义在 app-store |
-| K 线 | `src/components/kline-chart/` | 只能渲染真实序列；无数据展示空状态 |
-| 新闻阅读 | `src/components/news-reader/` | `news-reader` 是覆盖视图，关闭需恢复 previousView |
+| 模块     | 入口                                          | 注意事项                                                                                    |
+| -------- | --------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 行情页   | `src/components/market-view/index.tsx`        | 子组件在 `market-view/components/`；数据来自 `getMarketPageSnapshot` 和 push 更新           |
+| 探索页   | `src/components/discovery-view/index.tsx`     | 数据来自 `getDiscoverySnapshot`、`getMonitorFeed`、`getTradingAdvice`；不得在组件里拼假榜单 |
+| 右侧栏   | `src/components/stock-detail-panel/index.tsx` | 面板子组件放 `components/`；右侧 tab 定义在 app-store                                       |
+| K 线     | `src/components/kline-chart/`                 | 只能渲染真实序列；无数据展示空状态                                                          |
+| 新闻阅读 | `src/components/news-reader/`                 | `news-reader` 是覆盖视图，关闭需恢复 previousView                                           |
 
 ---
 
@@ -359,9 +359,13 @@ Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地�
 
 ```md
 ### Root Cause
+
 ### Fix
+
 ### Impact
+
 ### Risk
+
 ### Verification
 ```
 
@@ -432,13 +436,13 @@ pnpm selfcheck:trading-advice     # 交易建议自检
 
 ## 12. 相关技能
 
-| 技能 | 用途 |
-| ---- | ---- |
+| 技能            | 用途                                                |
+| --------------- | --------------------------------------------------- |
 | `stock-fix-bug` | Stock Agents Bug 修复：根因定位、最小改动、验证闭环 |
-| `a-stock-data` | `stock-sdk` 不覆盖或不适合时的次级真实数据源能力 |
-| `code-review` | 代码审查 |
-| `simplify` | 对已改代码做复用、简化、效率和技术债清理 |
-| `klinecharts` | K 线图表相关实现参考 |
+| `a-stock-data`  | `stock-sdk` 不覆盖或不适合时的次级真实数据源能力    |
+| `code-review`   | 代码审查                                            |
+| `simplify`      | 对已改代码做复用、简化、效率和技术债清理            |
+| `klinecharts`   | K 线图表相关实现参考                                |
 
 ---
 
@@ -450,3 +454,9 @@ pnpm selfcheck:trading-advice     # 交易建议自检
 - `electron/services/stock/stock-client.ts`：不得新增合成行情、合成指数、伪造板块数据。
 - `src/components/kline-chart/index.tsx`：不得根据单个价格或涨跌幅生成走势图。
 - Agent fallback 文案只能表达数据不可用，不能伪造市场数值。
+
+## 14. 单元测试
+
+- 所写的重点逻辑代码必须有单元测试覆盖。
+- 测试代码需放在`__tests__/`目录下`, 文件名以`\*.test.ts`结尾。
+- 单元测试的describe和it 都需要使用中文来编写

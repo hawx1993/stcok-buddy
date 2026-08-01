@@ -27,15 +27,13 @@ function pickNorthboundValue(row: NorthboundFlowSummary): number | null {
 
 export function sumNorthFundFlowYi(rows: NorthboundFlowSummary[], tradeDate?: string): number | null {
   let hasValue = false;
-  let hasNonZeroValue = false;
   let total = 0;
   for (const row of rows) {
     if (!isNorthboundRow(row) || !isTradeDateRow(row, tradeDate)) continue;
     const value = pickNorthboundValue(row);
     if (value === null || value === undefined || !Number.isFinite(value)) continue;
     hasValue = true;
-    if (value !== 0) hasNonZeroValue = true;
     total += value;
   }
-  return hasValue && hasNonZeroValue ? toYi(total) : null;
+  return hasValue ? toYi(total) : null;
 }

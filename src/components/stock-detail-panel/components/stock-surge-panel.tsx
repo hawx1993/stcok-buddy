@@ -1,10 +1,10 @@
-import { ConfigProvider, Select } from 'antd';
+import { ConfigProvider, Select, Tooltip } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Filter } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { HotFocusItem, StockDetail } from '../../../shared/types';
-import { isChinaMarketOpen } from '../../../shared/market-time';
+import { getAshareMarketPhase, isChinaMarketOpen } from '../../../shared/market-time';
 import { Empty } from '../../empty';
 import cx from '../../../shared/cx';
 import styles from '../index.module.scss';
@@ -47,6 +47,7 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   const [refresh, setRefresh] = useState(0);
   const [refreshMode, setRefreshMode] = useState<'manual' | 'poll'>('manual');
   const [isMonitoring, setMonitoring] = useState(() => isChinaMarketOpen());
+  const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase());
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<SurgeFilter[]>(['全部']);
 
@@ -102,7 +103,9 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   useEffect(() => {
     if (!isActive || selectedDate !== today) return;
     const checkMarket = () => {
-      setMonitoring((current) => (isChinaMarketOpen() ? current : false));
+      const phase = getAshareMarketPhase();
+      setMarketPhase(phase);
+      setMonitoring((current) => (phase.isTrading ? current : false));
     };
     checkMarket();
     const id = window.setInterval(checkMarket, 60_000);
@@ -294,15 +297,17 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
               >
                 刷新
               </button>
-              <button
-                className={cx(styles['surge-monitor-button'], isMonitoring && styles.active)}
-                onClick={toggleMonitor}
-                title={isMonitoring ? '关闭监控' : '开启监控'}
-                aria-label={isMonitoring ? '关闭监控' : '开启监控'}
-                type='button'
-              >
-                <span />
-              </button>
+              <Tooltip title={marketPhase.label}>
+                <button
+                  className={cx(styles.phasePill, !isMonitoring && styles.phasePillInactive)}
+                  onClick={toggleMonitor}
+                  aria-label={isMonitoring ? '关闭监控' : '开启监控'}
+                  type='button'
+                >
+                  <span className={cx(styles.liveDot, !isMonitoring && styles.liveDotInactive)} />
+                  {isMonitoring ? '监控中' : '监控'}
+                </button>
+              </Tooltip>
             </>
           ) : null}
         </div>

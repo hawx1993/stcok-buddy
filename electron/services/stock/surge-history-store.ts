@@ -228,7 +228,21 @@ export function listSurgeHistory(date: string, offset = 0, limit = 20) {
   });
 }
 
-export function listStockSurgeEvents(code: string, keepDays = 7) {
+export function listStockSurgeEvents(code: string, tradeDate = toTradeDate(new Date())) {
+  return readDb(async () => {
+    const normalizedCode = code.trim();
+    if (!normalizedCode || !isTradeDate(tradeDate)) return [];
+    const rows = await all<SurgeRow>(
+      `SELECT trade_date, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type
+       FROM stock_surge_events
+       WHERE code = ${sqlValue(normalizedCode)} AND trade_date = ${sqlValue(tradeDate)}
+       ORDER BY COALESCE(time, '') DESC, id DESC`,
+    );
+    return dedupeStockSurgeEventRows(rows);
+  });
+}
+
+export function listRecentStockSurgeEvents(code: string, keepDays = 7) {
   return readDb(async () => {
     const normalizedCode = code.trim();
     if (!normalizedCode) return [];
@@ -240,30 +254,34 @@ export function listStockSurgeEvents(code: string, keepDays = 7) {
        WHERE code = ${sqlValue(normalizedCode)} AND trade_date >= ${sqlValue(toTradeDate(cutoff))}
        ORDER BY trade_date DESC, COALESCE(time, '') DESC, id DESC`,
     );
-    const events = rows.map((row) => ({
-      id: row.id,
-      tradeDate: row.trade_date,
-      title: row.title,
-      code: row.code,
-      name: row.name,
-      time: row.time,
-      price: row.price,
-      changePercent: row.change_percent,
-      turnover: row.turnover,
-      amount: row.amount,
-      description: row.description,
-      tag: row.tag,
-      type: row.type,
-    } satisfies StockSurgeEvent));
-    // De-duplicate anomalies that come from both the hot-list snapshot and
-    // the per-stock individual history (they share the same time/tag/price).
-    const seen = new Set<string>();
-    return events.filter((item) => {
-      const key = `${item.tradeDate}|${item.time ?? ''}|${item.tag ?? ''}|${item.price ?? ''}|${item.changePercent ?? ''}|${item.amount ?? ''}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    return dedupeStockSurgeEventRows(rows);
+  });
+}
+
+function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
+  const events = rows.map((row) => ({
+    id: row.id,
+    tradeDate: row.trade_date,
+    title: row.title,
+    code: row.code,
+    name: row.name,
+    time: row.time,
+    price: row.price,
+    changePercent: row.change_percent,
+    turnover: row.turnover,
+    amount: row.amount,
+    description: row.description,
+    tag: row.tag,
+    type: row.type,
+  } satisfies StockSurgeEvent));
+  // De-duplicate anomalies that come from both the hot-list snapshot and
+  // the per-stock individual history (they share the same time/tag/price).
+  const seen = new Set<string>();
+  return events.filter((item) => {
+    const key = `${item.tradeDate}|${item.time ?? ''}|${item.tag ?? ''}|${item.price ?? ''}|${item.changePercent ?? ''}|${item.amount ?? ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 }
 
@@ -454,6 +472,10 @@ async function withConnection<T>(work: (connection: DuckDBConnection) => Promise
 
 function toTradeDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function isTradeDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function stringify(value: HotFocusItem['price']) {

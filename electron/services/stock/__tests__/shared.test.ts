@@ -128,9 +128,9 @@ describe('股票服务行情行转换', () => {
     expect(normalizeIndustryName('--')).toBeUndefined();
   });
 
-  it('转换市场板块行并记录板块类型', () => {
-    expect(toMarketBoardRow({ f12: 'bk1234', f14: '机器人', f3: '2.5', kind: 'concept' })).toEqual(expect.objectContaining({
-      code: 'BK1234', name: '机器人', changePercent: 2.5, minutes: [],
+  it('转换市场板块行并记录板块类型和真实成交额', () => {
+    expect(toMarketBoardRow({ f12: 'bk1234', f14: '机器人', f3: '2.5', f6: '500', kind: 'concept' })).toEqual(expect.objectContaining({
+      code: 'BK1234', name: '机器人', changePercent: 2.5, amount: 5_000_000, minutes: [],
     }));
   });
 });

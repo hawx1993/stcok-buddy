@@ -633,9 +633,8 @@ export async function searchStocks(query: string): Promise<MarketSearchResult[]>
   const stockRows = fromSdk.filter((item) => item.kind === 'stock');
   const sdkBoardRows = fromSdk.filter((item) => item.kind === 'board');
   const mergedBoardRows = dedupeSearchRows([...sdkBoardRows, ...boardRows]).slice(0, 20);
-  const mergedStockRows = stockRows.length
-    ? dedupeSearchRows(stockRows).slice(0, 50)
-    : await searchFallbackStocks(text, q);
+  const baseStockRows = stockRows.length ? dedupeSearchRows(stockRows).slice(0, 50) : await searchFallbackStocks(text, q);
+  const mergedStockRows = await enrichSearchStockRows(baseStockRows);
   const results = [...mergedBoardRows, ...mergedStockRows].slice(0, 50);
   if (results.length) return results;
 
@@ -645,7 +644,7 @@ export async function searchStocks(query: string): Promise<MarketSearchResult[]>
       searchEastmoneyBoards(text).catch(() => []),
       searchEastmoneyFunds(text).catch(() => []),
     ]);
-    const fundRows = eastmoneyFunds.map((row) => ({ ...row, kind: 'stock' as const }));
+    const fundRows = await enrichSearchStockRows(eastmoneyFunds.map((row) => ({ ...row, kind: 'stock' as const })));
     return [
       ...eastmoneyBoards.map((row) => ({ ...row, kind: 'board' as const, minutes: [] as KlinePoint[] })),
       ...fundRows,
@@ -663,7 +662,30 @@ async function searchFallbackStocks(text: string, q: string): Promise<MarketSear
   if (local.length) return local;
 
   const suggested = await searchEastmoneyStocks(text);
-  return suggested.map((row) => ({ ...row, kind: 'stock' as const }));
+  return enrichSearchStockRows(suggested.map((row) => ({ ...row, kind: 'stock' as const })));
+}
+
+async function enrichSearchStockRows(rows: MarketSearchResult[]): Promise<MarketSearchResult[]> {
+  const stockRows = rows.filter((row): row is MarketQuoteRow & { kind?: 'stock' } => row.kind !== 'board');
+  const rowsWithMetrics = stockRows.filter((row) => hasValue(row.price) && hasValue(row.changePercent));
+  if (rowsWithMetrics.length === stockRows.length) return rows;
+
+  const quotes = await getBatchQuotes(stockRows.map((row) => row.code)).catch(() => []);
+  if (!quotes.length) return rows;
+
+  const quoteByCode = new Map(quotes.map((quote) => [normalizeASymbol(quote.code), quote]));
+  return rows.map((row) => {
+    if (row.kind === 'board') return row;
+    const quote = quoteByCode.get(normalizeASymbol(row.code));
+    if (!quote) return row;
+    return {
+      ...row,
+      code: normalizeASymbol(row.code),
+      name: row.name || quote.name,
+      price: row.price ?? quote.price,
+      changePercent: row.changePercent ?? quote.changePercent,
+    };
+  });
 }
 
 async function searchMarketBoards(q: string, raw = q): Promise<MarketSearchResult[]> {
@@ -938,9 +960,9 @@ export async function analyzeTechnical(symbolInput: string): Promise<AgentResult
 export {
   clearSurgeCache,
   listHotFocus,
-  listDailyDragonTiger,
   listStockSurgeEvents,
   listEastmoneySurgeByDate,
   getBoardSnapshot,
 } from './hot-focus.js';
-export type { DailyDragonTigerItem } from './hot-focus.js';
+export { getDragonTigerSnapshot, listDailyDragonTiger, listRecentDragonTigerDays } from './dragon-tiger.js';
+export type { DailyDragonTigerGroup, DailyDragonTigerItem } from './dragon-tiger.js';

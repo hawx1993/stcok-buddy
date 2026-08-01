@@ -10,7 +10,7 @@ import {
   listMonitorHistory,
   pruneMonitorHistory,
 } from './monitor-history-store.js';
-import { listStockSurgeEvents } from './surge-history-store.js';
+import { listRecentStockSurgeEvents } from './surge-history-store.js';
 import { getStockChip } from '../market-data/market-data-store.js';
 import { getAllMarketQuoteRows } from './market-page.js';
 import { getBatchQuotes, getChipDistribution, listHotFocus } from './stock-client.js';
@@ -199,7 +199,7 @@ async function collectCachedChipResults(
       const event = createChipEvent(stock, quote, chip, timestamp);
       if (event) events.push(event);
     }
-    const surgeEvents = await listStockSurgeEvents(stock.code, 30).catch(() => []);
+    const surgeEvents = await listRecentStockSurgeEvents(stock.code, 30).catch(() => []);
     events.push(...createChipSignalEvents(stock, quote, chip, surgeEvents, timestamp, tradeDate));
   }
   return events;
@@ -641,7 +641,7 @@ export async function captureMonitorEvents(now = new Date(), categories: TMonito
       const chipResults = await Promise.allSettled(detailStocks.map(async (stock) => {
         const [chip, surgeEvents] = await Promise.all([
           getChipDistribution(stock.code),
-          listStockSurgeEvents(stock.code, 30),
+          listRecentStockSurgeEvents(stock.code, 30),
         ]);
         return { stock, chip, surgeEvents };
       }));

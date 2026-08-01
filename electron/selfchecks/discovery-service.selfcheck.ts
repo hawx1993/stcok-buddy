@@ -228,7 +228,7 @@ assert.equal(sumNorthFundFlowYi(northRows, '2026-07-30'), 8);
 assert.equal(sumNorthFundFlowYi([
   { ...northRows[0], date: '2026-07-31', netBuyAmount: 0, netInflow: 0 },
   { ...northRows[1], date: '2026-07-31', netBuyAmount: 0, netInflow: 0 },
-], '2026-07-31'), null);
+], '2026-07-31'), 0);
 assert.equal(sumNorthFundFlowYi(northRows, '2026-07-31'), null);
 assert.equal(sumNorthFundFlowYi([{ ...northRows[0], netBuyAmount: null, netInflow: 300_000_000 }]), 3);
 assert.equal(sumNorthFundFlowYi([{ ...northRows[2] }]), null);

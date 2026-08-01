@@ -36,7 +36,11 @@ function StrategyTags({ items, type }: { items: string[]; type: 'suitable' | 'un
   );
 }
 
-export function TradingAdvice() {
+interface ITradingAdviceProps {
+  tradeDate?: string;
+}
+
+export function TradingAdvice({ tradeDate }: ITradingAdviceProps) {
   const [advice, setAdvice] = useState<ITradingAdvice | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -49,16 +53,17 @@ export function TradingAdvice() {
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
+    setAdvice(undefined);
     try {
       const api = getStocksenseApi();
-      const data = await api.getTradingAdvice();
+      const data = await api.getTradingAdvice(tradeDate ? { tradeDate } : undefined);
       setAdvice(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [tradeDate]);
 
   const handleSectorClick = async (name: string) => {
     const snapshot = { code: '', name } as BoardDetail;

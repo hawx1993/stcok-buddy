@@ -47,6 +47,8 @@ describe('市场页格式化工具', () => {
     expect(formatMoney(9999)).toBe('9999');
     expect(formatMoney(12_000)).toBe('1.20万');
     expect(formatMoney(300_000_000)).toBe('3.00亿');
+    expect(formatMoney(-300_000_000)).toBe('-3.00亿');
+    expect(formatMoney(-12_000)).toBe('-1.20万');
     expect(formatMoney(null)).toBe('--');
   });
 

@@ -112,9 +112,24 @@ describe('异动历史 DuckDB 存储', () => {
     const history = await currentStore.listSurgeHistory('2026-07-24', 0, 10);
     expect(history.some((item) => item.title === '个股异动去重后')).toBe(true);
 
-    const stockEvents = await currentStore.listStockSurgeEvents('600519', 30);
+    const stockEvents = await currentStore.listStockSurgeEvents('600519', '2026-07-24');
     expect(stockEvents.filter((item) => item.time === '14:57' && item.tag === '快速涨幅')).toHaveLength(1);
     expect(stockEvents[0]).toMatchObject({ tradeDate: '2026-07-24', title: '重复信号' });
+  });
+
+
+  it('休市日查询个股异动不回退到上一交易日', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('surge history store not loaded');
+
+    await currentStore.saveIndividualSurgeHistory([
+      { ...createItem({ id: 'previous-trading-day', time: '14:57', tag: '快速涨幅' }), tradeDate: '2026-07-31' },
+    ]);
+
+    expect(await currentStore.listStockSurgeEvents('600519', '2026-08-01')).toEqual([]);
+    expect(await currentStore.listStockSurgeEvents('600519', '2026-07-31')).toEqual([
+      expect.objectContaining({ tradeDate: '2026-07-31', id: 'previous-trading-day' }),
+    ]);
   });
 
   it('可以清理指定日期和全部历史并在清理标记期间阻止写入', async () => {

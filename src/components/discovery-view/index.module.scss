@@ -1,4 +1,6 @@
 .wrap {
+  --discovery-sticky-offset: 116px;
+
   position: relative;
   height: 100%;
   min-height: 0;
@@ -8,21 +10,31 @@
   background: var(--bg);
   user-select: text;
 }
+.wrapWithTradeDate {
+  --discovery-sticky-offset: 178px;
+}
 
 // ── Topbar ──
 .topbar {
   position: relative;
-  z-index: 10;
+  z-index: 11;
   display: flex;
   align-items: center;
   gap: 14px;
   padding: 14px 28px;
   background: color-mix(in srgb, var(--glass-bg) 76%, transparent);
-
   backdrop-filter: blur(30px) saturate(190%);
   -webkit-backdrop-filter: blur(30px) saturate(190%);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--bg) 32%, transparent);
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
   flex-shrink: 0;
+}
+.topbarScrolled {
+  background: color-mix(in srgb, var(--glass-bg) 92%, transparent);
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--bg) 46%, transparent);
 }
 .topbarCollapsed {
   padding-left: 146px;
@@ -56,6 +68,11 @@
 .date {
   font-size: 12px;
   color: var(--fg-secondary);
+  font-family: var(--font-mono, monospace);
+}
+.currentDate {
+  font-size: 11.5px;
+  color: var(--muted);
   font-family: var(--font-mono, monospace);
 }
 .topbarRight {
@@ -96,6 +113,66 @@
   }
   50% {
     opacity: 0.25;
+  }
+}
+
+.tradeDateNav {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 28px;
+  background: color-mix(in srgb, var(--glass-bg) 76%, transparent);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--bg) 32%, transparent);
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+  flex-shrink: 0;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+.tradeDateNavScrolled {
+  background: color-mix(in srgb, var(--glass-bg) 92%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--glass-border) 88%, transparent);
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--bg) 46%, transparent);
+}
+.tradeDateButton {
+  min-width: 74px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: var(--surface-hover);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  span {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  strong {
+    font-size: 15px;
+    line-height: 1.1;
+    color: var(--fg);
+  }
+  &:hover {
+    border-color: rgba(232, 184, 75, 0.32);
+  }
+}
+.tradeDateButtonActive {
+  background: rgba(232, 75, 99, 0.12);
+  border-color: rgba(232, 75, 99, 0.32);
+  span,
+  strong {
+    color: #e84b63;
   }
 }
 
@@ -148,8 +225,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  margin-top: -58px;
-  padding-top: 58px;
+  margin-top: calc(var(--discovery-sticky-offset) * -1);
+  padding-top: var(--discovery-sticky-offset);
 }
 .inner {
   max-width: 980px;
@@ -661,6 +738,21 @@
 }
 
 // ── Dragon Tiger ──
+:global(.dt-date-tabs) {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+:global(.dt-date-note) {
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
 :global(.dt-tabs) {
   display: flex;
   gap: 6px;
@@ -683,6 +775,10 @@
   background: rgba(232, 184, 75, 0.14);
   color: #e8b84b;
   border-color: rgba(232, 184, 75, 0.38);
+}
+:global(.dt-table-wrap) {
+  max-height: 444px;
+  overflow-y: auto;
 }
 :global(.dt-table) {
   width: 100%;
@@ -1482,6 +1578,9 @@
       width: 100%;
     }
   }
+}
+:global(.monitor-feed.empty-feed) {
+  display: block;
 }
 :global(.monitor-feed.compact-feed > .monitor-skeleton-grid) {
   grid-column: 1 / -1;

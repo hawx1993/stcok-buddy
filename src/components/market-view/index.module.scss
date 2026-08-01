@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   padding: 18px 20px;
-  overflow: hidden;
+  overflow: auto;
   background: var(--bg);
 }
 .header {
@@ -70,78 +70,41 @@
   gap: 10px;
 }
 .searchBox {
-  position: relative;
-  width: 220px;
-}
-.searchBox input {
-  width: 100%;
+  width: 230px;
   height: 34px;
-  background: var(--input-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0 10px;
-  color: var(--fg);
-  font-size: 12px;
-  outline: none;
-}
-.searchBox input:focus {
-  border-color: var(--accent);
-}
-.suggestions {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  z-index: 20;
-  max-height: 300px;
-  overflow-y: auto;
-  padding: 5px;
-  border: 1px solid var(--glass-border);
-  border-radius: 10px;
-  background: var(--dropdown-bg);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
-}
-.suggestions::-webkit-scrollbar {
-  width: 6px;
-}
-.suggestions::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 999px;
-}
-.suggestionItem {
-  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 8px 9px;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 9px 0 11px;
+  background: var(--input-bg);
+  color: var(--muted);
   cursor: pointer;
-  text-align: left;
   font-size: 12px;
+  text-align: left;
 }
-.suggestionItem:hover {
+.searchBox:hover,
+.searchBox:focus-visible {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.searchBox span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.searchBox kbd {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 5px;
   background: var(--surface-hover);
-}
-.suggestionItem code {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.suggestionItem em {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 999px;
-  background: var(--surface-hover);
-  color: var(--muted);
-  font-style: normal;
   font-size: 10px;
-}
-.suggestionEmpty {
-  padding: 8px 9px;
-  color: var(--muted);
-  font-size: 12px;
+  line-height: 1;
 }
 .periods {
   display: flex;
@@ -261,10 +224,342 @@
   flex-shrink: 0;
   white-space: nowrap;
 }
+.dragonTigerPanel {
+  flex: 1 0 320px;
+  margin-top: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 12%, transparent), transparent 28%),
+    color-mix(in srgb, var(--surface) 88%, transparent);
+  padding: 14px;
+  box-shadow: 0 14px 36px color-mix(in srgb, #000 16%, transparent);
+}
+.dragonTigerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.dragonTigerHeader h2 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--fg);
+}
+.dragonTigerHeader p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.dragonTigerRanges {
+  display: flex;
+  gap: 6px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--input-bg);
+}
+.dragonTigerRanges button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  color: var(--fg-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+}
+.dragonTigerRanges button:hover,
+.dragonTigerRanges button.dragonTigerRangeActive {
+  color: var(--accent);
+  background: var(--list-item-active);
+}
+.dragonTigerState {
+  min-height: 86px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.dragonTigerSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.dragonTigerMetric {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--surface) 88%, transparent),
+    color-mix(in srgb, var(--bg) 34%, transparent)
+  );
+}
+.dragonTigerMetric::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: color-mix(in srgb, var(--accent) 72%, transparent);
+}
+.dragonTigerMetric span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+.dragonTigerMetric strong {
+  color: var(--fg);
+  font-size: 16px;
+}
+.dragonTigerGrid {
+  display: grid;
+  grid-template-columns: 2.15fr 2.15fr 1fr;
+  gap: 10px;
+}
+.dragonTigerRankCard,
+.dragonTigerReasonCard {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 34%, transparent);
+  padding: 10px;
+  overflow: auto;
+}
+.dragonTigerSubTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.dragonTigerSubTitle em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+}
+.dragonTigerRankList,
+.dragonTigerReasons,
+.dragonTigerCompactList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dragonTigerRankItem,
+.dragonTigerCompactList button {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.dragonTigerRankItem {
+  display: grid;
+  grid-template-columns: 22px minmax(70px, 0.78fr) minmax(90px, 1fr) 62px 72px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px;
+}
+.dragonTigerRankItem:hover,
+.dragonTigerCompactList button:hover {
+  background: var(--list-item-hover);
+}
+.dragonTigerRankNo {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.dragonTigerStock {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dragonTigerStock strong,
+.dragonTigerStock em,
+.dragonTigerRankReason,
+.dragonTigerReasonHead span,
+.dragonTigerReasonHead em,
+.dragonTigerCompactList span,
+.dragonTigerCompactList em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dragonTigerStock strong {
+  color: var(--fg);
+  font-size: 12px;
+}
+.dragonTigerStock em,
+.dragonTigerReasonHead em,
+.dragonTigerCompactList em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 11px;
+}
+.dragonTigerRankReason {
+  color: var(--muted);
+  font-size: 11px;
+}
+.dragonTigerMoney {
+  text-align: right;
+  color: var(--fg);
+  font-size: 11px;
+}
+.dragonTigerReasonItem {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.dragonTigerReasonHead {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+.dragonTigerReasonTrack {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 56%, transparent);
+  overflow: hidden;
+}
+.dragonTigerReasonTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.dragonTigerCompactList button {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+}
+.dragonTigerInstitutionBuy {
+  background: color-mix(in srgb, var(--accent) 9%, transparent) !important;
+}
+.dragonTigerEmpty,
+.dragonTigerWarning {
+  color: var(--muted);
+  font-size: 12px;
+}
+.dragonTigerEmpty {
+  min-height: 80px;
+  display: grid;
+  place-items: center;
+}
+.dragonTigerSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dragonTigerMetricSkeleton,
+.dragonTigerRankSkeletonCard {
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  background: color-mix(in srgb, var(--bg) 30%, transparent);
+}
+.dragonTigerMetricSkeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.dragonTigerRankSkeletonCard {
+  border-radius: 14px;
+  padding: 10px;
+  overflow: hidden;
+}
+.dragonTigerMetricSkeleton span,
+.dragonTigerMetricSkeleton strong,
+.dragonTigerSkeletonTitle,
+.dragonTigerSkeletonRow span,
+.dragonTigerSkeletonRow em,
+.dragonTigerSkeletonRow strong,
+.dragonTigerCompactSkeletonRow span,
+.dragonTigerCompactSkeletonRow em {
+  display: block;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 58%, transparent);
+  animation: dragonTigerSkeletonPulse 1.4s ease-in-out infinite;
+}
+.dragonTigerMetricSkeleton span {
+  width: 72px;
+  height: 11px;
+  margin-bottom: 8px;
+}
+.dragonTigerMetricSkeleton strong {
+  width: 118px;
+  height: 18px;
+}
+.dragonTigerSkeletonTitle {
+  width: 128px;
+  height: 14px;
+  margin-bottom: 12px;
+}
+.dragonTigerSkeletonRow,
+.dragonTigerCompactSkeletonRow {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 6px;
+}
+.dragonTigerSkeletonRow {
+  grid-template-columns: 22px minmax(54px, 0.72fr) minmax(70px, 1fr) minmax(42px, 56px) minmax(48px, 64px);
+}
+.dragonTigerCompactSkeletonRow {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  align-items: stretch;
+}
+.dragonTigerCompactSkeletonRow span,
+.dragonTigerCompactSkeletonRow em {
+  height: 12px;
+}
+.dragonTigerCompactSkeletonRow span {
+  width: 64%;
+  height: 14px;
+}
+.dragonTigerCompactSkeletonRow em:first-of-type {
+  width: 88%;
+}
+.dragonTigerCompactSkeletonRow em:last-child {
+  width: 72%;
+}
+.dragonTigerSkeletonRow span {
+  height: 14px;
+}
+.dragonTigerSkeletonRow em,
+.dragonTigerSkeletonRow strong {
+  height: 12px;
+}
+@keyframes dragonTigerSkeletonPulse {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 0.86;
+  }
+}
+.dragonTigerWarning {
+  margin-top: 10px;
+}
 .tabs {
   display: flex;
   gap: 2px;
-  margin: 12px 0;
+  margin: 8px 0;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   overflow-x: auto;
@@ -285,8 +580,8 @@
   border-bottom-color: var(--accent);
 }
 .tableWrap {
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 320px;
+  min-height: 320px;
   overflow: auto;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 80%, transparent);
@@ -301,8 +596,8 @@
 .boardCharts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 14px;
+  gap: 8px;
+  padding: 10px;
 }
 .boardChart {
   min-height: 240px;
@@ -480,7 +775,9 @@
   }
 }
 @media (max-width: 1100px) {
-  .indices {
+  .indices,
+  .dragonTigerSummary,
+  .dragonTigerGrid {
     grid-template-columns: 1fr;
   }
   .indexMeta {

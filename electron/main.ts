@@ -6,14 +6,14 @@ import path from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { registerIpcHandlers } from './ipc.js';
 import { closeMarketDataStore, initializeMarketDataStore } from './services/market-data/market-data-store.js';
-import { stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
+import { stopMarketDataScheduler, startMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
 import {
   startMarketNewsSummaryScheduler,
   stopMarketNewsSummaryScheduler,
 } from './services/market-data/market-news-summary-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
 import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler, waitForSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
-import { stopDiscoveryRefreshLoop } from './services/stock/discovery-service.js';
+import { stopDiscoveryRefreshLoop, ensureRecentDiscoverySnapshots } from './services/stock/discovery-service.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
 import { startMonitorHistoryScheduler, stopMonitorHistoryScheduler, waitForMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
@@ -119,7 +119,12 @@ app.whenReady().then(() => {
   setInstallUpdateHandler(prepareForUpdateInstall);
   initializeQuoteStore();
   registerIpcHandlers();
-  void initializeMarketDataStore().catch((error) => console.warn('[market-data] initialization failed', error));
+  void initializeMarketDataStore()
+    .then(() => {
+      startMarketDataScheduler();
+      void ensureRecentDiscoverySnapshots().catch((error) => console.warn('[discovery] recent snapshot preload failed', error));
+    })
+    .catch((error) => console.warn('[market-data] initialization failed', error));
   void startMarketNewsSummaryScheduler().catch((error) =>
     console.warn('[news-summary] scheduler initialization failed', error),
   );

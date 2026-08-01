@@ -93,8 +93,8 @@ describe('汇总北向资金净流入', () => {
     expect(sumNorthFundFlowYi(rows)).toBe(1);
   });
 
-  it('北向数值缺失、全为 0 或非有限时返回 null', () => {
-    expect(sumNorthFundFlowYi([createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: 0, netInflow: null })])).toBeNull();
+  it('北向数值缺失或非有限时返回 null，0 净流入保留为有效数据', () => {
+    expect(sumNorthFundFlowYi([createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: 0, netInflow: null })])).toBe(0);
     expect(sumNorthFundFlowYi([createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: Number.NaN, netInflow: null })])).toBeNull();
     expect(sumNorthFundFlowYi([createNorthboundFlow({ date: '2026-07-31', direction: '南向资金', netBuyAmount: 100_000_000, netInflow: null })])).toBeNull();
   });

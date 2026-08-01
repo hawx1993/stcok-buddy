@@ -1,5 +1,6 @@
 import type { BoardDetail, KlinePoint, MarketQuoteRow, MarketIndexPeriod } from '../../../src/shared/types.js';
 import {
+  listBoardConstituents,
   listDailyBars,
   listLatestMarketRows,
   listSecurities,
@@ -39,6 +40,70 @@ import {
 let boardApisLoadingPromise: Promise<void> | undefined;
 
 type AnyRecord = Record<string, unknown>;
+type TStockBoardMembershipPayload = { data?: { diff?: unknown[] | Record<string, unknown> } };
+
+function parseStockBoardMembershipPayload(payload: TStockBoardMembershipPayload) {
+  const diff = payload.data?.diff ?? [];
+  const items = Array.isArray(diff) ? diff : Object.values(diff);
+  return items
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map((item) => ({
+      code: String(item.f12 ?? '').toUpperCase(),
+      name: String(item.f14 ?? ''),
+      changePercent: toNullableNumber(item.f3),
+      leadStock: String(item.f128 ?? ''),
+    }))
+    .filter((item) => /^BK\d+$/i.test(item.code) && item.name);
+}
+
+function toNullableNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+export async function refreshBoardDetailForHeat(symbol: string, boardName?: string): Promise<BoardDetail> {
+  const cacheKey = resolveBoardDetailLookupKey(symbol, boardName);
+  const detail = await getRemoteBoardDetail(cacheKey || symbol || boardName || '', true, boardName);
+  if (detail.constituents?.length) {
+    const updatedAt = new Date().toISOString();
+    await writeBoardDetail({ detail, updatedAt });
+    await persistBoardDetail(detail, updatedAt);
+    return detail;
+  }
+  // 远程接口未返回成分股时，回退本地 DuckDB 已持久化的真实成分股，避免热度链路整体报错
+  // 注意远程失败时 detail.code 可能退化为板块名称，本地查询必须使用 BK 编码
+  const persistedCode = [detail.code, cacheKey].find((code) => /^BK\d+$/i.test(code)) ?? '';
+  const persisted = await getPersistedBoardDetailForHeat(persistedCode, detail.name || boardName);
+  if (persisted?.constituents?.length) {
+    // 命中缓存时同步成分股到 board_constituents 表，保证本地热度聚合可读取
+    await persistBoardDetail(persisted, new Date().toISOString());
+    return persisted;
+  }
+  throw new Error('板块接口未返回完整成分股数据，本地也暂无缓存成分股');
+}
+
+async function getPersistedBoardDetailForHeat(boardCode: string, boardName?: string): Promise<BoardDetail | undefined> {
+  if (!boardCode) return undefined;
+  const cached = await readBoardDetail(boardCode).catch(() => undefined);
+  if (cached?.detail.constituents?.length) return cached.detail;
+  const rows = await listBoardConstituents(boardCode).catch(() => []);
+  if (!rows.length) return cached?.detail;
+  return {
+    code: boardCode,
+    name: cached?.detail.name || boardName || boardCode,
+    changePercent: cached?.detail.changePercent,
+    kline: cached?.detail.kline ?? [],
+    constituents: rows.map((row) => ({
+      code: row.stockCode,
+      name: row.stockName,
+      price: '--',
+      changePercent: '--',
+      amount: '--',
+      turnover: '--',
+    })),
+  };
+}
 
 export async function getBoardDetail(symbol: string, forceRefresh = false, boardName?: string): Promise<BoardDetail> {
   const cacheKey = resolveBoardDetailLookupKey(symbol, boardName);
@@ -172,7 +237,7 @@ async function getRemoteBoardDetail(
   ]);
   const fallbackRows = sdkRows.length ? [] : await firstBoardConstituentsFromTargets(targets).catch(() => []);
   const fallbackKline = kline.length ? [] : await firstBoardKlineFromTargets(targets).catch(() => []);
-  const baseConstituents = (sdkRows.length ? sdkRows : fallbackRows).slice(0, 200);
+  const baseConstituents = sdkRows.length ? sdkRows : fallbackRows;
   // ponytail: reuse precomputed local detail instead of re-running expensive scan
   const localDetail = skipLocalFallback
     ? undefined
@@ -241,12 +306,12 @@ function normalizeBoardCode(value: string) {
   return /^\d{4}$/.test(code) ? `BK${code}` : code;
 }
 
-function persistBoardDetail(detail: BoardDetail, updatedAt: string) {
+async function persistBoardDetail(detail: BoardDetail, updatedAt: string) {
   const changePercent =
     detail.changePercent === undefined || detail.changePercent === '--'
       ? undefined
       : Number.parseFloat(detail.changePercent);
-  void upsertMarketBoards([
+  await upsertMarketBoards([
     {
       code: detail.code,
       name: detail.name,
@@ -257,7 +322,7 @@ function persistBoardDetail(detail: BoardDetail, updatedAt: string) {
     },
   ]);
   if (detail.constituents?.length) {
-    void replaceBoardConstituents(
+    await replaceBoardConstituents(
       detail.code,
       detail.constituents.map((row, index) => ({
         boardCode: detail.code,
@@ -658,10 +723,9 @@ function prioritizeBoardScanSymbols(symbols: string[]) {
   return [...main, ...rest];
 }
 
-async function getStockBoardMembership(code: string): Promise<Array<{ code: string; name: string }>> {
+export async function getStockBoardMembership(code: string): Promise<Array<{ code: string; name: string; changePercent: number | null; leadStock: string }>> {
   const secid = `${code.startsWith('6') ? 1 : 0}.${code}`;
-  const url = new URL('https://push2delay.eastmoney.com/api/qt/slist/get');
-  url.search = new URLSearchParams({
+  const params = new URLSearchParams({
     fltt: '2',
     invt: '2',
     secid,
@@ -670,18 +734,27 @@ async function getStockBoardMembership(code: string): Promise<Array<{ code: stri
     pz: '200',
     po: '1',
     fields: 'f12,f14,f3,f128',
-  }).toString();
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(4_000),
-    headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://quote.eastmoney.com/' },
   });
-  if (!response.ok) return [];
-  const payload = (await response.json()) as { data?: { diff?: AnyRecord[] | Record<string, AnyRecord> } };
-  const diff = payload.data?.diff ?? [];
-  const items = Array.isArray(diff) ? diff : Object.values(diff);
-  return items
-    .map((item) => ({ code: String(item.f12 ?? ''), name: String(item.f14 ?? '') }))
-    .filter((item) => item.code && item.name);
+  const endpoints = [
+    `https://push2.eastmoney.com/api/qt/slist/get?${params}`,
+    `https://push2delay.eastmoney.com/api/qt/slist/get?${params}`,
+  ];
+  let lastError: unknown;
+  for (const url of endpoints) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(6_000),
+        headers: { 'User-Agent': 'Mozilla/5.0 StockBuddy/0.2', Referer: 'https://quote.eastmoney.com/' },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const rows = parseStockBoardMembershipPayload(await response.json());
+      if (rows.length) return rows;
+      lastError = new Error('东财 slist 未返回所属板块');
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('东财 slist 所属板块请求失败');
 }
 
 async function aggregateBaiduBoardKline(codes: string[]): Promise<KlinePoint[]> {
