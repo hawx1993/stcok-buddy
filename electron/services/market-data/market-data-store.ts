@@ -356,14 +356,33 @@ export async function listLatestMarketRows() {
       `
       WITH latest AS (
         SELECT symbol, max(trade_date) AS trade_date FROM daily_bars WHERE adjust_type = 'qfq' GROUP BY symbol
+      ), symbols AS (
+        SELECT symbol FROM securities WHERE status = 'listed'
+        UNION
+        SELECT symbol FROM stock_snapshots
       )
-      SELECT s.symbol, s.name, s.exchange, s.industry, b.open, b.high, b.low, b.close, b.volume, b.amount, b.change, b.change_percent, b.turnover_rate
-      FROM securities s
-      LEFT JOIN latest l ON l.symbol = s.symbol
-      LEFT JOIN daily_bars b ON b.symbol = s.symbol AND b.trade_date = l.trade_date AND b.adjust_type = 'qfq'
-      WHERE s.status = 'listed'
-      ORDER BY s.symbol
-    `,
+      SELECT
+        symbols.symbol,
+        COALESCE(s.name, ss.name) AS name,
+        s.exchange,
+        s.industry,
+        COALESCE(ss.open, b.open) AS open,
+        COALESCE(ss.high, b.high) AS high,
+        COALESCE(ss.low, b.low) AS low,
+        COALESCE(ss.price, b.close) AS close,
+        COALESCE(ss.volume, b.volume) AS volume,
+        COALESCE(ss.amount, b.amount) AS amount,
+        COALESCE(ss.change, b.change) AS change,
+        COALESCE(ss.change_percent, b.change_percent) AS change_percent,
+        COALESCE(ss.turnover_rate, b.turnover_rate) AS turnover_rate
+      FROM symbols
+      LEFT JOIN securities s ON s.symbol = symbols.symbol AND s.status = 'listed'
+      LEFT JOIN latest l ON l.symbol = symbols.symbol
+      LEFT JOIN daily_bars b ON b.symbol = symbols.symbol AND b.trade_date = l.trade_date AND b.adjust_type = 'qfq'
+      LEFT JOIN stock_snapshots ss ON ss.symbol = symbols.symbol
+      WHERE COALESCE(s.name, ss.name) IS NOT NULL
+      ORDER BY symbols.symbol
+      `,
     );
     return rows.map((row) => ({
       code: String(row.symbol),

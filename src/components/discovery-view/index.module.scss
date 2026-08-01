@@ -126,7 +126,6 @@
   background: color-mix(in srgb, var(--glass-bg) 76%, transparent);
   backdrop-filter: blur(30px) saturate(190%);
   -webkit-backdrop-filter: blur(30px) saturate(190%);
-  border-bottom: 1px solid color-mix(in srgb, var(--glass-border) 68%, transparent);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--bg) 32%, transparent);
   transition:
     background 0.18s ease,

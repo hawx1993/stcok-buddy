@@ -117,7 +117,7 @@ describe('市场数据 DuckDB 存储', () => {
     expect(await currentStore.countDailyBarsForDate('2026-07-09')).toBe(1);
   });
 
-  it('可以写入证券主表并关联最新行情行', async () => {
+  it('可以写入证券主表并关联 DuckDB 最新行情快照', async () => {
     const currentStore = store;
     if (!currentStore) throw new Error('market data store not loaded');
 
@@ -132,13 +132,18 @@ describe('市场数据 DuckDB 存储', () => {
       createBar({ symbol: '600519', tradeDate: '2026-07-10', close: 1525, amount: 12_000_000 }),
       createBar({ symbol: '000001', tradeDate: '2026-07-10', close: 12.3, amount: 8_000_000 }),
     ]);
+    await currentStore.upsertStockSnapshots([
+      { symbol: '600519', name: '贵州茅台快照', price: 1530, changePercent: 1.6, amount: 15_000_000, turnoverRate: 2.4, high: 1540, low: 1500 },
+      { symbol: '002001', name: '快照股票', price: 21.5, changePercent: 3.2, amount: 9_000_000, turnoverRate: 6.1, high: 22, low: 20 },
+    ]);
 
     const securities = await currentStore.listSecurities();
     expect(securities.map((item) => item.symbol)).toEqual(['000001', '600519']);
     expect(securities.find((item) => item.symbol === '600519')).toMatchObject({ name: '贵州茅台更新', industry: '食品饮料' });
 
     const rows = await currentStore.listLatestMarketRows();
-    expect(rows.find((row) => row.code === '600519')).toMatchObject({ name: '贵州茅台更新', price: 1525, amount: 12_000_000 });
+    expect(rows.find((row) => row.code === '600519')).toMatchObject({ name: '贵州茅台更新', price: 1530, amount: 15_000_000, changePercent: 1.6, turnoverRate: 2.4 });
+    expect(rows.find((row) => row.code === '002001')).toMatchObject({ name: '快照股票', price: 21.5, amount: 9_000_000, changePercent: 3.2, turnoverRate: 6.1 });
     expect(rows.some((row) => row.code === '300001')).toBe(false);
   });
 

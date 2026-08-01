@@ -180,23 +180,52 @@ describe('发现页股票和资金流工具', () => {
     ]);
   });
 
-  it('龙虎榜真实数据不匹配分类关键词时保留真实空分类', () => {
-    const rows = Array.from({ length: 2 }, (_, index) => ({
-      id: `common-${index}`,
-      date: '2026-07-31',
-      code: `60000${index}`,
-      name: `普通上榜${index}`,
-      reason: '日涨幅偏离值达7%',
-      changePercent: 9 - index,
-      netBuy: 80_000_000 - index,
-      buy: 100_000_000,
-      sell: 20_000_000,
-    }));
+  it('龙虎榜真实监管上榜原因保留到净买入和涨幅上榜分类', () => {
+    const rows = [
+      {
+        id: 'turnover',
+        date: '2026-07-30',
+        code: '600001',
+        name: '换手上榜',
+        reason: '日换手率达到20%的前5只证券',
+        changePercent: 9,
+        netBuy: 80_000_000,
+        buy: 100_000_000,
+        sell: 20_000_000,
+      },
+      {
+        id: 'rise',
+        date: '2026-07-30',
+        code: '600002',
+        name: '涨幅上榜',
+        reason: '日涨幅偏离值达到7%的前5只证券',
+        changePercent: 10,
+        netBuy: 120_000_000,
+        buy: 150_000_000,
+        sell: 30_000_000,
+      },
+      {
+        id: 'three-days',
+        date: '2026-07-30',
+        code: '600003',
+        name: '连涨上榜',
+        reason: '连续三个交易日内，涨幅偏离值累计达到20%的证券',
+        changePercent: 10,
+        netBuy: -10_000_000,
+        buy: 30_000_000,
+        sell: 40_000_000,
+      },
+    ];
 
     expect(buildDiscoveryDragonTigerForTest(rows)).toEqual({
       inst: [],
-      hot: [],
-      first: [],
+      hot: [
+        { code: '600002', name: '涨幅上榜', changePercent: 10, netBuy: 120_000_000, reason: '日涨幅偏离值达到7%的前5只证券' },
+        { code: '600001', name: '换手上榜', changePercent: 9, netBuy: 80_000_000, reason: '日换手率达到20%的前5只证券' },
+      ],
+      first: [
+        { code: '600002', name: '涨幅上榜', changePercent: 10, netBuy: 120_000_000, reason: '日涨幅偏离值达到7%的前5只证券' },
+      ],
     });
   });
 
@@ -225,7 +254,9 @@ describe('发现页股票和资金流工具', () => {
         date: '2026-07-31',
         weekday: '星期五',
         inst: [],
-        hot: [],
+        hot: [
+          { code: '600001', name: '首板股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' },
+        ],
         first: [
           { code: '600001', name: '首板股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' },
         ],
@@ -306,7 +337,7 @@ describe('发现页股票和资金流工具', () => {
     expect(selected.tradeDate).toBe('2026-07-30');
     expect(selected.dragonTiger).toEqual({
       inst: [{ code: '600002', name: '前日股', changePercent: 8, netBuy: 80_000_000, reason: '机构专用' }],
-      hot: [],
+      hot: [{ code: '600002', name: '前日股', changePercent: 8, netBuy: 80_000_000, reason: '机构专用' }],
       first: [],
     });
   });

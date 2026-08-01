@@ -45,8 +45,8 @@ export function DragonTiger({ inst, hot, first, history, selectedDate }: IDragon
   const currentFirst = first;
   const tabs = [
     { key: 'inst', label: '机构榜', rows: currentInst },
-    { key: 'hot', label: '游资营业部', rows: currentHot },
-    { key: 'first', label: '首板', rows: currentFirst },
+    { key: 'hot', label: '净买入榜', rows: currentHot },
+    { key: 'first', label: '涨幅上榜', rows: currentFirst },
   ] as const;
   const [activeTab, setActiveTab] = useState<string>('inst');
   const activeRows = tabs.find((t) => t.key === activeTab)?.rows ?? [];

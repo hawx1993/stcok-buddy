@@ -341,7 +341,7 @@ export function DiscoveryView() {
   };
 
   return (
-    <section className={cx(styles.wrap, tradeDateOptions.length && styles.wrapWithTradeDate)}>
+    <section className={cx(styles.wrap, tradeDateOptions.length > 0 && styles.wrapWithTradeDate)}>
       {/* ── Topbar ── */}
       <div className={cx(styles.topbar, hasScrolled && styles.topbarScrolled, isLeftSidebarCollapsed && styles.topbarCollapsed)}>
         <button className={styles.backBtn} onClick={() => setMainView('chat')} type='button'>

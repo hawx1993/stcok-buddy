@@ -279,11 +279,19 @@ function selectDragonTigerRows(
   return items.filter(isPreferred).slice(0, DRAGON_TIGER_TAB_SIZE).map(toDiscoveryDragonTigerItem);
 }
 
+function selectDragonTigerNetBuyRows(items: TDailyDragonTigerItem[]): TDiscoveryDragonTigerItem[] {
+  return [...items]
+    .filter((item) => item.netBuy > 0)
+    .sort((left, right) => right.netBuy - left.netBuy || left.code.localeCompare(right.code))
+    .slice(0, DRAGON_TIGER_TAB_SIZE)
+    .map(toDiscoveryDragonTigerItem);
+}
+
 function buildDiscoveryDragonTiger(items: TDailyDragonTigerItem[]): NonNullable<IDiscoverySnapshot['dragonTiger']> {
   return {
     inst: selectDragonTigerRows(items, (item) => /机构|专用|基金|券商|保险|QFII/.test(item.reason)),
-    hot: selectDragonTigerRows(items, (item) => /游资|营业部|席位|大户/.test(item.reason)),
-    first: selectDragonTigerRows(items, (item) => /首次|首榜|首板|一日/.test(item.reason)),
+    hot: selectDragonTigerNetBuyRows(items),
+    first: selectDragonTigerRows(items, (item) => /首次|首榜|首板|一日|日涨幅偏离值/.test(item.reason)),
   };
 }
 
