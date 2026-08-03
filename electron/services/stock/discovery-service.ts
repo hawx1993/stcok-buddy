@@ -4,7 +4,7 @@ import {
   getBatchQuotes,
   getAllMarketQuoteRows,
   getMarketPageSnapshot,
-  listRecentDragonTigerDays,
+  listDragonTigerByDate,
   listEastmoneySurgeByDate,
 } from './stock-client.js';
 import { listFavoriteStocks, getConfig } from '../config-store.js';
@@ -17,7 +17,7 @@ import {
   writeDiscoverySnapshot,
   getStockChip,
 } from '../market-data/market-data-store.js';
-import { fetchMarketIndex, normalizeIndexDate } from './market-indices.js';
+import { fetchMarketIndex } from './market-indices.js';
 import { isRemoteTradingDay, previousRemoteTradingDay } from '../market-data/providers.js';
 import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
 import { formatMoney } from './format.js';
@@ -57,7 +57,7 @@ type TStockItem = {
   industry?: string;
 };
 type TRealtimeQuote = Awaited<ReturnType<typeof getBatchQuotes>>[number];
-type TDailyDragonTigerGroup = Awaited<ReturnType<typeof listRecentDragonTigerDays>>[number];
+type TDailyDragonTigerGroup = Awaited<ReturnType<typeof listDragonTigerByDate>>;
 type TDiscoveryDragonTigerItem = { code: string; name: string; changePercent?: number; netBuy: number; reason: string };
 type TDiscoveryDragonTigerDay = {
   date: string;
@@ -329,7 +329,7 @@ function mapFocusItem(item: IMarketReviewWatchItem): NonNullable<IDiscoverySnaps
 }
 
 const DRAGON_TIGER_TAB_SIZE = 20;
-type TDailyDragonTigerItem = Awaited<ReturnType<typeof listRecentDragonTigerDays>>[number]['items'][number];
+type TDailyDragonTigerItem = Awaited<ReturnType<typeof listDragonTigerByDate>>['items'][number];
 
 function toDiscoveryDragonTigerItem(item: TDailyDragonTigerItem): TDiscoveryDragonTigerItem {
   return {
@@ -371,7 +371,7 @@ function formatDragonTigerWeekday(date: string): string {
 }
 
 function buildDiscoveryDragonTigerHistory(
-  groups: Awaited<ReturnType<typeof listRecentDragonTigerDays>>,
+  groups: Array<Awaited<ReturnType<typeof listDragonTigerByDate>>>,
 ): TDiscoveryDragonTigerDay[] {
   return groups.map((group) => ({
     date: group.date,
@@ -715,36 +715,14 @@ async function withRealtimeQuoteFields(snapshot: IDiscoverySnapshot): Promise<ID
   return next;
 }
 
-interface IDiscoverySnapshotBuildResult {
-  snapshot: IDiscoverySnapshot;
-  historicalSnapshots: IDiscoverySnapshot[];
-}
-
 async function writeDiscoverySnapshotCaches(
   snapshot: IDiscoverySnapshot,
-  historicalSnapshots: IDiscoverySnapshot[] = [],
 ) {
   await writeDiscoverySnapshot({ snapshot: { ...snapshot }, updatedAt: snapshot.generatedAt }, DISCOVERY_SNAPSHOT_KEY);
   if (isIsoTradeDate(snapshot.tradeDate)) {
     await writeDiscoverySnapshot(
       { snapshot: { ...snapshot }, updatedAt: snapshot.generatedAt },
       discoveryTradeDateSnapshotKey(snapshot.tradeDate),
-    );
-  }
-  for (const historicalSnapshot of historicalSnapshots) {
-    if (!isIsoTradeDate(historicalSnapshot.tradeDate) || historicalSnapshot.tradeDate === snapshot.tradeDate) continue;
-    await writeDiscoverySnapshot(
-      { snapshot: historicalSnapshot, updatedAt: historicalSnapshot.generatedAt },
-      discoveryTradeDateSnapshotKey(historicalSnapshot.tradeDate),
-    );
-  }
-  const historicalDates = new Set(historicalSnapshots.map((item) => item.tradeDate));
-  for (const day of snapshot.dragonTigerHistory?.slice(0, DISCOVERY_RECENT_TRADE_DAYS) ?? []) {
-    if (!isIsoTradeDate(day.date) || day.date === snapshot.tradeDate || historicalDates.has(day.date)) continue;
-    const selected = withSelectedDiscoveryTradeDate(snapshot, day.date);
-    await writeDiscoverySnapshot(
-      { snapshot: selected, updatedAt: snapshot.generatedAt },
-      discoveryTradeDateSnapshotKey(day.date),
     );
   }
 }
@@ -755,8 +733,8 @@ function refreshDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
   if (discoveryRefreshPromise) return discoveryRefreshPromise;
   lastDiscoveryRefreshStartedAt = Date.now();
   discoveryRefreshPromise = buildDiscoverySnapshotFresh()
-    .then(async ({ snapshot, historicalSnapshots }) => {
-      await writeDiscoverySnapshotCaches(snapshot, historicalSnapshots);
+    .then(async (snapshot) => {
+      await writeDiscoverySnapshotCaches(snapshot);
       return snapshot;
     })
     .finally(() => {
@@ -787,6 +765,30 @@ export function stopDiscoveryRefreshLoop() {
   discoveryRefreshTimer = undefined;
 }
 
+async function buildAndCacheDiscoverySnapshotForTradeDate(tradeDate: string): Promise<IDiscoverySnapshot> {
+  const [poolResult, dragonTigerResult, tradeDatesResult] = await Promise.allSettled([
+    listEastmoneySurgeByDate(compactTradeDate(tradeDate)),
+    listDragonTigerByDate(tradeDate),
+    listRecentTradingDates(await resolveTradingDate(9 * 60 + 30)),
+  ]);
+  const tradeDates = tradeDatesResult.status === 'fulfilled' ? tradeDatesResult.value.map(toTradeDateOption) : [toTradeDateOption(tradeDate)];
+  const dragonTigerGroup = dragonTigerResult.status === 'fulfilled' ? dragonTigerResult.value : { date: tradeDate, items: [] };
+  const dragonTigerHistory = buildDiscoveryDragonTigerHistory([dragonTigerGroup]);
+  const snapshot = buildDiscoverySnapshotFromHistoricalPools({
+    tradeDate,
+    generatedAt: new Date().toISOString(),
+    poolItems: poolResult.status === 'fulfilled' ? poolResult.value : [],
+    dragonTiger: pickCurrentDragonTigerFromHistory(dragonTigerHistory, tradeDate),
+    dragonTigerHistory,
+    tradeDates,
+  });
+  await writeDiscoverySnapshot(
+    { snapshot, updatedAt: snapshot.generatedAt },
+    discoveryTradeDateSnapshotKey(tradeDate),
+  );
+  return snapshot;
+}
+
 export async function getDiscoverySnapshot(options: IDiscoverySnapshotOptions = {}): Promise<IDiscoverySnapshot> {
   ensureDiscoveryRefreshLoop();
   const requestedTradeDate = isIsoTradeDate(options.tradeDate) ? options.tradeDate : undefined;
@@ -798,12 +800,8 @@ export async function getDiscoverySnapshot(options: IDiscoverySnapshotOptions = 
 
     if (await shouldDeferDiscoveryRefresh()) return buildDiscoveryHistoryLoadingSnapshot(requestedTradeDate);
 
-    await refreshDiscoverySnapshot();
-    const refreshedCache = await readDiscoverySnapshot(discoveryTradeDateSnapshotKey(requestedTradeDate));
-    const refreshedSnapshot = refreshedCache ? toCachedDiscoverySnapshot(refreshedCache.snapshot) : undefined;
-    if (refreshedSnapshot) return withRealtimeQuoteFields(refreshedSnapshot);
-
-    return buildDiscoveryHistoryLoadingSnapshot(requestedTradeDate);
+    const snapshot = await buildAndCacheDiscoverySnapshotForTradeDate(requestedTradeDate);
+    return withRealtimeQuoteFields(snapshot);
   }
 
   if (await shouldHoldDiscoverySnapshotUntil930()) return buildDiscoveryWaitingSnapshot();
@@ -2273,75 +2271,20 @@ async function buildMarketSummary(
   };
 }
 
-function historyBeforeTimestamp(tradeDate: string): number | undefined {
-  const timestamp = new Date(`${tradeDate}T00:00:00+08:00`).getTime() + 24 * 60 * 60 * 1000;
-  return Number.isFinite(timestamp) ? timestamp : undefined;
-}
-
-async function fetchHistoricalIndices(tradeDate: string): Promise<IMarketSummary['indices']> {
-  const beforeTimestamp = historyBeforeTimestamp(tradeDate);
-  if (beforeTimestamp === undefined) return [];
-  const codes = ['sh000001', 'sz399001', 'sz399006', 'bj899050'];
-  const results = await Promise.all(
-    codes.map(async (code) => {
-      try {
-        const snapshot = await fetchMarketIndex(code, '1d', 120, beforeTimestamp);
-        const point = snapshot?.minutes.find((item) => normalizeIndexDate(item.time) === tradeDate);
-        if (!snapshot || !point) return undefined;
-        return {
-          code,
-          name: indexCodeToName(code),
-          price: point.close,
-          changePercent: point.changePercent ?? 0,
-        };
-      } catch (error) {
-        console.warn(`[discovery] failed to fetch historical index ${code} ${tradeDate}`, error);
-        return undefined;
-      }
-    }),
-  );
-  return results.filter((item): item is NonNullable<typeof item> => Boolean(item));
-}
-
-async function buildHistoricalMarketSummaryExtras(
-  dates: string[],
-): Promise<Map<string, Pick<IHistoricalDiscoveryBuildInput, 'indices' | 'mainFundFlow' | 'northFundFlow'>>> {
-  const entries = await Promise.all(
-    dates.map(async (date) => {
-      const [indicesResult, mainFundFlowResult, northFundFlowResult] = await Promise.allSettled([
-        fetchHistoricalIndices(date),
-        fetchMainFundFlow(date),
-        fetchNorthFundFlow(date),
-      ]);
-      return [
-        date,
-        {
-          indices: indicesResult.status === 'fulfilled' ? indicesResult.value : [],
-          mainFundFlow: mainFundFlowResult.status === 'fulfilled' ? mainFundFlowResult.value : null,
-          northFundFlow: northFundFlowResult.status === 'fulfilled' ? northFundFlowResult.value : null,
-        },
-      ] as const;
-    }),
-  );
-  return new Map(entries);
-}
-
-async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshotBuildResult> {
+async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
   const favStocks = await listFavoriteStocks();
   const favCodes = favStocks.map((f) => f.code);
   const currentTradeDate = await resolveTradingDate(9 * 60 + 30);
-  const recentTradeDates = await listRecentTradingDates(currentTradeDate);
-  const tradeDates = recentTradeDates.map(toTradeDateOption);
+  const tradeDates = (await listRecentTradingDates(currentTradeDate)).map(toTradeDateOption);
 
-  const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool, quoteLimitDowns, historicalPoolGroups] =
+  const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool, quoteLimitDowns] =
     await Promise.allSettled([
       getMarketReview(),
       getMarketPageSnapshot('sh-main'),
       getMarketPageSnapshot('sz-main'),
-      listRecentDragonTigerDays(DISCOVERY_RECENT_TRADE_DAYS),
+      listDragonTigerByDate(currentTradeDate),
       listEastmoneySurgeByDate(compactTradeDate(currentTradeDate)),
       listLimitDownStocksFromQuotes(),
-      Promise.all(recentTradeDates.map((date) => listEastmoneySurgeByDate(compactTradeDate(date)))),
     ]);
 
   // ── Indices ──
@@ -2381,8 +2324,7 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshotBuildRes
   }
 
   // ── Sentiment stocks from Eastmoney full-day pool ──
-  const historicalPoolItems = historicalPoolGroups.status === 'fulfilled' ? historicalPoolGroups.value : [];
-  const poolItems = eastmoneyPool.status === 'fulfilled' ? eastmoneyPool.value : (historicalPoolItems[0] ?? []);
+  const poolItems = eastmoneyPool.status === 'fulfilled' ? eastmoneyPool.value : [];
   const sentimentStocks: IDiscoverySnapshot['sentimentStocks'] = { zt: [], dt: [], zb: [] };
   const consecutiveStocks: TStockItem[] = [];
   for (const item of poolItems) {
@@ -2403,19 +2345,15 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshotBuildRes
   }
 
   // ── Yesterday pool for 昨日涨停指数 / 昨日连板指数 ──
-  const yesterdayPools = resolveYesterdaySentimentPools(recentTradeDates, historicalPoolItems, currentTradeDate);
-  const yesterdayZt = yesterdayPools.zt;
-  const yesterdayLb = yesterdayPools.lb;
+  const yesterdayZt: TStockItem[] = [];
+  const yesterdayLb: TStockItem[] = [];
 
   // ── Dragon tiger ──
   const tradeDate = reviewData?.tradeDate ?? currentTradeDate;
-  const dragonTigerGroups = dragonTiger.status === 'fulfilled' ? dragonTiger.value : [];
-  const dragonTigerGroupsByDate = new Map(dragonTigerGroups.map((group) => [group.date, group]));
-  const dragonTigerHistory = buildDiscoveryDragonTigerHistory(
-    recentTradeDates.map(
-      (date) => dragonTigerGroupsByDate.get(date) ?? ({ date, items: [] } satisfies TDailyDragonTigerGroup),
-    ),
-  );
+  const dragonTigerGroup = dragonTiger.status === 'fulfilled' ? dragonTiger.value : { date: tradeDate, items: [] };
+  const dragonTigerHistory = buildDiscoveryDragonTigerHistory([
+    dragonTigerGroup.date === tradeDate ? dragonTigerGroup : { date: tradeDate, items: [] },
+  ]);
   const discoveryDragonTiger = pickCurrentDragonTigerFromHistory(dragonTigerHistory, tradeDate);
 
   // ── Watchlist quotes ──
@@ -2548,23 +2486,5 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshotBuildRes
     watchlistQuotes,
   };
 
-  const dragonTigerHistoryByDate = new Map(dragonTigerHistory.map((day) => [day.date, day]));
-  const historicalPoolItemsByDate = new Map(
-    recentTradeDates.map((date, index) => [date, historicalPoolItems[index] ?? []]),
-  );
-  const historicalDates = recentTradeDates.filter((date) => date !== snapshot.tradeDate);
-  const historicalMarketSummaryExtras = await buildHistoricalMarketSummaryExtras(historicalDates);
-  const historicalSnapshots = historicalDates.map((date) =>
-    buildDiscoverySnapshotFromHistoricalPools({
-      tradeDate: date,
-      generatedAt: snapshot.generatedAt,
-      poolItems: historicalPoolItemsByDate.get(date) ?? [],
-      dragonTiger: dragonTigerHistoryByDate.get(date),
-      dragonTigerHistory,
-      tradeDates,
-      ...historicalMarketSummaryExtras.get(date),
-    }),
-  );
-
-  return { snapshot, historicalSnapshots };
+  return snapshot;
 }

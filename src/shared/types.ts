@@ -1008,6 +1008,7 @@ export interface StocksenseApi {
   listSurgeHistoryDates(): Promise<string[]>;
   listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;
   listStockSurgeEvents(code: string): Promise<StockSurgeEvent[]>;
+  ensureMarketDataReady(): Promise<void>;
   getMarketDataSyncStatus(): Promise<MarketDataSyncStatus>;
   startMarketDataSync(): Promise<MarketDataSyncStatus>;
   retryMarketDataFailures(): Promise<MarketDataSyncStatus>;

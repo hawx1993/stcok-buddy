@@ -609,7 +609,7 @@ describe('发现页股票和资金流工具', () => {
     expect(snapshot).not.toHaveProperty('dragonTiger');
   });
 
-  it('将近一个月龙虎榜历史按交易日写入发现页 DuckDB 快照', async () => {
+  it('发现页只写入当前点击交易日快照，不批量写入近一个月历史日历', async () => {
     mockedWriteDiscoverySnapshot.mockResolvedValue(undefined);
     const history = Array.from({ length: 24 }, (_, index) => {
       const date = new Date('2026-07-31T00:00:00.000Z');
@@ -631,12 +631,13 @@ describe('发现页股票和资金流工具', () => {
       dragonTigerHistory: history,
     });
 
+    expect(mockedWriteDiscoverySnapshot).toHaveBeenCalledTimes(2);
     expect(mockedWriteDiscoverySnapshot).toHaveBeenCalledWith(expect.any(Object), 'default');
     expect(mockedWriteDiscoverySnapshot).toHaveBeenCalledWith(expect.any(Object), 'trade-date:2026-07-31');
-    expect(mockedWriteDiscoverySnapshot).toHaveBeenCalledWith(expect.any(Object), 'trade-date:2026-07-24');
     const cacheKeys = mockedWriteDiscoverySnapshot.mock.calls.map((call) => call[1]);
+    expect(cacheKeys).not.toContain('trade-date:2026-07-24');
     const uniqueTradeDateKeys = new Set(cacheKeys.filter((key) => String(key).startsWith('trade-date:')));
-    expect(uniqueTradeDateKeys).toHaveLength(20);
+    expect(uniqueTradeDateKeys).toEqual(new Set(['trade-date:2026-07-31']));
   });
 
   it('历史涨停池生成明日预判观察项，空池保持无预判空态', () => {

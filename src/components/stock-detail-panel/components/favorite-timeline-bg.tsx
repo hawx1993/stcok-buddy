@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import type { IStockTimelinePoint } from '../../../shared/types';
-import { A_SHARE_TOTAL_TRADING_MINUTES, getAShareTradingMinuteOffset } from '../../../shared/market-time';
+import { getStockComputeWorker } from '../../../workers/stock-compute-client';
+import type { IFavoriteTimelinePath } from '../../../workers/stock-compute-types';
 import cx from '../../../shared/cx';
 import styles from '../index.module.scss';
 
@@ -11,10 +12,26 @@ interface IFavoriteTimelineBgProps {
 
 const VIEWBOX_WIDTH = 240;
 const VIEWBOX_HEIGHT = 72;
-const PADDING = 6;
 
 export function FavoriteTimelineBg({ points, isUp }: IFavoriteTimelineBgProps) {
-  const path = useMemo(() => buildTimelinePath(points), [points]);
+  const [path, setPath] = useState<IFavoriteTimelinePath>();
+
+  useEffect(() => {
+    let alive = true;
+    getStockComputeWorker()
+      .buildFavoriteTimelinePath(points)
+      .then((next) => {
+        if (alive) setPath(next);
+      })
+      .catch((error: unknown) => {
+        console.error('[favorite-timeline] worker build path failed', error);
+        if (alive) setPath(undefined);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [points]);
+
   if (!path) return null;
 
   return (
@@ -29,35 +46,4 @@ export function FavoriteTimelineBg({ points, isUp }: IFavoriteTimelineBgProps) {
       <path d={path.line} className={styles['favorite-timeline-line']} />
     </svg>
   );
-}
-
-function buildTimelinePath(points: IStockTimelinePoint[] | undefined) {
-  const timelinePoints = (points ?? [])
-    .map((point) => {
-      const offset = getAShareTradingMinuteOffset(point.time);
-      return offset === undefined || !Number.isFinite(point.price) ? undefined : { price: point.price, offset };
-    })
-    .filter((point): point is { price: number; offset: number } => Boolean(point));
-  if (timelinePoints.length < 2) return undefined;
-  const prices = timelinePoints.map((point) => point.price);
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const range = max - min || 1;
-  const coordinates = timelinePoints.map((point) => {
-    const x = PADDING + (point.offset / A_SHARE_TOTAL_TRADING_MINUTES) * (VIEWBOX_WIDTH - PADDING * 2);
-    const y = PADDING + ((max - point.price) / range) * (VIEWBOX_HEIGHT - PADDING * 2);
-    return `${round(x)},${round(y)}`;
-  });
-  const line = `M ${coordinates.join(' L ')}`;
-  const firstX = PADDING;
-  const lastX = PADDING + (timelinePoints[timelinePoints.length - 1].offset / A_SHARE_TOTAL_TRADING_MINUTES) * (VIEWBOX_WIDTH - PADDING * 2);
-  const baseline = VIEWBOX_HEIGHT - PADDING;
-  return {
-    line,
-    area: `${line} L ${round(lastX)},${baseline} L ${firstX},${baseline} Z`,
-  };
-}
-
-function round(value: number) {
-  return Number(value.toFixed(2));
 }

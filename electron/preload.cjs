@@ -59,6 +59,7 @@ var api = {
   listSurgeHistoryDates: () => import_electron.ipcRenderer.invoke("hot:historyDates"),
   listSurgeHistory: (date, offset, limit) => import_electron.ipcRenderer.invoke("hot:history", date, offset, limit),
   listStockSurgeEvents: (code) => import_electron.ipcRenderer.invoke("stock:surgeEvents", code),
+  ensureMarketDataReady: () => import_electron.ipcRenderer.invoke("marketData:ensureReady"),
   getMarketDataSyncStatus: () => import_electron.ipcRenderer.invoke("marketData:getStatus"),
   startMarketDataSync: () => import_electron.ipcRenderer.invoke("marketData:startSync"),
   retryMarketDataFailures: () => import_electron.ipcRenderer.invoke("marketData:retryFailures"),

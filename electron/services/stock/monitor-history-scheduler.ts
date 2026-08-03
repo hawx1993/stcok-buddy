@@ -4,18 +4,24 @@ import { captureMonitorEvents, persistMonitorCapture } from './monitor-service.j
 
 const CAPTURE_INTERVAL_MS = 20_000;
 const FLUSH_INTERVAL_MS = 20_000;
+const INITIAL_CAPTURE_DELAY_MS = 20_000;
+const SCHEDULED_MONITOR_CATEGORIES = ['large-order', 'ai-opportunity', 'ai-warning'] as const;
 let isCapturing = false;
 let isFlushing = false;
 let isStopped = false;
 let captureTimer: NodeJS.Timeout | undefined;
 let flushTimer: NodeJS.Timeout | undefined;
+let initialCaptureTimer: NodeJS.Timeout | undefined;
 let capturePromise: Promise<void> = Promise.resolve();
 let flushPromise: Promise<void> = Promise.resolve();
 
 export function startMonitorHistoryScheduler() {
-  if (captureTimer || flushTimer) return;
+  if (captureTimer || flushTimer || initialCaptureTimer) return;
   isStopped = false;
-  void captureIfTradingTime();
+  initialCaptureTimer = setTimeout(() => {
+    initialCaptureTimer = undefined;
+    void captureIfTradingTime();
+  }, INITIAL_CAPTURE_DELAY_MS);
   void flushQueuedEvents();
   captureTimer = setInterval(() => void captureIfTradingTime(), CAPTURE_INTERVAL_MS);
   flushTimer = setInterval(() => void flushQueuedEvents(), FLUSH_INTERVAL_MS);
@@ -25,12 +31,14 @@ export function stopMonitorHistoryScheduler() {
   isStopped = true;
   if (captureTimer) clearInterval(captureTimer);
   if (flushTimer) clearInterval(flushTimer);
+  if (initialCaptureTimer) clearTimeout(initialCaptureTimer);
   captureTimer = undefined;
   flushTimer = undefined;
+  initialCaptureTimer = undefined;
 }
 
 export function isMonitorHistorySchedulerRunning() {
-  return Boolean(captureTimer || flushTimer) && !isStopped;
+  return Boolean(captureTimer || flushTimer || initialCaptureTimer) && !isStopped;
 }
 
 export async function waitForMonitorHistoryScheduler() {
@@ -48,7 +56,7 @@ function captureIfTradingTime(now = new Date()) {
 async function runCapture(now: Date) {
   isCapturing = true;
   try {
-    const events = await captureMonitorEvents(now);
+    const events = await captureMonitorEvents(now, [...SCHEDULED_MONITOR_CATEGORIES]);
     await persistMonitorCapture(events, now);
   } catch (error) {
     console.warn('[monitor-history] capture failed', error);

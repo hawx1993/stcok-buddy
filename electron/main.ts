@@ -5,15 +5,11 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { registerIpcHandlers } from './ipc.js';
-import { closeMarketDataStore, initializeMarketDataStore } from './services/market-data/market-data-store.js';
-import { stopMarketDataScheduler, startMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
-import {
-  startMarketNewsSummaryScheduler,
-  stopMarketNewsSummaryScheduler,
-} from './services/market-data/market-news-summary-scheduler.js';
+import { closeMarketDataStore } from './services/market-data/market-data-store.js';
+import { ensureMarketDataRuntime, stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
 import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler, waitForSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
-import { stopDiscoveryRefreshLoop, ensureRecentDiscoverySnapshots } from './services/stock/discovery-service.js';
+import { stopDiscoveryRefreshLoop } from './services/stock/discovery-service.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
 import { startMonitorHistoryScheduler, stopMonitorHistoryScheduler, waitForMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
@@ -72,7 +68,6 @@ function prepareForUpdateInstall() {
   cleanupDone = true;
   if (forceExitTimer) clearTimeout(forceExitTimer);
   stopMarketDataScheduler();
-  stopMarketNewsSummaryScheduler();
   stopDiscoveryRefreshLoop();
   stopSurgeHistoryScheduler();
   stopMonitorHistoryScheduler();
@@ -118,16 +113,10 @@ app.whenReady().then(() => {
   configureAboutPanel();
   setInstallUpdateHandler(prepareForUpdateInstall);
   initializeQuoteStore();
+  void ensureMarketDataRuntime().catch((error) => {
+    console.warn('[market-data] runtime initialization failed', error);
+  });
   registerIpcHandlers();
-  void initializeMarketDataStore()
-    .then(() => {
-      startMarketDataScheduler();
-      void ensureRecentDiscoverySnapshots().catch((error) => console.warn('[discovery] recent snapshot preload failed', error));
-    })
-    .catch((error) => console.warn('[market-data] initialization failed', error));
-  void startMarketNewsSummaryScheduler().catch((error) =>
-    console.warn('[news-summary] scheduler initialization failed', error),
-  );
   ensureSurgeHistoryCapture();
   startMonitorHistoryScheduler();
   createWindow();
@@ -148,7 +137,6 @@ app.on('window-all-closed', () => {
 app.on('before-quit', (event) => {
   if (installingUpdate) return;
   stopMarketDataScheduler();
-  stopMarketNewsSummaryScheduler();
   stopDiscoveryRefreshLoop();
   stopSurgeHistoryScheduler();
   stopMonitorHistoryScheduler();

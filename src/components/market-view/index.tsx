@@ -193,11 +193,16 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
       }
     };
     setLoading(!rowsByTabRef.current[activeTab]?.length);
-    const loadTab = (tab: MarketTab, done = tab === activeTab) =>
-      api
-        .getMarketPageSnapshot(tab, indexPeriod)
-        .then((data) => applySnapshot(data, done))
-        .catch(console.error);
+    const loadTab = async (tab: MarketTab, done = tab === activeTab) => {
+      try {
+        await api.ensureMarketDataReady();
+        const data = await api.getMarketPageSnapshot(tab, indexPeriod);
+        applySnapshot(data, done);
+      } catch (error) {
+        console.error(error);
+        if (alive && tab === activeTab) setLoading(false);
+      }
+    };
     refreshActiveTabRef.current = () => {
       if (alive) void loadTab(activeTab);
     };

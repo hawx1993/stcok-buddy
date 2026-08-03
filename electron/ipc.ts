@@ -98,6 +98,7 @@ import {
   initializeMarketDataStore,
   resetMarketDataStore,
 } from './services/market-data/market-data-store.js';
+import { ensureMarketDataRuntime } from './services/market-data/market-data-scheduler.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
 import { testModelConnection } from './services/llm/index.js';
 import {
@@ -213,9 +214,10 @@ export function registerIpcHandlers() {
   ipcMain.handle('stock:getChipDistribution', (_event, symbol: string) => getChipDistribution(symbol));
   ipcMain.handle('stock:getBatchQuotes', (_event, codes: string[]) => getBatchQuotes(codes));
   ipcMain.handle('stock:getTimelines', (_event, codes: string[]) => getStockTimelines(codes));
-  ipcMain.handle('market:getPageSnapshot', (_event, tab: MarketTab, period?: MarketIndexPeriod) =>
-    getMarketPageSnapshot(tab, period),
-  );
+  ipcMain.handle('market:getPageSnapshot', async (_event, tab: MarketTab, period?: MarketIndexPeriod) => {
+    await ensureMarketDataRuntime();
+    return getMarketPageSnapshot(tab, period);
+  });
   ipcMain.handle('dragonTiger:getSnapshot', (_event, range?: TDragonTigerRange) => getDragonTigerSnapshot(range));
   ipcMain.handle('discovery:getSnapshot', (_event, options?: Parameters<typeof getDiscoverySnapshot>[0]) =>
     getDiscoverySnapshot(options),
@@ -243,13 +245,27 @@ export function registerIpcHandlers() {
     ensureSurgeHistoryCapture();
     return listStockSurgeEvents(code);
   });
-  ipcMain.handle('marketData:getStatus', () => getMarketDataSyncStatus());
-  ipcMain.handle('marketData:startSync', () => startMarketDataSync(true));
-  ipcMain.handle('marketData:retryFailures', () => retryMarketDataFailures());
+  ipcMain.handle('marketData:ensureReady', () => ensureMarketDataRuntime());
+  ipcMain.handle('marketData:getStatus', async () => {
+    await ensureMarketDataRuntime();
+    return getMarketDataSyncStatus();
+  });
+  ipcMain.handle('marketData:startSync', async () => {
+    await ensureMarketDataRuntime();
+    return startMarketDataSync(true);
+  });
+  ipcMain.handle('marketData:retryFailures', async () => {
+    await ensureMarketDataRuntime();
+    return retryMarketDataFailures();
+  });
   ipcMain.handle('marketData:cancelSync', () => requestMarketDataSyncStop());
-  ipcMain.handle('marketData:getStats', () => getMarketDataStats());
+  ipcMain.handle('marketData:getStats', async () => {
+    await ensureMarketDataRuntime();
+    return getMarketDataStats();
+  });
   // Data sync handlers
   ipcMain.handle('dataSync:syncKlines', async () => {
+    await ensureMarketDataRuntime();
     // ponytail: if a sync is already running (e.g. started by the scheduler),
     // ask it to stop at its next checkpoint so the user's explicit force-sync
     // can take over. startMarketDataSync(true) then waits for the old run to

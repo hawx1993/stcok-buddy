@@ -92,6 +92,16 @@ export async function listDailyDragonTiger(): Promise<DailyDragonTigerItem[]> {
   return latest?.items ?? [];
 }
 
+export async function listDragonTigerByDate(tradeDate: string): Promise<DailyDragonTigerGroup> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tradeDate)) return { date: tradeDate, items: [] };
+  const compactDate = tradeDate.replaceAll('-', '');
+  const rows = await fetchDetailRows('today', compactDate, compactDate);
+  return {
+    date: tradeDate,
+    items: rows.filter((row) => row.date === tradeDate).map(toDailyDragonTigerItem),
+  };
+}
+
 export async function listRecentDragonTigerDays(limit = 5): Promise<DailyDragonTigerGroup[]> {
   const requestRange = getRecentDragonTigerHistoryRange();
   const rows = await fetchDetailRows('30d', requestRange.startDate, requestRange.endDate);

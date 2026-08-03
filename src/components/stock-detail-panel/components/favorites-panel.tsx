@@ -1,6 +1,6 @@
 import { message as antdMessage, Switch } from 'antd';
 import { Pin, PinOff, Star, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
 import { isChinaMarketOpen } from '../../../shared/market-time';
@@ -15,25 +15,98 @@ interface IFavoritesPanelProps {
   isActive: boolean;
 }
 
+const FAVORITE_QUOTE_REFRESH_INTERVAL_MS = 15_000;
+const FAVORITE_TIMELINE_REFRESH_INTERVAL_MS = 60_000;
+
 export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<IntersectionObserver>();
+  const quoteTimerRef = useRef<number>();
+  const timelineTimerRef = useRef<number>();
   const [quotes, setQuotes] = useState<Record<string, StockDetail>>({});
   const [timelines, setTimelines] = useState<Record<string, IStockTimelineSnapshot>>({});
-  const [showTimeline, setShowTimeline] = useState(true);
-  const quoteTimerRef = useRef<number>();
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [visibleCodes, setVisibleCodes] = useState<string[]>([]);
   const favoriteStocks = useAppDataStore((state) => state.favoriteStocks);
   const setFavoriteStocks = useAppDataStore((state) => state.setFavoriteStocks);
   const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
   const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
   const setRightPanelTab = useAppUiStore((state) => state.setRightPanelTab);
   const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const favoriteCodes = useMemo(() => favoriteStocks.map((item) => item.code), [favoriteStocks]);
+  const visibleTimelineCodes = useMemo(
+    () => visibleCodes.filter((code) => favoriteCodes.includes(code)),
+    [favoriteCodes, visibleCodes],
+  );
+  const visibleTimelineCodeSet = useMemo(() => new Set(visibleTimelineCodes), [visibleTimelineCodes]);
+
+  const handleFavoriteVisibilityChange = useCallback((code: string, visible: boolean) => {
+    setVisibleCodes((current) => {
+      const hasCode = current.includes(code);
+      if (visible) return hasCode ? current : [...current, code];
+      if (!hasCode) return current;
+      return current.filter((item) => item !== code);
+    });
+  }, []);
 
   useEffect(() => {
-    if (!isActive || !favoriteStocks.length) return;
+    setVisibleCodes((current) => current.filter((code) => favoriteCodes.includes(code)));
+    setTimelines((current) => {
+      const next: Record<string, IStockTimelineSnapshot> = {};
+      Object.entries(current).forEach(([code, timeline]) => {
+        if (favoriteCodes.includes(code)) next[code] = timeline;
+      });
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
+    });
+  }, [favoriteCodes]);
+
+  useEffect(() => {
+    if (!showTimeline) {
+      setTimelines({});
+      setVisibleCodes([]);
+    }
+  }, [showTimeline]);
+
+  useEffect(() => {
+    if (!showTimeline || !listRef.current) {
+      observerRef.current?.disconnect();
+      observerRef.current = undefined;
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const code = (entry.target as HTMLElement).dataset.favoriteCode;
+          if (code) handleFavoriteVisibilityChange(code, entry.isIntersecting);
+        });
+      },
+      { root: listRef.current, rootMargin: '48px 0px', threshold: 0.01 },
+    );
+    observerRef.current = observer;
+    listRef.current.querySelectorAll<HTMLElement>('[data-favorite-code]').forEach((element) => observer.observe(element));
+
+    return () => {
+      observer.disconnect();
+      if (observerRef.current === observer) observerRef.current = undefined;
+    };
+  }, [handleFavoriteVisibilityChange, showTimeline]);
+
+  const observeFavoriteItem = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (!element || !showTimeline) return;
+      observerRef.current?.observe(element);
+    },
+    [showTimeline],
+  );
+
+  useEffect(() => {
+    if (!isActive || !favoriteCodes.length) return;
     let alive = true;
 
     const refreshQuotes = () => {
       getStocksenseApi()
-        .getBatchQuotes(favoriteStocks.map((item) => item.code))
+        .getBatchQuotes(favoriteCodes)
         .then((rows) => {
           if (alive) setQuotes(Object.fromEntries(rows.map((quote) => [quote.code, quote])));
         })
@@ -42,34 +115,44 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
         });
     };
 
-    const refreshTimelines = () => {
-      if (!showTimeline) return;
-      getStocksenseApi()
-        .getStockTimelines(favoriteStocks.map((item) => item.code))
-        .then((rows) => {
-          if (alive) setTimelines(rows);
-        })
-        .catch((error: unknown) => {
-          if (alive) console.error(error);
-        });
-    };
-
     void refreshQuotes();
-    if (showTimeline) void refreshTimelines();
-    else setTimelines({});
     window.clearInterval(quoteTimerRef.current);
     if (isChinaMarketOpen()) {
-      quoteTimerRef.current = window.setInterval(() => {
-        refreshQuotes();
-        refreshTimelines();
-      }, 15_000);
+      quoteTimerRef.current = window.setInterval(refreshQuotes, FAVORITE_QUOTE_REFRESH_INTERVAL_MS);
     }
 
     return () => {
       alive = false;
       window.clearInterval(quoteTimerRef.current);
     };
-  }, [favoriteStocks, isActive, showTimeline]);
+  }, [favoriteCodes, isActive]);
+
+  useEffect(() => {
+    if (!isActive || !showTimeline || !visibleTimelineCodes.length) return;
+    let alive = true;
+
+    const refreshTimelines = () => {
+      getStocksenseApi()
+        .getStockTimelines(visibleTimelineCodes)
+        .then((rows) => {
+          if (alive) setTimelines((current) => ({ ...current, ...rows }));
+        })
+        .catch((error: unknown) => {
+          if (alive) console.error(error);
+        });
+    };
+
+    void refreshTimelines();
+    window.clearInterval(timelineTimerRef.current);
+    if (isChinaMarketOpen()) {
+      timelineTimerRef.current = window.setInterval(refreshTimelines, FAVORITE_TIMELINE_REFRESH_INTERVAL_MS);
+    }
+
+    return () => {
+      alive = false;
+      window.clearInterval(timelineTimerRef.current);
+    };
+  }, [isActive, showTimeline, visibleTimelineCodes]);
 
   const openStock = async (stock: StockDetail) => {
     setRightPanelTab('stock');
@@ -126,7 +209,7 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
           <Switch size='small' checked={showTimeline} onChange={setShowTimeline} />
         </span>
       </div>
-      <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
+      <div className={cx(styles['right-panel-body'], styles['news-panel-body'])} ref={listRef}>
         {favoriteStocks.length ? (
           favoriteStocks.map((item) => {
             const quote = quotes[item.code] ?? item;
@@ -135,8 +218,9 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
               <FavoriteStockItem
                 key={item.code}
                 stock={stock}
-                timeline={showTimeline ? timelines[item.code] : undefined}
+                timeline={showTimeline && visibleTimelineCodeSet.has(item.code) ? timelines[item.code] : undefined}
                 pinned={Boolean(item.pinned)}
+                observeItem={observeFavoriteItem}
                 onOpen={() => void openStock(stock)}
                 onRemove={() => void remove(item.code)}
                 onTogglePin={() => void togglePin(item.code)}
@@ -161,12 +245,13 @@ interface IFavoriteStockItemProps {
   stock: StockDetail;
   timeline: IStockTimelineSnapshot | undefined;
   pinned: boolean;
+  observeItem(element: HTMLDivElement | null): void;
   onOpen(): void;
   onRemove(): void;
   onTogglePin(): void;
 }
 
-function FavoriteStockItem({ stock, timeline, pinned, onOpen, onRemove, onTogglePin }: IFavoriteStockItemProps) {
+function FavoriteStockItem({ stock, timeline, pinned, observeItem, onOpen, onRemove, onTogglePin }: IFavoriteStockItemProps) {
   const stop = (event: MouseEvent, action: () => void) => {
     event.stopPropagation();
     action();
@@ -179,6 +264,8 @@ function FavoriteStockItem({ stock, timeline, pinned, onOpen, onRemove, onToggle
   return (
     <div
       className={styles['favorite-item']}
+      data-favorite-code={stock.code}
+      ref={observeItem}
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.key === 'Enter') onOpen();
