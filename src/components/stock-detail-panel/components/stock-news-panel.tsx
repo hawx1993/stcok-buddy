@@ -4,7 +4,7 @@ import { useEffect, useState, type KeyboardEvent } from 'react';
 import cx from '../../../shared/cx';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { IStockNewsFeed, IStockNewsPreferences, MarketNewsItem, MarketSearchResult } from '../../../shared/types';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { NewsLinkCopyButton } from './news-link-copy-button';
 import { NewsSkeleton } from './news-skeleton';
 import styles from '../index.module.scss';
@@ -17,7 +17,7 @@ interface IStockNewsPanelProps {
 }
 
 export function StockNewsPanel({ isActive }: IStockNewsPanelProps) {
-  const favoriteStocks = useAppStore((state) => state.favoriteStocks);
+  const favoriteStocks = useAppDataStore((state) => state.favoriteStocks);
   const [feed, setFeed] = useState<IStockNewsFeed>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
@@ -252,12 +252,12 @@ export function StockNewsPanel({ isActive }: IStockNewsPanelProps) {
 
 function StockNewsItem({ item }: { item: MarketNewsItem }) {
   const openNewsDetail = () => {
-    const requestId = useAppStore.getState().openNewsReader(item);
+    const requestId = useAppUiStore.getState().openNewsReader(item);
     void getStocksenseApi()
       .getMarketNewsItem(item)
-      .then((detail) => useAppStore.getState().setNewsReaderItem(requestId, detail))
+      .then((detail) => useAppUiStore.getState().setNewsReaderItem(requestId, detail))
       .catch((loadError: unknown) =>
-        useAppStore
+        useAppUiStore
           .getState()
           .setNewsReaderError(
             requestId,

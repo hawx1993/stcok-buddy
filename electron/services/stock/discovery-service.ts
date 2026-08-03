@@ -234,6 +234,7 @@ const FUND_FLOW_RANK_CACHE_TTL_MS = 60 * 1000;
 const MAIN_FUND_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
 const OPPORTUNITY_STOCK_CHANGE_PERCENT_LIMIT = 4;
 const OPPORTUNITY_STOCK_DISPLAY_LIMIT = 20;
+const OPPORTUNITY_STOCK_MIN_DISPLAY_COUNT = 10;
 const DISCOVERY_OPTIONAL_TASK_TIMEOUT_MS = 8_000;
 const sectorFlowRankCache = new Map<
   TSectorFlowIndicator,
@@ -245,6 +246,24 @@ let fundFlowRankCache:
   | { rows: TFundFlowRankRow[]; updatedAt: number; promise?: Promise<TFundFlowRankRow[]> }
   | undefined;
 let mainFundFlowCache: { rows: TMainFundFlowRow[]; updatedAt: number; promise?: Promise<TMainFundFlowRow[]> } | undefined;
+
+function sumFundFlowRankRowsYi(rows: TFundFlowRankRow[]): number | null {
+  let total = 0;
+  let count = 0;
+  for (const row of rows) {
+    if (!finiteNumber(row.mainNetInflow)) continue;
+    total += row.mainNetInflow;
+    count += 1;
+  }
+  return count ? total / 100_000_000 : null;
+}
+
+export const sumFundFlowRankRowsYiForTest = sumFundFlowRankRowsYi;
+
+export function resetDiscoveryFundFlowCachesForTest(): void {
+  mainFundFlowCache = undefined;
+  fundFlowRankCache = undefined;
+}
 
 function mapMetricToFactor(m: IMarketReviewMetric): { label: string; value: string | number } {
   if (m.value === null || m.value === undefined) return { label: m.label, value: '--' };
@@ -405,8 +424,12 @@ function hasDragonTigerRows(snapshot: IDiscoverySnapshot): boolean {
 
 export const hasDragonTigerRowsForTest = hasDragonTigerRows;
 
+function hasOpportunityStockRadarRows(snapshot: IDiscoverySnapshot): boolean {
+  return Boolean(snapshot.opportunityRadar?.stocks.length);
+}
+
 function shouldRefreshCachedDiscoverySnapshot(snapshot: IDiscoverySnapshot, currentTradeDate: string): boolean {
-  return snapshot.tradeDate !== currentTradeDate || !hasDragonTigerRows(snapshot);
+  return snapshot.tradeDate !== currentTradeDate || !hasDragonTigerRows(snapshot) || !hasOpportunityStockRadarRows(snapshot);
 }
 
 export const shouldRefreshCachedDiscoverySnapshotForTest = shouldRefreshCachedDiscoverySnapshot;
@@ -1211,7 +1234,12 @@ async function fetchMainFundFlow(tradeDate?: string): Promise<number | null> {
     return selectLatestMainFundFlowYi(rows, tradeDate);
   } catch (err) {
     console.warn(`[discovery] main fund flow unavailable: ${formatDiscoveryDataError(err)}`);
-    return null;
+    try {
+      return sumFundFlowRankRowsYi(await fetchFundFlowRankRows());
+    } catch (rankErr) {
+      console.warn(`[discovery] main fund flow rank fallback unavailable: ${formatDiscoveryDataError(rankErr)}`);
+      return null;
+    }
   }
 }
 
@@ -1502,22 +1530,29 @@ function buildOpportunityRadar(sectors: ISectorSummary[]): IOpportunityRadarItem
 }
 
 function buildOpportunityStockRadar(fundFlows: TFundFlowRankRow[]): IOpportunityStockRadarItem[] {
-  return fundFlows
-    .flatMap((item) => {
-      const changePercent = finiteStockChangePercent(item.changePercent);
-      const superLargeNetInflow = finiteNumber(item.superLargeNetInflow) ? item.superLargeNetInflow : null;
-      const mainNetInflow = finiteNumber(item.mainNetInflow) ? item.mainNetInflow : null;
-      if (!item.code || !item.name || changePercent === null || superLargeNetInflow === null) return [];
-      return [{
-        code: item.code,
-        name: item.name,
-        reason: `超大单净买入 ${formatMoney(superLargeNetInflow)}，主力净流入 ${formatMoney(mainNetInflow)}`,
-        changePercent,
-        amount: superLargeNetInflow,
-        score: superLargeNetInflow,
-      }];
-    })
-    .filter((item) => Number(item.amount) > 0 && item.changePercent < OPPORTUNITY_STOCK_CHANGE_PERCENT_LIMIT)
+  const candidates = fundFlows.flatMap((item) => {
+    const changePercent = finiteStockChangePercent(item.changePercent);
+    const mainNetInflow = finiteNumber(item.mainNetInflow) ? item.mainNetInflow : null;
+    const superLargeNetInflow = finiteNumber(item.superLargeNetInflow) ? item.superLargeNetInflow : null;
+    const opportunityAmount = superLargeNetInflow ?? mainNetInflow;
+    if (!item.code || !item.name || changePercent === null || opportunityAmount === null) return [];
+    return [{
+      code: item.code,
+      name: item.name,
+      reason: superLargeNetInflow === null
+        ? `主力净流入 ${formatMoney(mainNetInflow)}`
+        : `超大单净买入 ${formatMoney(superLargeNetInflow)}，主力净流入 ${formatMoney(mainNetInflow)}`,
+      changePercent,
+      amount: opportunityAmount,
+      score: opportunityAmount,
+    }];
+  });
+  const lowChangeCandidates = candidates.filter((item) => Number(item.amount) > 0 && item.changePercent < OPPORTUNITY_STOCK_CHANGE_PERCENT_LIMIT);
+  const displayCandidates = lowChangeCandidates.length >= OPPORTUNITY_STOCK_MIN_DISPLAY_COUNT
+    ? lowChangeCandidates
+    : candidates.filter((item) => Number(item.amount) > 0);
+
+  return displayCandidates
     .sort((a, b) => Number(b.amount) - Number(a.amount) || a.code.localeCompare(b.code))
     .slice(0, OPPORTUNITY_STOCK_DISPLAY_LIMIT);
 }

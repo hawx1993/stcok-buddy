@@ -1,6 +1,6 @@
 import { Loader2, X } from 'lucide-react';
 import { useMemo } from 'react';
-import { useAppStore } from '../../../store/app-store';
+import { useAppUiStore } from '../../../store/app-store';
 import styles from '../index.module.scss';
 
 const TASK_LABELS: Record<string, string> = {
@@ -11,9 +11,9 @@ const TASK_LABELS: Record<string, string> = {
 };
 
 export function SyncBanner() {
-  const syncProgress = useAppStore((state) => state.syncProgress);
-  const isDataSyncOpen = useAppStore((state) => state.isDataSyncOpen);
-  const setSyncProgress = useAppStore((state) => state.setSyncProgress);
+  const syncProgress = useAppUiStore((state) => state.syncProgress);
+  const isDataSyncOpen = useAppUiStore((state) => state.isDataSyncOpen);
+  const setSyncProgress = useAppUiStore((state) => state.setSyncProgress);
 
   const running = useMemo(() => {
     return Object.values(syncProgress).filter((t) => t.status === 'running');

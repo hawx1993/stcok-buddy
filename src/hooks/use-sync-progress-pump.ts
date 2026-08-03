@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { getStocksenseApi } from '../shared/stocksense-api';
-import { useAppStore } from '../store/app-store';
+import { useAppUiStore } from '../store/app-store';
 import type { DataSyncTaskType } from '../shared/types';
 
 /**
@@ -9,7 +9,7 @@ import type { DataSyncTaskType } from '../shared/types';
  * DataSyncModal) can display progress even after the modal closes.
  */
 export function useSyncProgressPump() {
-  const setSyncProgress = useAppStore((state) => state.setSyncProgress);
+  const setSyncProgress = useAppUiStore((state) => state.setSyncProgress);
   const runningRef = useRef<Set<string>>(new Set());
   const removeKlineRef = useRef<(() => void) | undefined>();
   const removeTaskRef = useRef<(() => void) | undefined>();

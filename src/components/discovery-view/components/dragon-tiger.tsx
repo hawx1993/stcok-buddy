@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { StockDetail } from '../../../shared/types';
 
@@ -51,9 +51,9 @@ export function DragonTiger({ inst, hot, first, history, selectedDate }: IDragon
   const [activeTab, setActiveTab] = useState<string>('inst');
   const activeRows = tabs.find((t) => t.key === activeTab)?.rows ?? [];
 
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   const handleClick = async (code: string, name: string) => {
     const snapshot = { code, name } as StockDetail;

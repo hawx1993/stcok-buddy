@@ -15,7 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { MarketPhasePill } from '../market-phase-pill';
-import { useAppStore } from '../../store/app-store';
+import { useAppUiStore } from '../../store/app-store';
 import cx from '../../shared/cx';
 import { HeroGauge } from './components/hero-gauge';
 import { MarketSummary } from './components/market-summary';
@@ -273,8 +273,8 @@ function DiscoveryWaitingState({ message }: { message: string }) {
 }
 
 export function DiscoveryView() {
-  const setMainView = useAppStore((state) => state.setMainView);
-  const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
+  const setMainView = useAppUiStore((state) => state.setMainView);
+  const isLeftSidebarCollapsed = useAppUiStore((state) => state.isLeftSidebarCollapsed);
   const [snapshot, setSnapshot] = useState<IDiscoverySnapshot | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

@@ -3,7 +3,7 @@ import { hasOpportunityRadarItems } from '../opportunity-radar';
 import type { IOpportunityRadarData } from '../opportunity-radar';
 
 describe('探索页机会雷达空态判断', () => {
-  it('只有板块机会数据时不显示空态', () => {
+  it('只有板块机会数据时显示空态', () => {
     const data: IOpportunityRadarData = {
       boards: [
         {
@@ -17,7 +17,7 @@ describe('探索页机会雷达空态判断', () => {
       stocks: [],
     };
 
-    expect(hasOpportunityRadarItems(data)).toBe(true);
+    expect(hasOpportunityRadarItems(data)).toBe(false);
   });
 
   it('股票和板块都为空时显示空态', () => {

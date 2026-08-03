@@ -15,7 +15,7 @@ import {
   Sparkles,
   LayoutGrid,
 } from 'lucide-react';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import type { IAiMonitorReturnState } from '../../../store/app-store';
 import styles from '../index.module.scss';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
@@ -269,10 +269,10 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   const didRestoreRef = useRef(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
-  const setAiMonitorState = useAppStore((state) => state.setAiMonitorState);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
+  const setAiMonitorState = useAppDataStore((state) => state.setAiMonitorState);
 
   const loadFeed = useCallback(
     async (nextMode: TMonitorMode, nextDate: string, nextPage: number, nextTab: TVisibleMonitorCategory | 'all') => {
@@ -409,7 +409,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
 
   const handleStockClick = async (code: string, name: string) => {
     const snapshot = { code, name } as StockDetail;
-    const aiMonitorState = useAppStore.getState().aiMonitorState ?? { activeTab, currentPage, selectedDate, mode };
+    const aiMonitorState = useAppDataStore.getState().aiMonitorState ?? { activeTab, currentPage, selectedDate, mode };
     openRightPanel();
     setStockReturnContext({ tab: 'ai-monitor', code, aiMonitor: aiMonitorState });
     setSelectedStock(snapshot);

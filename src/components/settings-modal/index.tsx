@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppConfig, HoldingPeriod, IAppUpdateSettings, IAppUpdateState, MarketColorMode, MarketDataStats, MarketDataSyncStatus, ProviderKind, RiskProfile, TAppUpdateChannel, TradeStyle } from '../../shared/types';
 import { getMarketColors, marketColorModes } from '../../shared/market-color';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import { useAppStore } from '../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import styles from './index.module.scss';
 import { VersionUpdateStatusCard } from './components/version-update-status-card';
 
@@ -50,10 +50,10 @@ const holdingPeriods: Array<{ value: HoldingPeriod; label: string }> = [
 ];
 
 export function SettingsModal() {
-  const isOpen = useAppStore((state) => state.isSettingsOpen);
-  const config = useAppStore((state) => state.config);
-  const setConfig = useAppStore((state) => state.setConfig);
-  const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
+  const isOpen = useAppUiStore((state) => state.isSettingsOpen);
+  const config = useAppDataStore((state) => state.config);
+  const setConfig = useAppDataStore((state) => state.setConfig);
+  const setSettingsOpen = useAppUiStore((state) => state.setSettingsOpen);
   const [draft, setDraft] = useState<AppConfig | undefined>(config);
   const [showKey, setShowKey] = useState(false);
   const [toast, setToast] = useState('');

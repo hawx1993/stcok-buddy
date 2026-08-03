@@ -2,7 +2,7 @@ import { message as antdMessage } from 'antd';
 import { ArrowLeft, Info } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import { useAppStore } from '../../store/app-store';
+import { useAppUiStore } from '../../store/app-store';
 import type { IDiskInfo, IStorageClearProgress, IStorageStats } from '../../shared/types';
 import styles from './index.module.scss';
 
@@ -47,8 +47,8 @@ const storageItems = [
 ] as const;
 
 export function StorageManagerModal() {
-  const isOpen = useAppStore((state) => state.isStorageManagerOpen);
-  const setOpen = useAppStore((state) => state.setStorageManagerOpen);
+  const isOpen = useAppUiStore((state) => state.isStorageManagerOpen);
+  const setOpen = useAppUiStore((state) => state.setStorageManagerOpen);
   const [stats, setStats] = useState<IStorageStats>();
   const [diskInfo, setDiskInfo] = useState<IDiskInfo>();
   const [loading, setLoading] = useState(false);

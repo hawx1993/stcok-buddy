@@ -5,7 +5,7 @@ import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
 import { isChinaMarketOpen } from '../../../shared/market-time';
 import type { IStockTimelineSnapshot, StockDetail } from '../../../shared/types';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { MarketPhasePill } from '../../market-phase-pill';
 import { Empty } from '../../empty';
 import { FavoriteTimelineBg } from './favorite-timeline-bg';
@@ -20,12 +20,12 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   const [timelines, setTimelines] = useState<Record<string, IStockTimelineSnapshot>>({});
   const [showTimeline, setShowTimeline] = useState(true);
   const quoteTimerRef = useRef<number>();
-  const favoriteStocks = useAppStore((state) => state.favoriteStocks);
-  const setFavoriteStocks = useAppStore((state) => state.setFavoriteStocks);
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
-  const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
+  const favoriteStocks = useAppDataStore((state) => state.favoriteStocks);
+  const setFavoriteStocks = useAppDataStore((state) => state.setFavoriteStocks);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
+  const setRightPanelTab = useAppUiStore((state) => state.setRightPanelTab);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
 
   useEffect(() => {
     if (!isActive || !favoriteStocks.length) return;

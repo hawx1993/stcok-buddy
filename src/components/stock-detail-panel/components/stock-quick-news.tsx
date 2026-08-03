@@ -2,7 +2,7 @@ import { SquareArrowOutUpRight } from 'lucide-react';
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { MarketNewsItem } from '../../../shared/types';
-import { useAppStore } from '../../../store/app-store';
+import { useAppUiStore } from '../../../store/app-store';
 import { NewsSkeleton } from './news-skeleton';
 import styles from '../index.module.scss';
 
@@ -66,12 +66,12 @@ interface IStockQuickNewsItemProps {
 
 function StockQuickNewsItem({ item }: IStockQuickNewsItemProps) {
   const openNewsDetail = () => {
-    const requestId = useAppStore.getState().openNewsReader(item);
+    const requestId = useAppUiStore.getState().openNewsReader(item);
     void getStocksenseApi()
       .getMarketNewsItem(item)
-      .then((detail) => useAppStore.getState().setNewsReaderItem(requestId, detail))
+      .then((detail) => useAppUiStore.getState().setNewsReaderItem(requestId, detail))
       .catch((loadError: unknown) =>
-        useAppStore
+        useAppUiStore
           .getState()
           .setNewsReaderError(
             requestId,

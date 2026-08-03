@@ -1,5 +1,5 @@
 import { BarChart3 } from 'lucide-react';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { BoardDetail, StockDetail } from '../../../shared/types';
 import styles from '../index.module.scss';
@@ -124,9 +124,9 @@ function LegacyMarketSummary({
   wealthMetrics,
   bullets,
 }: Pick<IMarketSummaryProps, 'indices' | 'wealthMetrics' | 'bullets'>) {
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
+  const openBoardPanel = useAppUiStore((state) => state.openBoardPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   const handleIndexClick = async (code: string, name: string) => {
     const snapshot = { code, name } as BoardDetail;
@@ -220,11 +220,11 @@ function isRequestedBoardDetail(detail: BoardDetail, snapshot: BoardDetail) {
 }
 
 export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }: IMarketSummaryProps) {
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const openBoardPanel = useAppUiStore((state) => state.openBoardPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   if (!marketSummary) {
     return <LegacyMarketSummary indices={indices} wealthMetrics={wealthMetrics} bullets={bullets} />;

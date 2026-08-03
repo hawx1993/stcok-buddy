@@ -1,4 +1,4 @@
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { StockDetail } from '../../../shared/types';
 
@@ -13,9 +13,9 @@ function chgClass(value?: number | string) {
 }
 
 export function WatchlistRadar({ items }: IWatchlistProps) {
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   const handleClick = async (code: string, name: string) => {
     const snapshot = { code, name } as StockDetail;

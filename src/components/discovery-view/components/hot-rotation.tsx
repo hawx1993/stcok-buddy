@@ -1,6 +1,6 @@
 import { Flame, TrendingDown, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { BoardDetail, StockDetail } from '../../../shared/types';
 
@@ -22,11 +22,11 @@ interface IHotRotationProps {
 
 export function HotRotation({ themes }: IHotRotationProps) {
   const [activeChip, setActiveChip] = useState<string>();
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const openBoardPanel = useAppUiStore((state) => state.openBoardPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   const handleLeaderClick = async (code: string, name: string) => {
     const snapshot = { code, name } as StockDetail;

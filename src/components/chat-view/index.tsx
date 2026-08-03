@@ -13,7 +13,7 @@ import { QuickEntry, type TSlashItem } from './components/quick-entry';
 import { SlashCommandMenu } from './components/slash-command-menu';
 import { renderCommandInText, renderMarkdownContent } from './components/markdown';
 import type { BoardDetail, ChatMessage, StockDetail, StoreCategory, StoreItem } from '../../shared/types';
-import { useAppStore } from '../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import { track, trackButtonClick } from '../../shared/analytics';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
@@ -119,24 +119,24 @@ export function ChatView() {
   const activeRequestRef = useRef<string>();
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [installedStoreItems, setInstalledStoreItems] = useState<string[]>([]);
-  const messages = useAppStore((state) => state.messages);
+  const messages = useAppDataStore((state) => state.messages);
   const [now, setNow] = useState(Date.now());
-  const activeConversationId = useAppStore((state) => state.activeConversationId);
-  const isSending = useAppStore((state) => state.isSending);
-  const config = useAppStore((state) => state.config);
-  const setSettingsOpen = useAppStore((state) => state.setSettingsOpen);
-  const addMessage = useAppStore((state) => state.addMessage);
-  const replaceLastAssistant = useAppStore((state) => state.replaceLastAssistant);
-  const finalizeLastAssistant = useAppStore((state) => state.finalizeLastAssistant);
-  const appendToLastAssistant = useAppStore((state) => state.appendToLastAssistant);
-  const applyRunEventToLastAssistant = useAppStore((state) => state.applyRunEventToLastAssistant);
-  const setSending = useAppStore((state) => state.setSending);
-  const rememberStockKline = useAppStore((state) => state.rememberStockKline);
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const selectedBoard = useAppStore((state) => state.selectedBoard);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
+  const activeConversationId = useAppDataStore((state) => state.activeConversationId);
+  const isSending = useAppDataStore((state) => state.isSending);
+  const config = useAppDataStore((state) => state.config);
+  const setSettingsOpen = useAppUiStore((state) => state.setSettingsOpen);
+  const addMessage = useAppDataStore((state) => state.addMessage);
+  const replaceLastAssistant = useAppDataStore((state) => state.replaceLastAssistant);
+  const finalizeLastAssistant = useAppDataStore((state) => state.finalizeLastAssistant);
+  const appendToLastAssistant = useAppDataStore((state) => state.appendToLastAssistant);
+  const applyRunEventToLastAssistant = useAppDataStore((state) => state.applyRunEventToLastAssistant);
+  const setSending = useAppDataStore((state) => state.setSending);
+  const rememberStockKline = useAppDataStore((state) => state.rememberStockKline);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
+  const selectedBoard = useAppDataStore((state) => state.selectedBoard);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const openBoardPanel = useAppUiStore((state) => state.openBoardPanel);
   const slashItems = useMemo(
     () => [
       ...builtInSlashItems,
@@ -278,7 +278,7 @@ export function ChatView() {
       const api = getStocksenseApi();
       await api.saveMessage(activeConversationId ?? 'conv-1', userMessage);
       await api.saveMessage(activeConversationId ?? 'conv-1', assistantMessage);
-      api.listConversations().then(useAppStore.getState().setConversations).catch(console.error);
+      api.listConversations().then(useAppDataStore.getState().setConversations).catch(console.error);
       return;
     }
 
@@ -329,7 +329,7 @@ export function ChatView() {
         openRightPanel();
         setSelectedStock({ ...stock, ...resultStock, kline: chartData });
       }
-      api.listConversations().then(useAppStore.getState().setConversations).catch(console.error);
+      api.listConversations().then(useAppDataStore.getState().setConversations).catch(console.error);
     } catch (error) {
       if (activeRequestRef.current !== requestId) return;
       replaceLastAssistant({

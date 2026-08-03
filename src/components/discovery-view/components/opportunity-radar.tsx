@@ -1,7 +1,7 @@
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
-import { useAppStore } from '../../../store/app-store';
-import type { BoardDetail, StockDetail } from '../../../shared/types';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
+import type { StockDetail } from '../../../shared/types';
 import styles from '../index.module.scss';
 
 export interface IOpportunityRadarBoardItem {
@@ -35,7 +35,7 @@ function hasStockRadarItems(data?: IOpportunityRadarData) {
 }
 
 export function hasOpportunityRadarItems(data?: IOpportunityRadarData) {
-  return hasStockRadarItems(data) || Boolean(data?.boards.length);
+  return hasStockRadarItems(data);
 }
 
 function formatChange(value?: number | null) {
@@ -48,11 +48,6 @@ function formatMoneyYi(value?: number | null) {
   return `${value >= 0 ? '+' : ''}${(value / 100_000_000).toFixed(2)}亿`;
 }
 
-function formatMoneyYiUnit(value?: number | null) {
-  if (value === undefined || value === null || !Number.isFinite(value)) return '--';
-  return `${value >= 0 ? '+' : ''}${value.toFixed(1)}亿`;
-}
-
 function toneClass(value?: number | null) {
   if (value === undefined || value === null || !Number.isFinite(value)) return '';
   return value >= 0 ? 'up' : 'down';
@@ -60,12 +55,9 @@ function toneClass(value?: number | null) {
 
 export function OpportunityRadar({ data }: IOpportunityRadarProps) {
   const stocks = data?.stocks ?? [];
-  const boards = data?.boards ?? [];
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
 
   const handleStockClick = async (item: IOpportunityRadarStockItem) => {
     const snapshot = { code: item.code, name: item.name, changePercent: item.changePercent ?? undefined } as StockDetail;
@@ -80,20 +72,7 @@ export function OpportunityRadar({ data }: IOpportunityRadarProps) {
     }
   };
 
-  const handleBoardClick = async (item: IOpportunityRadarBoardItem) => {
-    const snapshot = { code: item.code, name: item.name } as BoardDetail;
-    setStockReturnContext(undefined);
-    setSelectedBoard(snapshot);
-    openBoardPanel();
-    try {
-      const detail = await getStocksenseApi().getBoardDetail(item.code, false, item.name);
-      setSelectedBoard({ ...snapshot, ...detail, name: detail.name === detail.code ? item.name : detail.name });
-    } catch {
-      setSelectedBoard(snapshot);
-    }
-  };
-
-  if (!hasOpportunityRadarItems(data)) return <div className='empty-block'>暂无机会雷达数据</div>;
+  if (!hasOpportunityRadarItems(data)) return <div className='empty-block'>暂无个股机会雷达数据</div>;
 
   return (
     <div className={styles.opportunityRadar}>
@@ -106,20 +85,6 @@ export function OpportunityRadar({ data }: IOpportunityRadarProps) {
             </span>
             <span className={styles.opportunityRadarMetrics}>
               <b className={cx(styles.opportunityRadarValue, toneClass(item.amount))}>{formatMoneyYi(item.amount)}</b>
-              <b className={cx(styles.opportunityRadarValue, toneClass(item.changePercent))}>{formatChange(item.changePercent)}</b>
-            </span>
-          </button>
-        ))}
-        {!stocks.length && boards.map((item) => (
-          <button className={styles.opportunityRadarRow} key={item.code} onClick={() => handleBoardClick(item)} type='button'>
-            <span className={styles.opportunityRadarMain}>
-              <strong>{item.name}</strong>
-              <em>资金/涨幅比 {item.ratio.toFixed(1)}</em>
-            </span>
-            <span className={styles.opportunityRadarMetrics}>
-              <b className={cx(styles.opportunityRadarValue, toneClass(item.mainNetInflow))}>
-                {formatMoneyYiUnit(item.mainNetInflow)}
-              </b>
               <b className={cx(styles.opportunityRadarValue, toneClass(item.changePercent))}>{formatChange(item.changePercent)}</b>
             </span>
           </button>

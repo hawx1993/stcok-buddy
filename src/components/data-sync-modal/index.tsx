@@ -2,7 +2,7 @@ import { BarChart3, Building2, TrendingUp, Zap } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import { useAppStore } from '../../store/app-store';
+import { useAppUiStore } from '../../store/app-store';
 import type { DataSyncTaskType, IDataSyncTaskProgress } from '../../shared/types';
 import styles from './index.module.scss';
 
@@ -78,9 +78,9 @@ function saveLastSyncTime(taskType: string, time: string) {
 }
 
 export function DataSyncModal() {
-  const isOpen = useAppStore((state) => state.isDataSyncOpen);
-  const setOpen = useAppStore((state) => state.setDataSyncOpen);
-  const syncProgress = useAppStore((state) => state.syncProgress);
+  const isOpen = useAppUiStore((state) => state.isDataSyncOpen);
+  const setOpen = useAppUiStore((state) => state.setDataSyncOpen);
+  const syncProgress = useAppUiStore((state) => state.syncProgress);
   const syncProgressRef = useRef(syncProgress);
   syncProgressRef.current = syncProgress;
   const [tasks, setTasks] = useState(initialState);

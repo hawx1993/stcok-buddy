@@ -1,6 +1,6 @@
 import { AlertTriangle, BadgeCent, BarChart3, Bot, CircleAlert, Newspaper, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { IMonitorEvent, IMonitorFeed, TMonitorCategory, StockDetail } from '../../../shared/types';
 import cx from '../../../shared/cx';
@@ -66,10 +66,10 @@ export function MonitoringCenter() {
   const [flowInIds, setFlowInIds] = useState<string[]>([]);
   const previousEventIdsRef = useRef<string[]>([]);
 
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const openAiMonitorPanel = useAppStore((state) => state.openAiMonitorPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const openAiMonitorPanel = useAppUiStore((state) => state.openAiMonitorPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   const loadFeed = useCallback(async () => {
     try {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const stockSdkInstances = vi.hoisted(() => [] as Array<{
   fundFlow: { market: ReturnType<typeof vi.fn>; rank: ReturnType<typeof vi.fn> };
@@ -82,11 +82,13 @@ import {
   pickCurrentDragonTigerFromHistoryForTest,
   reconcileSectorsWithLocalBoardsForTest,
   resolveYesterdaySentimentPoolsForTest,
+  resetDiscoveryFundFlowCachesForTest,
   selectDragonTigerRowsForTest,
   shouldDeferDiscoveryRefresh,
   shouldHoldDiscoverySnapshotUntil930,
   shouldRefreshCachedDiscoverySnapshotForTest,
   sumConstituentMainNetInflowYiForTest,
+  sumFundFlowRankRowsYiForTest,
   toLimitDownStockItemForTest,
   withOptionalTimeoutForTest,
   withSelectedDiscoveryTradeDateForTest,
@@ -97,6 +99,35 @@ import type { TLocalBoardSummary } from '../discovery-service.js';
 const mockedIsRemoteTradingDay = vi.mocked(isRemoteTradingDay);
 const mockedPreviousRemoteTradingDay = vi.mocked(previousRemoteTradingDay);
 const mockedWriteDiscoverySnapshot = vi.mocked(writeDiscoverySnapshot);
+
+beforeEach(() => {
+  resetDiscoveryFundFlowCachesForTest();
+  for (const sdk of stockSdkInstances) {
+    sdk.fundFlow.market.mockReset();
+    sdk.fundFlow.rank.mockReset();
+    sdk.board.concept.constituents.mockReset();
+    sdk.board.industry.constituents.mockReset();
+  }
+});
+
+function createFundFlowRankRow(code: string, name: string, mainNetInflow: number | null) {
+  return {
+    code,
+    name,
+    price: null,
+    changePercent: null,
+    mainNetInflow,
+    mainNetInflowPercent: null,
+    superLargeNetInflow: null,
+    superLargeNetInflowPercent: null,
+    largeNetInflow: null,
+    largeNetInflowPercent: null,
+    mediumNetInflow: null,
+    mediumNetInflowPercent: null,
+    smallNetInflow: null,
+    smallNetInflowPercent: null,
+  };
+}
 
 const boards: TLocalBoardSummary[] = [
   { code: 'BK0001', name: '半导体行业Ⅱ', kind: 'industry', changePercent: 2.1, mainNetInflow: 0, amount: 10 },
@@ -187,17 +218,75 @@ describe('发现页股票和资金流工具', () => {
     expect(radar.every((item) => item.changePercent !== undefined && item.changePercent !== null && item.changePercent < 4 && Number(item.amount) > 0)).toBe(true);
   });
 
-  it('发现页机会雷达保留市场总结里的板块机会数据', () => {
+  it('机会雷达在超大单字段缺失时使用主力净流入真实数据', () => {
+    const radar = buildOpportunityStockRadarForTest([
+      {
+        code: '600001',
+        name: '主力净流入股',
+        price: 10,
+        changePercent: 1.2,
+        mainNetInflow: 120_000_000,
+        mainNetInflowPercent: 1,
+        superLargeNetInflow: null,
+        superLargeNetInflowPercent: null,
+        largeNetInflow: null,
+        largeNetInflowPercent: null,
+        mediumNetInflow: null,
+        mediumNetInflowPercent: null,
+        smallNetInflow: null,
+        smallNetInflowPercent: null,
+      },
+    ]);
+
+    expect(radar).toEqual([
+      expect.objectContaining({
+        code: '600001',
+        name: '主力净流入股',
+        amount: 120_000_000,
+        reason: '主力净流入 +1.20亿',
+      }),
+    ]);
+  });
+
+  it('机会雷达低涨幅候选不足10条时展示正向资金流个股，避免误判为空态', () => {
+    const rows = Array.from({ length: 3 }, (_, index) => ({
+      code: `6002${String(index).padStart(2, '0')}`,
+      name: `正向资金股${index}`,
+      price: 10 + index,
+      changePercent: 4.5 + index,
+      mainNetInflow: 60_000_000 + index * 10_000_000,
+      mainNetInflowPercent: 1,
+      superLargeNetInflow: 90_000_000 + index * 10_000_000,
+      superLargeNetInflowPercent: 1,
+      largeNetInflow: null,
+      largeNetInflowPercent: null,
+      mediumNetInflow: null,
+      mediumNetInflowPercent: null,
+      smallNetInflow: null,
+      smallNetInflowPercent: null,
+    }));
+
+    const radar = buildOpportunityStockRadarForTest(rows);
+
+    expect(radar).toHaveLength(3);
+    expect(radar[0]).toMatchObject({ code: '600202', name: '正向资金股2', amount: 110_000_000 });
+  });
+
+  it('发现页机会雷达返回个股机会时同时保留市场总结里的板块机会数据', () => {
     const radar = buildDiscoveryOpportunityRadarForTest({
       boards: [
         { code: 'BK0001', name: '机器人', ratio: 2.5, changePercent: 1.2, mainNetInflow: 3.2 },
       ],
-      stocks: [],
+      stocks: [
+        { code: '600001', name: '个股机会', reason: '超大单净买入', changePercent: 1.2, amount: 120_000_000, score: 120_000_000 },
+      ],
     });
 
     expect(radar.boards).toHaveLength(1);
     expect(radar.boards[0]?.name).toBe('机器人');
-    expect(radar.stocks).toEqual([]);
+    expect(radar.stocks).toEqual([
+      { code: '600001', name: '个股机会', reason: '超大单净买入', changePercent: 1.2, amount: 120_000_000, score: 120_000_000 },
+    ]);
   });
 
   it('昨日情绪池跳过无涨停数据的前一交易日', () => {
@@ -424,6 +513,30 @@ describe('发现页股票和资金流工具', () => {
     }, '2026-08-03')).toBe(true);
   });
 
+  it('当前交易日缓存缺少个股机会雷达时需要同步刷新', () => {
+    expect(shouldRefreshCachedDiscoverySnapshotForTest({
+      tradeDate: '2026-08-03',
+      generatedAt: '2026-08-03T10:00:00.000Z',
+      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
+      opportunityRadar: {
+        boards: [{ code: 'BK0001', name: '电力', ratio: 16.3, changePercent: 1.26, mainNetInflow: 20.6 }],
+        stocks: [],
+      },
+    }, '2026-08-03')).toBe(true);
+  });
+
+  it('当前交易日缓存已有龙虎榜和个股机会雷达时不强制同步刷新', () => {
+    expect(shouldRefreshCachedDiscoverySnapshotForTest({
+      tradeDate: '2026-08-03',
+      generatedAt: '2026-08-03T10:00:00.000Z',
+      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
+      opportunityRadar: {
+        boards: [],
+        stocks: [{ code: '600002', name: '个股机会', reason: '主力净流入 +1.00亿', changePercent: 1.2, amount: 100_000_000, score: 100_000_000 }],
+      },
+    }, '2026-08-03')).toBe(false);
+  });
+
   it('当前交易日龙虎榜尚未更新时展示该交易日真实空态', () => {
     const latestRows = [{ code: '600001', name: '最新股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }];
     const picked = pickCurrentDragonTigerFromHistoryForTest([
@@ -537,6 +650,39 @@ describe('发现页股票和资金流工具', () => {
     await expect(fetchMainFundFlowForTest('2026-07-31')).resolves.toBe(0.5);
     await expect(fetchMainFundFlowForTest('2026-07-31')).resolves.toBe(0.5);
     expect(sdk.fundFlow.market).toHaveBeenCalledTimes(1);
+  });
+
+  it('大盘主力资金请求失败时使用个股资金流排名汇总作为真实数据降级', async () => {
+    const sdk = stockSdkInstances[0];
+    sdk.fundFlow.market.mockRejectedValueOnce(Object.assign(new Error('fetch failed'), { code: 'NETWORK_ERROR', provider: 'eastmoney' }));
+    sdk.fundFlow.rank.mockResolvedValueOnce([
+      createFundFlowRankRow('600001', '资金流入', 120_000_000),
+      createFundFlowRankRow('600002', '资金流出', -20_000_000),
+      createFundFlowRankRow('600003', '无效数据', null),
+    ]);
+
+    await expect(fetchMainFundFlowForTest('2026-07-31')).resolves.toBe(1);
+    expect(sdk.fundFlow.market).toHaveBeenCalledTimes(1);
+    expect(sdk.fundFlow.rank).toHaveBeenCalledWith({ indicator: 'today' });
+  });
+
+  it('个股资金流排名汇总应忽略空值并按亿元返回', () => {
+    expect(sumFundFlowRankRowsYiForTest([
+      createFundFlowRankRow('600001', '资金流入', 200_000_000),
+      createFundFlowRankRow('600002', '资金流出', -50_000_000),
+      createFundFlowRankRow('600003', '空值', null),
+    ])).toBe(1.5);
+    expect(sumFundFlowRankRowsYiForTest([createFundFlowRankRow('600004', '空值', null)])).toBeNull();
+  });
+
+  it('大盘主力资金和个股排名都失败时保持空态', async () => {
+    const sdk = stockSdkInstances[0];
+    sdk.fundFlow.market.mockRejectedValueOnce(new Error('fetch failed'));
+    sdk.fundFlow.rank.mockRejectedValueOnce(new Error('rank failed'));
+
+    await expect(fetchMainFundFlowForTest('2026-07-31')).resolves.toBeNull();
+    expect(sdk.fundFlow.market).toHaveBeenCalledTimes(1);
+    expect(sdk.fundFlow.rank).toHaveBeenCalledTimes(1);
   });
 
   it('格式化 stock-sdk 网络错误时不输出完整堆栈对象', () => {
