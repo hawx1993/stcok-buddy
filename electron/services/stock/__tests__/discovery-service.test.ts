@@ -52,6 +52,7 @@ vi.mock('../../market-data/market-data-store.js', () => ({
   listMarketBoards: vi.fn(),
   readDiscoverySnapshot: vi.fn(),
   writeDiscoverySnapshot: vi.fn(),
+  getStockChip: vi.fn(),
 }));
 
 vi.mock('../market-indices.js', () => ({
@@ -61,6 +62,10 @@ vi.mock('../market-indices.js', () => ({
 vi.mock('../../market-data/providers.js', () => ({
   isRemoteTradingDay: vi.fn(),
   previousRemoteTradingDay: vi.fn(),
+}));
+
+vi.mock('../monitor-service.js', () => ({
+  getMonitorFeed: vi.fn(),
 }));
 
 import { isRemoteTradingDay, previousRemoteTradingDay } from '../../market-data/providers.js';
@@ -74,6 +79,8 @@ import {
   buildDiscoveryHistoryLoadingSnapshotForTest,
   buildDiscoveryOpportunityRadarForTest,
   buildOpportunityStockRadarForTest,
+  buildOpportunityStockRadarFromLargeOrdersForTest,
+  mergeLargeOrderMonitorCandidatesForTest,
   enrichMissingSectorMainNetInflowsForTest,
   fetchMainFundFlowForTest,
   findLocalBoard,
@@ -537,6 +544,30 @@ describe('发现页股票和资金流工具', () => {
     }, '2026-08-03')).toBe(false);
   });
 
+  it('当前交易日缓存个股机会雷达含卖出侧大单时需要同步刷新', () => {
+    expect(shouldRefreshCachedDiscoverySnapshotForTest({
+      tradeDate: '2026-08-03',
+      generatedAt: '2026-08-03T10:00:00.000Z',
+      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
+      opportunityRadar: {
+        boards: [],
+        stocks: [{ code: '600002', name: '卖出股', reason: '特大单卖出 · 总市值 80.0亿', changePercent: 1.2, amount: 100_000_000, score: 100_000_000 }],
+      },
+    }, '2026-08-03')).toBe(true);
+  });
+
+  it('当前交易日缓存少于10条且含90%筹码集中度文案时需要同步刷新', () => {
+    expect(shouldRefreshCachedDiscoverySnapshotForTest({
+      tradeDate: '2026-08-03',
+      generatedAt: '2026-08-03T10:00:00.000Z',
+      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
+      opportunityRadar: {
+        boards: [],
+        stocks: [{ code: '600002', name: '旧缓存股', reason: '特大单买入 · 总市值 80.0亿 · 90%筹码集中度 11.90%', changePercent: 1.2, amount: 100_000_000, score: 100_000_000 }],
+      },
+    }, '2026-08-03')).toBe(true);
+  });
+
   it('当前交易日龙虎榜尚未更新时展示该交易日真实空态', () => {
     const latestRows = [{ code: '600001', name: '最新股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }];
     const picked = pickCurrentDragonTigerFromHistoryForTest([
@@ -637,6 +668,97 @@ describe('发现页股票和资金流工具', () => {
     expect(emptySnapshot.marketSummary?.sectors).toEqual([]);
     expect(emptySnapshot.opportunityRadar).toEqual({ boards: [], stocks: [] });
     expect(emptySnapshot.nextDayFocus).toBeUndefined();
+  });
+  it('机会雷达直接复用AI监控大单异动事件并按行情市值补充筛选', () => {
+    const candidates = mergeLargeOrderMonitorCandidatesForTest(
+      [
+        {
+          id: 'mo-large-1',
+          category: 'large-order',
+          timestamp: '2026-08-03T02:00:00.000Z',
+          code: '600100',
+          name: '监控股A',
+          price: 10,
+          changePercent: 3.2,
+          title: '特大单买入',
+          badge: '大单买入',
+          details: ['监控股A', '买入1.2万手'],
+          aiAnalysis: '来自AI监控大单异动',
+        },
+        {
+          id: 'mo-large-sell',
+          category: 'large-order',
+          timestamp: '2026-08-03T02:00:00.000Z',
+          code: '600102',
+          name: '卖出股',
+          price: 9,
+          changePercent: 2.8,
+          title: '特大单卖出',
+          badge: '大单卖出',
+          details: ['卖出股', '卖出1.8万手'],
+          aiAnalysis: '来自AI监控大单异动',
+        },
+        {
+          id: 'mo-tech-1',
+          category: 'technical',
+          timestamp: '2026-08-03T02:00:00.000Z',
+          code: '600101',
+          name: '技术股',
+          changePercent: 2.1,
+          title: '技术信号',
+          details: [],
+          aiAnalysis: '非大单异动',
+        },
+      ],
+      [
+        { code: '600100', name: '监控股A', changePercent: 3.2, amount: 180_000_000, marketCap: '88亿' },
+        { code: '600102', name: '卖出股', changePercent: 2.8, amount: 260_000_000, marketCap: '66亿' },
+      ],
+    );
+
+    const radar = buildOpportunityStockRadarFromLargeOrdersForTest(candidates);
+    expect(radar).toEqual([
+      expect.objectContaining({ code: '600100', name: '监控股A', changePercent: 3.2, amount: 180_000_000 }),
+    ]);
+    expect(radar.some((item) => item.code === '600102')).toBe(false);
+  });
+
+  it('机会雷达候选少于10条时不应用90%筹码集中度过滤', () => {
+    const rows = Array.from({ length: 9 }, (_, index) => ({
+      code: `6001${String(index).padStart(2, '0')}`,
+      name: `大单股${index}`,
+      title: '大单异动',
+      changePercent: 3.5,
+      amount: 100_000_000 + index,
+      marketCap: '80亿',
+      concentration90: 0.16,
+    }));
+
+    const radar = buildOpportunityStockRadarFromLargeOrdersForTest(rows);
+
+    expect(radar).toHaveLength(9);
+    expect(radar.every((item) => !/90%筹码集中度/.test(item.reason))).toBe(true);
+  });
+
+  it('机会雷达候选大于10条时前10条保留，后续才应用90%筹码集中度小于15%', () => {
+    const rows = Array.from({ length: 13 }, (_, index) => ({
+      code: `6000${String(index).padStart(2, '0')}`,
+      name: `大单股${index}`,
+      title: '大单异动',
+      changePercent: index === 12 ? 4.2 : 3.5,
+      amount: 100_000_000 + (12 - index),
+      marketCap: index === 11 ? '250亿' : '80亿',
+      concentration90: index < 10 ? 0.16 : 0.14,
+    }));
+
+    const radar = buildOpportunityStockRadarFromLargeOrdersForTest(rows);
+
+    expect(radar).toHaveLength(11);
+    expect(radar.slice(0, 10).every((item) => !/90%筹码集中度/.test(item.reason))).toBe(true);
+    expect(radar[10].code).toBe('600010');
+    expect(radar[10].reason).toContain('90%筹码集中度 14.00%');
+    expect(radar.some((item) => item.code === '600011')).toBe(false);
+    expect(radar.some((item) => item.code === '600012')).toBe(false);
   });
 
 

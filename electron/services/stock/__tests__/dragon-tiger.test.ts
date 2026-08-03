@@ -152,9 +152,12 @@ describe('龙虎榜快照服务', () => {
     expect(groups[0]?.items.map((item) => item.code)).toEqual(['600001', '600002']);
   });
 
-  it('最新龙虎榜只请求最新交易日，空数据不回退上一有数据日', async () => {
+  it('最新龙虎榜按 stock-sdk 文档用日期区间获取并展示最新交易日', async () => {
     mocks.resolveTradingDate.mockResolvedValueOnce('2026-08-03');
-    mocks.detail.mockResolvedValueOnce([]);
+    mocks.detail.mockResolvedValueOnce([
+      createDetail({ code: '600001', name: '最新披露股', date: '2026-07-31', netBuyAmount: 10_000_000 }),
+      createDetail({ code: '600002', name: '前日股', date: '2026-07-30', netBuyAmount: 9_000_000 }),
+    ]);
     mocks.institution.mockResolvedValueOnce([]);
     mocks.branchRank.mockResolvedValueOnce([]);
 
@@ -162,9 +165,62 @@ describe('龙虎榜快照服务', () => {
 
     expect(mocks.resolveTradingDate).toHaveBeenCalledWith(9 * 60 + 30);
     expect(mocks.detail).toHaveBeenCalledTimes(1);
-    expect(mocks.detail).toHaveBeenCalledWith({ startDate: '20260803', endDate: '20260803' });
+    expect(mocks.detail).toHaveBeenCalledWith({ startDate: expect.any(String), endDate: expect.any(String) });
+    expect(snapshot.summary.tradeDate).toBe('2026-07-31');
+    expect(snapshot.rows.map((row) => row.code)).toEqual(['600001']);
+  });
+
+  it('区间龙虎榜 stock-sdk 为空时用东财真实龙虎榜详情补充', async () => {
+    mocks.detail.mockResolvedValueOnce([]);
+    mocks.institution.mockResolvedValueOnce([]);
+    mocks.branchRank.mockResolvedValueOnce([]);
+    mockDatacenterRows([
+      [
+        {
+          SECURITY_CODE: '600001',
+          SECURITY_NAME_ABBR: '东财股',
+          TRADE_DATE: '2026-08-03 00:00:00',
+          EXPLANATION: '日涨幅偏离值达到7%的前5只证券',
+          CLOSE_PRICE: 12.34,
+          CHANGE_RATE: 10.01,
+          BILLBOARD_NET_AMT: 80_000_000,
+          BILLBOARD_BUY_AMT: 120_000_000,
+          BILLBOARD_SELL_AMT: 40_000_000,
+          TURNOVERRATE: 23.45,
+        },
+      ],
+    ]);
+
+    const snapshot = await getDragonTigerSnapshot('5d');
+
+    expect(snapshot.summary.tradeDate).toBe('2026-08-03');
+    expect(snapshot.rows[0]).toMatchObject({
+      code: '600001',
+      name: '东财股',
+      date: '2026-08-03',
+      reason: '日涨幅偏离值达到7%的前5只证券',
+      close: 12.34,
+      changePercent: 10.01,
+      netBuyAmount: 80_000_000,
+      buyAmount: 120_000_000,
+      sellAmount: 40_000_000,
+      turnoverRate: 23.45,
+    });
+    expect(snapshot.warnings).toContain('stock-sdk 龙虎榜详情暂未返回，已使用 a-stock-data 东财龙虎榜详情补充');
+  });
+
+  it('最新龙虎榜近 30 日 stock-sdk 为空时不伪造数据', async () => {
+    mocks.resolveTradingDate.mockResolvedValueOnce('2026-08-03');
+    mocks.detail.mockResolvedValueOnce([]);
+    mocks.institution.mockResolvedValueOnce([]);
+    mocks.branchRank.mockResolvedValueOnce([]);
+
+    const snapshot = await getDragonTigerSnapshot('today');
+
+    expect(mocks.detail).toHaveBeenCalledTimes(1);
     expect(snapshot.summary.tradeDate).toBe('2026-08-03');
     expect(snapshot.rows).toEqual([]);
+    expect(snapshot.warnings).toContain('stock-sdk 近 30 日龙虎榜详情暂未返回真实上榜记录');
   });
 
   it('最新龙虎榜从近 30 日历史中按日期取最新一组', async () => {

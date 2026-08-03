@@ -15,6 +15,7 @@ const ranges: Array<{ id: TDragonTigerRange; label: string }> = [
 ];
 
 const DRAGON_TIGER_INSTITUTION_VISIBLE_SIZE = 8;
+const DRAGON_TIGER_LATEST_REFRESH_MS = 60_000;
 
 export function DragonTigerPanel({ onOpen }: { onOpen(row: MarketQuoteRow): void }) {
   const [range, setRange] = useState<TDragonTigerRange>('today');
@@ -24,23 +25,32 @@ export function DragonTigerPanel({ onOpen }: { onOpen(row: MarketQuoteRow): void
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    setError(undefined);
-    getStocksenseApi()
-      .getDragonTigerSnapshot(range)
-      .then((data) => {
-        if (!alive) return;
-        setSnapshot(data);
-      })
-      .catch((err: unknown) => {
-        if (!alive) return;
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
+    let requestId = 0;
+    let timer: number | undefined;
+    const loadSnapshot = (showLoading: boolean) => {
+      requestId += 1;
+      const currentRequestId = requestId;
+      if (showLoading) setLoading(true);
+      setError(undefined);
+      getStocksenseApi()
+        .getDragonTigerSnapshot(range)
+        .then((data) => {
+          if (!alive || currentRequestId !== requestId) return;
+          setSnapshot(data);
+        })
+        .catch((err: unknown) => {
+          if (!alive || currentRequestId !== requestId) return;
+          setError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          if (alive && currentRequestId === requestId) setLoading(false);
+        });
+    };
+    loadSnapshot(true);
+    if (range === 'today') timer = window.setInterval(() => loadSnapshot(false), DRAGON_TIGER_LATEST_REFRESH_MS);
     return () => {
       alive = false;
+      if (timer !== undefined) window.clearInterval(timer);
     };
   }, [range]);
 
@@ -49,7 +59,7 @@ export function DragonTigerPanel({ onOpen }: { onOpen(row: MarketQuoteRow): void
       <div className={styles.dragonTigerHeader}>
         <div>
           <h2>龙虎榜</h2>
-          <p>stock-sdk 真实上榜数据 · 净买额、原因与机构/营业部线索</p>
+          <p>stock-sdk 真实上榜数据 · 最新 Tab 每 60 秒刷新真实数据源</p>
         </div>
         <div className={styles.dragonTigerRanges}>
           {ranges.map((item) => (
@@ -122,7 +132,10 @@ function DragonTigerContent({
     return (
       <>
         <DragonTigerSummary summary={snapshot.summary} />
-        <div className={styles.dragonTigerState}>该交易日龙虎榜尚未披露，通常盘后由数据源更新</div>
+        <div className={styles.dragonTigerState}>暂无龙虎榜数据，数据源暂未返回真实上榜记录</div>
+        {snapshot.warnings.length ? (
+          <div className={styles.dragonTigerWarning}>{snapshot.warnings.join('；')}</div>
+        ) : null}
       </>
     );
   }
