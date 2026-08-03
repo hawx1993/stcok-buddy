@@ -242,6 +242,21 @@ export function listStockSurgeEvents(code: string, tradeDate = toTradeDate(new D
   });
 }
 
+export function listStockSurgeEventsByTradeDates(code: string, tradeDates: string[]) {
+  return readDb(async () => {
+    const normalizedCode = code.trim();
+    const normalizedDates = tradeDates.filter(isTradeDate);
+    if (!normalizedCode || !normalizedDates.length) return [];
+    const rows = await all<SurgeRow>(
+      `SELECT trade_date, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type
+       FROM stock_surge_events
+       WHERE code = ${sqlValue(normalizedCode)} AND trade_date IN (${normalizedDates.map(sqlValue).join(', ')})
+       ORDER BY trade_date DESC, COALESCE(time, '') DESC, id DESC`,
+    );
+    return dedupeStockSurgeEventRows(rows);
+  });
+}
+
 export function listRecentStockSurgeEvents(code: string, keepDays = 7) {
   return readDb(async () => {
     const normalizedCode = code.trim();

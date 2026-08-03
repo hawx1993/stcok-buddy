@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const stockSdkInstances = vi.hoisted(() => [] as Array<{
-  fundFlow: { rank: ReturnType<typeof vi.fn> };
+  fundFlow: { market: ReturnType<typeof vi.fn>; rank: ReturnType<typeof vi.fn> };
   board: { concept: { constituents: ReturnType<typeof vi.fn> }; industry: { constituents: ReturnType<typeof vi.fn> } };
 }>);
 
 vi.mock('stock-sdk', () => ({
   default: class StockSDKMock {
-    fundFlow = { rank: vi.fn() };
+    fundFlow = { market: vi.fn(), rank: vi.fn() };
     board = {
       concept: { constituents: vi.fn() },
       industry: { constituents: vi.fn() },
@@ -67,18 +67,25 @@ import { isRemoteTradingDay, previousRemoteTradingDay } from '../../market-data/
 import { writeDiscoverySnapshot } from '../../market-data/market-data-store.js';
 import {
   buildDiscoverySnapshotFromHistoricalPoolsForTest,
+  buildDiscoveryWaitingSnapshotForTest,
   buildLocalBoardCatalog,
   buildDiscoveryDragonTigerForTest,
   buildDiscoveryDragonTigerHistoryForTest,
   buildDiscoveryHistoryLoadingSnapshotForTest,
+  buildDiscoveryOpportunityRadarForTest,
+  buildOpportunityStockRadarForTest,
   enrichMissingSectorMainNetInflowsForTest,
+  fetchMainFundFlowForTest,
   findLocalBoard,
   formatDiscoveryDataErrorForTest,
   hasDragonTigerRowsForTest,
+  pickCurrentDragonTigerFromHistoryForTest,
   reconcileSectorsWithLocalBoardsForTest,
+  resolveYesterdaySentimentPoolsForTest,
   selectDragonTigerRowsForTest,
   shouldDeferDiscoveryRefresh,
   shouldHoldDiscoverySnapshotUntil930,
+  shouldRefreshCachedDiscoverySnapshotForTest,
   sumConstituentMainNetInflowYiForTest,
   toLimitDownStockItemForTest,
   withOptionalTimeoutForTest,
@@ -145,6 +152,73 @@ describe('发现页股票和资金流工具', () => {
       ],
     )).toBe(0.5);
     expect(sumConstituentMainNetInflowYiForTest([], [])).toBeUndefined();
+  });
+
+  it('机会雷达仅筛选超大单买入且涨幅低于4%的个股，并按资金额排序保留至少10条', () => {
+    const rows = Array.from({ length: 14 }, (_, index) => ({
+      code: `6000${String(index).padStart(2, '0')}`,
+      name: `低涨幅资金股${index}`,
+      price: 10 + index,
+      changePercent: index === 13 ? 4 : 3.9 - index * 0.1,
+      mainNetInflow: 80_000_000 + index * 10_000_000,
+      mainNetInflowPercent: 1,
+      superLargeNetInflow: 100_000_000 + index * 10_000_000,
+      superLargeNetInflowPercent: 1,
+      largeNetInflow: null,
+      largeNetInflowPercent: null,
+      mediumNetInflow: null,
+      mediumNetInflowPercent: null,
+      smallNetInflow: null,
+      smallNetInflowPercent: null,
+    }));
+
+    const radar = buildOpportunityStockRadarForTest([
+      ...rows,
+      { ...rows[0], code: '600100', name: '涨停股', changePercent: 10, superLargeNetInflow: 999_000_000 },
+      { ...rows[0], code: '600101', name: '资金流出', changePercent: 1, superLargeNetInflow: -100_000_000 },
+    ]);
+
+    expect(radar).toHaveLength(13);
+    expect(radar.length).toBeGreaterThanOrEqual(10);
+    expect(radar[0]).toMatchObject({ code: '600012', name: '低涨幅资金股12' });
+    expect(radar[0]?.changePercent).toBeCloseTo(2.7);
+    expect(radar.some((item) => item.name === '涨停股')).toBe(false);
+    expect(radar.some((item) => item.name === '资金流出')).toBe(false);
+    expect(radar.every((item) => item.changePercent !== undefined && item.changePercent !== null && item.changePercent < 4 && Number(item.amount) > 0)).toBe(true);
+  });
+
+  it('发现页机会雷达保留市场总结里的板块机会数据', () => {
+    const radar = buildDiscoveryOpportunityRadarForTest({
+      boards: [
+        { code: 'BK0001', name: '机器人', ratio: 2.5, changePercent: 1.2, mainNetInflow: 3.2 },
+      ],
+      stocks: [],
+    });
+
+    expect(radar.boards).toHaveLength(1);
+    expect(radar.boards[0]?.name).toBe('机器人');
+    expect(radar.stocks).toEqual([]);
+  });
+
+  it('昨日情绪池跳过无涨停数据的前一交易日', () => {
+    const resolved = resolveYesterdaySentimentPoolsForTest(
+      ['2026-08-03', '2026-07-31', '2026-07-30'],
+      [
+        [{ id: 'today', title: '今日股', code: '600000', name: '今日股', tag: '封涨停板', description: '机器人·首板' }],
+        [],
+        [
+          { id: 'previous-1', title: '前日首板', code: '600001', name: '前日首板', tag: '封涨停板', description: '半导体·首板', changePercent: '10.00%' },
+          { id: 'previous-2', title: '前日连板', code: '600002', name: '前日连板', tag: '封涨停板', description: '机器人·2连板', changePercent: '10.01%' },
+          { id: 'broken', title: '炸板股', code: '600003', name: '炸板股', tag: '涨停开板', description: '机器人·开板', changePercent: '5.00%' },
+        ],
+      ],
+      '2026-08-03',
+    );
+
+    expect(resolved.date).toBe('2026-07-30');
+    expect(resolved.zt.map((item) => item.code)).toEqual(['600001', '600002']);
+    expect(resolved.lb.map((item) => item.code)).toEqual(['600002']);
+    expect(resolved.zt[0]?.industry).toBe('半导体');
   });
 
   it('龙虎榜分类只返回匹配当前 tab 的真实上榜原因', () => {
@@ -342,6 +416,24 @@ describe('发现页股票和资金流工具', () => {
     });
   });
 
+  it('默认发现页缓存交易日落后最新交易日时需要同步刷新', () => {
+    expect(shouldRefreshCachedDiscoverySnapshotForTest({
+      tradeDate: '2026-07-31',
+      generatedAt: '2026-07-31T10:00:00.000Z',
+      dragonTiger: { inst: [], hot: [{ code: '600001', name: '旧榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
+    }, '2026-08-03')).toBe(true);
+  });
+
+  it('当前交易日龙虎榜尚未更新时展示该交易日真实空态', () => {
+    const latestRows = [{ code: '600001', name: '最新股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }];
+    const picked = pickCurrentDragonTigerFromHistoryForTest([
+      { date: '2026-08-03', weekday: '星期一', inst: [], hot: [], first: [] },
+      { date: '2026-07-31', weekday: '星期五', inst: [], hot: latestRows, first: [] },
+    ], '2026-08-03');
+
+    expect(picked).toEqual({ inst: [], hot: [], first: [] });
+  });
+
   it('选中无龙虎榜交易日时返回真实空态而不是回退最新日', () => {
     const selected = withSelectedDiscoveryTradeDateForTest({
       tradeDate: '2026-07-31',
@@ -409,6 +501,7 @@ describe('发现页股票和资金流工具', () => {
       tradeDates: [{ date: '2026-07-30', weekday: '星期四' }],
     });
 
+    expect(snapshot.sentimentStocks?.zt[0]?.industry).toBe('机器人');
     expect(snapshot.marketSummary?.sectors).toEqual([
       expect.objectContaining({
         name: '机器人',
@@ -418,6 +511,7 @@ describe('发现页股票和资金流工具', () => {
         topStockCode: '600001',
       }),
     ]);
+    expect(snapshot.opportunityRadar).toEqual({ boards: [], stocks: [] });
     expect(snapshot.nextDayFocus?.length).toBeGreaterThan(0);
     expect(snapshot.nextDayFocus?.some((item) => item.category === 'theme')).toBe(true);
     const emptySnapshot = buildDiscoverySnapshotFromHistoricalPoolsForTest({
@@ -428,9 +522,22 @@ describe('发现页股票和资金流工具', () => {
       tradeDates: [{ date: '2026-07-29', weekday: '星期三' }],
     });
     expect(emptySnapshot.marketSummary?.sectors).toEqual([]);
+    expect(emptySnapshot.opportunityRadar).toEqual({ boards: [], stocks: [] });
     expect(emptySnapshot.nextDayFocus).toBeUndefined();
   });
 
+
+  it('大盘主力资金请求失败时使用短期缓存，避免重复触发网络错误', async () => {
+    const sdk = stockSdkInstances[0];
+    sdk.fundFlow.market.mockResolvedValueOnce([
+      { date: '2026-07-31', mainNetInflow: 100_000_000 },
+      { date: '2026-07-31', mainNetInflow: -50_000_000 },
+    ]);
+
+    await expect(fetchMainFundFlowForTest('2026-07-31')).resolves.toBe(0.5);
+    await expect(fetchMainFundFlowForTest('2026-07-31')).resolves.toBe(0.5);
+    expect(sdk.fundFlow.market).toHaveBeenCalledTimes(1);
+  });
 
   it('格式化 stock-sdk 网络错误时不输出完整堆栈对象', () => {
     const error = new Error('fetch failed');
@@ -474,6 +581,41 @@ describe('发现页股票和资金流工具', () => {
     ]);
     expect(sdk.board.industry.constituents).not.toHaveBeenCalled();
     expect(sdk.board.concept.constituents).not.toHaveBeenCalled();
+  });
+
+  it('等待 9:30 时仍返回今天起往前 20 个交易日导航', async () => {
+    const tradingDates = [
+      '2026-08-03',
+      '2026-07-31',
+      '2026-07-30',
+      '2026-07-29',
+      '2026-07-28',
+      '2026-07-27',
+      '2026-07-24',
+      '2026-07-23',
+      '2026-07-22',
+      '2026-07-21',
+      '2026-07-20',
+      '2026-07-17',
+      '2026-07-16',
+      '2026-07-15',
+      '2026-07-14',
+      '2026-07-13',
+      '2026-07-10',
+      '2026-07-09',
+      '2026-07-08',
+      '2026-07-07',
+    ];
+    const previousByDate = new Map(tradingDates.map((date, index) => [date, tradingDates[index + 1]]));
+    mockedPreviousRemoteTradingDay.mockImplementation(async (date) => previousByDate.get(date) ?? date);
+
+    const snapshot = await buildDiscoveryWaitingSnapshotForTest(new Date('2026-08-03T00:10:00.000Z'));
+
+    expect(snapshot.tradeDate).toBe('2026-08-03');
+    expect(snapshot.tradeDates?.map((item) => item.date)).toEqual(tradingDates);
+    expect(snapshot.tradeDates).toHaveLength(20);
+    expect(snapshot.tradeDates?.[0]).toEqual({ date: '2026-08-03', weekday: '星期一' });
+    expect(snapshot.tradeDates?.at(-1)).toEqual({ date: '2026-07-07', weekday: '星期二' });
   });
 
   it('交易日 08:00 到 09:30 之间保持发现页快照', async () => {

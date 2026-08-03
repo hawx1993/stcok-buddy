@@ -9,6 +9,7 @@ import type { StockSurgeEvent } from '../../../shared/types';
 import { useAppStore } from '../../../store/app-store';
 import { Empty } from '../../empty';
 import { KlineModal, StockKlineChart } from '../../kline-chart';
+import { MarketPhasePill } from '../../market-phase-pill';
 import { StockQuickNews } from './stock-quick-news';
 import styles from '../index.module.scss';
 
@@ -219,6 +220,7 @@ export function StockDetailView({
           ) : null}
           <LineChart className={styles['panel-title-icon']} size={16} />
           个股详情
+          <MarketPhasePill />
         </span>
         {selectedStock ? (
           <div className={styles['stock-price']}>

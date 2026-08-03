@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../src/shared/market-time.js', () => ({
   isChinaMarketOpen: vi.fn(),
@@ -21,6 +21,7 @@ vi.mock('../monitor-history-store.js', () => ({
 }));
 
 vi.mock('../surge-history-store.js', () => ({
+  listRecentStockSurgeEvents: vi.fn(),
   listStockSurgeEvents: vi.fn(),
 }));
 
@@ -42,9 +43,74 @@ vi.mock('../news-client.js', () => ({
   listStockNewsAnnouncements: vi.fn(),
 }));
 
-import { isLargeOrderItem, isRecentLargeBuyEvent, isRecentLimitUpEvent, parseMarketCapYi, ratioPercent } from '../monitor-service.js';
-import type { HotFocusItem, StockSurgeEvent } from '../../../../src/shared/types.js';
+import { toShanghaiMarketTime } from '../../../../src/shared/market-time.js';
+import {
+  captureMonitorEvents,
+  isLargeOrderItem,
+  isRecentLargeBuyEvent,
+  isRecentLimitUpEvent,
+  parseMarketCapYi,
+  ratioPercent,
+} from '../monitor-service.js';
+import { listFavoriteStocks } from '../../config-store.js';
+import { getStockChip } from '../../market-data/market-data-store.js';
+import { getAllMarketQuoteRows } from '../market-page.js';
+import { getBatchQuotes, getChipDistribution, listHotFocus } from '../stock-client.js';
+import { listRecentStockSurgeEvents } from '../surge-history-store.js';
+import type { HotFocusItem, IChipDistributionResult, StockSurgeEvent } from '../../../../src/shared/types.js';
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe('AI 监控筹码信号', () => {
+  it('低集中度叠加大额买入时展示个股异动和买入信息', async () => {
+    vi.mocked(toShanghaiMarketTime).mockReturnValue({ date: '2026-08-03', minutes: 600, weekday: 1 });
+    vi.mocked(listFavoriteStocks).mockResolvedValue([{ code: '600519', name: '贵州茅台', createdAt: '2026-08-03T00:00:00.000Z' }]);
+    vi.mocked(getBatchQuotes).mockResolvedValue([
+      { code: '600519', name: '贵州茅台', price: '1500', changePercent: '1.20', marketCap: '800亿' },
+    ]);
+    vi.mocked(listHotFocus).mockResolvedValue([]);
+    vi.mocked(getAllMarketQuoteRows).mockResolvedValue([]);
+    vi.mocked(getStockChip).mockResolvedValue(undefined);
+    vi.mocked(getChipDistribution).mockResolvedValue({
+      latest: {
+        date: '2026-08-03',
+        avgCost: 1490,
+        profitRatio: 0.42,
+        concentration90: 0.145,
+        points: [],
+      },
+      distributions: [],
+      trend: [],
+      source: 'stock-sdk',
+    } satisfies IChipDistributionResult);
+    vi.mocked(listRecentStockSurgeEvents).mockResolvedValue([
+      {
+        id: 'large-buy-1',
+        tradeDate: '2026-08-01',
+        title: '贵州茅台',
+        code: '600519',
+        name: '贵州茅台',
+        time: '10:30:00',
+        price: undefined,
+        changePercent: undefined,
+        turnover: undefined,
+        amount: '买入1.2万手',
+        description: '特大单买入',
+        tag: '特大单买入',
+        type: 'surge',
+      },
+    ]);
+
+    const events = await captureMonitorEvents(new Date('2026-08-03T02:00:00.000Z'), ['chip']);
+    const largeBuyChipEvent = events.find((event) => event.id === 'mo-chip-low-concentration-largebuy-600519-2026-08-03');
+
+    expect(largeBuyChipEvent).toBeDefined();
+    expect(largeBuyChipEvent?.details).toContain('90%筹码集中度 14.50%');
+    expect(largeBuyChipEvent?.details).toContain('近周个股异动：2026-08-01 10:30:00，买入1.2万手');
+  });
+});
 describe('监控大单工具', () => {
   it('识别一万手以上的大笔买入和卖出', () => {
     expect(isLargeOrderItem({ id: '1', title: '特大单买入', amount: '1.2万手' })).toBe(true);

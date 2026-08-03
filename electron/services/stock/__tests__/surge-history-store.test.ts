@@ -117,6 +117,38 @@ describe('异动历史 DuckDB 存储', () => {
     expect(stockEvents[0]).toMatchObject({ tradeDate: '2026-07-24', title: '重复信号' });
   });
 
+  it('可以按指定交易日查询个股异动历史', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('surge history store not loaded');
+
+    await currentStore.saveIndividualSurgeHistory([
+      { ...createItem({ id: 'mon-previous', time: '10:01' }), tradeDate: '2026-07-27' },
+      { ...createItem({ id: 'tue-previous', time: '10:02' }), tradeDate: '2026-07-28' },
+      { ...createItem({ id: 'wed-previous', time: '10:03' }), tradeDate: '2026-07-29' },
+      { ...createItem({ id: 'thu-previous', time: '10:04' }), tradeDate: '2026-07-30' },
+      { ...createItem({ id: 'fri-previous', time: '10:05' }), tradeDate: '2026-07-31' },
+      { ...createItem({ id: 'mon-current', time: '10:06' }), tradeDate: '2026-08-03' },
+      { ...createItem({ id: 'older-friday', time: '10:07' }), tradeDate: '2026-07-24' },
+    ]);
+
+    const stockEvents = await currentStore.listStockSurgeEventsByTradeDates('600519', [
+      '2026-08-03',
+      '2026-07-31',
+      '2026-07-30',
+      '2026-07-29',
+      '2026-07-28',
+      '2026-07-27',
+    ]);
+    expect(stockEvents.map((item) => item.tradeDate)).toEqual([
+      '2026-08-03',
+      '2026-07-31',
+      '2026-07-30',
+      '2026-07-29',
+      '2026-07-28',
+      '2026-07-27',
+    ]);
+    expect(stockEvents.some((item) => item.tradeDate === '2026-07-24')).toBe(false);
+  });
 
   it('休市日查询个股异动不回退到上一交易日', async () => {
     const currentStore = store;

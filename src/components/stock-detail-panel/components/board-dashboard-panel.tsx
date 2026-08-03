@@ -8,6 +8,7 @@ import { useAppStore } from '../../../store/app-store';
 import styles from '../index.module.scss';
 import { BoardDashboardQuadrant } from './board-dashboard-quadrant';
 import { BoardDashboardRankListTab } from './board-dashboard-rank-list-tab';
+import { BoardDashboardSkeleton } from './board-dashboard-skeleton';
 import { BoardDashboardSummary } from './board-dashboard-summary';
 import { BoardDashboardTabs } from './board-dashboard-tabs';
 
@@ -103,7 +104,7 @@ export function BoardDashboardPanel({ isActive }: IBoardDashboardPanelProps) {
       {error ? <div className={styles['board-dashboard-warning']}>{error}</div> : null}
 
       {loading && !snapshot ? (
-        <div className={styles['empty-list']}>加载板块 Dashboard…</div>
+        <BoardDashboardSkeleton />
       ) : snapshot && snapshot.rankings.length ? (
         <>
           <BoardDashboardSummary snapshot={snapshot} onOpenBoard={openBoard} />

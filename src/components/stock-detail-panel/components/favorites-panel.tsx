@@ -6,6 +6,7 @@ import cx from '../../../shared/cx';
 import { isChinaMarketOpen } from '../../../shared/market-time';
 import type { IStockTimelineSnapshot, StockDetail } from '../../../shared/types';
 import { useAppStore } from '../../../store/app-store';
+import { MarketPhasePill } from '../../market-phase-pill';
 import { Empty } from '../../empty';
 import { FavoriteTimelineBg } from './favorite-timeline-bg';
 import styles from '../index.module.scss';
@@ -118,6 +119,7 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
         <span className={styles.title}>
           <Star className={styles['panel-title-icon']} size={16} />
           收藏个股
+          <MarketPhasePill />
         </span>
         <span className={styles['favorite-timeline-switch']}>
           <small>分时图</small>

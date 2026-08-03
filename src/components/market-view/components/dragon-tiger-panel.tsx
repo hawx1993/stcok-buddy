@@ -119,7 +119,12 @@ function DragonTigerContent({
   onOpen(row: MarketQuoteRow): void;
 }) {
   if (!snapshot.rows.length) {
-    return <div className={styles.dragonTigerState}>暂无龙虎榜数据，可能为非交易日或数据尚未更新</div>;
+    return (
+      <>
+        <DragonTigerSummary summary={snapshot.summary} />
+        <div className={styles.dragonTigerState}>该交易日龙虎榜尚未披露，通常盘后由数据源更新</div>
+      </>
+    );
   }
 
   return (

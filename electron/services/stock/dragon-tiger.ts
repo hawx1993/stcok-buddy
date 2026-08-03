@@ -8,11 +8,11 @@ import type {
 } from '../../../src/shared/types.js';
 import { pickNumber, pickString } from './format.js';
 import { sdk, withTimeoutReject } from './shared.js';
+import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
 
 const DRAGON_TIGER_TIMEOUT_MS = 10_000;
 const DRAGON_TIGER_RANK_SIZE = 20;
 const DRAGON_TIGER_SEAT_RANK_SIZE = 12;
-const TODAY_LOOKBACK_DAYS = 7;
 const EASTMONEY_DATACENTER_URL = 'https://datacenter-web.eastmoney.com/api/data/v1/get';
 
 export interface DailyDragonTigerItem {
@@ -40,7 +40,7 @@ type TStockSdkDragonTigerBranch = Awaited<ReturnType<typeof sdk.dragonTiger.bran
 type TEastmoneyDatacenterPayload = { result?: { data?: Record<string, unknown>[] } };
 
 export async function getDragonTigerSnapshot(range: TDragonTigerRange = 'today'): Promise<IDragonTigerSnapshot> {
-  const requestRange = getDragonTigerDateRange(range);
+  const requestRange = await getDragonTigerDateRange(range);
   const detailRows = await fetchDetailRows(range, requestRange.startDate, requestRange.endDate);
   const effectiveRange = detailRows.length && range === 'today'
     ? { startDate: toCompactDate(detailRows[0].date), endDate: toCompactDate(detailRows[0].date) }
@@ -100,24 +100,12 @@ async function fetchDetailRows(
   startDate: string,
   endDate: string,
 ): Promise<IDragonTigerDetailRow[]> {
-  if (range !== 'today') {
-    const rows = await withTimeoutReject(
-      sdk.dragonTiger.detail({ startDate, endDate }),
-      DRAGON_TIGER_TIMEOUT_MS,
-      '龙虎榜详情加载超时',
-    );
-    return sortDetailRows(rows.map(toDetailRow));
-  }
-
-  for (const date of recentDateCandidates(TODAY_LOOKBACK_DAYS)) {
-    const rows = await withTimeoutReject(
-      sdk.dragonTiger.detail({ startDate: date, endDate: date }),
-      DRAGON_TIGER_TIMEOUT_MS,
-      '龙虎榜详情加载超时',
-    );
-    if (rows.length) return sortDetailRows(rows.map(toDetailRow));
-  }
-  return [];
+  const rows = await withTimeoutReject(
+    sdk.dragonTiger.detail({ startDate, endDate }),
+    DRAGON_TIGER_TIMEOUT_MS,
+    '龙虎榜详情加载超时',
+  );
+  return sortDetailRows(rows.map(toDetailRow));
 }
 
 async function fetchInstitutionRowsFromDetails(
@@ -393,7 +381,12 @@ function toDailyDragonTigerItem(row: IDragonTigerDetailRow): DailyDragonTigerIte
   };
 }
 
-function getDragonTigerDateRange(range: TDragonTigerRange): { startDate: string; endDate: string } {
+async function getDragonTigerDateRange(range: TDragonTigerRange): Promise<{ startDate: string; endDate: string }> {
+  if (range === 'today') {
+    const tradeDate = await resolveTradingDate(9 * 60 + 30);
+    const compact = toCompactDate(tradeDate);
+    return { startDate: compact, endDate: compact };
+  }
   const end = new Date();
   const start = new Date(end);
   if (range === '5d') start.setDate(end.getDate() - 4);
@@ -407,16 +400,6 @@ function getRecentDragonTigerHistoryRange(): { startDate: string; endDate: strin
   const start = new Date(end);
   start.setDate(end.getDate() - 29);
   return { startDate: formatCompactDate(start), endDate: formatCompactDate(end) };
-}
-
-function recentDateCandidates(days: number): string[] {
-  const date = new Date();
-  const result: string[] = [];
-  for (let index = 0; index < days; index += 1) {
-    result.push(formatCompactDate(date));
-    date.setDate(date.getDate() - 1);
-  }
-  return result;
 }
 
 function toSdkPeriod(range: TDragonTigerRange): '1month' | '3month' | '6month' | '1year' {

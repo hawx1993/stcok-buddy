@@ -4,7 +4,7 @@ import { useAppStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { StockDetail } from '../../../shared/types';
 
-type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
+type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string; industry?: string };
 
 interface ISentimentProps {
   score?: number | null;
@@ -136,6 +136,7 @@ export function SentimentIndex({ score, factors, stocks, consecutiveStocks, yest
                               : '--'}
                           </span>
                           {item.amount ? <span className="sent-stock-amount">{item.amount}</span> : null}
+                          <span className="sent-stock-industry">{item.industry ?? '--'}</span>
                         </button>
                       ))
                     ) : (

@@ -1,5 +1,8 @@
 import type { IBoardDashboardMetric, TBoardDashboardRange } from '../../../shared/types';
-import { selectTopBoardChangeRankings, selectTopBoardFundInflowRankings } from '../../../shared/board-dashboard-rankings';
+import {
+  selectTopBoardChangeRankings,
+  selectTopBoardFundInflowRankings,
+} from '../../../shared/board-dashboard-rankings';
 import cx from '../../../shared/cx';
 import styles from '../index.module.scss';
 
@@ -69,8 +72,9 @@ function BoardRankList({ title, emptyText, kind, items, onOpenBoard }: IBoardRan
                 <em>{formatBoardDescription(item)}</em>
               </span>
               <span className={styles['board-row-side']}>
-                <b className={cx(kind === 'change' ? trendClass(item.changePercent) : trendClass(item.mainNetInflow))}>{formatRankingValue(item, kind)}</b>
-                <em>{kind === 'change' ? formatMoney(item.mainNetInflow) : formatPercent(item.changePercent)}</em>
+                <b className={cx(kind === 'change' ? trendClass(item.changePercent) : trendClass(item.mainNetInflow))}>
+                  {formatRankingValue(item, kind)}
+                </b>
               </span>
             </button>
           ))}

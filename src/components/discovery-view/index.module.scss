@@ -22,9 +22,11 @@
   align-items: center;
   gap: 14px;
   padding: 14px 28px;
-  background: color-mix(in srgb, var(--glass-bg) 76%, transparent);
-  backdrop-filter: blur(30px) saturate(190%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-hover) 18%, transparent), transparent),
+    color-mix(in srgb, var(--bg) 82%, var(--surface-hover));
   -webkit-backdrop-filter: blur(30px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--bg) 32%, transparent);
   transition:
     background 0.18s ease,
@@ -33,7 +35,9 @@
   flex-shrink: 0;
 }
 .topbarScrolled {
-  background: color-mix(in srgb, var(--glass-bg) 92%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-hover) 24%, transparent), transparent),
+    color-mix(in srgb, var(--bg) 90%, var(--surface-hover));
   box-shadow: 0 14px 36px color-mix(in srgb, var(--bg) 46%, transparent);
 }
 .topbarCollapsed {
@@ -81,41 +85,6 @@
   align-items: center;
   gap: 10px;
 }
-.phasePill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  color: var(--fg);
-  background: var(--surface-hover);
-  border: 1px solid var(--glass-border);
-  padding: 5px 11px;
-  border-radius: 20px;
-}
-.phasePillInactive {
-  color: var(--muted);
-}
-.liveDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--market-up, #2fbf71);
-  animation: pulse 1.6s infinite;
-}
-.liveDotInactive {
-  background: var(--muted);
-  animation: none;
-}
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.25;
-  }
-}
-
 .tradeDateNav {
   position: relative;
   z-index: 10;
@@ -123,7 +92,9 @@
   gap: 8px;
   overflow-x: auto;
   padding: 10px 28px;
-  background: color-mix(in srgb, var(--glass-bg) 76%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-hover) 16%, transparent), transparent),
+    color-mix(in srgb, var(--bg) 82%, var(--surface-hover));
   backdrop-filter: blur(30px) saturate(190%);
   -webkit-backdrop-filter: blur(30px) saturate(190%);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--bg) 32%, transparent);
@@ -137,7 +108,9 @@
   }
 }
 .tradeDateNavScrolled {
-  background: color-mix(in srgb, var(--glass-bg) 92%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-hover) 22%, transparent), transparent),
+    color-mix(in srgb, var(--bg) 90%, var(--surface-hover));
   border-bottom-color: color-mix(in srgb, var(--glass-border) 88%, transparent);
   box-shadow: 0 14px 36px color-mix(in srgb, var(--bg) 46%, transparent);
 }
@@ -346,6 +319,85 @@
   box-shadow: 0 14px 34px color-mix(in srgb, var(--bg) 34%, transparent);
   border-radius: 14px;
   padding: 20px;
+}
+
+.opportunityRadar {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.opportunityRadarList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.opportunityRadarRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--glass-border) 76%, transparent);
+  border-radius: 13px;
+  background: var(--surface-hover);
+  color: var(--fg);
+  padding: 13px 16px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+  &:hover {
+    transform: translateY(-1px);
+    border-color: rgba(232, 184, 75, 0.32);
+    background: color-mix(in srgb, var(--surface-hover) 82%, rgba(232, 184, 75, 0.14));
+  }
+}
+.opportunityRadarMain {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  strong {
+    color: var(--fg);
+    font-size: 14px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  em {
+    width: fit-content;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-style: normal;
+    font-size: 11.5px;
+    color: var(--fg-secondary);
+    background: color-mix(in srgb, var(--bg) 52%, transparent);
+    border: 1px solid color-mix(in srgb, var(--glass-border) 68%, transparent);
+    border-radius: 999px;
+    padding: 3px 8px;
+  }
+}
+.opportunityRadarMetrics {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
+}
+.opportunityRadarValue {
+  min-width: 58px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 // ── Hero Gauge ──
@@ -1288,7 +1340,7 @@
 }
 :global(.sent-stock-row) {
   display: grid;
-  grid-template-columns: minmax(120px, 1.4fr) 72px 70px 78px 92px;
+  grid-template-columns: minmax(120px, 1.4fr) 72px 70px 78px 92px 96px;
   align-items: center;
   gap: 12px;
   width: 100%;
@@ -1346,6 +1398,15 @@
   font-size: 11px;
   color: var(--muted);
   min-width: 0;
+  text-align: right;
+}
+:global(.sent-stock-industry) {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-align: right;
 }
 
@@ -2963,6 +3024,18 @@
 }
 
 @media (max-width: 720px) {
+  .opportunityRadar {
+    grid-template-columns: 1fr;
+  }
+  .opportunityRadarRow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .opportunityRadarMetrics {
+    width: 100%;
+    justify-content: flex-end;
+  }
   .msIndices {
     grid-template-columns: repeat(2, 1fr);
   }

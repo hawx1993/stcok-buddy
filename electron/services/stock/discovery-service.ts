@@ -43,7 +43,7 @@ let discoveryRefreshPromise: Promise<IDiscoverySnapshot> | undefined;
 let discoveryRefreshTimer: NodeJS.Timeout | undefined;
 let lastDiscoveryRefreshStartedAt = 0;
 
-type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
+type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string; industry?: string };
 type TRealtimeQuote = Awaited<ReturnType<typeof getBatchQuotes>>[number];
 type TDailyDragonTigerGroup = Awaited<ReturnType<typeof listRecentDragonTigerDays>>[number];
 type TDiscoveryDragonTigerItem = { code: string; name: string; changePercent?: number; netBuy: number; reason: string };
@@ -76,6 +76,8 @@ export interface IDiscoverySnapshot {
   }>;
   bullets?: string[];
   wealthMetrics?: Array<{ label: string; value: number | null; unit: string }>;
+  // opportunity radar
+  opportunityRadar?: IOpportunityRadar;
   // new AI market summary
   marketSummary?: IMarketSummary;
   // sentiment
@@ -130,6 +132,20 @@ export interface IDiscoverySnapshot {
   watchlist?: Array<{ code: string; name: string }>;
   watchlistQuotes?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
   unavailableReason?: string;
+}
+
+export interface IOpportunityRadar {
+  boards: IOpportunityRadarItem[];
+  stocks: IOpportunityStockRadarItem[];
+}
+
+export interface IOpportunityStockRadarItem {
+  code: string;
+  name: string;
+  reason: string;
+  changePercent?: number | null;
+  amount?: number | null;
+  score: number;
 }
 
 export interface IMarketSummary {
@@ -197,6 +213,7 @@ export type TLocalBoardSummary = {
 type TBoardAmountCacheEntry = { amount?: number; updatedAt: number; promise?: Promise<number | undefined> };
 type TBoardMainNetInflowCacheEntry = { amountYi?: number; updatedAt: number; promise?: Promise<number | undefined> };
 type TFundFlowRankRow = Awaited<ReturnType<typeof sdk.fundFlow.rank>>[number];
+type TMainFundFlowRow = Awaited<ReturnType<typeof sdk.fundFlow.market>>[number];
 type TConstituentCodeRow = { code?: string | null };
 type TFundFlowMainRow = { code: string; mainNetInflow: number | null };
 
@@ -214,6 +231,9 @@ const BOARD_MAIN_FLOW_FETCH_LIMIT = 12;
 const BOARD_MAIN_FLOW_FETCH_CONCURRENCY = 3;
 const BOARD_MAIN_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
 const FUND_FLOW_RANK_CACHE_TTL_MS = 60 * 1000;
+const MAIN_FUND_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
+const OPPORTUNITY_STOCK_CHANGE_PERCENT_LIMIT = 4;
+const OPPORTUNITY_STOCK_DISPLAY_LIMIT = 20;
 const DISCOVERY_OPTIONAL_TASK_TIMEOUT_MS = 8_000;
 const sectorFlowRankCache = new Map<
   TSectorFlowIndicator,
@@ -224,6 +244,7 @@ const boardMainNetInflowCache = new Map<string, TBoardMainNetInflowCacheEntry>()
 let fundFlowRankCache:
   | { rows: TFundFlowRankRow[]; updatedAt: number; promise?: Promise<TFundFlowRankRow[]> }
   | undefined;
+let mainFundFlowCache: { rows: TMainFundFlowRow[]; updatedAt: number; promise?: Promise<TMainFundFlowRow[]> } | undefined;
 
 function mapMetricToFactor(m: IMarketReviewMetric): { label: string; value: string | number } {
   if (m.value === null || m.value === undefined) return { label: m.label, value: '--' };
@@ -384,6 +405,12 @@ function hasDragonTigerRows(snapshot: IDiscoverySnapshot): boolean {
 
 export const hasDragonTigerRowsForTest = hasDragonTigerRows;
 
+function shouldRefreshCachedDiscoverySnapshot(snapshot: IDiscoverySnapshot, currentTradeDate: string): boolean {
+  return snapshot.tradeDate !== currentTradeDate || !hasDragonTigerRows(snapshot);
+}
+
+export const shouldRefreshCachedDiscoverySnapshotForTest = shouldRefreshCachedDiscoverySnapshot;
+
 function discoveryTradeDateSnapshotKey(tradeDate: string) {
   return `${DISCOVERY_TRADE_DATE_SNAPSHOT_PREFIX}${tradeDate}`;
 }
@@ -395,6 +422,23 @@ function isIsoTradeDate(value?: string): value is string {
 function emptyDiscoveryDragonTiger(): NonNullable<IDiscoverySnapshot['dragonTiger']> {
   return { inst: [], hot: [], first: [] };
 }
+
+function hasDragonTigerDayRows(day?: TDiscoveryDragonTigerDay): day is TDiscoveryDragonTigerDay {
+  return Boolean(day && (day.inst.length > 0 || day.hot.length > 0 || day.first.length > 0));
+}
+
+function pickCurrentDragonTigerFromHistory(
+  history: TDiscoveryDragonTigerDay[],
+  tradeDate: string,
+): NonNullable<IDiscoverySnapshot['dragonTiger']> {
+  const currentDay = history.find((day) => day.date === tradeDate);
+  if (currentDay) return { inst: currentDay.inst, hot: currentDay.hot, first: currentDay.first };
+  const day = history.find(hasDragonTigerDayRows);
+  if (!day) return emptyDiscoveryDragonTiger();
+  return { inst: day.inst, hot: day.hot, first: day.first };
+}
+
+export const pickCurrentDragonTigerFromHistoryForTest = pickCurrentDragonTigerFromHistory;
 
 function pickDragonTigerForTradeDate(
   snapshot: IDiscoverySnapshot,
@@ -466,13 +510,18 @@ export async function shouldDeferDiscoveryRefresh(now = new Date()): Promise<boo
   return isTradingDay && minutes < 9 * 60 + 30;
 }
 
-function buildDiscoveryWaitingSnapshot(now = new Date()): IDiscoverySnapshot {
+async function buildDiscoveryWaitingSnapshot(now = new Date()): Promise<IDiscoverySnapshot> {
+  const tradeDate = formatShanghaiDateKey(now);
+  const tradeDates = (await listRecentTradingDates(tradeDate)).map(toTradeDateOption);
   return {
-    tradeDate: formatShanghaiDateKey(now),
+    tradeDate,
     generatedAt: now.toISOString(),
+    tradeDates,
     unavailableReason: DISCOVERY_WAITING_930_MESSAGE,
   };
 }
+
+export const buildDiscoveryWaitingSnapshotForTest = buildDiscoveryWaitingSnapshot;
 
 function buildDiscoveryHistoryLoadingSnapshot(tradeDate: string, now = new Date()): IDiscoverySnapshot {
   return {
@@ -524,7 +573,7 @@ function collectRealtimeQuoteCodes(snapshot: IDiscoverySnapshot): string[] {
 }
 
 function patchStockItemQuote<
-  T extends { code: string; price?: number | string; changePercent?: number | string | null },
+  T extends { code: string; price?: number | string; changePercent?: number | string | null; industry?: string },
 >(item: T, quoteByCode: Map<string, TRealtimeQuote>): T {
   const quote = quoteByCode.get(item.code);
   if (!quote) return item;
@@ -533,6 +582,7 @@ function patchStockItemQuote<
     ...item,
     price: quote.price ?? item.price,
     changePercent: changePercent ?? item.changePercent,
+    industry: item.industry ?? quote.industry,
   };
 }
 
@@ -694,8 +744,8 @@ export async function getDiscoverySnapshot(options: IDiscoverySnapshotOptions = 
   const cachedSnapshot = cached ? toCachedDiscoverySnapshot(cached.snapshot) : undefined;
 
   if (cachedSnapshot && cached) {
-    const needsDragonTigerRefresh = !hasDragonTigerRows(cachedSnapshot);
-    if (needsDragonTigerRefresh && !(await shouldDeferDiscoveryRefresh())) {
+    const currentTradeDate = await resolveTradingDate(9 * 60 + 30);
+    if (shouldRefreshCachedDiscoverySnapshot(cachedSnapshot, currentTradeDate) && !(await shouldDeferDiscoveryRefresh())) {
       const snapshot = await refreshDiscoverySnapshot();
       return withRealtimeQuoteFields(snapshot);
     }
@@ -877,8 +927,44 @@ function toStockItem(item: HotFocusItem): TStockItem {
     price: item.price !== undefined ? String(item.price) : undefined,
     changePercent: item.changePercent !== undefined ? String(item.changePercent) : undefined,
     amount: item.amount !== undefined ? String(item.amount) : undefined,
+    industry: parseStockItemIndustry(item.description),
   };
 }
+
+function parseStockItemIndustry(description?: string): string | undefined {
+  const industry = description?.split('·')[0]?.trim();
+  if (!industry || /连板|换手|封单|成交额|开板|封涨停板|封跌停板|涨停开板/.test(industry)) return undefined;
+  return industry;
+}
+
+interface IResolvedYesterdaySentimentPools {
+  date?: string;
+  zt: TStockItem[];
+  lb: TStockItem[];
+}
+
+function resolveYesterdaySentimentPools(
+  recentTradeDates: string[],
+  historicalPoolItems: HotFocusItem[][],
+  currentTradeDate: string,
+): IResolvedYesterdaySentimentPools {
+  for (const [index, date] of recentTradeDates.entries()) {
+    if (date === currentTradeDate) continue;
+    const poolItems = historicalPoolItems[index] ?? [];
+    const limitUps = poolItems.filter((item) => item.tag === '封涨停板');
+    if (!limitUps.length) continue;
+
+    return {
+      date,
+      zt: limitUps.map(toStockItem),
+      lb: limitUps.filter((item) => parseHeight(item.description) >= 2).map(toStockItem),
+    };
+  }
+
+  return { zt: [], lb: [] };
+}
+
+export const resolveYesterdaySentimentPoolsForTest = resolveYesterdaySentimentPools;
 
 function getLimitDownThresholdPercent(code: string): number {
   const normalizedCode = code.replace(/^(sh|sz|bj)/i, '');
@@ -895,6 +981,7 @@ function toLimitDownStockItem(row: Awaited<ReturnType<typeof getAllMarketQuoteRo
     price: row.price !== undefined ? String(row.price) : undefined,
     changePercent: String(changePercent),
     amount: row.amount !== undefined ? formatMoney(row.amount) : undefined,
+    industry: row.industry,
   };
 }
 
@@ -922,10 +1009,6 @@ function parseChgPct(value?: number | string): number | undefined {
   if (value === undefined || value === null || value === '--') return undefined;
   const num = typeof value === 'string' ? Number(String(value).replace('%', '')) : Number(value);
   return Number.isFinite(num) ? num : undefined;
-}
-
-function yyyymmdd(date: Date): string {
-  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function normalizeThemeName(name?: string | null): string {
@@ -962,12 +1045,6 @@ function findLeadersFromPool(
     if (unique.length >= 3) break;
   }
   return unique;
-}
-
-function offsetDate(days: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d;
 }
 
 function scoreLabel(s: number): string {
@@ -1104,15 +1181,41 @@ async function fetchAllIndices(): Promise<Array<{ code: string; name: string; pr
   return results.filter((item): item is NonNullable<typeof item> => Boolean(item));
 }
 
+async function fetchMainFundFlowRows(): Promise<TMainFundFlowRow[]> {
+  const now = Date.now();
+  if (mainFundFlowCache && now - mainFundFlowCache.updatedAt < MAIN_FUND_FLOW_CACHE_TTL_MS) {
+    return mainFundFlowCache.rows;
+  }
+  if (mainFundFlowCache?.promise) return mainFundFlowCache.promise;
+
+  const previousCache = mainFundFlowCache;
+  const promise = sdk.fundFlow
+    .market()
+    .then((rows) => {
+      mainFundFlowCache = { rows, updatedAt: Date.now() };
+      return rows;
+    })
+    .catch((error) => {
+      mainFundFlowCache = previousCache?.rows.length
+        ? { rows: previousCache.rows, updatedAt: previousCache.updatedAt }
+        : undefined;
+      throw error;
+    });
+  mainFundFlowCache = { rows: previousCache?.rows ?? [], updatedAt: previousCache?.updatedAt ?? 0, promise };
+  return promise;
+}
+
 async function fetchMainFundFlow(tradeDate?: string): Promise<number | null> {
   try {
-    const rows = await sdk.fundFlow.market();
+    const rows = await fetchMainFundFlowRows();
     return selectLatestMainFundFlowYi(rows, tradeDate);
   } catch (err) {
     console.warn(`[discovery] main fund flow unavailable: ${formatDiscoveryDataError(err)}`);
     return null;
   }
 }
+
+export const fetchMainFundFlowForTest = fetchMainFundFlow;
 
 async function fetchNorthFundFlow(tradeDate?: string): Promise<number | null> {
   try {
@@ -1149,6 +1252,12 @@ function finitePositive(value: number | null | undefined): value is number {
 
 function finiteNumber(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function finiteStockChangePercent(value: number | string | null | undefined): number | null {
+  if (value === undefined || value === null) return null;
+  const numeric = typeof value === 'number' ? value : Number(value.replace('%', ''));
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function normalizeStockCode(code?: string | null): string | undefined {
@@ -1391,6 +1500,41 @@ function buildOpportunityRadar(sectors: ISectorSummary[]): IOpportunityRadarItem
     .sort((a, b) => b.ratio - a.ratio)
     .slice(0, 5);
 }
+
+function buildOpportunityStockRadar(fundFlows: TFundFlowRankRow[]): IOpportunityStockRadarItem[] {
+  return fundFlows
+    .flatMap((item) => {
+      const changePercent = finiteStockChangePercent(item.changePercent);
+      const superLargeNetInflow = finiteNumber(item.superLargeNetInflow) ? item.superLargeNetInflow : null;
+      const mainNetInflow = finiteNumber(item.mainNetInflow) ? item.mainNetInflow : null;
+      if (!item.code || !item.name || changePercent === null || superLargeNetInflow === null) return [];
+      return [{
+        code: item.code,
+        name: item.name,
+        reason: `超大单净买入 ${formatMoney(superLargeNetInflow)}，主力净流入 ${formatMoney(mainNetInflow)}`,
+        changePercent,
+        amount: superLargeNetInflow,
+        score: superLargeNetInflow,
+      }];
+    })
+    .filter((item) => Number(item.amount) > 0 && item.changePercent < OPPORTUNITY_STOCK_CHANGE_PERCENT_LIMIT)
+    .sort((a, b) => Number(b.amount) - Number(a.amount) || a.code.localeCompare(b.code))
+    .slice(0, OPPORTUNITY_STOCK_DISPLAY_LIMIT);
+}
+
+export const buildOpportunityStockRadarForTest = buildOpportunityStockRadar;
+
+function buildDiscoveryOpportunityRadar(input: {
+  boards?: IOpportunityRadarItem[];
+  stocks: IOpportunityStockRadarItem[];
+}): IOpportunityRadar {
+  return {
+    boards: input.boards ?? [],
+    stocks: input.stocks,
+  };
+}
+
+export const buildDiscoveryOpportunityRadarForTest = buildDiscoveryOpportunityRadar;
 
 async function generateNextWeekSectors(
   sectors: ISectorSummary[],
@@ -1742,6 +1886,7 @@ function buildDiscoverySnapshotFromHistoricalPools(input: IHistoricalDiscoveryBu
     consecutiveCount: consecutiveStocks.length,
     dragonTiger,
   });
+  const boardOpportunityRadar = buildOpportunityRadar(historicalSectors);
 
   return {
     tradeDate: input.tradeDate,
@@ -1757,10 +1902,14 @@ function buildDiscoverySnapshotFromHistoricalPools(input: IHistoricalDiscoveryBu
       limitDown: sentimentStocks.dt.length,
       sentimentBar: sentimentScore ?? 50,
       sectors: historicalSectors,
-      opportunityRadar: buildOpportunityRadar(historicalSectors),
+      opportunityRadar: boardOpportunityRadar,
       monthlyThemes: [],
       nextWeekSectors: [],
     },
+    opportunityRadar: buildDiscoveryOpportunityRadar({
+      boards: boardOpportunityRadar,
+      stocks: [],
+    }),
     sentimentScore,
     sentimentFactors: [
       { label: '涨停', value: `${sentimentStocks.zt.length}家` },
@@ -1959,32 +2108,18 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshotBuildRes
   }
 
   // ── Yesterday pool for 昨日涨停指数 / 昨日连板指数 ──
-  let yesterdayZt: TStockItem[] | undefined;
-  let yesterdayLb: TStockItem[] | undefined;
-  const yesterday = yyyymmdd(offsetDate(-1));
-  try {
-    const ydayPool = await listEastmoneySurgeByDate(yesterday);
-    yesterdayZt = ydayPool.filter((item) => item.tag === '封涨停板').map(toStockItem);
-    yesterdayLb = ydayPool
-      .filter((item) => item.tag === '封涨停板' && parseHeight(item.description) >= 2)
-      .map(toStockItem);
-  } catch (err) {
-    console.warn('[discovery] failed to fetch yesterday pool', err);
-  }
+  const yesterdayPools = resolveYesterdaySentimentPools(recentTradeDates, historicalPoolItems, currentTradeDate);
+  const yesterdayZt = yesterdayPools.zt;
+  const yesterdayLb = yesterdayPools.lb;
 
   // ── Dragon tiger ──
+  const tradeDate = reviewData?.tradeDate ?? currentTradeDate;
   const dragonTigerGroups = dragonTiger.status === 'fulfilled' ? dragonTiger.value : [];
   const dragonTigerGroupsByDate = new Map(dragonTigerGroups.map((group) => [group.date, group]));
   const dragonTigerHistory = buildDiscoveryDragonTigerHistory(
     recentTradeDates.map((date) => dragonTigerGroupsByDate.get(date) ?? ({ date, items: [] } satisfies TDailyDragonTigerGroup)),
   );
-  const discoveryDragonTiger = dragonTigerHistory[0]
-    ? {
-        inst: dragonTigerHistory[0].inst,
-        hot: dragonTigerHistory[0].hot,
-        first: dragonTigerHistory[0].first,
-      }
-    : buildDiscoveryDragonTiger([]);
+  const discoveryDragonTiger = pickCurrentDragonTigerFromHistory(dragonTigerHistory, tradeDate);
 
   // ── Watchlist quotes ──
   let watchlistQuotes: IDiscoverySnapshot['watchlistQuotes'];
@@ -2007,7 +2142,6 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshotBuildRes
   // ── Score ──
   const score = reviewData?.sentimentScore ?? undefined;
   const sentimentLabel = score !== undefined && score !== null ? scoreLabel(score) : undefined;
-  const tradeDate = reviewData?.tradeDate ?? currentTradeDate;
 
   // Build 7-day score trend and AI one-sentence verdict.
   let scoreTrend: number[] | undefined;
@@ -2055,6 +2189,17 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshotBuildRes
     console.warn('[discovery] build market summary failed', err);
   }
 
+  let opportunityStocks: IOpportunityStockRadarItem[] = [];
+  try {
+    opportunityStocks = buildOpportunityStockRadar(await fetchFundFlowRankRows());
+  } catch (error) {
+    console.warn(`[discovery] opportunity stock fund flow unavailable: ${formatDiscoveryDataError(error)}`);
+  }
+  const opportunityRadar = buildDiscoveryOpportunityRadar({
+    boards: marketSummary?.opportunityRadar ?? [],
+    stocks: opportunityStocks,
+  });
+
   const sectorThemes = await buildHotThemesFromSectors(marketSummary?.sectors ?? []);
   const poolThemes = buildHotThemesFromPools(poolItems);
   const baseHotThemes = reviewData?.hotThemes?.length
@@ -2079,6 +2224,7 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshotBuildRes
     indices: indices.length ? indices : undefined,
     bullets: bullets.length ? bullets : undefined,
     wealthMetrics: wealthMetrics.length ? wealthMetrics : undefined,
+    opportunityRadar,
     marketSummary,
     sentimentScore: reviewData?.sentimentScore ?? null,
     sentimentFactors: reviewData?.sentiment

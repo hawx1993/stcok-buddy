@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   branchRank: vi.fn(),
   quotesCn: vi.fn(),
   fetch: vi.fn(),
+  resolveTradingDate: vi.fn(),
 }));
 
 vi.mock('../shared.js', () => ({
@@ -22,6 +23,10 @@ vi.mock('../shared.js', () => ({
   withTimeoutReject: <T>(promise: Promise<T>) => promise,
 }));
 
+vi.mock('../../market-data/trade-date-resolver.js', () => ({
+  resolveTradingDate: mocks.resolveTradingDate,
+}));
+
 import { dragonTigerTestExports, getDragonTigerSnapshot, listDailyDragonTiger, listRecentDragonTigerDays } from '../dragon-tiger.js';
 import type { IDragonTigerDetailRow } from '../../../../src/shared/types.js';
 
@@ -33,8 +38,10 @@ describe('龙虎榜快照服务', () => {
     mocks.institution.mockReset();
     mocks.branchRank.mockReset();
     mocks.quotesCn.mockReset();
+    mocks.resolveTradingDate.mockReset();
     mocks.fetch.mockReset();
     mocks.quotesCn.mockResolvedValue([]);
+    mocks.resolveTradingDate.mockResolvedValue('2026-07-31');
     vi.stubGlobal('fetch', mocks.fetch);
     mockDatacenterRows([]);
   });
@@ -143,6 +150,21 @@ describe('龙虎榜快照服务', () => {
     expect(groups).toHaveLength(2);
     expect(groups.map((group) => group.date)).toEqual(['2026-07-31', '2026-07-30']);
     expect(groups[0]?.items.map((item) => item.code)).toEqual(['600001', '600002']);
+  });
+
+  it('最新龙虎榜只请求最新交易日，空数据不回退上一有数据日', async () => {
+    mocks.resolveTradingDate.mockResolvedValueOnce('2026-08-03');
+    mocks.detail.mockResolvedValueOnce([]);
+    mocks.institution.mockResolvedValueOnce([]);
+    mocks.branchRank.mockResolvedValueOnce([]);
+
+    const snapshot = await getDragonTigerSnapshot('today');
+
+    expect(mocks.resolveTradingDate).toHaveBeenCalledWith(9 * 60 + 30);
+    expect(mocks.detail).toHaveBeenCalledTimes(1);
+    expect(mocks.detail).toHaveBeenCalledWith({ startDate: '20260803', endDate: '20260803' });
+    expect(snapshot.summary.tradeDate).toBe('2026-08-03');
+    expect(snapshot.rows).toEqual([]);
   });
 
   it('最新龙虎榜从近 30 日历史中按日期取最新一组', async () => {

@@ -1,0 +1,56 @@
+.phasePill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--fg);
+  background: var(--surface-hover);
+  border: 1px solid var(--glass-border);
+  padding: 5px 11px;
+  border-radius: 20px;
+}
+
+.phasePillInactive {
+  color: var(--muted);
+}
+
+.phasePillInteractive {
+  cursor: pointer;
+}
+
+.phasePillInteractive:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+.phasePillInteractive:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.liveDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--market-up, #2fbf71);
+  animation: pulse 1.6s infinite;
+}
+
+.liveDotInactive {
+  background: var(--muted);
+  animation: none;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.25;
+  }
+}

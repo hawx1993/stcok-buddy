@@ -38,7 +38,6 @@ export function App() {
   const isRightPanelCollapsed = useAppStore((state) => state.isRightPanelCollapsed);
   const toggleLeftSidebar = useAppStore((state) => state.toggleLeftSidebar);
   const rightPanelTab = useAppStore((state) => state.rightPanelTab);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
   const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
 
   useEffect(() => {
@@ -111,10 +110,6 @@ export function App() {
   const openRightRail = (tab: typeof rightPanelTab) => {
     trackButtonClick(`right_rail_${tab}`);
     trackPageView(`right_panel_${tab}`);
-    if (tab === 'board') {
-      openBoardPanel();
-      return;
-    }
     setRightPanelTab(tab);
   };
   const rightResize = usePanelResize('--right-width', 348, 500, 'w');

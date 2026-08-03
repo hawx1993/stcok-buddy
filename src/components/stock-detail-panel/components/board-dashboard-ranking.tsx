@@ -47,7 +47,6 @@ export function BoardDashboardRanking({ title, items, onOpenBoard }: IBoardDashb
                   </span>
                   <span className={styles['board-row-side']}>
                     <b>{item.heatScore === null ? '--' : item.heatScore?.toFixed(1)}</b>
-                    <em className={cx(trendClass(item.changePercent))}>{formatPercent(item.changePercent)}</em>
                   </span>
                 </button>
               );
