@@ -8,12 +8,13 @@ import type {
 } from '../../../src/shared/types.js';
 import { pickNumber, pickString } from './format.js';
 import { sdk, withTimeoutReject } from './shared.js';
+import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
 
 const DRAGON_TIGER_TIMEOUT_MS = 10_000;
 const DRAGON_TIGER_RANK_SIZE = 20;
 const DRAGON_TIGER_SEAT_RANK_SIZE = 12;
-const TODAY_LOOKBACK_DAYS = 7;
 const EASTMONEY_DATACENTER_URL = 'https://datacenter-web.eastmoney.com/api/data/v1/get';
+const EASTMONEY_DRAGON_TIGER_DETAIL_REPORT = 'RPT_DAILYBILLBOARD_DETAILSNEW';
 
 export interface DailyDragonTigerItem {
   id: string;
@@ -40,19 +41,27 @@ type TStockSdkDragonTigerBranch = Awaited<ReturnType<typeof sdk.dragonTiger.bran
 type TEastmoneyDatacenterPayload = { result?: { data?: Record<string, unknown>[] } };
 
 export async function getDragonTigerSnapshot(range: TDragonTigerRange = 'today'): Promise<IDragonTigerSnapshot> {
-  const requestRange = getDragonTigerDateRange(range);
-  const detailRows = await fetchDetailRows(range, requestRange.startDate, requestRange.endDate);
-  const effectiveRange = detailRows.length && range === 'today'
-    ? { startDate: toCompactDate(detailRows[0].date), endDate: toCompactDate(detailRows[0].date) }
-    : requestRange;
-  const filteredRows = range === 'today' && detailRows[0]?.date
-    ? detailRows.filter((row) => row.date === detailRows[0].date)
-    : detailRows;
+  const requestRange = await getDragonTigerDateRange(range);
   const warnings: string[] = [];
+  const detailRows =
+    range === 'today'
+      ? await fetchLatestDragonTigerRowsFromStockSdk(warnings)
+      : await fetchDetailRowsWithFallback(range, requestRange.startDate, requestRange.endDate, warnings);
+  const latestDate = detailRows[0]?.date;
+  const effectiveRange =
+    range === 'today' && latestDate
+      ? { startDate: toCompactDate(latestDate), endDate: toCompactDate(latestDate) }
+      : requestRange;
+  const filteredRows =
+    range === 'today' && latestDate ? detailRows.filter((row) => row.date === latestDate) : detailRows;
 
   const [institutionResult, branchResult] = await Promise.allSettled([
     withTimeoutReject(sdk.dragonTiger.institution(effectiveRange), DRAGON_TIGER_TIMEOUT_MS, '龙虎榜机构买卖加载超时'),
-    withTimeoutReject(sdk.dragonTiger.branchRank(toSdkPeriod(range)), DRAGON_TIGER_TIMEOUT_MS, '龙虎榜营业部排行加载超时'),
+    withTimeoutReject(
+      sdk.dragonTiger.branchRank(toSdkPeriod(range)),
+      DRAGON_TIGER_TIMEOUT_MS,
+      '龙虎榜营业部排行加载超时',
+    ),
   ]);
 
   if (institutionResult.status === 'rejected') warnings.push(toWarningMessage('机构买卖', institutionResult.reason));
@@ -70,7 +79,10 @@ export async function getDragonTigerSnapshot(range: TDragonTigerRange = 'today')
     endDate: effectiveRange.endDate,
     rows: filteredRows,
     institutionTop: institutionTop.slice(0, DRAGON_TIGER_SEAT_RANK_SIZE),
-    branchTop: branchResult.status === 'fulfilled' ? branchResult.value.map(toBranchRow).slice(0, DRAGON_TIGER_SEAT_RANK_SIZE) : [],
+    branchTop:
+      branchResult.status === 'fulfilled'
+        ? branchResult.value.map(toBranchRow).slice(0, DRAGON_TIGER_SEAT_RANK_SIZE)
+        : [],
     warnings,
   });
 }
@@ -100,24 +112,66 @@ async function fetchDetailRows(
   startDate: string,
   endDate: string,
 ): Promise<IDragonTigerDetailRow[]> {
-  if (range !== 'today') {
-    const rows = await withTimeoutReject(
-      sdk.dragonTiger.detail({ startDate, endDate }),
-      DRAGON_TIGER_TIMEOUT_MS,
-      '龙虎榜详情加载超时',
-    );
-    return sortDetailRows(rows.map(toDetailRow));
+  const rows = await withTimeoutReject(
+    sdk.dragonTiger.detail({ startDate, endDate }),
+    DRAGON_TIGER_TIMEOUT_MS,
+    '龙虎榜详情加载超时',
+  );
+  return sortDetailRows(rows.map(toDetailRow));
+}
+
+async function fetchLatestDragonTigerRowsFromStockSdk(warnings: string[]): Promise<IDragonTigerDetailRow[]> {
+  const requestRange = getRecentDragonTigerHistoryRange();
+  try {
+    const rows = await fetchDetailRows('30d', requestRange.startDate, requestRange.endDate);
+    if (rows.length) return rows;
+  } catch (error) {
+    warnings.push(toWarningMessage('stock-sdk 近 30 日龙虎榜详情', error));
+  }
+  warnings.push('stock-sdk 近 30 日龙虎榜详情暂未返回真实上榜记录');
+  return [];
+}
+
+async function fetchDetailRowsWithFallback(
+  range: TDragonTigerRange,
+  startDate: string,
+  endDate: string,
+  warnings: string[],
+): Promise<IDragonTigerDetailRow[]> {
+  try {
+    const sdkRows = await fetchDetailRows(range, startDate, endDate);
+    if (sdkRows.length) return sdkRows;
+  } catch (error) {
+    warnings.push(toWarningMessage('stock-sdk 龙虎榜详情', error));
   }
 
-  for (const date of recentDateCandidates(TODAY_LOOKBACK_DAYS)) {
-    const rows = await withTimeoutReject(
-      sdk.dragonTiger.detail({ startDate: date, endDate: date }),
-      DRAGON_TIGER_TIMEOUT_MS,
-      '龙虎榜详情加载超时',
-    );
-    if (rows.length) return sortDetailRows(rows.map(toDetailRow));
-  }
+  const eastmoneyRows = await fetchEastmoneyDetailRows(startDate, endDate, warnings);
+  if (eastmoneyRows.length) return eastmoneyRows;
+  if (range === 'today') warnings.push(`当前交易日 ${toIsoDate(endDate)} 龙虎榜真实数据源暂未返回`);
   return [];
+}
+
+async function fetchEastmoneyDetailRows(
+  startDate: string,
+  endDate: string,
+  warnings: string[],
+): Promise<IDragonTigerDetailRow[]> {
+  try {
+    const rows = await fetchEastmoneyDatacenterRows(
+      EASTMONEY_DRAGON_TIGER_DETAIL_REPORT,
+      `(TRADE_DATE>='${toIsoDate(startDate)}')(TRADE_DATE<='${toIsoDate(endDate)}')`,
+      'TRADE_DATE',
+      200,
+    );
+    const mappedRows = sortDetailRows(
+      rows.map(toEastmoneyDetailRow).filter((row): row is IDragonTigerDetailRow => row !== undefined),
+    );
+    if (mappedRows.length) warnings.push('stock-sdk 龙虎榜详情暂未返回，已使用 a-stock-data 东财龙虎榜详情补充');
+    return mappedRows;
+  } catch (error) {
+    warnings.push(`a-stock-data 东财龙虎榜详情补充失败：${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
 }
 
 async function fetchInstitutionRowsFromDetails(
@@ -128,9 +182,12 @@ async function fetchInstitutionRowsFromDetails(
   for (const row of rows.slice(0, 8)) {
     try {
       const institution = await fetchEastmoneyInstitutionForStock(row.code, row.date);
-      if (institution && institution.orgNetAmount !== 0) result.push({ ...institution, changePercent: row.changePercent });
+      if (institution && institution.orgNetAmount !== 0)
+        result.push({ ...institution, changePercent: row.changePercent });
     } catch (error) {
-      warnings.push(`a-stock-data 机构席位降级失败（${row.code}）：${error instanceof Error ? error.message : String(error)}`);
+      warnings.push(
+        `a-stock-data 机构席位降级失败（${row.code}）：${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
   if (!result.length) warnings.push('stock-sdk 未返回机构买卖数据，a-stock-data 机构席位明细也未检索到机构专用净买入');
@@ -138,7 +195,10 @@ async function fetchInstitutionRowsFromDetails(
   return result.sort((a, b) => (b.orgNetAmount ?? 0) - (a.orgNetAmount ?? 0) || a.code.localeCompare(b.code));
 }
 
-async function fetchEastmoneyInstitutionForStock(code: string, date: string): Promise<IDragonTigerInstitutionRow | undefined> {
+async function fetchEastmoneyInstitutionForStock(
+  code: string,
+  date: string,
+): Promise<IDragonTigerInstitutionRow | undefined> {
   const buyRows = await fetchEastmoneyDatacenterRows(
     'RPT_BILLBOARD_DAILYDETAILSBUY',
     `(TRADE_DATE='${date}')(SECURITY_CODE=\"${code}\")`,
@@ -198,6 +258,7 @@ async function fetchEastmoneyDatacenterRows(
   reportName: string,
   filter: string,
   sortColumns: string,
+  pageSize = 10,
 ): Promise<Record<string, unknown>[]> {
   const url = new URL(EASTMONEY_DATACENTER_URL);
   url.search = new URLSearchParams({
@@ -205,7 +266,7 @@ async function fetchEastmoneyDatacenterRows(
     columns: 'ALL',
     filter,
     pageNumber: '1',
-    pageSize: '10',
+    pageSize: String(pageSize),
     sortColumns,
     sortTypes: '-1',
     source: 'WEB',
@@ -214,7 +275,8 @@ async function fetchEastmoneyDatacenterRows(
   const response = await fetch(url, {
     signal: AbortSignal.timeout(DRAGON_TIGER_TIMEOUT_MS),
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       Referer: 'https://data.eastmoney.com/',
     },
   });
@@ -325,6 +387,35 @@ function toDetailRow(row: TStockSdkDragonTigerDetail): IDragonTigerDetailRow {
   };
 }
 
+function toEastmoneyDetailRow(row: Record<string, unknown>): IDragonTigerDetailRow | undefined {
+  const code = pickString(row, ['SECURITY_CODE']);
+  const date = normalizeTradeDate(pickString(row, ['TRADE_DATE']));
+  if (!code || !date) return undefined;
+  const reason = pickString(row, ['EXPLANATION', 'EXPLAIN']) ?? '未披露原因';
+  return {
+    id: `dragon-tiger-${date}-${code}-${stableTextKey(reason)}`,
+    code: normalizeCode(code),
+    name: pickString(row, ['SECURITY_NAME_ABBR', 'SECURITY_NAME']) ?? code,
+    date,
+    reason,
+    close: pickNumber(row, ['CLOSE_PRICE']) ?? null,
+    changePercent: pickNumber(row, ['CHANGE_RATE']) ?? null,
+    netBuyAmount: pickNumber(row, ['BILLBOARD_NET_AMT', 'TOTAL_NET']) ?? null,
+    buyAmount: pickNumber(row, ['BILLBOARD_BUY_AMT', 'TOTAL_BUY']) ?? null,
+    sellAmount: pickNumber(row, ['BILLBOARD_SELL_AMT', 'TOTAL_SELL']) ?? null,
+    dealAmount: pickNumber(row, ['BILLBOARD_DEAL_AMT']) ?? null,
+    totalAmount: pickNumber(row, ['ACCUM_AMOUNT']) ?? null,
+    netBuyRatio: pickNumber(row, ['DEAL_NET_RATIO', 'TOTAL_NETRIOTOP']) ?? null,
+    dealAmountRatio: pickNumber(row, ['DEAL_AMOUNT_RATIO']) ?? null,
+    turnoverRate: pickNumber(row, ['TURNOVERRATE', 'TURNRATE']) ?? null,
+    floatMarketValue: pickNumber(row, ['FREE_MARKET_CAP']) ?? null,
+    afterChange1d: pickNumber(row, ['D1_CLOSE_ADJCHRATE']) ?? null,
+    afterChange2d: pickNumber(row, ['D2_CLOSE_ADJCHRATE']) ?? null,
+    afterChange5d: pickNumber(row, ['D5_CLOSE_ADJCHRATE']) ?? null,
+    afterChange10d: pickNumber(row, ['D10_CLOSE_ADJCHRATE']) ?? null,
+  };
+}
+
 function toInstitutionRow(row: TStockSdkDragonTigerInstitution): IDragonTigerInstitutionRow {
   return {
     code: normalizeCode(row.code),
@@ -371,9 +462,7 @@ function buildReasonStats(rows: IDragonTigerDetailRow[]): IDragonTigerReasonStat
 function sortDetailRows(rows: IDragonTigerDetailRow[]): IDragonTigerDetailRow[] {
   return rows.sort(
     (a, b) =>
-      b.date.localeCompare(a.date) ||
-      (b.netBuyAmount ?? 0) - (a.netBuyAmount ?? 0) ||
-      a.code.localeCompare(b.code),
+      b.date.localeCompare(a.date) || (b.netBuyAmount ?? 0) - (a.netBuyAmount ?? 0) || a.code.localeCompare(b.code),
   );
 }
 
@@ -393,7 +482,12 @@ function toDailyDragonTigerItem(row: IDragonTigerDetailRow): DailyDragonTigerIte
   };
 }
 
-function getDragonTigerDateRange(range: TDragonTigerRange): { startDate: string; endDate: string } {
+async function getDragonTigerDateRange(range: TDragonTigerRange): Promise<{ startDate: string; endDate: string }> {
+  if (range === 'today') {
+    const tradeDate = await resolveTradingDate(9 * 60 + 30);
+    const compact = toCompactDate(tradeDate);
+    return { startDate: compact, endDate: compact };
+  }
   const end = new Date();
   const start = new Date(end);
   if (range === '5d') start.setDate(end.getDate() - 4);
@@ -409,16 +503,6 @@ function getRecentDragonTigerHistoryRange(): { startDate: string; endDate: strin
   return { startDate: formatCompactDate(start), endDate: formatCompactDate(end) };
 }
 
-function recentDateCandidates(days: number): string[] {
-  const date = new Date();
-  const result: string[] = [];
-  for (let index = 0; index < days; index += 1) {
-    result.push(formatCompactDate(date));
-    date.setDate(date.getDate() - 1);
-  }
-  return result;
-}
-
 function toSdkPeriod(range: TDragonTigerRange): '1month' | '3month' | '6month' | '1year' {
   if (range === '30d') return '1month';
   return '1month';
@@ -430,6 +514,11 @@ function sumRows(rows: IDragonTigerDetailRow[], key: 'netBuyAmount' | 'buyAmount
 
 function normalizeCode(code: string) {
   return code.replace(/^(sh|sz|bj)/i, '');
+}
+
+function normalizeTradeDate(date: string | undefined) {
+  if (!date) return undefined;
+  return toIsoDate(date);
 }
 
 function numberOrUndefined(value: number | null) {

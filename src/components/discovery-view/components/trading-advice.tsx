@@ -1,6 +1,6 @@
 import { AlertTriangle, BarChart3, Bot, RefreshCw, Target, Zap } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { BoardDetail, ITradingAdvice, StockDetail } from '../../../shared/types';
 
@@ -44,11 +44,11 @@ export function TradingAdvice({ tradeDate }: ITradingAdviceProps) {
   const [advice, setAdvice] = useState<ITradingAdvice | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const openBoardPanel = useAppUiStore((state) => state.openBoardPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   const load = useCallback(async () => {
     setLoading(true);

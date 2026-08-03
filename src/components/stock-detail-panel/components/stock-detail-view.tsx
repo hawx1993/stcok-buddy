@@ -6,9 +6,10 @@ import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
 import { isChinaMarketOpen } from '../../../shared/market-time';
 import type { StockSurgeEvent } from '../../../shared/types';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { Empty } from '../../empty';
 import { KlineModal, StockKlineChart } from '../../kline-chart';
+import { MarketPhasePill } from '../../market-phase-pill';
 import { StockQuickNews } from './stock-quick-news';
 import styles from '../index.module.scss';
 
@@ -32,13 +33,13 @@ export function StockDetailView({
   const [stockSurgeEvents, setStockSurgeEvents] = useState<StockSurgeEvent[]>([]);
   const [stockSurgeLoading, setStockSurgeLoading] = useState(false);
   const [stockSurgeError, setStockSurgeError] = useState<string>();
-  const selectedStock = useAppStore((state) => state.selectedStock);
-  const favoriteStocks = useAppStore((state) => state.favoriteStocks);
-  const setFavoriteStocks = useAppStore((state) => state.setFavoriteStocks);
-  const setConversations = useAppStore((state) => state.setConversations);
-  const setActiveConversation = useAppStore((state) => state.setActiveConversation);
-  const clearMessages = useAppStore((state) => state.clearMessages);
-  const setMainView = useAppStore((state) => state.setMainView);
+  const selectedStock = useAppDataStore((state) => state.selectedStock);
+  const favoriteStocks = useAppDataStore((state) => state.favoriteStocks);
+  const setFavoriteStocks = useAppDataStore((state) => state.setFavoriteStocks);
+  const setConversations = useAppDataStore((state) => state.setConversations);
+  const setActiveConversation = useAppDataStore((state) => state.setActiveConversation);
+  const clearMessages = useAppDataStore((state) => state.clearMessages);
+  const setMainView = useAppUiStore((state) => state.setMainView);
   const selectedIsFavorite = Boolean(selectedStock && favoriteStocks.some((item) => item.code === selectedStock.code));
 
   useLayoutEffect(() => {
@@ -62,7 +63,7 @@ export function StockDetailView({
     getStocksenseApi()
       .getKline(selectedStock.code, 360, '1d')
       .then((kline) => {
-        if (alive && kline.length) useAppStore.getState().setSelectedStock({ ...selectedStock, kline });
+        if (alive && kline.length) useAppDataStore.getState().setSelectedStock({ ...selectedStock, kline });
       })
       .catch((error: unknown) => console.error(error));
     return () => {
@@ -141,9 +142,9 @@ export function StockDetailView({
         .then((quotes) => {
           if (!alive || !quotes.length) return;
           const quote = quotes[0];
-          const current = useAppStore.getState().selectedStock;
+          const current = useAppDataStore.getState().selectedStock;
           if (!current || current.code !== code) return;
-          useAppStore.getState().setSelectedStock({
+          useAppDataStore.getState().setSelectedStock({
             ...current,
             price: quote.price ?? current.price,
             changePercent: quote.changePercent ?? current.changePercent,
@@ -177,7 +178,7 @@ export function StockDetailView({
   const sendStockReport = async (code: string) => {
     const api = getStocksenseApi();
     const conversation = await api.createConversation();
-    setConversations([conversation, ...useAppStore.getState().conversations]);
+    setConversations([conversation, ...useAppDataStore.getState().conversations]);
     setActiveConversation(conversation.id);
     clearMessages();
     setMainView('chat');
@@ -219,6 +220,7 @@ export function StockDetailView({
           ) : null}
           <LineChart className={styles['panel-title-icon']} size={16} />
           个股详情
+          {selectedStock ? <MarketPhasePill /> : null}
         </span>
         {selectedStock ? (
           <div className={styles['stock-price']}>

@@ -1,6 +1,6 @@
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type { StockDetail } from '../../shared/types';
-import { useAppStore } from '../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import type { RightPanelTab } from '../../store/app-store';
 import { BoardDashboardPanel } from './components/board-dashboard-panel';
 import { BoardDetailPanel } from './components/board-detail-panel';
@@ -21,14 +21,14 @@ const BACK_LABELS: Record<RightPanelTab, string> = {
 };
 
 export function StockDetailPanel() {
-  const selectedStock = useAppStore((state) => state.selectedStock);
-  const selectedBoard = useAppStore((state) => state.selectedBoard);
-  const stockReturnContext = useAppStore((state) => state.stockReturnContext);
-  const rightPanelTab = useAppStore((state) => state.rightPanelTab);
-  const isRightPanelCollapsed = useAppStore((state) => state.isRightPanelCollapsed);
-  const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const selectedStock = useAppDataStore((state) => state.selectedStock);
+  const selectedBoard = useAppDataStore((state) => state.selectedBoard);
+  const stockReturnContext = useAppDataStore((state) => state.stockReturnContext);
+  const rightPanelTab = useAppUiStore((state) => state.rightPanelTab);
+  const isRightPanelCollapsed = useAppUiStore((state) => state.isRightPanelCollapsed);
+  const setRightPanelTab = useAppUiStore((state) => state.setRightPanelTab);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   const openSurgeStock = async (stock: StockDetail) => {
     setRightPanelTab('stock');

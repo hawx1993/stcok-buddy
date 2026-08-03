@@ -442,12 +442,18 @@ function createChipSignalEvents(
   }
 
   if (recentLargeBuy) {
+    const largeBuyText = [
+      `近周个股异动：${recentLargeBuy.tradeDate}${recentLargeBuy.time ? ` ${recentLargeBuy.time}` : ''}`,
+      recentLargeBuy.amount ?? recentLargeBuy.description ?? recentLargeBuy.tag ?? recentLargeBuy.title,
+    ]
+      .filter(isString)
+      .join('，');
     events.push({
       ...base(),
       id: `mo-chip-low-concentration-largebuy-${stock.code}-${tradeDate}`,
       title: '低集中度叠加大额买入',
       badge: '筹码+大单',
-      details: [...baseDetails, `近周大额买入：${recentLargeBuy.tradeDate}${recentLargeBuy.time ? ` ${recentLargeBuy.time}` : ''}`, recentLargeBuy.amount ?? recentLargeBuy.description ?? recentLargeBuy.tag ?? recentLargeBuy.title],
+      details: [...baseDetails, largeBuyText],
       aiAnalysis: '90%筹码集中度低且近一周出现单笔大于1万手买入异动，资金行为值得跟踪，但仍需结合后续成交持续性。',
     });
   }

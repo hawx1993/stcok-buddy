@@ -1,10 +1,10 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { StockDetail } from '../../../shared/types';
 
-type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
+type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string; industry?: string };
 
 interface ISentimentProps {
   score?: number | null;
@@ -58,9 +58,9 @@ export function SentimentIndex({ score, factors, stocks, consecutiveStocks, yest
     });
   }, []);
 
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   const handleStockClick = async (code: string, name: string) => {
     const snapshot = { code, name } as StockDetail;
@@ -136,6 +136,7 @@ export function SentimentIndex({ score, factors, stocks, consecutiveStocks, yest
                               : '--'}
                           </span>
                           {item.amount ? <span className="sent-stock-amount">{item.amount}</span> : null}
+                          <span className="sent-stock-industry">{item.industry ?? '--'}</span>
                         </button>
                       ))
                     ) : (

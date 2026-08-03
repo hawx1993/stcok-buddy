@@ -6,11 +6,17 @@ function toYi(value: number | null | undefined): number | null {
 }
 
 export function selectLatestMainFundFlowYi(rows: MarketFundFlow[], tradeDate?: string): number | null {
-  const candidates = rows.filter((row) => row.mainNetInflow !== null && row.mainNetInflow !== undefined);
-  const latest = tradeDate
-    ? candidates.find((row) => row.date === tradeDate)
-    : candidates.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))[0];
-  return toYi(latest?.mainNetInflow);
+  const candidates = rows.filter(
+    (row) => row.mainNetInflow !== null && row.mainNetInflow !== undefined && Number.isFinite(row.mainNetInflow),
+  );
+  if (!candidates.length) return null;
+
+  const target = tradeDate ?? [...candidates].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))[0]?.date;
+  const matched = candidates.filter((row) => row.date === target);
+  if (!matched.length) return null;
+
+  const total = matched.reduce((sum, row) => sum + (row.mainNetInflow ?? 0), 0);
+  return toYi(total);
 }
 
 function isNorthboundRow(row: NorthboundFlowSummary): boolean {

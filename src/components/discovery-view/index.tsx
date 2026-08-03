@@ -14,12 +14,13 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import { getAshareMarketPhase } from '../../shared/market-time';
-import { useAppStore } from '../../store/app-store';
+import { MarketPhasePill } from '../market-phase-pill';
+import { useAppUiStore } from '../../store/app-store';
 import cx from '../../shared/cx';
 import { HeroGauge } from './components/hero-gauge';
 import { MarketSummary } from './components/market-summary';
 import { MonitoringCenter } from './components/monitoring-center';
+import { OpportunityRadar } from './components/opportunity-radar';
 import { SentimentIndex } from './components/sentiment-index';
 import { DragonTiger } from './components/dragon-tiger';
 import { HotRotation } from './components/hot-rotation';
@@ -29,7 +30,14 @@ import { TradingAdvice } from './components/trading-advice';
 import { SubscribeFooter } from './components/subscribe-footer';
 import styles from './index.module.scss';
 
-type TStockItem = { code: string; name: string; price?: string; changePercent?: string; amount?: string };
+type TStockItem = {
+  code: string;
+  name: string;
+  price?: string;
+  changePercent?: string;
+  amount?: string;
+  industry?: string;
+};
 type TDragonTigerRow = { code: string; name: string; changePercent?: number; netBuy: number; reason: string };
 type TDragonTigerDay = {
   date: string;
@@ -53,6 +61,18 @@ interface IOpportunityRadarItem {
   ratio: number;
   changePercent: number;
   mainNetInflow: number;
+}
+
+interface IOpportunityRadarData {
+  boards: IOpportunityRadarItem[];
+  stocks: Array<{
+    code: string;
+    name: string;
+    reason: string;
+    changePercent?: number | null;
+    amount?: number | null;
+    score: number;
+  }>;
 }
 
 interface IMonthlyThemeItem {
@@ -97,6 +117,7 @@ interface IDiscoverySnapshot {
   indices?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
   bullets?: string[];
   wealthMetrics?: Array<{ label: string; value: number | null; unit: string }>;
+  opportunityRadar?: IOpportunityRadarData;
   marketSummary?: IMarketSummary;
   sentimentScore?: number | null;
   sentimentFactors?: Array<{ label: string; value: string | number }>;
@@ -138,6 +159,7 @@ interface IDiscoverySnapshot {
 const PILLS = [
   { id: 'hero', label: '机会分' },
   { id: 'sec-summary', label: '市场总结' },
+  { id: 'sec-opportunity-radar', label: '机会雷达' },
   { id: 'sec-watchlist', label: '监控中心' },
   { id: 'sec-sentiment', label: '情绪指数' },
   { id: 'sec-dragontiger', label: '龙虎榜' },
@@ -158,14 +180,20 @@ function formatDate(date: Date) {
 function formatTradeDateLabel(date: string) {
   if (!date) return '数据交易日：--';
   const parsed = new Date(`${date}T00:00:00+08:00`);
-  const weekday = Number.isNaN(parsed.getTime()) ? '' : ` ${['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][parsed.getDay()]}`;
+  const weekday = Number.isNaN(parsed.getTime())
+    ? ''
+    : ` ${['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][parsed.getDay()]}`;
   return `数据交易日：${date}${weekday}`;
 }
 
 function formatTradeDateTab(date: string, weekday?: string) {
   const parts = date.split('-');
   const parsed = new Date(`${date}T00:00:00+08:00`);
-  const week = weekday?.replace('星期', '周') || (Number.isNaN(parsed.getTime()) ? '交易日' : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][parsed.getDay()]);
+  const week =
+    weekday?.replace('星期', '周') ||
+    (Number.isNaN(parsed.getTime())
+      ? '交易日'
+      : ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][parsed.getDay()]);
   return {
     weekday: week,
     date: parts.length === 3 ? `${parts[1]}-${parts[2]}` : date,
@@ -188,6 +216,7 @@ function getTradeDateOptions(snapshot?: IDiscoverySnapshot) {
 
 const SECTION_ICONS: Record<string, typeof Newspaper> = {
   'sec-summary': Newspaper,
+  'sec-opportunity-radar': Target,
   'sec-watchlist': Eye,
   'sec-sentiment': Thermometer,
   'sec-dragontiger': Trophy,
@@ -244,13 +273,12 @@ function DiscoveryWaitingState({ message }: { message: string }) {
 }
 
 export function DiscoveryView() {
-  const setMainView = useAppStore((state) => state.setMainView);
-  const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
+  const setMainView = useAppUiStore((state) => state.setMainView);
+  const isLeftSidebarCollapsed = useAppUiStore((state) => state.isLeftSidebarCollapsed);
   const [snapshot, setSnapshot] = useState<IDiscoverySnapshot | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activePill, setActivePill] = useState('hero');
-  const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase(new Date()));
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedTradeDate, setSelectedTradeDate] = useState('');
   const [hasScrolled, setHasScrolled] = useState(false);
@@ -279,9 +307,7 @@ export function DiscoveryView() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      const now = new Date();
-      setMarketPhase(getAshareMarketPhase(now));
-      setCurrentDate(now);
+      setCurrentDate(new Date());
     }, 60_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -323,7 +349,10 @@ export function DiscoveryView() {
   };
 
   const dateStr = useMemo(() => formatDate(currentDate), [currentDate]);
-  const tradeDateLabel = useMemo(() => formatTradeDateLabel(selectedTradeDate || snapshot?.tradeDate || ''), [snapshot?.tradeDate, selectedTradeDate]);
+  const tradeDateLabel = useMemo(
+    () => formatTradeDateLabel(selectedTradeDate || snapshot?.tradeDate || ''),
+    [snapshot?.tradeDate, selectedTradeDate],
+  );
   const tradeDateOptions = useMemo(() => getTradeDateOptions(snapshot), [snapshot]);
   const displayedTradeDate = selectedTradeDate || snapshot?.tradeDate || '';
   const unavailableReason = snapshot?.unavailableReason;
@@ -343,7 +372,13 @@ export function DiscoveryView() {
   return (
     <section className={cx(styles.wrap, tradeDateOptions.length > 0 && styles.wrapWithTradeDate)}>
       {/* ── Topbar ── */}
-      <div className={cx(styles.topbar, hasScrolled && styles.topbarScrolled, isLeftSidebarCollapsed && styles.topbarCollapsed)}>
+      <div
+        className={cx(
+          styles.topbar,
+          hasScrolled && styles.topbarScrolled,
+          isLeftSidebarCollapsed && styles.topbarCollapsed,
+        )}
+      >
         <button className={styles.backBtn} onClick={() => setMainView('chat')} type='button'>
           <ArrowLeft size={15} />
           返回
@@ -355,16 +390,17 @@ export function DiscoveryView() {
         <span className={styles.date}>{tradeDateLabel}</span>
         <span className={styles.currentDate}>当前日期：{dateStr}</span>
         <div className={styles.topbarRight}>
-          <span className={cx(styles.phasePill, !marketPhase.isTrading && styles.phasePillInactive)}>
-            <span className={cx(styles.liveDot, !marketPhase.isTrading && styles.liveDotInactive)} />
-            {marketPhase.label}
-          </span>
+          <MarketPhasePill />
         </div>
       </div>
 
       {/* ── Trade Date Selector ── */}
       {tradeDateOptions.length ? (
-        <div className={cx(styles.tradeDateNav, hasScrolled && styles.tradeDateNavScrolled)} ref={tradeDateNavRef} aria-label='选择探索页交易日'>
+        <div
+          className={cx(styles.tradeDateNav, hasScrolled && styles.tradeDateNavScrolled)}
+          ref={tradeDateNavRef}
+          aria-label='选择探索页交易日'
+        >
           {tradeDateOptions.map((item) => {
             const label = formatTradeDateTab(item.date, item.weekday);
             return (
@@ -443,6 +479,23 @@ export function DiscoveryView() {
                   wealthMetrics={snapshot?.wealthMetrics}
                   marketSummary={snapshot?.marketSummary}
                 />
+              )}
+            </div>
+          </div>
+
+          {/* Opportunity Radar */}
+          <div data-discovery-section='sec-opportunity-radar' id='sec-opportunity-radar' className={styles.section}>
+            <SectionTitle
+              id='sec-opportunity-radar'
+              title={`机会雷达 · 资金抢跑但涨幅未跟上 · ${displayedTradeDate || '--'}`}
+            />
+            <div className={styles.card}>
+              {loading && !snapshot ? (
+                <SectionSkeleton />
+              ) : unavailableReason ? (
+                <DiscoveryWaitingState message={unavailableReason} />
+              ) : (
+                <OpportunityRadar data={snapshot?.opportunityRadar} />
               )}
             </div>
           </div>
@@ -543,7 +596,11 @@ export function DiscoveryView() {
           <div data-discovery-section='sec-trading-advice' id='sec-trading-advice' className={styles.section}>
             <SectionTitle id='sec-trading-advice' title='AI 交易建议' />
             <div className={styles.card}>
-              {unavailableReason ? <DiscoveryWaitingState message={unavailableReason} /> : <TradingAdvice tradeDate={displayedTradeDate} />}
+              {unavailableReason ? (
+                <DiscoveryWaitingState message={unavailableReason} />
+              ) : (
+                <TradingAdvice tradeDate={displayedTradeDate} />
+              )}
             </div>
           </div>
           <SubscribeFooter />

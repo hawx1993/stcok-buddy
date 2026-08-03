@@ -8,7 +8,7 @@ import type {
   StockSurgeEvent,
 } from '../../../src/shared/types.js';
 import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/market-time.js';
-import { isRemoteTradingDay } from '../market-data/providers.js';
+import { isRemoteTradingDay, previousRemoteTradingDay } from '../market-data/providers.js';
 import { listBoardConstituents, listLatestMarketRows, listMarketBoards } from '../market-data/market-data-store.js';
 import type { MarketBoardRecord } from '../market-data/types.js';
 import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from './format.js';
@@ -18,7 +18,7 @@ import { withTimeoutReject } from './shared.js';
 import type { DailyDragonTigerItem } from './dragon-tiger.js';
 import {
   isSurgeHistoryClearMarkerActive,
-  listStockSurgeEvents as listLocalStockSurgeEvents,
+  listStockSurgeEventsByTradeDates,
   listSurgeHistory,
   enqueueSurgeSnapshot,
   saveIndividualSurgeHistory,
@@ -207,9 +207,10 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
   // refresh from the network in the background. This avoids keeping the
   // skeleton spinner for several seconds when offline or on a slow connection.
   const tradeDate = formatIsoDate(new Date());
+  const tradeDates = await resolveLatestTradeDates(tradeDate, 6);
   let localEvents: StockSurgeEvent[] = [];
   try {
-    localEvents = await listLocalStockSurgeEvents(symbol, tradeDate);
+    localEvents = await listStockSurgeEventsByTradeDates(symbol, tradeDates);
   } catch (error) {
     console.warn('[surge] local read failed', symbol, error);
   }
@@ -218,13 +219,12 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     return localEvents;
   }
 
-  const isTradingDay = await isRemoteTradingDay(tradeDate).catch(() => true);
-  if (!isTradingDay) return [];
+  if (!tradeDates.includes(tradeDate)) return [];
 
   // No local cache yet: fetch from remote, persist, and return.
   const [historyResult, currentResult] = await Promise.allSettled([
     withTimeoutReject(
-      sdk.marketEvent.individualChangesHistory(symbol, { days: 7 }),
+      sdk.marketEvent.individualChangesHistory(symbol, { days: 6 }),
       6_000,
       'individual changes timeout',
     ),
@@ -242,18 +242,31 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     );
   }
 
-  return mergeSurgeEvents(
+  const mergedEvents = mergeSurgeEvents(
     symbol,
     historyEvents,
     currentResult.status === 'fulfilled' ? currentResult.value : [],
-  ).filter((item) => item.tradeDate === tradeDate);
+  );
+  return mergedEvents.filter((item) => tradeDates.includes(item.tradeDate));
+}
+
+async function resolveLatestTradeDates(tradeDate: string, count: number) {
+  const dates: string[] = [];
+  let cursor = tradeDate;
+  while (dates.length < count) {
+    const isTrading = await isRemoteTradingDay(cursor).catch(() => !isWeekendDate(cursor));
+    if (isTrading) dates.push(cursor);
+    if (dates.length >= count) break;
+    cursor = await previousRemoteTradingDay(cursor).catch(() => previousWeekdayDate(cursor));
+  }
+  return dates;
 }
 
 function refreshStockSurgeEventsFromRemote(symbol: string) {
   // Fire-and-forget refresh so the next open (online or offline) sees fresh data.
   Promise.allSettled([
     withTimeoutReject(
-      sdk.marketEvent.individualChangesHistory(symbol, { days: 7 }),
+      sdk.marketEvent.individualChangesHistory(symbol, { days: 6 }),
       10_000,
       'background individual changes timeout',
     ),
@@ -269,6 +282,20 @@ function refreshStockSurgeEventsFromRemote(symbol: string) {
       // current events are already queued by listSurgeHot for batched persistence.
     })
     .catch(() => {});
+}
+
+function isWeekendDate(date: string) {
+  const parsed = new Date(`${date}T00:00:00+08:00`);
+  const day = parsed.getDay();
+  return day === 0 || day === 6;
+}
+
+function previousWeekdayDate(date: string) {
+  const parsed = new Date(`${date}T00:00:00+08:00`);
+  do {
+    parsed.setDate(parsed.getDate() - 1);
+  } while (parsed.getDay() === 0 || parsed.getDay() === 6);
+  return formatIsoDate(parsed);
 }
 
 function mergeSurgeEvents(

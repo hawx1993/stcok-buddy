@@ -2,7 +2,7 @@ import { ChevronLeft, ChevronRight, Newspaper, RefreshCw, Search, SquareArrowOut
 import { marked, Renderer } from 'marked';
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
-import { useAppStore } from '../../../store/app-store';
+import { useAppUiStore } from '../../../store/app-store';
 import cx from '../../../shared/cx';
 import type { IMarketNewsSummaryState, MarketNewsItem } from '../../../shared/types';
 import { StockNewsPanel } from './stock-news-panel';
@@ -233,14 +233,14 @@ function escapeHtml(value: string): string {
 }
 
 function openNewsDetail(item: Pick<MarketNewsItem, 'id' | 'title' | 'source' | 'time' | 'url' | 'content'>) {
-  const requestId = useAppStore.getState().openNewsReader(item);
+  const requestId = useAppUiStore.getState().openNewsReader(item);
   void getStocksenseApi()
     .getMarketNewsItem(item)
-    .then((item) => useAppStore.getState().setNewsReaderItem(requestId, item))
+    .then((item) => useAppUiStore.getState().setNewsReaderItem(requestId, item))
     .catch((error: unknown) => {
       console.error(error);
       const message = error instanceof Error ? error.message : '新闻详情加载失败，请稍后重试';
-      useAppStore.getState().setNewsReaderError(requestId, message);
+      useAppUiStore.getState().setNewsReaderError(requestId, message);
     });
 }
 

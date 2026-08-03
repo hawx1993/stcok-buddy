@@ -1,6 +1,6 @@
 import { Activity, Bot, Layers, LineChart, MessageSquarePlus, Newspaper, Search, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useAppStore } from './store/app-store';
+import { useAppDataStore, useAppUiStore } from './store/app-store';
 import { usePanelResize } from './hooks/use-panel-resize';
 import { Sidebar } from './components/sidebar';
 import { createChatConversation } from './components/sidebar/components/create-chat-conversation';
@@ -27,19 +27,18 @@ export function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const globalSearchShortcutLabel = getGlobalSearchShortcutLabel();
-  const config = useAppStore((state) => state.config);
-  const setConfig = useAppStore((state) => state.setConfig);
-  const setConversations = useAppStore((state) => state.setConversations);
-  const setFavoriteStocks = useAppStore((state) => state.setFavoriteStocks);
-  const activeConversationId = useAppStore((state) => state.activeConversationId);
-  const mainView = useAppStore((state) => state.mainView);
-  const setMessages = useAppStore((state) => state.setMessages);
-  const isLeftSidebarCollapsed = useAppStore((state) => state.isLeftSidebarCollapsed);
-  const isRightPanelCollapsed = useAppStore((state) => state.isRightPanelCollapsed);
-  const toggleLeftSidebar = useAppStore((state) => state.toggleLeftSidebar);
-  const rightPanelTab = useAppStore((state) => state.rightPanelTab);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
-  const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
+  const config = useAppDataStore((state) => state.config);
+  const setConfig = useAppDataStore((state) => state.setConfig);
+  const setConversations = useAppDataStore((state) => state.setConversations);
+  const setFavoriteStocks = useAppDataStore((state) => state.setFavoriteStocks);
+  const activeConversationId = useAppDataStore((state) => state.activeConversationId);
+  const mainView = useAppUiStore((state) => state.mainView);
+  const setMessages = useAppDataStore((state) => state.setMessages);
+  const isLeftSidebarCollapsed = useAppUiStore((state) => state.isLeftSidebarCollapsed);
+  const isRightPanelCollapsed = useAppUiStore((state) => state.isRightPanelCollapsed);
+  const toggleLeftSidebar = useAppUiStore((state) => state.toggleLeftSidebar);
+  const rightPanelTab = useAppUiStore((state) => state.rightPanelTab);
+  const setRightPanelTab = useAppUiStore((state) => state.setRightPanelTab);
 
   useEffect(() => {
     const api = getStocksenseApi();
@@ -59,7 +58,7 @@ export function App() {
     getStocksenseApi()
       .listMessages(activeConversationId)
       .then((items) => {
-        const state = useAppStore.getState();
+        const state = useAppDataStore.getState();
         if (state.activeConversationId !== activeConversationId) return;
         if (
           (state.isSending || state.messages.some((message) => message.thinking)) &&
@@ -111,10 +110,6 @@ export function App() {
   const openRightRail = (tab: typeof rightPanelTab) => {
     trackButtonClick(`right_rail_${tab}`);
     trackPageView(`right_panel_${tab}`);
-    if (tab === 'board') {
-      openBoardPanel();
-      return;
-    }
     setRightPanelTab(tab);
   };
   const rightResize = usePanelResize('--right-width', 348, 500, 'w');

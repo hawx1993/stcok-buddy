@@ -1,16 +1,16 @@
 import { useCallback } from 'react';
 import { getStocksenseApi } from '../shared/stocksense-api';
 import type { BoardDetail, MarketBoardRow, MarketQuoteRow, MarketSearchResult, StockDetail } from '../shared/types';
-import { useAppStore } from '../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../store/app-store';
 import { formatMarketCap, formatMoney, formatPercent, formatVolume } from '../components/market-view/market-format';
 
 export function useOpenMarketSearchResult() {
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const selectedBoard = useAppStore((state) => state.selectedBoard);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
+  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
+  const selectedBoard = useAppDataStore((state) => state.selectedBoard);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const openBoardPanel = useAppUiStore((state) => state.openBoardPanel);
 
   const openStock = useCallback(
     async (row: MarketQuoteRow) => {
@@ -59,14 +59,14 @@ export function useOpenMarketSearchResult() {
       if (selectedBoard?.code !== row.code) setSelectedBoard(rowSnapshot);
       try {
         const detail = await getStocksenseApi().getBoardDetail(row.code, false, row.name);
-        if (useAppStore.getState().selectedBoard?.code !== row.code) return;
+        if (useAppDataStore.getState().selectedBoard?.code !== row.code) return;
         setSelectedBoard({
           ...detail,
           name: detail.name === detail.code ? row.name : detail.name,
           changePercent: detail.changePercent ?? rowSnapshot.changePercent,
         });
       } catch {
-        if (useAppStore.getState().selectedBoard?.code !== row.code) return;
+        if (useAppDataStore.getState().selectedBoard?.code !== row.code) return;
         setSelectedBoard(rowSnapshot);
       }
     },

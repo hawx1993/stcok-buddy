@@ -41,7 +41,7 @@ export function toStockDetail(raw: unknown, fallbackCode: string): StockDetail {
     prevClose: prevClose === undefined ? '--' : formatNumber(prevClose),
     pe: pe === undefined ? '--' : formatNumber(pe),
     pb: pb === undefined ? '--' : formatNumber(pb),
-    marketCap: normalizedMarketCap === undefined ? '--' : `${normalizedMarketCap.toFixed(1)}亿`,
+    marketCap: normalizedMarketCap === undefined ? '--' : `${(normalizedMarketCap / 100_000_000).toFixed(1)}亿`,
     volume: volume === undefined ? '--' : `${(volume / 10000).toFixed(1)}万手`,
     turnover: turnoverInYuan !== undefined ? formatMoney(turnoverInYuan) : formatMoneyFromWan(turnoverInWan),
     turnoverRate: turnoverRate === undefined ? '--' : `${formatNumber(turnoverRate)}%`,

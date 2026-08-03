@@ -1,11 +1,11 @@
-import { useAppStore } from '../../store/app-store';
+import { useAppDataStore } from '../../store/app-store';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import styles from './index.module.scss';
 
 export function ThemeToggle({ compact = false }: { compact?: boolean }) {
-  const config = useAppStore((state) => state.config);
-  const setConfig = useAppStore((state) => state.setConfig);
-  const setTheme = useAppStore((state) => state.setTheme);
+  const config = useAppDataStore((state) => state.config);
+  const setConfig = useAppDataStore((state) => state.setConfig);
+  const setTheme = useAppDataStore((state) => state.setTheme);
   const theme = config?.theme ?? 'dark';
   const iconModeClass = theme === 'dark' ? styles.sun : styles.moon;
 

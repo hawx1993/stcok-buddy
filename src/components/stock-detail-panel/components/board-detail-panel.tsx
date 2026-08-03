@@ -5,18 +5,18 @@ import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
 import { isChinaMarketOpen } from '../../../shared/market-time';
 import type { BoardConstituent, StockDetail } from '../../../shared/types';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { StockKlineChart } from '../../kline-chart';
 import styles from '../index.module.scss';
 
 export function BoardDetailPanel() {
   const [refreshing, setRefreshing] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
-  const board = useAppStore((state) => state.selectedBoard);
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const setRightPanelTab = useAppStore((state) => state.setRightPanelTab);
+  const board = useAppDataStore((state) => state.selectedBoard);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
+  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
+  const setRightPanelTab = useAppUiStore((state) => state.setRightPanelTab);
   const loadingCodeRef = useRef<string>();
   const quoteTimerRef = useRef<number>();
 
@@ -63,7 +63,7 @@ export function BoardDetailPanel() {
               .filter((quote) => quote.code)
               .map((quote) => [quote.code.replace(/^(sh|sz|bj)/i, ''), quote]),
           );
-          const current = useAppStore.getState().selectedBoard;
+          const current = useAppDataStore.getState().selectedBoard;
           if (!current || current.code !== boardCode || !current.constituents?.length) return;
           let changed = false;
           const next = current.constituents.map((row) => {

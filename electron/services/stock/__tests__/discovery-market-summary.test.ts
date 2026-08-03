@@ -43,23 +43,25 @@ function createNorthboundFlow(row: Pick<NorthboundFlowSummary, 'date' | 'directi
 }
 
 describe('选择最新主力资金净流入', () => {
-  it('选择指定交易日并将元换算为亿元', () => {
+  it('指定交易日存在沪深两市记录时汇总主力资金', () => {
     const rows = [
       createMarketFundFlow('2026-07-30', 100_000_000),
+      createMarketFundFlow('2026-07-30', -50_000_000),
       createMarketFundFlow('2026-07-31', 250_000_000),
     ];
 
-    expect(selectLatestMainFundFlowYi(rows, '2026-07-30')).toBe(1);
+    expect(selectLatestMainFundFlowYi(rows, '2026-07-30')).toBe(0.5);
   });
 
-  it('未指定交易日时选择最新非空记录', () => {
+  it('未指定交易日时选择最新非空记录并汇总同日记录', () => {
     const rows = [
       createMarketFundFlow('2026-07-29', 300_000_000),
       createMarketFundFlow('2026-07-31', null),
       createMarketFundFlow('2026-07-30', -150_000_000),
+      createMarketFundFlow('2026-07-30', 50_000_000),
     ];
 
-    expect(selectLatestMainFundFlowYi(rows)).toBe(-1.5);
+    expect(selectLatestMainFundFlowYi(rows)).toBe(-1);
   });
 
   it('保留 0 作为有效主力资金值', () => {

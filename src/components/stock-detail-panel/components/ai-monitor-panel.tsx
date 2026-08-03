@@ -1,4 +1,4 @@
-import { ConfigProvider, Select, Tooltip } from 'antd';
+import { ConfigProvider, Select } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
@@ -11,16 +11,17 @@ import {
   AlertCircle,
   RefreshCw,
   Star,
+  Search,
   Sparkles,
   LayoutGrid,
 } from 'lucide-react';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import type { IAiMonitorReturnState } from '../../../store/app-store';
 import styles from '../index.module.scss';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
-import { getAshareMarketPhase } from '../../../shared/market-time';
 import type { IMonitorEvent, TMonitorCategory, TMonitorMode, StockDetail } from '../../../shared/types';
 import type { LucideIcon } from 'lucide-react';
+import { MarketPhasePill } from '../../market-phase-pill';
 
 type TVisibleMonitorCategory = Exclude<TMonitorCategory, 'dragon-tiger'>;
 type TVisibleMonitorEvent = IMonitorEvent & { category: TVisibleMonitorCategory };
@@ -95,6 +96,18 @@ const classNames = (...classes: Array<string | false | undefined>) => classes.fi
 
 function isVisibleMonitorEvent(event: IMonitorEvent): event is TVisibleMonitorEvent {
   return event.category !== 'dragon-tiger';
+}
+
+function matchesMonitorQuery(event: TVisibleMonitorEvent, normalizedQuery: string) {
+  if (!normalizedQuery) return true;
+  return [
+    event.code,
+    event.name,
+    event.title,
+    event.badge,
+    event.aiAnalysis,
+    ...event.details,
+  ].some((value) => value?.toLowerCase().includes(normalizedQuery));
 }
 
 const PAGE_SIZE = 20;
@@ -233,12 +246,12 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   const [activeTab, setActiveTab] = useState<TVisibleMonitorCategory | 'all'>(initialFeedState?.activeTab ?? 'all');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [mode, setMode] = useState<TMonitorMode>(initialFeedState?.mode ?? 'history');
-  const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase());
-  const [isTradingTime, setTradingTime] = useState(initialCache?.isTradingTime ?? marketPhase.isTrading);
+  const [isTradingTime, setTradingTime] = useState(initialCache?.isTradingTime ?? false);
   const [dateOptions] = useState(() => makeMonitorDateOptions());
   const [selectedDate, setSelectedDate] = useState(() => initialFeedState?.selectedDate ?? makeMonitorDateOptions()[0]);
   const [lastUpdated, setLastUpdated] = useState<string | undefined>(initialCache?.lastUpdated);
   const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(initialFeedState?.currentPage ?? 1);
   const [totalCount, setTotalCount] = useState(initialCache?.totalCount ?? 0);
   const [categoryTotals, setCategoryTotals] = useState<Partial<Record<TMonitorCategory, number>>>(
@@ -256,10 +269,10 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   const didRestoreRef = useRef(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
-  const setAiMonitorState = useAppStore((state) => state.setAiMonitorState);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
+  const setAiMonitorState = useAppDataStore((state) => state.setAiMonitorState);
 
   const loadFeed = useCallback(
     async (nextMode: TMonitorMode, nextDate: string, nextPage: number, nextTab: TVisibleMonitorCategory | 'all') => {
@@ -342,14 +355,6 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   }, [activeTab, currentPage, isActive, loadFeed, mode]);
 
   useEffect(() => {
-    if (!isActive) return;
-    const updateMarketPhase = () => setMarketPhase(getAshareMarketPhase());
-    updateMarketPhase();
-    const id = window.setInterval(updateMarketPhase, 60_000);
-    return () => window.clearInterval(id);
-  }, [isActive]);
-
-  useEffect(() => {
     if (!isActive || !autoRefresh || !isTradingTime || mode !== 'realtime') return;
     const id = setInterval(() => void loadFeed('realtime', selectedDate, currentPage, activeTab), 30_000);
     return () => clearInterval(id);
@@ -372,7 +377,11 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
     return () => window.removeEventListener('monitor:historyCleared', handleMonitorHistoryCleared);
   }, [activeTab, isActive, loadFeed]);
 
-  const filteredEvents = events.filter(isVisibleMonitorEvent);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredEvents = useMemo(
+    () => events.filter(isVisibleMonitorEvent).filter((event) => matchesMonitorQuery(event, normalizedQuery)),
+    [events, normalizedQuery],
+  );
 
   const counts = useMemo(() => {
     const map = new Map<TMonitorCategory | 'all', number>();
@@ -385,12 +394,13 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   }, [categoryTotals, totalCount]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const displayTotalPages = normalizedQuery ? Math.max(1, Math.ceil(filteredEvents.length / PAGE_SIZE)) : totalPages;
   const pageEvents = filteredEvents;
 
   useEffect(() => {
-    if (loading || totalCount === 0 || currentPage <= totalPages) return;
-    setCurrentPage(totalPages);
-  }, [currentPage, loading, totalCount, totalPages]);
+    if (loading || totalCount === 0 || currentPage <= displayTotalPages) return;
+    setCurrentPage(displayTotalPages);
+  }, [currentPage, displayTotalPages, loading, totalCount]);
 
   // Scroll feed to top when page changes.
   useEffect(() => {
@@ -399,7 +409,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
 
   const handleStockClick = async (code: string, name: string) => {
     const snapshot = { code, name } as StockDetail;
-    const aiMonitorState = useAppStore.getState().aiMonitorState ?? { activeTab, currentPage, selectedDate, mode };
+    const aiMonitorState = useAppDataStore.getState().aiMonitorState ?? { activeTab, currentPage, selectedDate, mode };
     openRightPanel();
     setStockReturnContext({ tab: 'ai-monitor', code, aiMonitor: aiMonitorState });
     setSelectedStock(snapshot);
@@ -421,9 +431,10 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   };
 
   const goPage = (page: number) => {
-    const next = Math.max(1, Math.min(totalPages, page));
+    const next = Math.max(1, Math.min(displayTotalPages, page));
     setCurrentPage(next);
     setAiMonitorState({ activeTab, currentPage: next, selectedDate, mode });
+    if (normalizedQuery) return;
     setLoading(true);
     void loadFeed(mode, selectedDate, next, activeTab);
   };
@@ -478,7 +489,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
     void loadFeed(mode === 'realtime' && isTradingTime ? 'realtime' : 'history', selectedDate, currentPage, activeTab);
   };
 
-  const emptyText = mode === 'history' ? '该交易日暂无此分类监控事件' : '暂无监控事件';
+  const emptyText = normalizedQuery ? '当前日期未匹配到监控事件' : mode === 'history' ? '该交易日暂无此分类监控事件' : '暂无监控事件';
 
   return (
     <div className={styles['ai-monitor-panel']}>
@@ -516,41 +527,42 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
           <RefreshCw aria-hidden='true' className={loading ? styles['refreshing-icon'] : undefined} size={12} />
           <span style={{ paddingLeft: '2px' }}>{loading ? '刷新中' : '刷新'}</span>
         </button>
-        <Tooltip title={marketPhase.label}>
-          <span className={styles['phase-pill-tooltip-anchor']}>
-            <button
-              className={classNames(
-                styles.phasePill,
-                (!isTradingTime || !(autoRefresh && mode === 'realtime')) && styles.phasePillInactive,
-              )}
-              onClick={() => {
-                if (!isTradingTime) return;
-                if (mode !== 'realtime') {
-                  handleRealtimeClick();
-                  return;
-                }
-                setAutoRefresh((value) => !value);
-              }}
-              disabled={!isTradingTime}
-              aria-label={
-                isTradingTime
-                  ? autoRefresh && mode === 'realtime'
-                    ? '关闭实时监控'
-                    : '开启实时监控'
-                  : '非交易时段不可开启实时监控'
-              }
-              type='button'
-            >
-              <span
-                className={classNames(
-                  styles.liveDot,
-                  (!isTradingTime || !(autoRefresh && mode === 'realtime')) && styles.liveDotInactive,
-                )}
-              />
-              {autoRefresh && mode === 'realtime' ? '监控中' : '监控'}
-            </button>
-          </span>
-        </Tooltip>
+        <MarketPhasePill
+          active={isTradingTime}
+          ariaLabel={
+            isTradingTime
+              ? autoRefresh && mode === 'realtime'
+                ? '关闭实时监控'
+                : '开启实时监控'
+              : '非交易时段不可开启实时监控'
+          }
+          disabled={!isTradingTime}
+          label={autoRefresh && mode === 'realtime' ? '监控中' : '监控'}
+          onClick={() => {
+            if (!isTradingTime) return;
+            if (mode !== 'realtime') {
+              handleRealtimeClick();
+              return;
+            }
+            setAutoRefresh((value) => !value);
+          }}
+          onPhaseChange={(phase) => setTradingTime(phase.isTrading)}
+        />
+      </div>
+
+      <div className={styles['ai-monitor-search-row']}>
+        <label className={styles['rp-search-row']}>
+          <Search aria-hidden='true' size={14} />
+          <input
+            aria-label='搜索 AI 监控事件'
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder='搜索代码 / 名称 / 事件'
+          />
+        </label>
       </div>
 
       <div className={styles['ai-monitor-panel-tabs']}>
@@ -696,7 +708,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
         )}
       </div>
 
-      {filteredEvents.length > 0 && totalPages > 1 ? (
+      {filteredEvents.length > 0 && displayTotalPages > 1 ? (
         <div className={styles['monitor-pagination']}>
           <button
             className={styles['monitor-page-btn']}
@@ -709,12 +721,12 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
           <div className={styles['monitor-page-info']}>
             <span className={styles['monitor-page-current']}>{currentPage}</span>
             <span className={styles['monitor-page-sep']}>/</span>
-            <span className={styles['monitor-page-total']}>{totalPages}</span>
+            <span className={styles['monitor-page-total']}>{displayTotalPages}</span>
           </div>
           <button
             className={styles['monitor-page-btn']}
             type='button'
-            disabled={currentPage >= totalPages}
+            disabled={currentPage >= displayTotalPages}
             onClick={() => goPage(currentPage + 1)}
           >
             下一页 →

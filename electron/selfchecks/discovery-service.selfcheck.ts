@@ -14,9 +14,11 @@ import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from '../services/stoc
 import { buildMonthlyThemesFromHistoricalPools } from '../services/stock/discovery-monthly-themes.js';
 import {
   buildLocalBoardCatalog,
+  parseMoneyTextToYuanForTest,
   reconcileSectorsWithLocalBoardsForTest,
   shouldDeferDiscoveryRefresh,
   shouldHoldDiscoverySnapshotUntil930,
+  sumBoardConstituentAmountsForTest,
   sumConstituentMainNetInflowYiForTest,
   toLimitDownStockItemForTest,
 } from '../services/stock/discovery-service.js';
@@ -83,6 +85,12 @@ const reconciledSectors = reconcileSectorsWithLocalBoardsForTest(
   localBoardCatalog,
 );
 assert.equal(reconciledSectors[0].amount, 20_000_000);
+assert.equal(parseMoneyTextToYuanForTest('1.20亿'), 120_000_000);
+assert.equal(parseMoneyTextToYuanForTest('3500.00万'), 35_000_000);
+assert.equal(
+  sumBoardConstituentAmountsForTest([{ amount: '1.20亿' }, { amount: '3500.00万' }, { amount: '--' }]),
+  155_000_000,
+);
 
 assert.equal(toLimitDownStockItemForTest({ code: '300407', name: '凯发电气', price: 11.28, changePercent: -12.56 }), undefined);
 assert.deepEqual(toLimitDownStockItemForTest({ code: '300001', name: '创业板测试', price: 8.01, changePercent: -19.82 }), {

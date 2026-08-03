@@ -1,5 +1,5 @@
 import { BarChart3 } from 'lucide-react';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { BoardDetail, StockDetail } from '../../../shared/types';
 import styles from '../index.module.scss';
@@ -110,17 +110,23 @@ function SentimentBar({ value, up, down }: { value: number; up: number; down: nu
       </div>
       <div className={styles.msBarLabels}>
         <span>偏空</span>
-        <span className={styles.msBarValue}>情绪指数 {value.toFixed(0)} · 涨停 {up} / 跌停 {down}</span>
+        <span className={styles.msBarValue}>
+          情绪指数 {value.toFixed(0)} · 涨停 {up} / 跌停 {down}
+        </span>
         <span>偏多</span>
       </div>
     </div>
   );
 }
 
-function LegacyMarketSummary({ indices, wealthMetrics, bullets }: Pick<IMarketSummaryProps, 'indices' | 'wealthMetrics' | 'bullets'>) {
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+function LegacyMarketSummary({
+  indices,
+  wealthMetrics,
+  bullets,
+}: Pick<IMarketSummaryProps, 'indices' | 'wealthMetrics' | 'bullets'>) {
+  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
+  const openBoardPanel = useAppUiStore((state) => state.openBoardPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   const handleIndexClick = async (code: string, name: string) => {
     const snapshot = { code, name } as BoardDetail;
@@ -157,7 +163,7 @@ function LegacyMarketSummary({ indices, wealthMetrics, bullets }: Pick<IMarketSu
               key={idx.code}
               className={`${styles.idxCard} ${styles.clickable}`}
               onClick={() => handleIndexClick(idx.code, idx.name)}
-              type="button"
+              type='button'
             >
               <div className={styles.idxName}>{idx.name}</div>
               <div className={styles.idxVal}>{idx.price ?? '--'}</div>
@@ -196,9 +202,11 @@ function LegacyMarketSummary({ indices, wealthMetrics, bullets }: Pick<IMarketSu
       ) : null}
       {bullets?.length ? (
         <ul className={styles.bulletList} style={{ marginTop: 12 }}>
-          {bullets.filter((b) => !b.startsWith('上涨股票') && !b.startsWith('下跌股票')).map((b, i) => (
-            <li key={i}>{b}</li>
-          ))}
+          {bullets
+            .filter((b) => !b.startsWith('上涨股票') && !b.startsWith('下跌股票'))
+            .map((b, i) => (
+              <li key={i}>{b}</li>
+            ))}
         </ul>
       ) : null}
     </div>
@@ -212,17 +220,28 @@ function isRequestedBoardDetail(detail: BoardDetail, snapshot: BoardDetail) {
 }
 
 export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }: IMarketSummaryProps) {
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
-  const setStockReturnContext = useAppStore((state) => state.setStockReturnContext);
+  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const openBoardPanel = useAppUiStore((state) => state.openBoardPanel);
+  const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
   if (!marketSummary) {
     return <LegacyMarketSummary indices={indices} wealthMetrics={wealthMetrics} bullets={bullets} />;
   }
 
-  const { indices: msIndices, mainFundFlow, northFundFlow, limitUp, limitDown, sentimentBar, sectors, opportunityRadar, monthlyThemes, nextWeekSectors } = marketSummary;
+  const {
+    indices: msIndices,
+    mainFundFlow,
+    northFundFlow,
+    limitUp,
+    limitDown,
+    sentimentBar,
+    sectors,
+    opportunityRadar,
+    monthlyThemes,
+    nextWeekSectors,
+  } = marketSummary;
 
   const sortedSectors = [...sectors].sort((a, b) => b.changePercent - a.changePercent);
 
@@ -299,11 +318,13 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
             key={idx.code}
             className={`${styles.msIndexCard} ${styles.clickable}`}
             onClick={() => handleIndexClick(idx.code, idx.name)}
-            type="button"
+            type='button'
           >
             <div className={styles.msIndexName}>{idx.name}</div>
             <div className={styles.msIndexPrice}>{idx.price.toFixed(2)}</div>
-            <div className={`${styles.msIndexChg} ${chgClass(idx.changePercent)}`}>{formatChange(idx.changePercent)}</div>
+            <div className={`${styles.msIndexChg} ${chgClass(idx.changePercent)}`}>
+              {formatChange(idx.changePercent)}
+            </div>
           </button>
         ))}
       </div>
@@ -342,10 +363,10 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
               className={styles.msSectorCell}
               style={getSectorCellStyle(sector)}
               onClick={() => handleSectorClick(sector)}
-              type="button"
+              type='button'
             >
               <span className={styles.msSectorName}>{sector.name}</span>
-              <span className={styles.msSectorSub}>
+              <span className={`${styles.msSectorSub} ${chgClass(sector.changePercent)}`}>
                 {formatChange(sector.changePercent)} · {formatAmountYi(sector.amount)}
               </span>
             </button>
@@ -365,7 +386,7 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
                 key={item.code}
                 className={styles.msRadarRow}
                 onClick={() => handleSectorClick(item)}
-                type="button"
+                type='button'
               >
                 <div className={styles.msRadarLeft}>
                   <span className={styles.msRadarName}>{item.name}</span>
@@ -397,7 +418,11 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
               <div key={theme.week} className={styles.msMonthlyCard}>
                 <div className={styles.msMonthlyWeek}>{theme.week}</div>
                 {theme.leader ? (
-                  <button className={styles.msMonthlyTheme} onClick={() => handleBoardNameClick(theme.theme)} type="button">
+                  <button
+                    className={styles.msMonthlyTheme}
+                    onClick={() => handleBoardNameClick(theme.theme)}
+                    type='button'
+                  >
                     {theme.theme}
                   </button>
                 ) : (
@@ -407,7 +432,7 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
                   <button
                     className={styles.msMonthlyLeader}
                     onClick={() => handleStockClick(theme.leader!.code, theme.leader!.name)}
-                    type="button"
+                    type='button'
                   >
                     龙头 {theme.leader.name}
                   </button>
@@ -432,18 +457,33 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
                 key={sector.name}
                 className={styles.msNextWeekCard}
                 onClick={() => handleBoardNameClick(sector.name, getNextWeekSectorCode(sector))}
-                type="button"
+                type='button'
               >
                 <div className={styles.msNextWeekHeader}>
                   <span className={styles.msNextWeekName}>{sector.name}</span>
                   <span className={styles.msNextWeekScore}>AI 强度 {sector.score}</span>
                 </div>
                 <div className={styles.msNextWeekReasons}>
-                  <div><b>资金面：</b>{sector.reasoning.fundFlow}</div>
-                  <div><b>消息面：</b>{sector.reasoning.news}</div>
-                  <div><b>政策面：</b>{sector.reasoning.policy}</div>
-                  <div><b>技术面：</b>{sector.reasoning.technical}</div>
-                  <div><b>板块轮动：</b>{sector.reasoning.rotation}</div>
+                  <div>
+                    <b>资金面：</b>
+                    {sector.reasoning.fundFlow}
+                  </div>
+                  <div>
+                    <b>消息面：</b>
+                    {sector.reasoning.news}
+                  </div>
+                  <div>
+                    <b>政策面：</b>
+                    {sector.reasoning.policy}
+                  </div>
+                  <div>
+                    <b>技术面：</b>
+                    {sector.reasoning.technical}
+                  </div>
+                  <div>
+                    <b>板块轮动：</b>
+                    {sector.reasoning.rotation}
+                  </div>
                 </div>
               </button>
             ))}

@@ -9,7 +9,7 @@ import {
   getAShareTradingMinuteOffset,
   isChinaMarketOpen,
 } from '../../../shared/market-time';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore } from '../../../store/app-store';
 import cx from '../../../shared/cx';
 import styles from '../index.module.scss';
 
@@ -46,7 +46,7 @@ const TIMELINE_X_LABELS = [
 ];
 
 export function StockTimelineChart({ stock, height = '100%', className }: IStockTimelineChartProps) {
-  const marketColorMode = useAppStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
+  const marketColorMode = useAppDataStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
   const marketColors = useMemo(() => getMarketColors(marketColorMode), [marketColorMode]);
   const [snapshot, setSnapshot] = useState<IStockTimelineSnapshot>();
   const [loading, setLoading] = useState(false);

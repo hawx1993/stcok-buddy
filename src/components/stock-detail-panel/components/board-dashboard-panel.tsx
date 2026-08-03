@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { IBoardDashboardMetric, IBoardDashboardSnapshot, TBoardDashboardRange } from '../../../shared/types';
 import cx from '../../../shared/cx';
-import { useAppStore } from '../../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import styles from '../index.module.scss';
 import { BoardDashboardQuadrant } from './board-dashboard-quadrant';
 import { BoardDashboardRankListTab } from './board-dashboard-rank-list-tab';
+import { BoardDashboardSkeleton } from './board-dashboard-skeleton';
 import { BoardDashboardSummary } from './board-dashboard-summary';
 import { BoardDashboardTabs } from './board-dashboard-tabs';
 
@@ -21,8 +22,8 @@ export function BoardDashboardPanel({ isActive }: IBoardDashboardPanelProps) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>();
-  const setSelectedBoard = useAppStore((state) => state.setSelectedBoard);
-  const openBoardPanel = useAppStore((state) => state.openBoardPanel);
+  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
+  const openBoardPanel = useAppUiStore((state) => state.openBoardPanel);
 
   useEffect(() => {
     if (!isActive) return;
@@ -103,7 +104,7 @@ export function BoardDashboardPanel({ isActive }: IBoardDashboardPanelProps) {
       {error ? <div className={styles['board-dashboard-warning']}>{error}</div> : null}
 
       {loading && !snapshot ? (
-        <div className={styles['empty-list']}>加载板块 Dashboard…</div>
+        <BoardDashboardSkeleton />
       ) : snapshot && snapshot.rankings.length ? (
         <>
           <BoardDashboardSummary snapshot={snapshot} onOpenBoard={openBoard} />

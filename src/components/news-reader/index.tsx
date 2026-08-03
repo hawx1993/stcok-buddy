@@ -3,7 +3,7 @@ import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { StockDetail } from '../../shared/types';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import { useAppStore } from '../../store/app-store';
+import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import styles from './index.module.scss';
 
 type TNewsContentBlock = { type: 'paragraph'; content: string } | { type: 'table'; rows: IArticleTableCell[][] };
@@ -81,10 +81,10 @@ function getTableStock(rows: IArticleTableCell[][], row: IArticleTableCell[]) {
 
 export function NewsReader() {
   const [progress, setProgress] = useState(0);
-  const reader = useAppStore((state) => state.newsReader);
-  const closeNewsReader = useAppStore((state) => state.closeNewsReader);
-  const openRightPanel = useAppStore((state) => state.openRightPanel);
-  const setSelectedStock = useAppStore((state) => state.setSelectedStock);
+  const reader = useAppUiStore((state) => state.newsReader);
+  const closeNewsReader = useAppUiStore((state) => state.closeNewsReader);
+  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
+  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
   const latestStockRequestId = useRef(0);
 
   useEffect(() => {
@@ -102,13 +102,13 @@ export function NewsReader() {
   if (!reader) return null;
 
   const reload = () => {
-    const requestId = useAppStore.getState().openNewsReader(reader.source);
+    const requestId = useAppUiStore.getState().openNewsReader(reader.source);
     void getStocksenseApi()
       .getMarketNewsItem(reader.source)
-      .then((item) => useAppStore.getState().setNewsReaderItem(requestId, item))
+      .then((item) => useAppUiStore.getState().setNewsReaderItem(requestId, item))
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : '新闻详情加载失败，请稍后重试';
-        useAppStore.getState().setNewsReaderError(requestId, message);
+        useAppUiStore.getState().setNewsReaderError(requestId, message);
       });
   };
 

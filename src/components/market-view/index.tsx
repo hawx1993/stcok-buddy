@@ -8,6 +8,7 @@ import { parsePercent } from './market-format';
 import { applyMarketRowValueUpdate, sameMarketRows } from './market-row-updates';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { getAshareMarketPhase } from '../../shared/market-time';
+import { MarketPhasePill } from '../market-phase-pill';
 import type { MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketTab } from '../../shared/types';
 import { useOpenMarketSearchResult } from '../../hooks/use-open-market-search-result';
 import { getGlobalSearchShortcutLabel } from '../global-stock-search/shortcut';
@@ -46,7 +47,6 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
   const [activeTab, setActiveTab] = useState<MarketTab>('sh-main');
   const [activeViewTab, setActiveViewTab] = useState<TMarketViewTab>('sh-main');
   const [indexPeriod, setIndexPeriod] = useState<MarketIndexPeriod>('1d');
-  const [marketPhase, setMarketPhase] = useState(() => getAshareMarketPhase(new Date()));
   const [indices, setIndices] = useState<MarketIndexSnapshot[]>([]);
   const [rowsByTab, setRowsByTab] = useState<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
   const rowsByTabRef = useRef<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
@@ -70,13 +70,6 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
   const [changedCodes, setChangedCodes] = useState<string[]>([]);
   const { openStock } = useOpenMarketSearchResult();
   const shortcutLabel = getGlobalSearchShortcutLabel();
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setMarketPhase(getAshareMarketPhase(new Date()));
-    }, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     rowsByTabRef.current = rowsByTab;
@@ -316,10 +309,7 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
             <span>
               全市场快照 · {updatedAt ? new Date(updatedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '加载中'}
             </span>
-            <span className={cx(styles.phasePill, !marketPhase.isTrading && styles.phasePillInactive)}>
-              <span className={cx(styles.liveDot, !marketPhase.isTrading && styles.liveDotInactive)} />
-              {marketPhase.label}
-            </span>
+            <MarketPhasePill />
           </p>
         </div>
         <div className={styles.headerActions}>

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { dispose, init } from 'klinecharts';
 import type { Chart, Crosshair, KLineData, Period, VisibleRange } from 'klinecharts';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import { useAppStore } from '../../store/app-store';
+import { useAppDataStore } from '../../store/app-store';
 import type { KlinePoint, StockDetail } from '../../shared/types';
 import { getMarketColors } from '../../shared/market-color';
 import cx from '../../shared/cx';
@@ -76,7 +76,7 @@ export function StockKlineChart({
   const loadedLimitRef = useRef(0);
   const hasMoreOlderDataRef = useRef(true);
   const chartDataRef = useRef<KlinePoint[]>([]);
-  const marketColorMode = useAppStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
+  const marketColorMode = useAppDataStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
   const marketColors = useMemo(() => getMarketColors(marketColorMode), [marketColorMode]);
   const [localTf, setLocalTf] = useState<TimeframeId>('1d');
   const requestedTf = timeframe ?? localTf;

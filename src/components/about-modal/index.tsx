@@ -2,7 +2,7 @@ import { Modal, message as antdMessage } from 'antd';
 import { useEffect, useState } from 'react';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type { IAppRuntimeInfo } from '../../shared/types';
-import { useAppStore } from '../../store/app-store';
+import { useAppUiStore } from '../../store/app-store';
 import { WhaleLogo } from '../chat-view/components/whale-logo';
 import styles from './index.module.scss';
 
@@ -14,8 +14,8 @@ const defaultRuntimeInfo: IAppRuntimeInfo = {
 };
 
 export function AboutModal() {
-  const isOpen = useAppStore((state) => state.isAboutOpen);
-  const setAboutOpen = useAppStore((state) => state.setAboutOpen);
+  const isOpen = useAppUiStore((state) => state.isAboutOpen);
+  const setAboutOpen = useAppUiStore((state) => state.setAboutOpen);
   const [runtimeInfo, setRuntimeInfo] = useState<IAppRuntimeInfo>(defaultRuntimeInfo);
 
   useEffect(() => {
