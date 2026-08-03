@@ -366,7 +366,7 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
               type='button'
             >
               <span className={styles.msSectorName}>{sector.name}</span>
-              <span className={styles.msSectorSub}>
+              <span className={`${styles.msSectorSub} ${chgClass(sector.changePercent)}`}>
                 {formatChange(sector.changePercent)} · {formatAmountYi(sector.amount)}
               </span>
             </button>

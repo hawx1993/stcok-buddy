@@ -26,6 +26,7 @@ import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from './discove
 import type { IHotThemeLeader } from './discovery-hot-themes.js';
 import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from './discovery-market-summary.js';
 import { getMonitorFeed } from './monitor-service.js';
+import { getBoardDetail } from './board-detail.js';
 import type {
   HotFocusItem,
   IChipDistributionResult,
@@ -237,6 +238,7 @@ type TOpportunityStockCandidateInput = {
 };
 type TMainFundFlowRow = Awaited<ReturnType<typeof sdk.fundFlow.market>>[number];
 type TConstituentCodeRow = { code?: string | null };
+type TConstituentAmountRow = { amount?: string | number | null };
 type TFundFlowMainRow = { code: string; mainNetInflow: number | null };
 
 type TLocalBoardCatalog = {
@@ -1401,16 +1403,55 @@ function sumConstituentMainNetInflowYi(
 
 export const sumConstituentMainNetInflowYiForTest = sumConstituentMainNetInflowYi;
 
+function parseMoneyTextToYuan(value: string | number | null | undefined): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'number') return finitePositive(value) ? value : undefined;
+
+  const text = value.replaceAll(',', '').trim();
+  if (!text || text === '--') return undefined;
+
+  const sign = text.startsWith('-') ? -1 : 1;
+  const numeric = Number(text.replace(/^[-+]/, '').replace(/万亿|亿|万/g, ''));
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
+  if (text.includes('万亿')) return sign * numeric * 1_000_000_000_000;
+  if (text.includes('亿')) return sign * numeric * 100_000_000;
+  if (text.includes('万')) return sign * numeric * 10_000;
+  return sign * numeric;
+}
+
+function sumBoardConstituentAmounts(constituents: TConstituentAmountRow[]): number | undefined {
+  const total = constituents.reduce(
+    (sum, row) => {
+      const amount = parseMoneyTextToYuan(row.amount);
+      if (amount === undefined) return sum;
+      return { value: sum.value + amount, count: sum.count + 1 };
+    },
+    { value: 0, count: 0 },
+  );
+  return total.count ? total.value : undefined;
+}
+
+export const parseMoneyTextToYuanForTest = parseMoneyTextToYuan;
+export const sumBoardConstituentAmountsForTest = sumBoardConstituentAmounts;
+
 function boardAmountApis(kind?: string) {
   return kind === 'concept' ? [sdk.board.concept, sdk.board.industry] : [sdk.board.industry, sdk.board.concept];
 }
 
 async function fetchBoardAmountFromRemote(board: TLocalBoardSummary): Promise<number | undefined> {
+  try {
+    const detail = await getBoardDetail(board.code, false, board.name);
+    const amount = sumBoardConstituentAmounts(detail.constituents ?? []);
+    if (amount !== undefined) return amount;
+  } catch {
+    // Fall through to stock-sdk real board constituent providers; keep missing amount explicit if all fail.
+  }
+
   for (const api of boardAmountApis(board.kind)) {
     try {
       const constituents = await api.constituents(board.code);
-      const amounts = constituents.map((item) => item.amount).filter(finitePositive);
-      if (amounts.length) return amounts.reduce((sum, amount) => sum + amount, 0);
+      const amount = sumBoardConstituentAmounts(constituents);
+      if (amount !== undefined) return amount;
     } catch {
       // Try the other real board namespace; keep missing amount explicit if both fail.
     }

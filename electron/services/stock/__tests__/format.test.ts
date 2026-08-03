@@ -10,6 +10,7 @@ import {
   pickNumber,
   pickString,
 } from '../format.js';
+import { toStockDetail } from '../stock-rating.js';
 
 describe('股票服务格式化工具', () => {
   it('按指定小数位格式化数字且无效值返回占位符', () => {
@@ -57,5 +58,9 @@ describe('股票服务格式化工具', () => {
     expect(normalizeMarketCap(80)).toBe(8_000_000_000);
     expect(normalizeMarketCap(100_000)).toBe(100_000);
     expect(normalizeMarketCap(undefined)).toBeUndefined();
+  });
+
+  it('按亿元格式化 stock-sdk 个股详情市值', () => {
+    expect(toStockDetail({ code: '688004', name: '博汇科技', totalMarketCap: 17.61 }, '688004').marketCap).toBe('17.6亿');
   });
 });

@@ -220,7 +220,7 @@ export function StockDetailView({
           ) : null}
           <LineChart className={styles['panel-title-icon']} size={16} />
           个股详情
-          <MarketPhasePill />
+          {selectedStock ? <MarketPhasePill /> : null}
         </span>
         {selectedStock ? (
           <div className={styles['stock-price']}>

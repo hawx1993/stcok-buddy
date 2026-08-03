@@ -119,7 +119,7 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
         <span className={styles.title}>
           <Star className={styles['panel-title-icon']} size={16} />
           收藏个股
-          <MarketPhasePill />
+          {favoriteStocks.length ? <MarketPhasePill /> : null}
         </span>
         <span className={styles['favorite-timeline-switch']}>
           <small>分时图</small>

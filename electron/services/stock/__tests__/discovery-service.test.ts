@@ -107,6 +107,12 @@ const mockedIsRemoteTradingDay = vi.mocked(isRemoteTradingDay);
 const mockedPreviousRemoteTradingDay = vi.mocked(previousRemoteTradingDay);
 const mockedWriteDiscoverySnapshot = vi.mocked(writeDiscoverySnapshot);
 
+function getDiscoverySdk() {
+  const sdk = stockSdkInstances[stockSdkInstances.length - 1];
+  if (!sdk) throw new Error('StockSDK mock instance not initialized');
+  return sdk;
+}
+
 beforeEach(() => {
   resetDiscoveryFundFlowCachesForTest();
   for (const sdk of stockSdkInstances) {
@@ -763,7 +769,7 @@ describe('发现页股票和资金流工具', () => {
 
 
   it('大盘主力资金请求失败时使用短期缓存，避免重复触发网络错误', async () => {
-    const sdk = stockSdkInstances[0];
+    const sdk = getDiscoverySdk();
     sdk.fundFlow.market.mockResolvedValueOnce([
       { date: '2026-07-31', mainNetInflow: 100_000_000 },
       { date: '2026-07-31', mainNetInflow: -50_000_000 },
@@ -775,7 +781,7 @@ describe('发现页股票和资金流工具', () => {
   });
 
   it('大盘主力资金请求失败时使用个股资金流排名汇总作为真实数据降级', async () => {
-    const sdk = stockSdkInstances[0];
+    const sdk = getDiscoverySdk();
     sdk.fundFlow.market.mockRejectedValueOnce(Object.assign(new Error('fetch failed'), { code: 'NETWORK_ERROR', provider: 'eastmoney' }));
     sdk.fundFlow.rank.mockResolvedValueOnce([
       createFundFlowRankRow('600001', '资金流入', 120_000_000),
@@ -798,7 +804,7 @@ describe('发现页股票和资金流工具', () => {
   });
 
   it('大盘主力资金和个股排名都失败时保持空态', async () => {
-    const sdk = stockSdkInstances[0];
+    const sdk = getDiscoverySdk();
     sdk.fundFlow.market.mockRejectedValueOnce(new Error('fetch failed'));
     sdk.fundFlow.rank.mockRejectedValueOnce(new Error('rank failed'));
 
@@ -838,7 +844,7 @@ describe('发现页股票和资金流工具', () => {
   });
 
   it('板块主力资金接口失败时保留已有板块并跳过成分股请求', async () => {
-    const sdk = stockSdkInstances[0];
+    const sdk = getDiscoverySdk();
     sdk.fundFlow.rank.mockRejectedValue(new Error('fetch failed'));
 
     await expect(enrichMissingSectorMainNetInflowsForTest(

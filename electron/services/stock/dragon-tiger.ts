@@ -43,20 +43,25 @@ type TEastmoneyDatacenterPayload = { result?: { data?: Record<string, unknown>[]
 export async function getDragonTigerSnapshot(range: TDragonTigerRange = 'today'): Promise<IDragonTigerSnapshot> {
   const requestRange = await getDragonTigerDateRange(range);
   const warnings: string[] = [];
-  const detailRows = range === 'today'
-    ? await fetchLatestDragonTigerRowsFromStockSdk(warnings)
-    : await fetchDetailRowsWithFallback(range, requestRange.startDate, requestRange.endDate, warnings);
+  const detailRows =
+    range === 'today'
+      ? await fetchLatestDragonTigerRowsFromStockSdk(warnings)
+      : await fetchDetailRowsWithFallback(range, requestRange.startDate, requestRange.endDate, warnings);
   const latestDate = detailRows[0]?.date;
-  const effectiveRange = range === 'today' && latestDate
-    ? { startDate: toCompactDate(latestDate), endDate: toCompactDate(latestDate) }
-    : requestRange;
-  const filteredRows = range === 'today' && latestDate
-    ? detailRows.filter((row) => row.date === latestDate)
-    : detailRows;
+  const effectiveRange =
+    range === 'today' && latestDate
+      ? { startDate: toCompactDate(latestDate), endDate: toCompactDate(latestDate) }
+      : requestRange;
+  const filteredRows =
+    range === 'today' && latestDate ? detailRows.filter((row) => row.date === latestDate) : detailRows;
 
   const [institutionResult, branchResult] = await Promise.allSettled([
     withTimeoutReject(sdk.dragonTiger.institution(effectiveRange), DRAGON_TIGER_TIMEOUT_MS, '龙虎榜机构买卖加载超时'),
-    withTimeoutReject(sdk.dragonTiger.branchRank(toSdkPeriod(range)), DRAGON_TIGER_TIMEOUT_MS, '龙虎榜营业部排行加载超时'),
+    withTimeoutReject(
+      sdk.dragonTiger.branchRank(toSdkPeriod(range)),
+      DRAGON_TIGER_TIMEOUT_MS,
+      '龙虎榜营业部排行加载超时',
+    ),
   ]);
 
   if (institutionResult.status === 'rejected') warnings.push(toWarningMessage('机构买卖', institutionResult.reason));
@@ -74,7 +79,10 @@ export async function getDragonTigerSnapshot(range: TDragonTigerRange = 'today')
     endDate: effectiveRange.endDate,
     rows: filteredRows,
     institutionTop: institutionTop.slice(0, DRAGON_TIGER_SEAT_RANK_SIZE),
-    branchTop: branchResult.status === 'fulfilled' ? branchResult.value.map(toBranchRow).slice(0, DRAGON_TIGER_SEAT_RANK_SIZE) : [],
+    branchTop:
+      branchResult.status === 'fulfilled'
+        ? branchResult.value.map(toBranchRow).slice(0, DRAGON_TIGER_SEAT_RANK_SIZE)
+        : [],
     warnings,
   });
 }
@@ -155,7 +163,9 @@ async function fetchEastmoneyDetailRows(
       'TRADE_DATE',
       200,
     );
-    const mappedRows = sortDetailRows(rows.map(toEastmoneyDetailRow).filter((row): row is IDragonTigerDetailRow => row !== undefined));
+    const mappedRows = sortDetailRows(
+      rows.map(toEastmoneyDetailRow).filter((row): row is IDragonTigerDetailRow => row !== undefined),
+    );
     if (mappedRows.length) warnings.push('stock-sdk 龙虎榜详情暂未返回，已使用 a-stock-data 东财龙虎榜详情补充');
     return mappedRows;
   } catch (error) {
@@ -172,9 +182,12 @@ async function fetchInstitutionRowsFromDetails(
   for (const row of rows.slice(0, 8)) {
     try {
       const institution = await fetchEastmoneyInstitutionForStock(row.code, row.date);
-      if (institution && institution.orgNetAmount !== 0) result.push({ ...institution, changePercent: row.changePercent });
+      if (institution && institution.orgNetAmount !== 0)
+        result.push({ ...institution, changePercent: row.changePercent });
     } catch (error) {
-      warnings.push(`a-stock-data 机构席位降级失败（${row.code}）：${error instanceof Error ? error.message : String(error)}`);
+      warnings.push(
+        `a-stock-data 机构席位降级失败（${row.code}）：${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
   if (!result.length) warnings.push('stock-sdk 未返回机构买卖数据，a-stock-data 机构席位明细也未检索到机构专用净买入');
@@ -182,7 +195,10 @@ async function fetchInstitutionRowsFromDetails(
   return result.sort((a, b) => (b.orgNetAmount ?? 0) - (a.orgNetAmount ?? 0) || a.code.localeCompare(b.code));
 }
 
-async function fetchEastmoneyInstitutionForStock(code: string, date: string): Promise<IDragonTigerInstitutionRow | undefined> {
+async function fetchEastmoneyInstitutionForStock(
+  code: string,
+  date: string,
+): Promise<IDragonTigerInstitutionRow | undefined> {
   const buyRows = await fetchEastmoneyDatacenterRows(
     'RPT_BILLBOARD_DAILYDETAILSBUY',
     `(TRADE_DATE='${date}')(SECURITY_CODE=\"${code}\")`,
@@ -259,7 +275,8 @@ async function fetchEastmoneyDatacenterRows(
   const response = await fetch(url, {
     signal: AbortSignal.timeout(DRAGON_TIGER_TIMEOUT_MS),
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       Referer: 'https://data.eastmoney.com/',
     },
   });
@@ -445,9 +462,7 @@ function buildReasonStats(rows: IDragonTigerDetailRow[]): IDragonTigerReasonStat
 function sortDetailRows(rows: IDragonTigerDetailRow[]): IDragonTigerDetailRow[] {
   return rows.sort(
     (a, b) =>
-      b.date.localeCompare(a.date) ||
-      (b.netBuyAmount ?? 0) - (a.netBuyAmount ?? 0) ||
-      a.code.localeCompare(b.code),
+      b.date.localeCompare(a.date) || (b.netBuyAmount ?? 0) - (a.netBuyAmount ?? 0) || a.code.localeCompare(b.code),
   );
 }
 
