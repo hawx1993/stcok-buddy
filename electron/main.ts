@@ -8,11 +8,11 @@ import { registerIpcHandlers } from './ipc.js';
 import { closeMarketDataStore } from './services/market-data/market-data-store.js';
 import { ensureMarketDataRuntime, stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
-import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler, waitForSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
+import { stopSurgeHistoryScheduler, waitForSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { stopDiscoveryRefreshLoop } from './services/stock/discovery-service.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
-import { startMonitorHistoryScheduler, stopMonitorHistoryScheduler, waitForMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
+import { stopMonitorHistoryScheduler, waitForMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
 import { closeMonitorHistoryInstance, closeMonitorHistoryStore } from './services/stock/monitor-history-store.js';
 import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
 import { checkAppUpdate, setInstallUpdateHandler } from './services/update-service.js';
@@ -117,8 +117,6 @@ app.whenReady().then(() => {
     console.warn('[market-data] runtime initialization failed', error);
   });
   registerIpcHandlers();
-  ensureSurgeHistoryCapture();
-  startMonitorHistoryScheduler();
   createWindow();
   setTimeout(() => {
     void checkAppUpdate({ silent: true });

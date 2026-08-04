@@ -28,7 +28,10 @@ function isTradeDateRow(row: NorthboundFlowSummary, tradeDate?: string): boolean
 }
 
 function pickNorthboundValue(row: NorthboundFlowSummary): number | null {
-  return row.netBuyAmount ?? row.netInflow ?? null;
+  if (row.netBuyAmount !== null && row.netBuyAmount !== undefined) {
+    return row.netBuyAmount === 0 ? null : row.netBuyAmount;
+  }
+  return row.netInflow ?? null;
 }
 
 export function sumNorthFundFlowYi(rows: NorthboundFlowSummary[], tradeDate?: string): number | null {

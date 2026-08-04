@@ -288,6 +288,7 @@ describe('市场数据 DuckDB 存储', () => {
     expect(await currentStore.getLatestSyncJob()).toMatchObject({
       id: 'job-1',
       status: 'partial',
+      targetTradeDate: '2026-07-09',
       processedSymbols: 2,
       succeededSymbols: 1,
       failedSymbols: 1,

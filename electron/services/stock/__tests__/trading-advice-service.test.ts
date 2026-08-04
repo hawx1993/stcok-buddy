@@ -31,11 +31,19 @@ vi.mock('../shared.js', () => ({
 
 import { chatWithOpenAICompatible } from '../../llm/openai-compatible-client.js';
 import { getDiscoverySnapshot } from '../discovery-service.js';
+import { getMarketReview } from '../market-review-service.js';
 import { getTradingAdvice, reconcileAdviceLeaderStocks } from '../trading-advice-service.js';
+import { listDailyDragonTiger, listEastmoneySurgeByDate } from '../stock-client.js';
+import { sdk } from '../shared.js';
 import type { ITradingAdvice } from '../../../../src/shared/types.js';
 
 const mockedGetDiscoverySnapshot = vi.mocked(getDiscoverySnapshot);
+const mockedGetMarketReview = vi.mocked(getMarketReview);
 const mockedChatWithOpenAICompatible = vi.mocked(chatWithOpenAICompatible);
+const mockedListDailyDragonTiger = vi.mocked(listDailyDragonTiger);
+const mockedListEastmoneySurgeByDate = vi.mocked(listEastmoneySurgeByDate);
+const mockedFundFlowRank = vi.mocked(sdk.fundFlow.rank);
+const mockedConceptList = vi.mocked(sdk.board.concept.list);
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -93,6 +101,78 @@ describe('交易建议龙头股校准', () => {
   });
 });
 
+describe('当前交易日交易建议', () => {
+  it('市场复盘暂不可用但其他真实市场数据存在时仍生成建议', async () => {
+    const tradeDate = new Date().toISOString().slice(0, 10);
+    mockedGetMarketReview.mockRejectedValue(new Error('review failed'));
+    mockedListDailyDragonTiger.mockResolvedValue([
+      {
+        id: `${tradeDate}-600001`,
+        date: tradeDate,
+        code: '600001',
+        name: '龙虎榜股',
+        reason: '机构专用净买入',
+        changePercent: 9.9,
+        netBuy: 80_000_000,
+        buy: 100_000_000,
+        sell: 20_000_000,
+      },
+    ]);
+    mockedFundFlowRank.mockResolvedValue([
+      {
+        code: '600002',
+        name: '资金股',
+        price: 12,
+        changePercent: 2.1,
+        mainNetInflow: 120_000_000,
+        mainNetInflowPercent: 3,
+        superLargeNetInflow: 80_000_000,
+        superLargeNetInflowPercent: 2,
+        largeNetInflow: 40_000_000,
+        largeNetInflowPercent: 1,
+        mediumNetInflow: null,
+        mediumNetInflowPercent: null,
+        smallNetInflow: null,
+        smallNetInflowPercent: null,
+      },
+    ]);
+    mockedListEastmoneySurgeByDate.mockResolvedValue([
+      {
+        id: 'zt-1',
+        title: '涨停股',
+        code: '600003',
+        name: '涨停股',
+        tag: '封涨停板',
+        description: '机器人·2连板',
+      },
+    ]);
+    mockedConceptList.mockResolvedValue([
+      {
+        rank: 1,
+        code: 'BK0815',
+        name: '机器人',
+        price: 1000,
+        change: 2.6,
+        changePercent: 2.6,
+        totalMarketCap: 100_000_000_000,
+        turnoverRate: 3.2,
+        riseCount: 20,
+        fallCount: 5,
+        leadingStock: '涨停股',
+        leadingStockChangePercent: 10,
+      },
+    ]);
+    mockedChatWithOpenAICompatible.mockResolvedValue(JSON.stringify(createAdvice({ marketSummary: '其他数据可用' })));
+
+    const advice = await getTradingAdvice({ tradeDate });
+
+    expect(advice.marketSummary).toBe('其他数据可用');
+    expect(mockedChatWithOpenAICompatible).toHaveBeenCalledTimes(1);
+    expect(mockedChatWithOpenAICompatible.mock.calls[0][1][1].content).toContain('龙虎榜股');
+    expect(mockedChatWithOpenAICompatible.mock.calls[0][1][1].content).toContain('机器人');
+  });
+});
+
 describe('历史交易日交易建议', () => {
   it('按交易日读取探索页快照并缓存 AI 建议', async () => {
     mockedGetDiscoverySnapshot.mockResolvedValue({
@@ -115,7 +195,10 @@ describe('历史交易日交易建议', () => {
     expect(first.marketSummary).toBe('历史机器人强势');
     expect(second).toBe(first);
     expect(mockedGetDiscoverySnapshot).toHaveBeenCalledTimes(1);
-    expect(mockedGetDiscoverySnapshot).toHaveBeenCalledWith({ tradeDate: '2026-07-30' });
+    expect(mockedGetDiscoverySnapshot).toHaveBeenCalledWith({
+      tradeDate: '2026-07-30',
+      sections: ['sentiment', 'dragon-tiger', 'hot-rotation', 'tomorrow'],
+    });
     expect(mockedChatWithOpenAICompatible).toHaveBeenCalledTimes(1);
     expect(mockedChatWithOpenAICompatible.mock.calls[0][1][1].content).toContain('2026-07-30');
     expect(mockedChatWithOpenAICompatible.mock.calls[0][1][1].content).toContain('机器人');

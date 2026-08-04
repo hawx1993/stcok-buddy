@@ -2,10 +2,19 @@ import type {
   AgentResultCard,
   AnnouncementItem,
   HotFocusItem,
+  IChipDistributionResult,
+  IStockFundFlowSnapshot,
   MarketNewsItem,
   StockDetail,
 } from '../../../src/shared/types.js';
 import type { DailyDragonTigerItem } from '../stock/stock-client.js';
+import type {
+  IBoardFundFlow,
+  IEmHotRankItem,
+  IHolderNumberChangeRow,
+  IIndustryRanking,
+  IThsHotStock,
+} from '../stock/a-stock-data-runner.js';
 
 export function quoteToCard(quote?: StockDetail): AgentResultCard | undefined {
   if (!quote) return undefined;
@@ -279,5 +288,212 @@ export function newsAnnouncementsToCard(
       '以上内容来自 a-stock-data 指定的东财个股新闻与巨潮公告公开接口，仅供研究参考，不构成投资建议。',
     ].join('\n'),
     stocks: quote ? [quote] : undefined,
+  };
+}
+
+export interface IHolderChipCardInput {
+  quote?: StockDetail;
+  holder?: IHolderNumberChangeRow[];
+  chip?: IChipDistributionResult;
+  flow?: IStockFundFlowSnapshot;
+}
+
+function holderTrendText(ratio: number | undefined): string {
+  if (ratio === undefined) return '暂无环比数据';
+  if (ratio < 0) return '股东户数环比减少，筹码趋于集中';
+  if (ratio > 0) return '股东户数环比增加，筹码趋于分散';
+  return '股东户数环比持平';
+}
+
+export function holderChipToCard({ quote, holder, chip, flow }: IHolderChipCardInput): AgentResultCard {
+  const latest = holder?.[0];
+  const holderRatio = latest && typeof latest.change_ratio === 'number' ? latest.change_ratio : undefined;
+  const chipLatest = chip?.latest;
+  const name = quote?.name ?? '';
+  const code = quote?.code ?? '';
+  const trend = holderTrendText(holderRatio);
+  const narrative = [
+    `# ${name || '个股'}（${code}）股东户数与筹码`,
+    '',
+    '## 📰 核心事件',
+    latest
+      ? `- 📄 ${latest.date} 披露股东户数 ${latest.holder_num.toLocaleString()} 户，环比 ${formatSignedPercent(latest.change_ratio ?? 0)}。${trend}。`
+      : '- 📄 股东户数数据暂不可用。',
+    '',
+    '## 💰 筹码与资金面',
+    chipLatest
+      ? `- 📈 获利比例 ${chipLatest.profitRatio !== undefined ? `${chipLatest.profitRatio.toFixed(2)}%` : '暂无'}，90% 成本集中度 ${chipLatest.concentration90 ?? '暂无'}，平均成本 ${chipLatest.avgCost ?? '暂无'}。`
+      : '- 📈 筹码分布数据暂不可用。',
+    flow?.mainNetInflow != null
+      ? `- 💰 今日主力净流入 ${formatMoney(flow.mainNetInflow)}${
+          flow.mainNetInflowPercent != null ? `（${formatSignedPercent(flow.mainNetInflowPercent)}）` : ''
+        }。`
+      : '- 💰 资金流数据暂不可用。',
+    '',
+    '## 🎯 综合结论',
+    latest
+      ? `- ${trend}。股东户数变化是观察筹码结构的重要参考，需结合股价位置与成交活跃度综合判断。`
+      : '- 因数据缺口，暂无法给出筹码集中度结论，建议稍后重试。',
+  ].join('\n');
+  return {
+    title: `${name || '个股'}（${code}）股东户数/筹码`,
+    subtitle: `${latest?.date ?? '暂无'} · ${trend}`,
+    metrics: [
+      { label: '股东户数', value: latest ? latest.holder_num.toLocaleString() : '--' },
+      {
+        label: '环比',
+        value: latest ? formatSignedPercent(latest.change_ratio ?? 0) : '--',
+        tone: holderRatio === undefined ? 'neutral' : holderRatio < 0 ? 'up' : holderRatio > 0 ? 'down' : 'neutral',
+      },
+      {
+        label: '获利比例',
+        value: chipLatest?.profitRatio !== undefined ? `${chipLatest.profitRatio.toFixed(2)}%` : '--',
+      },
+      { label: '主力净流入', value: flow?.mainNetInflow != null ? formatMoney(flow.mainNetInflow) : '--' },
+    ],
+    rows: (holder ?? []).slice(0, 6).map((row) => ({
+      日期: row.date,
+      股东户数: row.holder_num.toLocaleString(),
+      环比: formatSignedPercent(row.change_ratio ?? 0),
+      户均持股: row.avg_shares > 0 ? row.avg_shares.toLocaleString() : '--',
+    })),
+    narrative,
+    stocks: quote ? [quote] : undefined,
+  };
+}
+
+export interface IIndustryRankingCardInput {
+  ranking?: IIndustryRanking | null;
+  flow?: IBoardFundFlow | null;
+}
+
+export function industryRankingToCard({ ranking, flow }: IIndustryRankingCardInput): AgentResultCard {
+  const top = ranking?.top ?? [];
+  const bottom = ranking?.bottom ?? [];
+  const flowRows = flow?.rows ?? [];
+  const top1 = top[0];
+  const narrative = [
+    '# 今日行业涨幅排行',
+    '',
+    '## 📰 核心事件',
+    ranking?.total
+      ? `- 📄 今日共 ${ranking.total} 个东财行业板块，涨幅居前的是 ${top1?.name ?? '--'}（${formatSignedPercent(top1?.change_pct ?? 0)}），领涨股 ${top1?.leader || '暂无'}。`
+      : '- 📄 行业涨幅排名数据暂不可用。',
+    '',
+    '## 📈 涨幅 TOP',
+    top.length
+      ? top
+          .slice(0, 5)
+          .map((row) => `- 📈 ${row.rank}. ${row.name}：${formatSignedPercent(row.change_pct)}，领涨 ${row.leader || '--'}`)
+          .join('\n')
+      : '- 📈 暂无数据。',
+    '',
+    '## 📉 跌幅 BOTTOM',
+    bottom.length
+      ? bottom.slice(0, 5).map((row) => `- 📉 ${row.name}：${formatSignedPercent(row.change_pct)}`).join('\n')
+      : '- 📉 暂无数据。',
+    '',
+    '## 💰 行业资金流',
+    flowRows.length
+      ? flowRows
+          .slice(0, 5)
+          .map(
+            (row) =>
+              `- 💰 ${row.name}：主力净流入 ${formatMoney(row.main_net)}（${formatSignedPercent(row.main_pct)}），领涨 ${row.leader || '--'}`,
+          )
+          .join('\n')
+      : '- 💰 行业资金流数据暂不可用。',
+    '',
+    '## 🎯 综合结论',
+    `- 今日涨幅靠前的行业为 ${top.slice(0, 3).map((row) => row.name).join('、') || '暂无'}，主力资金净流入靠前的行业为 ${flowRows
+      .slice(0, 3)
+      .map((row) => row.name)
+      .join('、') || '暂无'}。数据来自东财行业板块公开接口，仅供研究参考。`,
+  ].join('\n');
+  return {
+    title: '今日行业涨幅排行',
+    subtitle: ranking?.total ? `共 ${ranking.total} 个行业` : '行业排行',
+    metrics: [
+      { label: '涨幅第一', value: top1 ? `${top1.name} ${formatSignedPercent(top1.change_pct)}` : '--', tone: 'up' },
+      { label: '主力流入第一', value: flowRows[0] ? flowRows[0].name : '--', tone: 'up' },
+    ],
+    rows: [
+      ...top.slice(0, 8).map((row) => ({
+        排名: `TOP ${row.rank}`,
+        行业: row.name,
+        涨幅: formatSignedPercent(row.change_pct),
+        涨跌家数: `${row.up_count}/${row.down_count}`,
+        领涨股: row.leader || '--',
+      })),
+      ...flowRows.slice(0, 5).map((row) => ({
+        排名: '资金',
+        行业: row.name,
+        涨幅: formatSignedPercent(row.change_pct),
+        主力净流入: formatMoney(row.main_net),
+        领涨股: row.leader || '--',
+      })),
+    ],
+    narrative,
+  };
+}
+
+export interface IHotConceptsCardInput {
+  source?: 'ths_hot_list' | 'em_hot_rank' | string;
+  list: Array<IThsHotStock | IEmHotRankItem>;
+}
+
+function conceptOf(item: IThsHotStock | IEmHotRankItem): string {
+  if ('concepts' in item && item.concepts && item.concepts.length) return item.concepts.join('、');
+  if ('tag' in item && item.tag) return item.tag;
+  return '--';
+}
+
+export function hotConceptsToCard({ source, list }: IHotConceptsCardInput): AgentResultCard {
+  const sourceLabel = source === 'em_hot_rank' ? '东财人气榜' : '同花顺热榜';
+  const themes = [
+    ...new Set(
+      list
+        .slice(0, 10)
+        .map((item) => ('concepts' in item && item.concepts?.[0]) || ('tag' in item && item.tag) || item.name)
+        .filter(Boolean),
+    ),
+  ].slice(0, 3);
+  const narrative = [
+    '# 今日热门股与概念',
+    '',
+    '## 📰 核心事件',
+    `- 📄 数据来源：${sourceLabel}，共 ${list.length} 只热门股。`,
+    '',
+    '## 📈 热门股与概念归属',
+    list.length
+      ? list
+          .slice(0, 10)
+          .map(
+            (item) =>
+              `- 📈 ${item.name ?? '--'}${item.code ? `（${item.code}）` : ''}${
+                item.pct != null ? ` ${formatSignedPercent(item.pct)}` : ''
+              }：${conceptOf(item)}。`,
+          )
+          .join('\n')
+      : '- 📈 暂无数据。',
+    '',
+    '## 🎯 综合结论',
+    `- 今日市场热度集中在 ${themes.join('、') || '暂无'} 等方向。热门股与概念归属来自公开人气榜数据，仅供研究参考。`,
+  ].join('\n');
+  return {
+    title: '今日热门题材',
+    subtitle: `${sourceLabel} · ${list.length} 只`,
+    metrics: [
+      { label: '热门股', value: `${list.length}只`, tone: list.length ? 'up' : 'neutral' },
+      { label: '来源', value: sourceLabel },
+    ],
+    rows: list.slice(0, 10).map((item) => ({
+      排名: item.rank ?? '--',
+      名称: item.name ?? '--',
+      代码: item.code ?? '',
+      涨幅: item.pct != null ? formatSignedPercent(item.pct) : '--',
+      概念归属: conceptOf(item),
+    })),
+    narrative,
   };
 }

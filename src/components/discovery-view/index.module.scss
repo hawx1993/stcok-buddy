@@ -320,6 +320,9 @@
   border-radius: 14px;
   padding: 20px;
 }
+.deferredSection {
+  min-height: 240px;
+}
 
 .opportunityRadar {
   display: grid;
@@ -370,6 +373,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .opportunityRadarMeta {
+    color: var(--fg-secondary);
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    font-weight: 600;
   }
   em {
     width: fit-content;
@@ -2757,11 +2766,7 @@
   color: var(--fg-secondary);
   margin-bottom: 7px;
 }
-.msStatValue {
-  font-size: 16px;
-  font-weight: 700;
-  font-family: var(--font-mono, monospace);
-}
+
 .msStatSlash {
   color: var(--fg-secondary);
   font-weight: 400;

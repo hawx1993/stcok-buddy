@@ -18,7 +18,7 @@ import {
   getStockChip,
 } from '../market-data/market-data-store.js';
 import { fetchMarketIndex } from './market-indices.js';
-import { isRemoteTradingDay, previousRemoteTradingDay } from '../market-data/providers.js';
+import { isRemoteTradingDay, listRemoteTradingCalendar } from '../market-data/providers.js';
 import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
 import { formatMoney } from './format.js';
 import { buildMonthlyThemesFromHistoricalPools } from './discovery-monthly-themes.js';
@@ -35,18 +35,40 @@ import type {
   IMarketReviewMetric,
   IMarketReviewWatchItem,
   IMonitorEvent,
+  TDiscoverySnapshotSection,
 } from '../../../src/shared/types.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 export const DISCOVERY_CACHE_TTL_MS = 60_000;
+const DISCOVERY_DETAIL_CACHE_TTL_MS = 5 * 60_000;
 export const DISCOVERY_WAITING_930_MESSAGE = '数据9:30更新，请稍后';
 const DISCOVERY_HISTORY_LOADING_MESSAGE = '该交易日暂无本地历史数据，正在后台同步';
 const DISCOVERY_SNAPSHOT_KEY = 'default';
 const DISCOVERY_TRADE_DATE_SNAPSHOT_PREFIX = 'trade-date:';
+const DISCOVERY_SECTION_SNAPSHOT_PREFIX = 'section:';
 const DISCOVERY_RECENT_TRADE_DAYS = 20;
+const DISCOVERY_HISTORICAL_SECTION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const ALL_DISCOVERY_SECTIONS: TDiscoverySnapshotSection[] = [
+  'trade-date-nav',
+  'hero',
+  'market-summary',
+  'opportunity-radar',
+  'sentiment',
+  'dragon-tiger',
+  'hot-rotation',
+  'limit-up',
+  'tomorrow',
+];
 let discoveryRefreshPromise: Promise<IDiscoverySnapshot> | undefined;
-let discoveryRefreshTimer: NodeJS.Timeout | undefined;
-let lastDiscoveryRefreshStartedAt = 0;
+const discoverySectionPromises = new Map<string, Promise<IDiscoverySnapshot>>();
+type TDiscoveryReviewContext = {
+  reviewData?: Awaited<ReturnType<typeof getMarketReview>>;
+  poolItems: HotFocusItem[];
+};
+const discoveryReviewContextPromises = new Map<
+  string,
+  { updatedAt: number; promise: Promise<TDiscoveryReviewContext> }
+>();
 
 type TStockItem = {
   code: string;
@@ -58,6 +80,7 @@ type TStockItem = {
 };
 type TRealtimeQuote = Awaited<ReturnType<typeof getBatchQuotes>>[number];
 type TDailyDragonTigerGroup = Awaited<ReturnType<typeof listDragonTigerByDate>>;
+type TDailyDragonTigerInstitutionItem = NonNullable<TDailyDragonTigerGroup['institutions']>[number];
 type TDiscoveryDragonTigerItem = { code: string; name: string; changePercent?: number; netBuy: number; reason: string };
 type TDiscoveryDragonTigerDay = {
   date: string;
@@ -69,6 +92,7 @@ type TDiscoveryDragonTigerDay = {
 
 export interface IDiscoverySnapshotOptions {
   tradeDate?: string;
+  sections?: TDiscoverySnapshotSection[];
 }
 
 export interface IDiscoverySnapshot {
@@ -155,6 +179,7 @@ export interface IOpportunityStockRadarItem {
   code: string;
   name: string;
   reason: string;
+  price?: number | null;
   changePercent?: number | null;
   amount?: number | null;
   score: number;
@@ -225,11 +250,20 @@ export type TLocalBoardSummary = {
 type TBoardAmountCacheEntry = { amount?: number; updatedAt: number; promise?: Promise<number | undefined> };
 type TBoardMainNetInflowCacheEntry = { amountYi?: number; updatedAt: number; promise?: Promise<number | undefined> };
 type TFundFlowRankRow = Awaited<ReturnType<typeof sdk.fundFlow.rank>>[number];
+type TOpportunityMarketRow = {
+  code: string;
+  name?: string;
+  price?: number | string | null;
+  changePercent?: number | string | null;
+  amount?: number | null;
+  marketCap?: number | string | null;
+};
 type TOpportunityStockCandidateInput = {
   code: string;
   name: string;
   title?: string;
   details?: string[];
+  price?: number | string | null;
   changePercent: number;
   amount?: number | null;
   marketCap?: number | string;
@@ -239,6 +273,7 @@ type TOpportunityStockCandidateInput = {
 type TMainFundFlowRow = Awaited<ReturnType<typeof sdk.fundFlow.market>>[number];
 type TConstituentCodeRow = { code?: string | null };
 type TConstituentAmountRow = { amount?: string | number | null };
+type TConstituentChangePercentRow = { changePercent?: string | number | null };
 type TFundFlowMainRow = { code: string; mainNetInflow: number | null };
 
 type TLocalBoardCatalog = {
@@ -254,6 +289,11 @@ const BOARD_AMOUNT_FETCH_CONCURRENCY = 3;
 const BOARD_MAIN_FLOW_FETCH_LIMIT = 12;
 const BOARD_MAIN_FLOW_FETCH_CONCURRENCY = 3;
 const BOARD_MAIN_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
+const BOARD_CHANGE_FETCH_LIMIT = 12;
+const BOARD_CHANGE_FETCH_CONCURRENCY = 3;
+const SECTOR_CHANGE_PERCENT_ABS_LIMIT = 10;
+const HISTORICAL_SECTOR_CANDIDATE_LIMIT = 24;
+const HISTORICAL_SECTOR_FETCH_CONCURRENCY = 4;
 const FUND_FLOW_RANK_CACHE_TTL_MS = 60 * 1000;
 const MAIN_FUND_FLOW_CACHE_TTL_MS = 5 * 60 * 1000;
 const OPPORTUNITY_STOCK_CHANGE_PERCENT_LIMIT = 4;
@@ -262,7 +302,10 @@ const OPPORTUNITY_STOCK_MAX_MARKET_CAP_YI = 200;
 const OPPORTUNITY_STOCK_CHIP_CONCENTRATION90_LIMIT = 15;
 const OPPORTUNITY_STOCK_DISPLAY_LIMIT = 20;
 const OPPORTUNITY_STOCK_MIN_DISPLAY_COUNT = 10;
+const DISCOVERY_SECTOR_DAILY_CHANGE_LIMIT_PERCENT = 20;
 const DISCOVERY_OPTIONAL_TASK_TIMEOUT_MS = 8_000;
+const DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS = 2_500;
+const DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS = 2_500;
 const sectorFlowRankCache = new Map<
   TSectorFlowIndicator,
   { rows: ISectorSummary[]; updatedAt: number; promise?: Promise<ISectorSummary[]> }
@@ -292,6 +335,9 @@ export const sumFundFlowRankRowsYiForTest = sumFundFlowRankRowsYi;
 export function resetDiscoveryFundFlowCachesForTest(): void {
   mainFundFlowCache = undefined;
   fundFlowRankCache = undefined;
+  sectorFlowRankCache.clear();
+  boardAmountCache.clear();
+  boardMainNetInflowCache.clear();
 }
 
 function mapMetricToFactor(m: IMarketReviewMetric): { label: string; value: string | number } {
@@ -341,6 +387,18 @@ function toDiscoveryDragonTigerItem(item: TDailyDragonTigerItem): TDiscoveryDrag
   };
 }
 
+function toDiscoveryDragonTigerInstitutionItem(item: TDailyDragonTigerInstitutionItem): TDiscoveryDragonTigerItem {
+  const netBuy = item.orgNetAmount ?? 0;
+  const direction = netBuy >= 0 ? '机构专用净买入' : '机构专用净卖出';
+  return {
+    code: item.code,
+    name: item.name,
+    changePercent: item.changePercent ?? undefined,
+    netBuy,
+    reason: `${direction} · 买方${item.buyOrgCount ?? 0}家 / 卖方${item.sellOrgCount ?? 0}家`,
+  };
+}
+
 function selectDragonTigerRows(
   items: TDailyDragonTigerItem[],
   isPreferred: (item: TDailyDragonTigerItem) => boolean,
@@ -356,9 +414,15 @@ function selectDragonTigerNetBuyRows(items: TDailyDragonTigerItem[]): TDiscovery
     .map(toDiscoveryDragonTigerItem);
 }
 
-function buildDiscoveryDragonTiger(items: TDailyDragonTigerItem[]): NonNullable<IDiscoverySnapshot['dragonTiger']> {
+function buildDiscoveryDragonTiger(
+  items: TDailyDragonTigerItem[],
+  institutions: TDailyDragonTigerInstitutionItem[] = [],
+): NonNullable<IDiscoverySnapshot['dragonTiger']> {
+  const institutionRows = institutions.length
+    ? institutions.slice(0, DRAGON_TIGER_TAB_SIZE).map(toDiscoveryDragonTigerInstitutionItem)
+    : selectDragonTigerRows(items, (item) => /机构|专用|基金|券商|保险|QFII/.test(item.reason));
   return {
-    inst: selectDragonTigerRows(items, (item) => /机构|专用|基金|券商|保险|QFII/.test(item.reason)),
+    inst: institutionRows,
     hot: selectDragonTigerNetBuyRows(items),
     first: selectDragonTigerRows(items, (item) => /首次|首榜|首板|一日|日涨幅偏离值/.test(item.reason)),
   };
@@ -376,7 +440,7 @@ function buildDiscoveryDragonTigerHistory(
   return groups.map((group) => ({
     date: group.date,
     weekday: formatDragonTigerWeekday(group.date),
-    ...buildDiscoveryDragonTiger(group.items),
+    ...buildDiscoveryDragonTiger(group.items, group.institutions),
   }));
 }
 
@@ -457,6 +521,11 @@ function hasOpportunityStockRadarRows(snapshot: IDiscoverySnapshot): boolean {
   return Boolean(snapshot.opportunityRadar?.stocks.length);
 }
 
+function hasOpportunityStockRadarPriceFields(snapshot: IDiscoverySnapshot): boolean {
+  const stocks = snapshot.opportunityRadar?.stocks ?? [];
+  return stocks.length > 0 && stocks.every((item) => 'price' in item);
+}
+
 function hasSellSideOpportunityStockRadarRows(snapshot: IDiscoverySnapshot): boolean {
   return Boolean(snapshot.opportunityRadar?.stocks.some((item) => /卖出/.test(item.reason)));
 }
@@ -466,13 +535,28 @@ function hasStaleChipFilteredOpportunityStockRadarRows(snapshot: IDiscoverySnaps
   return stocks.length > 0 && stocks.length < OPPORTUNITY_STOCK_MIN_DISPLAY_COUNT && stocks.some((item) => /90%筹码集中度/.test(item.reason));
 }
 
+function hasStaleSectorSummaryRows(snapshot: IDiscoverySnapshot): boolean {
+  return Boolean(
+    snapshot.marketSummary?.sectors.some((sector) =>
+      Number.isFinite(sector.changePercent) && Math.abs(sector.changePercent) > DISCOVERY_SECTOR_DAILY_CHANGE_LIMIT_PERCENT,
+    ),
+  );
+}
+
+function hasMissingSectorSummaryRows(snapshot: IDiscoverySnapshot): boolean {
+  return !snapshot.marketSummary || snapshot.marketSummary.sectors.length === 0;
+}
+
 function shouldRefreshCachedDiscoverySnapshot(snapshot: IDiscoverySnapshot, currentTradeDate: string): boolean {
   return (
     snapshot.tradeDate !== currentTradeDate ||
     !hasDragonTigerRows(snapshot) ||
     !hasOpportunityStockRadarRows(snapshot) ||
+    !hasOpportunityStockRadarPriceFields(snapshot) ||
     hasSellSideOpportunityStockRadarRows(snapshot) ||
-    hasStaleChipFilteredOpportunityStockRadarRows(snapshot)
+    hasStaleChipFilteredOpportunityStockRadarRows(snapshot) ||
+    hasStaleSectorSummaryRows(snapshot) ||
+    hasMissingSectorSummaryRows(snapshot)
   );
 }
 
@@ -484,6 +568,14 @@ function discoveryTradeDateSnapshotKey(tradeDate: string) {
 
 function isIsoTradeDate(value?: string): value is string {
   return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function normalizeCalendarTradeDate(value?: string): string | undefined {
+  if (!value) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const compact = value.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  return undefined;
 }
 
 function emptyDiscoveryDragonTiger(): NonNullable<IDiscoverySnapshot['dragonTiger']> {
@@ -568,7 +660,7 @@ export async function shouldHoldDiscoverySnapshotUntil930(now = new Date()): Pro
   const today = formatShanghaiDateKey(now);
   const minutes = shanghaiMinutesOfDay(now);
   const isTradingDay = await isRemoteTradingDay(today);
-  return isTradingDay && minutes >= 8 * 60 && minutes < 9 * 60 + 30;
+  return isTradingDay && minutes < 9 * 60 + 30;
 }
 
 export async function shouldDeferDiscoveryRefresh(now = new Date()): Promise<boolean> {
@@ -606,16 +698,45 @@ function toTradeDateOption(date: string) {
   return { date, weekday: formatDragonTigerWeekday(date) };
 }
 
+async function resolveDiscoveryTradeDateNavEndDate(now = new Date()): Promise<string> {
+  const today = formatShanghaiDateKey(now);
+  return (await isRemoteTradingDay(today)) ? today : resolveTradingDate(9 * 60 + 30, now);
+}
+
+async function listRecentDiscoveryTradeDateOptions(now = new Date()): Promise<Array<{ date: string; weekday: string }>> {
+  const endDate = await resolveDiscoveryTradeDateNavEndDate(now);
+  return (await listRecentTradingDates(endDate)).map(toTradeDateOption);
+}
+
+async function withLatestDiscoveryTradeDates(
+  snapshot: IDiscoverySnapshot,
+  now = new Date(),
+): Promise<IDiscoverySnapshot> {
+  const tradeDates = await listRecentDiscoveryTradeDateOptions(now);
+  return {
+    ...snapshot,
+    tradeDates: tradeDates.some((item) => item.date === snapshot.tradeDate)
+      ? tradeDates
+      : [...tradeDates, toTradeDateOption(snapshot.tradeDate)],
+  };
+}
+
+export const withLatestDiscoveryTradeDatesForTest = withLatestDiscoveryTradeDates;
+
 async function listRecentTradingDates(endDate: string, limit = DISCOVERY_RECENT_TRADE_DAYS): Promise<string[]> {
   if (!isIsoTradeDate(endDate)) return [];
-  const dates = [endDate];
-  let current = endDate;
-  while (dates.length < limit) {
-    current = await previousRemoteTradingDay(current);
-    if (!isIsoTradeDate(current) || dates.includes(current)) break;
-    dates.push(current);
+  try {
+    const calendar = await listRemoteTradingCalendar();
+    const dates = calendar
+      .map((item) => normalizeCalendarTradeDate(item.tradeDate))
+      .filter((date): date is string => Boolean(date && date <= endDate))
+      .sort((left, right) => right.localeCompare(left));
+    if (!dates.includes(endDate)) dates.unshift(endDate);
+    return dates.slice(0, limit);
+  } catch (error) {
+    console.warn(`[discovery] failed to load trade date navigation: ${formatDiscoveryDataError(error)}`);
+    return [endDate];
   }
-  return dates;
 }
 
 function compactTradeDate(date: string) {
@@ -731,7 +852,6 @@ export const writeDiscoverySnapshotCachesForTest = writeDiscoverySnapshotCaches;
 
 function refreshDiscoverySnapshot(): Promise<IDiscoverySnapshot> {
   if (discoveryRefreshPromise) return discoveryRefreshPromise;
-  lastDiscoveryRefreshStartedAt = Date.now();
   discoveryRefreshPromise = buildDiscoverySnapshotFresh()
     .then(async (snapshot) => {
       await writeDiscoverySnapshotCaches(snapshot);
@@ -752,35 +872,35 @@ async function triggerDiscoveryRefresh() {
   void refreshDiscoverySnapshot().catch((error) => console.warn('[discovery] background refresh failed', error));
 }
 
-function ensureDiscoveryRefreshLoop() {
-  if (discoveryRefreshTimer) return;
-  discoveryRefreshTimer = setInterval(() => {
-    if (Date.now() - lastDiscoveryRefreshStartedAt >= DISCOVERY_CACHE_TTL_MS) triggerDiscoveryRefresh();
-  }, DISCOVERY_CACHE_TTL_MS);
-}
-
 export function stopDiscoveryRefreshLoop() {
-  if (!discoveryRefreshTimer) return;
-  clearInterval(discoveryRefreshTimer);
-  discoveryRefreshTimer = undefined;
+  // Discovery refreshes are request-driven so invisible pages do not keep rebuilding full snapshots.
 }
 
 async function buildAndCacheDiscoverySnapshotForTradeDate(tradeDate: string): Promise<IDiscoverySnapshot> {
-  const [poolResult, dragonTigerResult, tradeDatesResult] = await Promise.allSettled([
+  const [poolResult, dragonTigerResult, tradeDatesResult, boardCatalogResult] = await Promise.allSettled([
     listEastmoneySurgeByDate(compactTradeDate(tradeDate)),
     listDragonTigerByDate(tradeDate),
-    listRecentTradingDates(await resolveTradingDate(9 * 60 + 30)),
+    listRecentDiscoveryTradeDateOptions(),
+    fetchLocalBoardCatalog(),
   ]);
-  const tradeDates = tradeDatesResult.status === 'fulfilled' ? tradeDatesResult.value.map(toTradeDateOption) : [toTradeDateOption(tradeDate)];
+  const poolItems = poolResult.status === 'fulfilled' ? poolResult.value : [];
+  const boardCatalog = boardCatalogResult.status === 'fulfilled' ? boardCatalogResult.value : buildLocalBoardCatalog([]);
+  const [sectorsResult, opportunityStocksResult] = await Promise.allSettled([
+    buildHistoricalSectorsFromPools(poolItems, tradeDate, boardCatalog),
+    buildOpportunityStockRadarFromMonitorFeed(tradeDate, true),
+  ]);
+  const tradeDates = tradeDatesResult.status === 'fulfilled' ? tradeDatesResult.value : [toTradeDateOption(tradeDate)];
   const dragonTigerGroup = dragonTigerResult.status === 'fulfilled' ? dragonTigerResult.value : { date: tradeDate, items: [] };
   const dragonTigerHistory = buildDiscoveryDragonTigerHistory([dragonTigerGroup]);
   const snapshot = buildDiscoverySnapshotFromHistoricalPools({
     tradeDate,
     generatedAt: new Date().toISOString(),
-    poolItems: poolResult.status === 'fulfilled' ? poolResult.value : [],
+    poolItems,
     dragonTiger: pickCurrentDragonTigerFromHistory(dragonTigerHistory, tradeDate),
     dragonTigerHistory,
     tradeDates,
+    sectors: sectorsResult.status === 'fulfilled' ? sectorsResult.value : [],
+    opportunityStocks: opportunityStocksResult.status === 'fulfilled' ? opportunityStocksResult.value : [],
   });
   await writeDiscoverySnapshot(
     { snapshot, updatedAt: snapshot.generatedAt },
@@ -789,19 +909,450 @@ async function buildAndCacheDiscoverySnapshotForTradeDate(tradeDate: string): Pr
   return snapshot;
 }
 
+function normalizeDiscoverySections(sections?: TDiscoverySnapshotSection[]): TDiscoverySnapshotSection[] {
+  if (!sections?.length) return [];
+  const allowed = new Set(ALL_DISCOVERY_SECTIONS);
+  return Array.from(new Set(sections.filter((section) => allowed.has(section))));
+}
+
+function discoverySectionSnapshotKey(tradeDate: string, section: TDiscoverySnapshotSection) {
+  return `${DISCOVERY_SECTION_SNAPSHOT_PREFIX}${tradeDate}:${section}`;
+}
+
+function pickDiscoverySection(snapshot: IDiscoverySnapshot, section: TDiscoverySnapshotSection): IDiscoverySnapshot {
+  const common: IDiscoverySnapshot = {
+    tradeDate: snapshot.tradeDate,
+    generatedAt: snapshot.generatedAt,
+    tradeDates: snapshot.tradeDates,
+    unavailableReason: snapshot.unavailableReason,
+  };
+  if (section === 'trade-date-nav') return common;
+  if (section === 'hero') {
+    return {
+      ...common,
+      score: snapshot.score,
+      scoreLabel: snapshot.scoreLabel,
+      scoreVerdict: snapshot.scoreVerdict,
+      scoreTrend: snapshot.scoreTrend,
+    };
+  }
+  if (section === 'market-summary') {
+    return {
+      ...common,
+      indices: snapshot.indices,
+      bullets: snapshot.bullets,
+      wealthMetrics: snapshot.wealthMetrics,
+      marketSummary: snapshot.marketSummary,
+    };
+  }
+  if (section === 'opportunity-radar') return { ...common, opportunityRadar: snapshot.opportunityRadar };
+  if (section === 'sentiment') {
+    return {
+      ...common,
+      sentimentScore: snapshot.sentimentScore,
+      sentimentFactors: snapshot.sentimentFactors,
+      sentimentStocks: snapshot.sentimentStocks,
+      consecutiveStocks: snapshot.consecutiveStocks,
+      yesterdayZt: snapshot.yesterdayZt,
+      yesterdayLb: snapshot.yesterdayLb,
+      leaders: snapshot.leaders,
+    };
+  }
+  if (section === 'dragon-tiger') {
+    return { ...common, dragonTiger: snapshot.dragonTiger, dragonTigerHistory: snapshot.dragonTigerHistory };
+  }
+  if (section === 'hot-rotation') return { ...common, hotThemes: snapshot.hotThemes };
+  if (section === 'limit-up') return { ...common, limitUps: snapshot.limitUps };
+  return { ...common, nextDayFocus: snapshot.nextDayFocus };
+}
+
+function mergeDiscoverySectionSnapshots(snapshots: IDiscoverySnapshot[]): IDiscoverySnapshot {
+  const first = snapshots[0];
+  if (!first) throw new Error('探索页未请求任何有效区块');
+  return snapshots.reduce<IDiscoverySnapshot>(
+    (merged, snapshot) => ({
+      ...merged,
+      ...snapshot,
+      tradeDates: snapshot.tradeDates?.length ? snapshot.tradeDates : merged.tradeDates,
+    }),
+    { tradeDate: first.tradeDate, generatedAt: first.generatedAt },
+  );
+}
+
+function shouldRefreshDiscoverySectionCache(
+  snapshot: IDiscoverySnapshot,
+  section: TDiscoverySnapshotSection,
+  updatedAt: string | undefined,
+  currentTradeDate: string,
+): boolean {
+  if (section === 'market-summary' && hasMissingSectorSummaryRows(snapshot)) return true;
+  if (section === 'opportunity-radar' && !hasOpportunityStockRadarRows(snapshot)) return true;
+  if (!updatedAt) return true;
+  const updatedAtMs = new Date(updatedAt).getTime();
+  if (!Number.isFinite(updatedAtMs)) return true;
+  const realtimeSection = section === 'hero' || section === 'market-summary' || section === 'opportunity-radar';
+  const ttl = snapshot.tradeDate === currentTradeDate
+    ? (realtimeSection ? DISCOVERY_CACHE_TTL_MS : DISCOVERY_DETAIL_CACHE_TTL_MS)
+    : DISCOVERY_HISTORICAL_SECTION_CACHE_TTL_MS;
+  return Date.now() - updatedAtMs >= ttl;
+}
+
+async function buildDiscoveryTradeDateNavSection(tradeDate: string): Promise<IDiscoverySnapshot> {
+  return {
+    tradeDate,
+    generatedAt: new Date().toISOString(),
+    tradeDates: await listRecentDiscoveryTradeDateOptions(),
+  };
+}
+
+async function buildDiscoveryHeroSection(tradeDate: string, isCurrent: boolean): Promise<IDiscoverySnapshot> {
+  const tradeDates = await listRecentDiscoveryTradeDateOptions();
+  if (isCurrent) {
+    const [reviewData, cached] = await Promise.all([
+      getMarketReview().catch((error) => {
+        console.warn(`[discovery] hero review unavailable: ${formatDiscoveryDataError(error)}`);
+        return undefined;
+      }),
+      readDiscoverySnapshot(DISCOVERY_SNAPSHOT_KEY),
+    ]);
+    const currentReview = reviewData?.tradeDate === tradeDate ? reviewData : undefined;
+    const cachedSnapshot = cached ? toCachedDiscoverySnapshot(cached.snapshot) : undefined;
+    const score = currentReview?.sentimentScore ?? undefined;
+    return {
+      tradeDate,
+      generatedAt: new Date().toISOString(),
+      tradeDates,
+      score,
+      scoreLabel: score === undefined || score === null ? undefined : scoreLabel(score),
+      scoreVerdict: score === undefined || score === null ? undefined : scoreLabel(score),
+      scoreTrend: cachedSnapshot?.tradeDate === tradeDate ? cachedSnapshot.scoreTrend : undefined,
+    };
+  }
+
+  const poolItems = await listEastmoneySurgeByDate(compactTradeDate(tradeDate));
+  return pickDiscoverySection(
+    buildDiscoverySnapshotFromHistoricalPools({
+      tradeDate,
+      generatedAt: new Date().toISOString(),
+      poolItems,
+      tradeDates,
+    }),
+    'hero',
+  );
+}
+
+async function buildDiscoveryMarketSummarySection(
+  tradeDate: string,
+  isCurrent: boolean,
+): Promise<IDiscoverySnapshot> {
+  if (isCurrent) {
+    const { reviewData, poolItems } = await loadDiscoveryReviewContext(tradeDate);
+    const marketSummary = await buildMarketSummary(reviewData, poolItems, tradeDate, true);
+    return {
+      tradeDate,
+      generatedAt: new Date().toISOString(),
+      marketSummary,
+    };
+  }
+
+  const [poolItems, boardCatalog] = await Promise.all([
+    listEastmoneySurgeByDate(compactTradeDate(tradeDate)),
+    fetchLocalBoardCatalog(),
+  ]);
+  const sectors = await buildHistoricalSectorsFromPools(poolItems, tradeDate, boardCatalog);
+  const snapshot = buildDiscoverySnapshotFromHistoricalPools({
+    tradeDate,
+    generatedAt: new Date().toISOString(),
+    poolItems,
+    tradeDates: [],
+    sectors,
+  });
+  return pickDiscoverySection(snapshot, 'market-summary');
+}
+
+async function buildDiscoveryOpportunitySection(
+  tradeDate: string,
+  isCurrent: boolean,
+): Promise<IDiscoverySnapshot> {
+  const stocks = await buildOpportunityStockRadarFromMonitorFeed(tradeDate, !isCurrent);
+  return {
+    tradeDate,
+    generatedAt: new Date().toISOString(),
+    opportunityRadar: buildDiscoveryOpportunityRadar({ stocks }),
+  };
+}
+
+async function buildDiscoveryDragonTigerSection(tradeDate: string): Promise<IDiscoverySnapshot> {
+  const group = await listDragonTigerByDate(tradeDate);
+  const history = buildDiscoveryDragonTigerHistory([group]);
+  return {
+    tradeDate,
+    generatedAt: new Date().toISOString(),
+    dragonTiger: pickCurrentDragonTigerFromHistory(history, tradeDate),
+    dragonTigerHistory: history,
+  };
+}
+
+function loadDiscoveryReviewContext(tradeDate: string): Promise<TDiscoveryReviewContext> {
+  const existing = discoveryReviewContextPromises.get(tradeDate);
+  if (existing && Date.now() - existing.updatedAt < DISCOVERY_CACHE_TTL_MS) return existing.promise;
+  const promise = Promise.allSettled([
+    getMarketReview(),
+    listEastmoneySurgeByDate(compactTradeDate(tradeDate)),
+  ])
+    .then(([reviewResult, poolResult]) => ({
+      reviewData:
+        reviewResult.status === 'fulfilled' && reviewResult.value.tradeDate === tradeDate
+          ? reviewResult.value
+          : undefined,
+      poolItems: poolResult.status === 'fulfilled' ? poolResult.value : [],
+    }));
+  discoveryReviewContextPromises.set(tradeDate, { updatedAt: Date.now(), promise });
+  return promise;
+}
+
+async function buildDiscoverySentimentSection(
+  tradeDate: string,
+  isCurrent: boolean,
+): Promise<IDiscoverySnapshot> {
+  if (!isCurrent) {
+    const poolItems = await listEastmoneySurgeByDate(compactTradeDate(tradeDate));
+    return pickDiscoverySection(
+      buildDiscoverySnapshotFromHistoricalPools({
+        tradeDate,
+        generatedAt: new Date().toISOString(),
+        poolItems,
+        tradeDates: [],
+      }),
+      'sentiment',
+    );
+  }
+
+  const [{ reviewData, poolItems }, tradeDates] = await Promise.all([
+    loadDiscoveryReviewContext(tradeDate),
+    listRecentDiscoveryTradeDateOptions(),
+  ]);
+  const sentimentStocks: NonNullable<IDiscoverySnapshot['sentimentStocks']> = { zt: [], dt: [], zb: [] };
+  const consecutiveStocks: TStockItem[] = [];
+  for (const item of poolItems) {
+    if (item.tag === '封涨停板') {
+      const stock = toStockItem(item);
+      sentimentStocks.zt.push(stock);
+      if (parseHeight(item.description) >= 2) consecutiveStocks.push(stock);
+    } else if (item.tag === '封跌停板') {
+      sentimentStocks.dt.push(toStockItem(item));
+    } else if (item.tag === '涨停开板') {
+      sentimentStocks.zb.push(toStockItem(item));
+    }
+  }
+  const previous = await fetchPreviousTradingDaySentimentPools(tradeDate, tradeDates);
+  const sentimentScore = reviewData?.sentimentScore ?? scoreSentiment(
+    0,
+    0,
+    sentimentStocks.zt.length,
+    sentimentStocks.dt.length,
+    sentimentStocks.zb.length,
+  );
+  return {
+    tradeDate,
+    generatedAt: new Date().toISOString(),
+    sentimentScore,
+    sentimentFactors: reviewData?.sentiment
+      ? reviewData.sentiment.map((metric) => {
+          if (metric.label === '昨日涨停指数') return { label: metric.label, value: `${previous.zt.length}家` };
+          if (metric.label === '昨日连板指数') return { label: metric.label, value: `${previous.lb.length}家` };
+          return mapMetricToFactor(metric);
+        })
+      : [
+          { label: '涨停', value: `${sentimentStocks.zt.length}家` },
+          { label: '跌停', value: `${sentimentStocks.dt.length}家` },
+          { label: '炸板', value: `${sentimentStocks.zb.length}家` },
+          { label: '连板', value: `${consecutiveStocks.length}家` },
+        ],
+    sentimentStocks:
+      sentimentStocks.zt.length || sentimentStocks.dt.length || sentimentStocks.zb.length
+        ? sentimentStocks
+        : undefined,
+    consecutiveStocks: consecutiveStocks.length ? consecutiveStocks : undefined,
+    yesterdayZt: previous.zt.length ? previous.zt : undefined,
+    yesterdayLb: previous.lb.length ? previous.lb : undefined,
+    leaders: reviewData?.leaders?.map(mapLeader),
+  };
+}
+
+async function buildDiscoveryHotRotationSection(
+  tradeDate: string,
+  isCurrent: boolean,
+): Promise<IDiscoverySnapshot> {
+  const context = isCurrent
+    ? await loadDiscoveryReviewContext(tradeDate)
+    : { reviewData: undefined, poolItems: await listEastmoneySurgeByDate(compactTradeDate(tradeDate)) };
+  const hotThemes = context.reviewData?.hotThemes?.length
+    ? context.reviewData.hotThemes.map(mapTheme)
+    : buildHotThemesFromPools(context.poolItems);
+  return {
+    tradeDate,
+    generatedAt: new Date().toISOString(),
+    hotThemes: hotThemes.length ? hotThemes : undefined,
+  };
+}
+
+async function buildDiscoveryLimitUpSection(
+  tradeDate: string,
+  isCurrent: boolean,
+): Promise<IDiscoverySnapshot> {
+  if (!isCurrent) {
+    const poolItems = await listEastmoneySurgeByDate(compactTradeDate(tradeDate));
+    return pickDiscoverySection(
+      buildDiscoverySnapshotFromHistoricalPools({
+        tradeDate,
+        generatedAt: new Date().toISOString(),
+        poolItems,
+        tradeDates: [],
+      }),
+      'limit-up',
+    );
+  }
+
+  const { reviewData } = await loadDiscoveryReviewContext(tradeDate);
+  const leaders = reviewData?.leaders ?? [];
+  const quotes = leaders.length ? await getBatchQuotes(leaders.map((leader) => leader.code)).catch(() => []) : [];
+  const quoteByCode = new Map(quotes.map((quote) => [quote.code, quote]));
+  const limitUps = leaders.map((leader) => {
+    const quote = quoteByCode.get(leader.code);
+    return {
+      code: leader.code,
+      name: leader.name,
+      height: leader.height ? `${leader.height}板` : '首板',
+      reason: leader.concepts?.join(' + ') ?? '题材催化',
+      price: quote?.price,
+      changePercent: leader.changePercent ?? finiteStockChangePercent(quote?.changePercent),
+      turnoverRate: leader.turnoverRate ?? numericStringValue(quote?.turnoverRate),
+    };
+  });
+  return {
+    tradeDate,
+    generatedAt: new Date().toISOString(),
+    limitUps: limitUps.length ? limitUps : undefined,
+  };
+}
+
+async function buildDiscoveryTomorrowSection(
+  tradeDate: string,
+  isCurrent: boolean,
+): Promise<IDiscoverySnapshot> {
+  const { reviewData, poolItems } = isCurrent
+    ? await loadDiscoveryReviewContext(tradeDate)
+    : { reviewData: undefined, poolItems: await listEastmoneySurgeByDate(compactTradeDate(tradeDate)) };
+  if (reviewData?.nextDayFocus?.length) {
+    return {
+      tradeDate,
+      generatedAt: new Date().toISOString(),
+      nextDayFocus: reviewData.nextDayFocus.map(mapFocusItem),
+    };
+  }
+  return pickDiscoverySection(
+    buildDiscoverySnapshotFromHistoricalPools({
+      tradeDate,
+      generatedAt: new Date().toISOString(),
+      poolItems,
+      tradeDates: [],
+    }),
+    'tomorrow',
+  );
+}
+
+async function buildDiscoverySectionFresh(
+  section: TDiscoverySnapshotSection,
+  tradeDate: string,
+  currentTradeDate: string,
+): Promise<IDiscoverySnapshot> {
+  const isCurrent = tradeDate === currentTradeDate;
+  if (section === 'trade-date-nav') return buildDiscoveryTradeDateNavSection(tradeDate);
+  if (section === 'hero') return buildDiscoveryHeroSection(tradeDate, isCurrent);
+  if (section === 'market-summary') return buildDiscoveryMarketSummarySection(tradeDate, isCurrent);
+  if (section === 'opportunity-radar') return buildDiscoveryOpportunitySection(tradeDate, isCurrent);
+  if (section === 'sentiment') return buildDiscoverySentimentSection(tradeDate, isCurrent);
+  if (section === 'dragon-tiger') return buildDiscoveryDragonTigerSection(tradeDate);
+  if (section === 'hot-rotation') return buildDiscoveryHotRotationSection(tradeDate, isCurrent);
+  if (section === 'limit-up') return buildDiscoveryLimitUpSection(tradeDate, isCurrent);
+  return buildDiscoveryTomorrowSection(tradeDate, isCurrent);
+}
+
+async function getDiscoverySectionSnapshot(
+  section: TDiscoverySnapshotSection,
+  tradeDate: string,
+  currentTradeDate: string,
+): Promise<IDiscoverySnapshot> {
+  const snapshotKey = discoverySectionSnapshotKey(tradeDate, section);
+  const cached = await readDiscoverySnapshot(snapshotKey);
+  const cachedSnapshot = cached ? toCachedDiscoverySnapshot(cached.snapshot) : undefined;
+  if (cachedSnapshot && !shouldRefreshDiscoverySectionCache(cachedSnapshot, section, cached?.updatedAt, currentTradeDate)) {
+    return cachedSnapshot;
+  }
+
+  const existing = discoverySectionPromises.get(snapshotKey);
+  if (existing) return existing;
+  const promise = buildDiscoverySectionFresh(section, tradeDate, currentTradeDate)
+    .then(async (snapshot) => {
+      await writeDiscoverySnapshot({ snapshot, updatedAt: snapshot.generatedAt }, snapshotKey);
+      return snapshot;
+    })
+    .finally(() => discoverySectionPromises.delete(snapshotKey));
+  discoverySectionPromises.set(snapshotKey, promise);
+  return promise;
+}
+
+async function getScopedDiscoverySnapshot(
+  sections: TDiscoverySnapshotSection[],
+  requestedTradeDate?: string,
+): Promise<IDiscoverySnapshot> {
+  const today = formatShanghaiDateKey(new Date());
+  if (!requestedTradeDate || requestedTradeDate === today) {
+    const shouldHoldUntil930 = await shouldHoldDiscoverySnapshotUntil930();
+    if (shouldHoldUntil930) return buildDiscoveryWaitingSnapshot();
+  }
+  if (requestedTradeDate && await shouldDeferDiscoveryRefresh()) {
+    const cachedSections = await Promise.all(
+      sections.map((section) => readDiscoverySnapshot(discoverySectionSnapshotKey(requestedTradeDate, section))),
+    );
+    if (cachedSections.every((item) => !item)) {
+      return withLatestDiscoveryTradeDates(buildDiscoveryHistoryLoadingSnapshot(requestedTradeDate));
+    }
+  }
+
+  const currentTradeDate = await resolveTradingDate(9 * 60 + 30);
+  const tradeDate = requestedTradeDate ?? currentTradeDate;
+  const snapshots = await Promise.all(
+    sections.map((section) => getDiscoverySectionSnapshot(section, tradeDate, currentTradeDate)),
+  );
+  const merged = mergeDiscoverySectionSnapshots(snapshots);
+  return sections.includes('hero') ? withLatestDiscoveryTradeDates(merged) : merged;
+}
+
 export async function getDiscoverySnapshot(options: IDiscoverySnapshotOptions = {}): Promise<IDiscoverySnapshot> {
-  ensureDiscoveryRefreshLoop();
   const requestedTradeDate = isIsoTradeDate(options.tradeDate) ? options.tradeDate : undefined;
+  const sections = normalizeDiscoverySections(options.sections);
+  if (sections.length) return getScopedDiscoverySnapshot(sections, requestedTradeDate);
 
   if (requestedTradeDate) {
     const cachedForDate = await readDiscoverySnapshot(discoveryTradeDateSnapshotKey(requestedTradeDate));
     const cachedDateSnapshot = cachedForDate ? toCachedDiscoverySnapshot(cachedForDate.snapshot) : undefined;
-    if (cachedDateSnapshot) return withRealtimeQuoteFields(cachedDateSnapshot);
+    const shouldRefreshRequestedSnapshot = cachedDateSnapshot
+      ? hasStaleSectorSummaryRows(cachedDateSnapshot) ||
+        hasMissingSectorSummaryRows(cachedDateSnapshot) ||
+        !hasOpportunityStockRadarRows(cachedDateSnapshot)
+      : false;
+    if (cachedDateSnapshot && !shouldRefreshRequestedSnapshot) {
+      return withRealtimeQuoteFields(await withLatestDiscoveryTradeDates(cachedDateSnapshot));
+    }
 
-    if (await shouldDeferDiscoveryRefresh()) return buildDiscoveryHistoryLoadingSnapshot(requestedTradeDate);
+    if (await shouldDeferDiscoveryRefresh()) {
+      return withLatestDiscoveryTradeDates(buildDiscoveryHistoryLoadingSnapshot(requestedTradeDate));
+    }
 
     const snapshot = await buildAndCacheDiscoverySnapshotForTradeDate(requestedTradeDate);
-    return withRealtimeQuoteFields(snapshot);
+    return withRealtimeQuoteFields(await withLatestDiscoveryTradeDates(snapshot));
   }
 
   if (await shouldHoldDiscoverySnapshotUntil930()) return buildDiscoveryWaitingSnapshot();
@@ -967,24 +1518,37 @@ async function fetchCompletedMonthWeekPools(
   return buildMonthlyThemesFromHistoricalPools(rows, boardCatalog.rows);
 }
 
+function dedupeSectorSummaries(sectors: ISectorSummary[]): ISectorSummary[] {
+  const seenCodes = new Set<string>();
+  const seenNames = new Set<string>();
+  const result: ISectorSummary[] = [];
+
+  for (const sector of sectors) {
+    const codeKey = sector.code.trim();
+    const nameKey = normalizeBoardLookupName(sector.name.trim());
+    if ((codeKey && seenCodes.has(codeKey)) || (nameKey && seenNames.has(nameKey))) continue;
+
+    if (codeKey) seenCodes.add(codeKey);
+    if (nameKey) seenNames.add(nameKey);
+    result.push(sector);
+  }
+
+  return result;
+}
+
 function reconcileSectorsWithLocalBoards(sectors: ISectorSummary[], catalog: TLocalBoardCatalog): ISectorSummary[] {
-  if (!catalog.rows.length) return [];
-  const matched = sectors
-    .map((sector) => {
-      const local = findLocalBoard(catalog, sector);
-      if (!local) return undefined;
-      const merged: ISectorSummary = {
-        ...sector,
-        code: local.code,
-        name: local.name,
-        changePercent: local.changePercent,
-      };
-      if (local.amount !== undefined) merged.amount = local.amount;
-      return merged;
-    })
-    .filter((sector): sector is ISectorSummary => Boolean(sector));
-  if (matched.length) return matched;
-  return catalog.rows.slice(0, 30);
+  const matched = sectors.map((sector) => {
+    const local = findLocalBoard(catalog, sector);
+    if (!local) return sector;
+    const merged: ISectorSummary = {
+      ...sector,
+      code: local.code,
+      name: local.name,
+    };
+    if (local.amount !== undefined) merged.amount = local.amount;
+    return merged;
+  });
+  return dedupeSectorSummaries(matched);
 }
 
 export const reconcileSectorsWithLocalBoardsForTest = reconcileSectorsWithLocalBoards;
@@ -1034,6 +1598,27 @@ function resolveYesterdaySentimentPools(
 }
 
 export const resolveYesterdaySentimentPoolsForTest = resolveYesterdaySentimentPools;
+
+async function fetchPreviousTradingDaySentimentPools(
+  currentTradeDate: string,
+  tradeDates: Array<{ date: string }>,
+): Promise<IResolvedYesterdaySentimentPools> {
+  const previousTradeDate = tradeDates
+    .map((item) => item.date)
+    .filter((date) => date < currentTradeDate)
+    .sort((left, right) => right.localeCompare(left))[0];
+  if (!previousTradeDate) return { zt: [], lb: [] };
+
+  try {
+    const poolItems = await listEastmoneySurgeByDate(compactTradeDate(previousTradeDate));
+    return resolveYesterdaySentimentPools([currentTradeDate, previousTradeDate], [[], poolItems], currentTradeDate);
+  } catch (error) {
+    console.warn(`[discovery] previous trading day sentiment unavailable: ${formatDiscoveryDataError(error)}`);
+    return { date: previousTradeDate, zt: [], lb: [] };
+  }
+}
+
+export const fetchPreviousTradingDaySentimentPoolsForTest = fetchPreviousTradingDaySentimentPools;
 
 function getLimitDownThresholdPercent(code: string): number {
   const normalizedCode = code.replace(/^(sh|sz|bj)/i, '');
@@ -1124,10 +1709,10 @@ function scoreLabel(s: number): string {
   return '谨慎 · 风险较高';
 }
 
-async function buildScoreTrend(currentTradeDate: string, currentScore: number): Promise<number[]> {
+async function buildScoreTrend(currentTradeDate: string, currentScore: number): Promise<number[] | undefined> {
   try {
     const dates = await listSurgeDates(7);
-    if (!dates.length) return [currentScore];
+    if (!dates.length) return undefined;
 
     const trend: number[] = [];
     for (const date of dates.slice().reverse()) {
@@ -1149,72 +1734,19 @@ async function buildScoreTrend(currentTradeDate: string, currentScore: number): 
           broken += 1;
         }
       }
-      const historicalScore = scoreSentiment(0, 0, zt, dt, broken) ?? currentScore;
-      trend.push(historicalScore);
+      const historicalScore = scoreSentiment(0, 0, zt, dt, broken);
+      if (historicalScore !== null && historicalScore !== undefined) trend.push(historicalScore);
     }
 
-    // Ensure the trend ends with today's score even if the DB does not yet contain today.
-    if (trend[trend.length - 1] !== currentScore) {
-      trend.push(currentScore);
-    }
-
-    return trend.slice(-7);
+    if (trend[trend.length - 1] !== currentScore) trend.push(currentScore);
+    return trend.length >= 2 ? trend.slice(-7) : undefined;
   } catch (error) {
     console.warn('[discovery] build score trend failed', error);
-    return [currentScore];
+    return undefined;
   }
 }
 
-async function generateOneSentenceVerdict(
-  reviewData: Awaited<ReturnType<typeof getMarketReview>>,
-  score: number,
-  scoreChange: number,
-): Promise<string> {
-  try {
-    const cfg = getConfig();
-    const sentimentLines =
-      reviewData.sentiment
-        ?.map(
-          (m) => `${m.label}：${m.value === null || m.value === undefined ? '暂无数据' : `${m.value}${m.unit ?? ''}`}`,
-        )
-        .join('\n') ?? '暂无数据';
-    const wealthLines =
-      reviewData.wealthEffect
-        ?.map(
-          (m) => `${m.label}：${m.value === null || m.value === undefined ? '暂无数据' : `${m.value}${m.unit ?? ''}`}`,
-        )
-        .join('\n') ?? '暂无数据';
-    const hotThemes =
-      reviewData.hotThemes
-        ?.slice(0, 5)
-        .map((t) => `${t.name}（涨停${t.limitUpCount ?? '--'}家${t.leaderName ? `，龙头${t.leaderName}` : ''}）`)
-        .join('、') ?? '暂无数据';
-
-    const messages = [
-      {
-        role: 'system' as const,
-        content:
-          '你是专业 A 股盘后复盘分析师。仅可使用用户消息中的真实数据，严禁编造任何数值、板块或股票。用一句话（不超过 80 字）概括当日市场情绪与机会，要求包含具体数据、热点方向，并给出可操作观察建议。不要分段，不要输出 Markdown。',
-      },
-      {
-        role: 'user' as const,
-        content: `日期：${reviewData.tradeDate}
-今日机会分：${score}（较昨日 ${scoreChange >= 0 ? '+' : ''}${scoreChange}）
-市场情绪：\n${sentimentLines}
-赚钱效应：\n${wealthLines}
-热点板块：${hotThemes}
-
-请输出一句话研判：`,
-      },
-    ];
-
-    const verdict = await chatWithOpenAICompatible(cfg.model, messages);
-    return verdict.trim() || scoreLabel(score);
-  } catch (error) {
-    console.warn('[discovery] generate one-sentence verdict failed', error);
-    return scoreLabel(score);
-  }
-}
+export const buildScoreTrendForTest = buildScoreTrend;
 
 // ═══════════════════════════════════════════════════════════════
 //  Market Summary — real data + AI analysis
@@ -1309,7 +1841,7 @@ async function fetchLocalBoardCatalog(): Promise<TLocalBoardCatalog> {
         code: row.code,
         name: row.name,
         kind: row.kind,
-        changePercent: row.changePercent ?? 0,
+        changePercent: numericStringValue(row.changePercent) ?? Number.NaN,
         mainNetInflow: 0,
         amount: row.amount,
       }))
@@ -1429,11 +1961,73 @@ function sumBoardConstituentAmounts(constituents: TConstituentAmountRow[]): numb
   return total.count ? total.value : undefined;
 }
 
+function isReliableSectorChangePercent(value: number): boolean {
+  return Number.isFinite(value) && Math.abs(value) <= SECTOR_CHANGE_PERCENT_ABS_LIMIT;
+}
+
+function averageConstituentChangePercent(constituents: TConstituentChangePercentRow[]): number | undefined {
+  const total = constituents.reduce(
+    (sum, row) => {
+      const changePercent = numericStringValue(row.changePercent);
+      if (changePercent === undefined) return sum;
+      return { value: sum.value + changePercent, count: sum.count + 1 };
+    },
+    { value: 0, count: 0 },
+  );
+  return total.count ? Math.round((total.value / total.count) * 10_000) / 10_000 : undefined;
+}
+
 export const parseMoneyTextToYuanForTest = parseMoneyTextToYuan;
 export const sumBoardConstituentAmountsForTest = sumBoardConstituentAmounts;
 
 function boardAmountApis(kind?: string) {
   return kind === 'concept' ? [sdk.board.concept, sdk.board.industry] : [sdk.board.industry, sdk.board.concept];
+}
+
+async function fetchBoardAverageChangePercent(
+  board: Pick<TLocalBoardSummary, 'code' | 'kind' | 'name'>,
+): Promise<number | undefined> {
+  if (!board.code) return undefined;
+
+  try {
+    const detail = await getBoardDetail(board.code, false, board.name);
+    const average = averageConstituentChangePercent(detail.constituents ?? []);
+    if (average !== undefined) return average;
+  } catch {
+    // Fall through to stock-sdk real board constituent providers; keep missing change percent explicit if all fail.
+  }
+
+  for (const api of boardAmountApis(board.kind)) {
+    try {
+      const constituents = await api.constituents(board.code);
+      const average = averageConstituentChangePercent(constituents);
+      if (average !== undefined) return average;
+    } catch {
+      // Try the other real board namespace; keep missing change percent explicit if both fail.
+    }
+  }
+  return undefined;
+}
+
+async function enrichInvalidSectorChangePercents(
+  sectors: ISectorSummary[],
+  catalog: TLocalBoardCatalog,
+): Promise<ISectorSummary[]> {
+  const next = [...sectors];
+  const targets = next
+    .map((sector, index) => ({ sector, index, board: findLocalBoard(catalog, sector) ?? sector }))
+    .filter((item) => !isReliableSectorChangePercent(item.sector.changePercent))
+    .slice(0, BOARD_CHANGE_FETCH_LIMIT);
+
+  for (let start = 0; start < targets.length; start += BOARD_CHANGE_FETCH_CONCURRENCY) {
+    const chunk = targets.slice(start, start + BOARD_CHANGE_FETCH_CONCURRENCY);
+    const averages = await Promise.all(chunk.map((item) => fetchBoardAverageChangePercent(item.board)));
+    averages.forEach((average, offset) => {
+      if (average !== undefined) next[chunk[offset].index] = { ...next[chunk[offset].index], changePercent: average };
+    });
+  }
+
+  return next;
 }
 
 async function fetchBoardAmountFromRemote(board: TLocalBoardSummary): Promise<number | undefined> {
@@ -1619,14 +2213,12 @@ async function fetchSectorFlowRank(indicator: TSectorFlowIndicator = 'today'): P
   return promise;
 }
 
-async function loadSectorFlowRank(indicator: TSectorFlowIndicator): Promise<ISectorSummary[]> {
-  const rows = await sdk.fundFlow.sectorRank({ indicator });
+function mapSectorFlowRows(rows: Awaited<ReturnType<typeof sdk.fundFlow.sectorRank>>): ISectorSummary[] {
   return rows
-    .filter((r) => r.changePercent !== null && r.changePercent !== undefined)
     .map((r) => ({
       code: r.code ?? '',
       name: r.name ?? '',
-      changePercent: Number(r.changePercent ?? 0),
+      changePercent: numericStringValue(r.changePercent) ?? Number.NaN,
       mainNetInflow: finiteNumber(r.mainNetInflow) ? Number(r.mainNetInflow) / 100_000_000 : 0,
       topStockName: r.topStockName,
       topStockCode: r.topStockCode,
@@ -1634,6 +2226,50 @@ async function loadSectorFlowRank(indicator: TSectorFlowIndicator): Promise<ISec
     .filter((r) => r.code && r.name)
     .slice(0, 30);
 }
+
+type TBoardListRow = Awaited<ReturnType<typeof sdk.board.industry.list>>[number];
+
+function mapBoardListRowsToSectors(rows: TBoardListRow[]): ISectorSummary[] {
+  return rows
+    .map((row) => ({
+      code: row.code ?? '',
+      name: row.name ?? '',
+      changePercent: numericStringValue(row.changePercent) ?? Number.NaN,
+      mainNetInflow: 0,
+      topStockName: row.leadingStock ?? undefined,
+    }))
+    .filter((row) => row.code && row.name)
+    .sort((a, b) => {
+      if (!Number.isFinite(a.changePercent)) return 1;
+      if (!Number.isFinite(b.changePercent)) return -1;
+      return b.changePercent - a.changePercent;
+    })
+    .slice(0, 30);
+}
+
+async function loadBoardListSectorRank(): Promise<ISectorSummary[]> {
+  const [industries, concepts] = await Promise.allSettled([
+    sdk.board.industry.list(),
+    sdk.board.concept.list(),
+  ]);
+  const rows = [
+    ...(industries.status === 'fulfilled' ? industries.value : []),
+    ...(concepts.status === 'fulfilled' ? concepts.value : []),
+  ];
+  return mapBoardListRowsToSectors(rows);
+}
+
+async function loadSectorFlowRank(indicator: TSectorFlowIndicator): Promise<ISectorSummary[]> {
+  try {
+    const rows = mapSectorFlowRows(await sdk.fundFlow.sectorRank({ indicator }));
+    if (rows.length) return rows;
+  } catch (error) {
+    console.warn(`[discovery] sector fund flow rank unavailable: ${formatDiscoveryDataError(error)}`);
+  }
+  return loadBoardListSectorRank();
+}
+
+export const loadSectorFlowRankForTest = loadSectorFlowRank;
 
 function buildOpportunityRadar(sectors: ISectorSummary[]): IOpportunityRadarItem[] {
   return sectors
@@ -1675,10 +2311,12 @@ function mapOpportunityStockCandidate(input: TOpportunityStockCandidateInput): I
     concentration90 === undefined ? undefined : `90%筹码集中度 ${concentration90.toFixed(2)}%`,
   ].filter((item): item is string => Boolean(item));
 
+  const price = numericStringValue(input.price);
   return {
     code: input.code,
     name: input.name,
     reason: reasonParts.join(' · '),
+    price: price ?? null,
     changePercent: input.changePercent,
     amount,
     score: amount || marketCapYi || 0,
@@ -1719,7 +2357,7 @@ function isLargeOrderBuyMonitorEvent(event: IMonitorEvent) {
 
 function mergeLargeOrderMonitorCandidates(
   events: IMonitorEvent[],
-  marketRows: Awaited<ReturnType<typeof getAllMarketQuoteRows>>,
+  marketRows: TOpportunityMarketRow[],
 ): TOpportunityStockCandidateInput[] {
   const quoteByCode = new Map(marketRows.map((row) => [row.code, row]));
   const byCode = new Map<string, TOpportunityStockCandidateInput>();
@@ -1734,9 +2372,10 @@ function mergeLargeOrderMonitorCandidates(
       code: event.code,
       name: event.name,
       title: event.title,
+      price: quote?.price ?? event.price,
       changePercent,
       amount: numericStringValue(quote?.amount),
-      marketCap,
+      marketCap: marketCap ?? undefined,
     };
     const existing = byCode.get(event.code);
     if (!existing || Number(candidate.amount ?? 0) > Number(existing.amount ?? 0)) byCode.set(event.code, candidate);
@@ -1756,11 +2395,60 @@ async function withCachedChipConcentration90(
   );
 }
 
-async function buildOpportunityStockRadarFromMonitorFeed(tradeDate: string): Promise<IOpportunityStockRadarItem[]> {
-  const [feed, marketRows] = await Promise.all([
-    getMonitorFeed({ categories: ['large-order'], limit: 200, offset: 0, mode: 'history', date: tradeDate }),
-    getAllMarketQuoteRows(),
-  ]);
+async function fetchOpportunityQuoteRows(events: IMonitorEvent[]): Promise<TOpportunityMarketRow[]> {
+  const codes = Array.from(new Set(
+    events
+      .filter((event) => event.category === 'large-order' && isLargeOrderBuyMonitorEvent(event))
+      .map((event) => event.code)
+      .filter((code) => /^\d{6}$/.test(code)),
+  ));
+  if (!codes.length) return [];
+  const quotes = await getBatchQuotes(codes);
+  return quotes.map((quote) => ({
+    code: quote.code,
+    name: quote.name,
+    price: quote.price,
+    changePercent: quote.changePercent,
+    amount: parseMoneyTextToYuan(quote.turnover),
+    marketCap: quote.marketCap,
+  }));
+}
+
+function buildHistoricalOpportunityStockRadar(events: IMonitorEvent[]): IOpportunityStockRadarItem[] {
+  return events
+    .filter((event) => event.category === 'large-order' && isLargeOrderBuyMonitorEvent(event))
+    .flatMap((event) => {
+      const changePercent = finiteStockChangePercent(event.changePercent);
+      if (!event.code || !event.name || changePercent === null || changePercent >= OPPORTUNITY_STOCK_CHANGE_PERCENT_LIMIT) {
+        return [];
+      }
+      return [{
+        code: event.code,
+        name: event.name,
+        reason: [event.title, ...event.details].filter(Boolean).join(' · '),
+        price: numericStringValue(event.price) ?? null,
+        changePercent,
+        amount: null,
+        score: finiteNumber(event.score) ? event.score : 0,
+      }];
+    })
+    .slice(0, OPPORTUNITY_STOCK_DISPLAY_LIMIT);
+}
+
+async function buildOpportunityStockRadarFromMonitorFeed(
+  tradeDate: string,
+  useHistoricalEventFields = false,
+): Promise<IOpportunityStockRadarItem[]> {
+  const feed = await getMonitorFeed({
+    categories: ['large-order'],
+    limit: 200,
+    offset: 0,
+    mode: 'history',
+    date: tradeDate,
+  });
+  if (useHistoricalEventFields) return buildHistoricalOpportunityStockRadar(feed.events);
+
+  const marketRows = await fetchOpportunityQuoteRows(feed.events);
   const candidates = mergeLargeOrderMonitorCandidates(feed.events, marketRows);
   const candidatesWithChip =
     candidates.length > OPPORTUNITY_STOCK_MIN_DISPLAY_COUNT
@@ -1768,6 +2456,8 @@ async function buildOpportunityStockRadarFromMonitorFeed(tradeDate: string): Pro
       : candidates;
   return buildOpportunityStockRadarFromLargeOrders(candidatesWithChip);
 }
+
+export const buildHistoricalOpportunityStockRadarForTest = buildHistoricalOpportunityStockRadar;
 
 function buildOpportunityStockRadar(fundFlows: TFundFlowRankRow[]): IOpportunityStockRadarItem[] {
   const candidates = fundFlows.flatMap((item) => {
@@ -1784,6 +2474,7 @@ function buildOpportunityStockRadar(fundFlows: TFundFlowRankRow[]): IOpportunity
           superLargeNetInflow === null
             ? `主力净流入 ${formatMoney(mainNetInflow)}`
             : `超大单净买入 ${formatMoney(superLargeNetInflow)}，主力净流入 ${formatMoney(mainNetInflow)}`,
+        price: item.price,
         changePercent,
         amount: opportunityAmount,
         score: opportunityAmount,
@@ -1844,6 +2535,10 @@ async function generateNextWeekSectors(
       .slice(0, 40)
       .map((board) => `${board.name}(${board.code})`)
       .join('、');
+    const fundFlowLines = [
+      mainFundFlow !== null ? `今日主力资金净流入：${mainFundFlow >= 0 ? '+' : ''}${mainFundFlow.toFixed(1)}亿` : undefined,
+      northFundFlow !== null ? `今日北向资金净流入：${northFundFlow >= 0 ? '+' : ''}${northFundFlow.toFixed(1)}亿` : undefined,
+    ].filter((line): line is string => Boolean(line));
 
     const messages = [
       {
@@ -1853,9 +2548,7 @@ async function generateNextWeekSectors(
       },
       {
         role: 'user' as const,
-        content: `今日主力资金净流入：${mainFundFlow !== null ? `${mainFundFlow >= 0 ? '+' : ''}${mainFundFlow.toFixed(1)}亿` : '暂无'}
-今日北向资金净流入：${northFundFlow !== null ? `${northFundFlow >= 0 ? '+' : ''}${northFundFlow.toFixed(1)}亿` : '暂无'}
-今日板块表现：${sectorText}
+        content: `${fundFlowLines.length ? `${fundFlowLines.join('\n')}\n` : ''}今日板块表现：${sectorText}
 当前热点：${hotText}
 本地可打开板块：${localBoardText}
 
@@ -2046,36 +2739,78 @@ interface IHistoricalDiscoveryBuildInput {
   indices?: IMarketSummary['indices'];
   mainFundFlow?: number | null;
   northFundFlow?: number | null;
+  sectors?: ISectorSummary[];
+  opportunityStocks?: IOpportunityStockRadarItem[];
 }
 
-function parseAmountYiFromText(value?: string): number | undefined {
-  const match = value?.match(/成交额\s*([\d.]+)\s*亿/);
-  const parsed = match ? Number(match[1]) : NaN;
-  return Number.isFinite(parsed) ? parsed * 100_000_000 : undefined;
+type TBoardKlineRow = Awaited<ReturnType<typeof sdk.board.industry.kline>>[number];
+
+async function loadBoardKlineForTradeDate(
+  board: TLocalBoardSummary,
+  tradeDate: string,
+): Promise<TBoardKlineRow | undefined> {
+  const options = {
+    period: 'daily' as const,
+    startDate: compactTradeDate(tradeDate),
+    endDate: compactTradeDate(tradeDate),
+  };
+  const loaders = board.kind === 'concept'
+    ? [sdk.board.concept.kline, sdk.board.industry.kline]
+    : [sdk.board.industry.kline, sdk.board.concept.kline];
+
+  for (const load of loaders) {
+    try {
+      const rows = await load(board.code, options);
+      const row = rows.find((item) => normalizeCalendarTradeDate(item.date) === tradeDate);
+      if (row && finiteNumber(row.changePercent)) return row;
+    } catch (error) {
+      console.warn(
+        `[discovery] historical board kline unavailable for ${board.code}: ${formatDiscoveryDataError(error)}`,
+      );
+    }
+  }
+  return undefined;
 }
 
-function buildHistoricalSectorsFromPools(
+async function buildHistoricalSectorsFromPools(
   poolItems: HotFocusItem[],
-  hotThemes: NonNullable<IDiscoverySnapshot['hotThemes']>,
-): ISectorSummary[] {
-  return hotThemes.map((theme, index) => {
-    const leaders = poolItems.filter((item) => item.tag === '封涨停板' && themeMatches(theme.name, item.description));
-    const amount = leaders
-      .map((item) => parseAmountYiFromText(item.description))
-      .filter((value): value is number => value !== undefined)
-      .reduce((sum, value) => sum + value, 0);
-    const leader = leaders[0];
-    return {
-      code: theme.code ?? `historical-${index}-${theme.name}`,
-      name: theme.name,
-      changePercent: theme.changePercent ?? 0,
-      mainNetInflow: 0,
-      amount: amount || undefined,
-      topStockName: leader?.name ?? leader?.title,
-      topStockCode: leader?.code,
-    };
-  });
+  tradeDate: string,
+  boardCatalog: TLocalBoardCatalog,
+): Promise<ISectorSummary[]> {
+  const themes = buildHotThemesFromPools(poolItems);
+  const candidates = themes
+    .map((theme) => ({ theme, board: findLocalBoard(boardCatalog, { code: theme.code ?? undefined, name: theme.name }) }))
+    .filter(
+      (item): item is { theme: NonNullable<IDiscoverySnapshot['hotThemes']>[number]; board: TLocalBoardSummary } =>
+        Boolean(item.board),
+    )
+    .slice(0, HISTORICAL_SECTOR_CANDIDATE_LIMIT);
+  const sectors: ISectorSummary[] = [];
+
+  for (let start = 0; start < candidates.length; start += HISTORICAL_SECTOR_FETCH_CONCURRENCY) {
+    const chunk = candidates.slice(start, start + HISTORICAL_SECTOR_FETCH_CONCURRENCY);
+    const rows = await Promise.all(chunk.map(({ board }) => loadBoardKlineForTradeDate(board, tradeDate)));
+    rows.forEach((row, index) => {
+      if (!row || !finiteNumber(row.changePercent)) return;
+      const { theme, board } = chunk[index];
+      sectors.push({
+        code: board.code,
+        name: board.name,
+        changePercent: row.changePercent,
+        mainNetInflow: 0,
+        amount: finiteNumber(row.amount) ? row.amount : undefined,
+        topStockName: theme.leaderName ?? undefined,
+        topStockCode: theme.leaderCode ?? undefined,
+      });
+    });
+  }
+
+  return dedupeSectorSummaries(sectors)
+    .sort((left, right) => right.changePercent - left.changePercent)
+    .slice(0, 30);
 }
+
+export const buildHistoricalSectorsFromPoolsForTest = buildHistoricalSectorsFromPools;
 
 function buildLimitUpsFromPools(poolItems: HotFocusItem[]): NonNullable<IDiscoverySnapshot['limitUps']> {
   return poolItems
@@ -2166,7 +2901,7 @@ function buildDiscoverySnapshotFromHistoricalPools(input: IHistoricalDiscoveryBu
   const brokenCount = sentimentStocks.zb.length;
   const sentimentScore = scoreSentiment(0, 0, sentimentStocks.zt.length, sentimentStocks.dt.length, brokenCount);
   const hotThemes = buildHotThemesFromPools(input.poolItems);
-  const historicalSectors = buildHistoricalSectorsFromPools(input.poolItems, hotThemes);
+  const historicalSectors = input.sectors ?? [];
   const limitUps = buildLimitUpsFromPools(input.poolItems);
   const dragonTiger = input.dragonTiger ?? emptyDiscoveryDragonTiger();
   const nextDayFocus = buildHistoricalNextDayFocus({
@@ -2199,7 +2934,7 @@ function buildDiscoverySnapshotFromHistoricalPools(input: IHistoricalDiscoveryBu
     },
     opportunityRadar: buildDiscoveryOpportunityRadar({
       boards: boardOpportunityRadar,
-      stocks: [],
+      stocks: input.opportunityStocks ?? [],
     }),
     sentimentScore,
     sentimentFactors: [
@@ -2225,18 +2960,62 @@ export const buildDiscoverySnapshotFromHistoricalPoolsForTest = buildDiscoverySn
 async function buildMarketSummary(
   reviewData: Awaited<ReturnType<typeof getMarketReview>> | undefined,
   pools: HotFocusItem[],
+  requestedTradeDate?: string,
+  useCurrentBoardFallback = false,
 ): Promise<IMarketSummary | undefined> {
-  const [boardCatalog, remoteSectors] = await Promise.all([fetchLocalBoardCatalog(), fetchSectorFlowRank()]);
-  const reconciledSectors = reconcileSectorsWithLocalBoards(remoteSectors, boardCatalog);
-  const sectorsWithFlows = await enrichMissingSectorMainNetInflows(reconciledSectors, boardCatalog);
-  const sectors = await enrichMissingSectorAmounts(sectorsWithFlows, boardCatalog);
+  const boardCatalog = await fetchLocalBoardCatalog();
+  const remoteSectors = await withOptionalTimeout(
+    'sector flow rank',
+    fetchSectorFlowRank(),
+    DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS,
+  ) ?? [];
+  const tradeDate = requestedTradeDate ?? reviewData?.tradeDate;
+  const historicalSectors = remoteSectors.length || !tradeDate || pools.length === 0
+    ? []
+    : await withOptionalTimeout(
+      'historical sectors',
+      buildHistoricalSectorsFromPools(pools, tradeDate, boardCatalog),
+      DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS,
+    ) ?? [];
+  const sourceSectors = remoteSectors.length
+    ? remoteSectors
+    : historicalSectors.length
+      ? historicalSectors
+      : useCurrentBoardFallback
+        ? [...boardCatalog.rows]
+          .sort((left, right) => {
+            if (!Number.isFinite(left.changePercent)) return 1;
+            if (!Number.isFinite(right.changePercent)) return -1;
+            return right.changePercent - left.changePercent;
+          })
+          .slice(0, 30)
+        : [];
+  const reconciledSectors = reconcileSectorsWithLocalBoards(sourceSectors, boardCatalog);
+  const sectorsWithChangePercents = await withOptionalTimeout(
+    'sector change percent enrichment',
+    enrichInvalidSectorChangePercents(reconciledSectors, boardCatalog),
+    DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
+  ) ?? reconciledSectors;
+  const reliableSectors = sectorsWithChangePercents.filter((sector) => isReliableSectorChangePercent(sector.changePercent));
+  const sectorsWithFlows = await withOptionalTimeout(
+    'sector main net inflow enrichment',
+    enrichMissingSectorMainNetInflows(reliableSectors, boardCatalog),
+    DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
+  ) ?? reliableSectors;
+  const sectors = await withOptionalTimeout(
+    'sector amount enrichment',
+    enrichMissingSectorAmounts(sectorsWithFlows, boardCatalog),
+    DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
+  ) ?? sectorsWithFlows;
 
-  const tradeDate = reviewData?.tradeDate;
-  const [indices, mainFundFlow, northFundFlow] = await Promise.all([
-    fetchAllIndices(),
-    fetchMainFundFlow(tradeDate),
-    fetchNorthFundFlow(tradeDate),
+  const [indicesResult, mainFundFlowResult, northFundFlowResult] = await Promise.allSettled([
+    withOptionalTimeout('market summary indices', fetchAllIndices(), DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS),
+    withOptionalTimeout('market summary main fund flow', fetchMainFundFlow(tradeDate), DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS),
+    withOptionalTimeout('market summary north fund flow', fetchNorthFundFlow(tradeDate), DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS),
   ]);
+  const indices = indicesResult.status === 'fulfilled' && indicesResult.value ? indicesResult.value : [];
+  const mainFundFlow = mainFundFlowResult.status === 'fulfilled' ? mainFundFlowResult.value ?? null : null;
+  const northFundFlow = northFundFlowResult.status === 'fulfilled' ? northFundFlowResult.value ?? null : null;
 
   if (!indices.length && !sectors.length) return undefined;
 
@@ -2246,10 +3025,15 @@ async function buildMarketSummary(
   const opportunityRadar = buildOpportunityRadar(sectors);
 
   const [monthlyThemesResult, nextWeekSectorsResult] = await Promise.allSettled([
-    withOptionalTimeout('monthly themes', fetchCompletedMonthWeekPools(boardCatalog)),
+    withOptionalTimeout(
+      'monthly themes',
+      fetchCompletedMonthWeekPools(boardCatalog),
+      DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
+    ),
     withOptionalTimeout(
       'next-week sectors',
       generateNextWeekSectors(sectors, reviewData?.hotThemes ?? [], mainFundFlow, northFundFlow, boardCatalog),
+      DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
     ),
   ]);
   const monthlyThemes =
@@ -2271,11 +3055,13 @@ async function buildMarketSummary(
   };
 }
 
+export const buildMarketSummaryForTest = buildMarketSummary;
+
 async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
   const favStocks = await listFavoriteStocks();
   const favCodes = favStocks.map((f) => f.code);
   const currentTradeDate = await resolveTradingDate(9 * 60 + 30);
-  const tradeDates = (await listRecentTradingDates(currentTradeDate)).map(toTradeDateOption);
+  const tradeDates = await listRecentDiscoveryTradeDateOptions();
 
   const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool, quoteLimitDowns] =
     await Promise.allSettled([
@@ -2344,12 +3130,11 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
     sentimentStocks.dt.push(...quoteLimitDowns.value);
   }
 
-  // ── Yesterday pool for 昨日涨停指数 / 昨日连板指数 ──
-  const yesterdayZt: TStockItem[] = [];
-  const yesterdayLb: TStockItem[] = [];
-
   // ── Dragon tiger ──
   const tradeDate = reviewData?.tradeDate ?? currentTradeDate;
+  const previousSentimentPools = await fetchPreviousTradingDaySentimentPools(tradeDate, tradeDates);
+  const yesterdayZt = previousSentimentPools.zt;
+  const yesterdayLb = previousSentimentPools.lb;
   const dragonTigerGroup = dragonTiger.status === 'fulfilled' ? dragonTiger.value : { date: tradeDate, items: [] };
   const dragonTigerHistory = buildDiscoveryDragonTigerHistory([
     dragonTigerGroup.date === tradeDate ? dragonTigerGroup : { date: tradeDate, items: [] },
@@ -2377,16 +3162,7 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
   // ── Score ──
   const score = reviewData?.sentimentScore ?? undefined;
   const sentimentLabel = score !== undefined && score !== null ? scoreLabel(score) : undefined;
-
-  // Build 7-day score trend and AI one-sentence verdict.
-  let scoreTrend: number[] | undefined;
-  let scoreVerdict: string | undefined;
-  if (score !== undefined && score !== null && reviewData) {
-    scoreTrend = await buildScoreTrend(tradeDate, score);
-    const previousScore = scoreTrend.length >= 2 ? scoreTrend[scoreTrend.length - 2] : score;
-    const scoreChange = score - previousScore;
-    scoreVerdict = await generateOneSentenceVerdict(reviewData, score, scoreChange);
-  }
+  const scoreTrend = score === undefined || score === null ? undefined : await buildScoreTrend(tradeDate, score);
 
   // Build limit-up leaders and enrich with live quotes.
   let limitUps: IDiscoverySnapshot['limitUps'];
@@ -2419,7 +3195,7 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
   // Build new AI market summary.
   let marketSummary: IMarketSummary | undefined;
   try {
-    marketSummary = await buildMarketSummary(reviewData, poolItems);
+    marketSummary = await buildMarketSummary(reviewData, poolItems, tradeDate, true);
   } catch (err) {
     console.warn('[discovery] build market summary failed', err);
   }
@@ -2454,7 +3230,7 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
     generatedAt: new Date().toISOString(),
     score: score ?? undefined,
     scoreLabel: sentimentLabel,
-    scoreVerdict: scoreVerdict ?? sentimentLabel,
+    scoreVerdict: sentimentLabel,
     scoreTrend,
     indices: indices.length ? indices : undefined,
     bullets: bullets.length ? bullets : undefined,

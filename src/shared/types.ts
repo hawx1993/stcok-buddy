@@ -94,7 +94,10 @@ export type EvidenceSource =
   | 'announcement'
   | 'dragon-tiger'
   | 'hot-focus'
+  | 'hot-concepts'
   | 'chip'
+  | 'shareholder-count'
+  | 'industry-ranking'
   | 'fund-flow'
   | 'url'
   | 'local-market-data'
@@ -954,8 +957,20 @@ export interface ITradingAdvice {
   riskReminder: string;
 }
 
+export type TDiscoverySnapshotSection =
+  | 'trade-date-nav'
+  | 'hero'
+  | 'market-summary'
+  | 'opportunity-radar'
+  | 'sentiment'
+  | 'dragon-tiger'
+  | 'hot-rotation'
+  | 'limit-up'
+  | 'tomorrow';
+
 export interface IDiscoverySnapshotOptions {
   tradeDate?: string;
+  sections?: TDiscoverySnapshotSection[];
 }
 
 export interface ITradingAdviceOptions {

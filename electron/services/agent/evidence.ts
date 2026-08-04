@@ -10,6 +10,13 @@ import type {
 } from '../../../src/shared/types.js';
 import type { HistoricalBarsResult } from '../market-data/types.js';
 import type { DailyDragonTigerItem } from '../stock/stock-client.js';
+import type {
+  IBoardFundFlow,
+  IEmHotRankItem,
+  IHolderNumberChangeRow,
+  IIndustryRanking,
+  IThsHotStock,
+} from '../stock/a-stock-data-runner.js';
 
 export function evidenceFromBoardCard(card?: AgentResultCard): EvidenceItem[] {
   if (!card) return [fallbackEvidence('board', '板块资金流数据不足')];
@@ -205,4 +212,65 @@ export function evidenceFromHotFocus(items?: HotFocusItem[]): EvidenceItem[] {
     timestamp: item.time,
     raw: item,
   }));
+}
+
+export function evidenceFromHolderChange(symbol: string, rows?: IHolderNumberChangeRow[]): EvidenceItem[] {
+  if (!rows?.length) return [fallbackEvidence(`holder:${symbol}`, '股东户数数据不足')];
+  return rows.slice(0, 3).map((row) => ({
+    id: `holder:${symbol}:${row.date}`,
+    source: 'shareholder-count',
+    title: `${symbol} 股东户数`,
+    summary: `${row.date} 股东户数 ${row.holder_num.toLocaleString()} 户，环比 ${formatRatio(row.change_ratio)}。`,
+    value: row.change_ratio,
+    timestamp: row.date,
+    raw: row,
+  }));
+}
+
+export function evidenceFromIndustryRanking(
+  ranking?: IIndustryRanking | null,
+  flow?: IBoardFundFlow | null,
+): EvidenceItem[] {
+  const items: EvidenceItem[] = [];
+  if (ranking?.total) {
+    items.push({
+      id: `industry-ranking:${ranking.total}`,
+      source: 'industry-ranking',
+      title: '行业涨幅排行',
+      summary: `共 ${ranking.total} 个行业，涨幅第一 ${ranking.top[0]?.name ?? '--'}（${formatRatio(ranking.top[0]?.change_pct)}）。`,
+      raw: { top: ranking.top.slice(0, 5), bottom: ranking.bottom.slice(0, 5) },
+    });
+  }
+  if (flow?.rows.length) {
+    items.push({
+      id: `industry-flow:${flow.total}`,
+      source: 'fund-flow',
+      title: '行业资金流',
+      summary: `主力净流入第一 ${flow.rows[0]?.name ?? '--'}（${formatMoney(flow.rows[0]?.main_net)}）。`,
+      raw: flow.rows.slice(0, 5),
+    });
+  }
+  return items.length ? items : [fallbackEvidence('industry-ranking', '行业涨幅与资金流数据不足')];
+}
+
+export function evidenceFromHotConcepts(
+  list?: Array<IThsHotStock | IEmHotRankItem>,
+  source?: string,
+): EvidenceItem[] {
+  if (!list?.length) return [fallbackEvidence('hot-concepts', '热门股数据不足')];
+  return list.slice(0, 10).map((item, index) => {
+    const summary =
+      ('concepts' in item && item.concepts?.length ? item.concepts.join('、') : undefined) ??
+      ('tag' in item && item.tag ? item.tag : undefined) ??
+      (item.pct != null ? `涨幅 ${formatRatio(item.pct)}` : '暂无概念标签');
+    return {
+      id: `hot-concepts:${index}`,
+      source: 'hot-concepts',
+      title: item.name ? `${item.name} ${item.code ?? ''}`.trim() : `热门股 ${index + 1}`,
+      summary,
+      value: item.pct ?? undefined,
+      timestamp: source,
+      raw: item,
+    };
+  });
 }

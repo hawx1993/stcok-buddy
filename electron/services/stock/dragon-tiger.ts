@@ -33,6 +33,7 @@ export interface DailyDragonTigerItem {
 export interface DailyDragonTigerGroup {
   date: string;
   items: DailyDragonTigerItem[];
+  institutions?: IDragonTigerInstitutionRow[];
 }
 
 type TStockSdkDragonTigerDetail = Awaited<ReturnType<typeof sdk.dragonTiger.detail>>[number];
@@ -95,10 +96,14 @@ export async function listDailyDragonTiger(): Promise<DailyDragonTigerItem[]> {
 export async function listDragonTigerByDate(tradeDate: string): Promise<DailyDragonTigerGroup> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tradeDate)) return { date: tradeDate, items: [] };
   const compactDate = tradeDate.replaceAll('-', '');
-  const rows = await fetchDetailRows('today', compactDate, compactDate);
+  const warnings: string[] = [];
+  const rows = await fetchDetailRowsWithFallback('today', compactDate, compactDate, warnings);
+  const filteredRows = rows.filter((row) => row.date === tradeDate);
+  const institutions = await fetchInstitutionRowsForDate(filteredRows, compactDate, tradeDate, warnings);
   return {
     date: tradeDate,
-    items: rows.filter((row) => row.date === tradeDate).map(toDailyDragonTigerItem),
+    items: filteredRows.map(toDailyDragonTigerItem),
+    institutions,
   };
 }
 
@@ -203,6 +208,28 @@ async function fetchInstitutionRowsFromDetails(
   if (!result.length) warnings.push('stock-sdk 未返回机构买卖数据，a-stock-data 机构席位明细也未检索到机构专用净买入');
   if (result.length) warnings.push('stock-sdk 未返回机构买卖数据，已使用 a-stock-data 东财席位明细补充机构净买入');
   return result.sort((a, b) => (b.orgNetAmount ?? 0) - (a.orgNetAmount ?? 0) || a.code.localeCompare(b.code));
+}
+
+async function fetchInstitutionRowsForDate(
+  detailRows: IDragonTigerDetailRow[],
+  compactDate: string,
+  tradeDate: string,
+  warnings: string[],
+): Promise<IDragonTigerInstitutionRow[]> {
+  let rows: IDragonTigerInstitutionRow[] = [];
+  try {
+    const sdkRows = await withTimeoutReject(
+      sdk.dragonTiger.institution({ startDate: compactDate, endDate: compactDate }),
+      DRAGON_TIGER_TIMEOUT_MS,
+      '龙虎榜机构买卖加载超时',
+    );
+    rows = sdkRows.map(toInstitutionRow).filter((row) => row.date === tradeDate);
+  } catch (error) {
+    warnings.push(toWarningMessage('机构买卖', error));
+  }
+
+  if (!rows.length && detailRows.length) rows = await fetchInstitutionRowsFromDetails(detailRows, warnings);
+  return enrichInstitutionRowsWithQuotes(rows, detailRows, warnings);
 }
 
 async function fetchEastmoneyInstitutionForStock(

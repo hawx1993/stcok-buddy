@@ -2,9 +2,21 @@ import { captureEvent } from '../llm/posthog-client.js';
 import type { AgentTool, ToolCallRecord } from './types.js';
 import { readUrl } from './web-tools.js';
 import {
+  getDividendHistory,
+  getHolderNumberChange,
+  getHotConcepts,
+  getIndustryRanking,
+} from './a-stock-data-tools.js';
+import {
+  getStockFundFlowLocalFirst,
+  getStockKlineLocalFirst,
+  getStockQuoteLocalFirst,
+} from '../agent/agent-data-tools.js';
+import {
   getDragonTiger,
   getHistoricalDailyBars,
   getHotFocus,
+  getNorthboundFlow,
   getMarketDataStatus,
   getMarketReview,
   getMarketNews,
@@ -31,6 +43,14 @@ export const stockToolRegistry = {
   getStockNewsAnnouncements,
   getDragonTiger,
   getHotFocus,
+  getNorthboundFlow,
+  getHolderNumberChange,
+  getDividendHistory,
+  getIndustryRanking,
+  getHotConcepts,
+  getStockQuoteLocalFirst,
+  getStockKlineLocalFirst,
+  getStockFundFlowLocalFirst,
   readUrl,
 } satisfies Record<string, AgentTool>;
 

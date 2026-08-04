@@ -16,6 +16,7 @@ export interface IOpportunityRadarStockItem {
   code: string;
   name: string;
   reason: string;
+  price?: number | null;
   changePercent?: number | null;
   amount?: number | null;
   score: number;
@@ -48,6 +49,15 @@ function formatMoneyYi(value?: number | null) {
   return `${value >= 0 ? '+' : ''}${(value / 100_000_000).toFixed(2)}亿`;
 }
 
+function formatPrice(value?: number | null) {
+  if (value === undefined || value === null || !Number.isFinite(value)) return '--';
+  return value.toFixed(2);
+}
+
+export function getOpportunityRadarMetaText(item: IOpportunityRadarStockItem) {
+  return `${item.code} · 现价 ${formatPrice(item.price)}`;
+}
+
 function toneClass(value?: number | null) {
   if (value === undefined || value === null || !Number.isFinite(value)) return '';
   return value >= 0 ? 'up' : 'down';
@@ -60,7 +70,12 @@ export function OpportunityRadar({ data }: IOpportunityRadarProps) {
   const openRightPanel = useAppUiStore((state) => state.openRightPanel);
 
   const handleStockClick = async (item: IOpportunityRadarStockItem) => {
-    const snapshot = { code: item.code, name: item.name, changePercent: item.changePercent ?? undefined } as StockDetail;
+    const snapshot: StockDetail = {
+      code: item.code,
+      name: item.name,
+      price: item.price ?? undefined,
+      changePercent: item.changePercent?.toFixed(2),
+    };
     setStockReturnContext(undefined);
     openRightPanel();
     setSelectedStock(snapshot);
@@ -81,6 +96,7 @@ export function OpportunityRadar({ data }: IOpportunityRadarProps) {
           <button className={styles.opportunityRadarRow} key={item.code} onClick={() => handleStockClick(item)} type='button'>
             <span className={styles.opportunityRadarMain}>
               <strong>{item.name}</strong>
+              <span className={styles.opportunityRadarMeta}>{getOpportunityRadarMetaText(item)}</span>
               <em>{item.reason}</em>
             </span>
             <span className={styles.opportunityRadarMetrics}>

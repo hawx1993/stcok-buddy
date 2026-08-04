@@ -1143,7 +1143,7 @@ function toSyncJob(row: Record<string, unknown>): SyncJobRecord {
             ? 'idle'
             : status,
     jobType: row.job_type as SyncJobType,
-    targetTradeDate: optionalString(row.target_trade_date),
+    targetTradeDate: toDateString(row.target_trade_date) || undefined,
     processedSymbols: Number(row.processed_symbols),
     totalSymbols: Number(row.total_symbols),
     succeededSymbols: Number(row.succeeded_symbols),
