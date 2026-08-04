@@ -12,6 +12,8 @@ const AGENT_COLORS: Record<string, string> = {
   Sentiment: '#fa8c16',
   Chip: '#13c2c2',
   Overview: '#ffffff',
+  LocalDuckDBAgent: '#13c2c2',
+  DuckDB: '#13c2c2',
   Orchestrator: '#8c8c8c',
 };
 
@@ -94,51 +96,59 @@ export function deriveSteps(events: AgentRunEvent[]): IStep[] {
 
 // ── Derive agent collaboration status ──
 export function deriveAgentStatuses(events: AgentRunEvent[]): IAgentStatus[] {
-  const planAgents = events.find((e) => e.type === 'plan_created')?.plan?.agents;
-  if (!planAgents?.length) return [];
+  const planAgents = events.find((e) => e.type === 'plan_created')?.plan?.agents ?? [];
 
   const statusMap = new Map<string, IAgentStatus['status']>();
+  const labelMap = new Map<string, string>();
   const elapsedMap = new Map<string, number>();
   const startedAtMap = new Map<string, string>();
   const progressMap = new Map<string, number>();
   const progressMessageMap = new Map<string, string>();
+  const order: string[] = [];
 
-  for (const agent of planAgents) statusMap.set(agent.id, 'pending');
+  const ensureAgent = (id: string, label: string) => {
+    if (!statusMap.has(id)) {
+      statusMap.set(id, 'pending');
+      labelMap.set(id, label);
+      order.push(id);
+      return;
+    }
+    if (!labelMap.get(id)) labelMap.set(id, label);
+  };
+
+  for (const agent of planAgents) ensureAgent(agent.id, agent.agent);
 
   for (const event of events) {
-    if (event.type === 'subagent_started' && event.subAgent) {
-      const id = agentIdFromEvent(event);
-      if (id && statusMap.has(id)) {
-        statusMap.set(id, 'running');
-        if (event.step?.startedAt) startedAtMap.set(id, event.step.startedAt);
-      }
+    const id = agentIdFromEvent(event);
+    if (!id || !event.subAgent) continue;
+    ensureAgent(id, event.subAgent.name);
+
+    if (event.type === 'subagent_started') {
+      statusMap.set(id, 'running');
+      if (event.step?.startedAt) startedAtMap.set(id, event.step.startedAt);
+      if (event.message) progressMessageMap.set(id, event.message);
     }
-    if (event.type === 'progress_updated' && event.subAgent && event.progress) {
-      const id = agentIdFromEvent(event);
-      if (id && statusMap.has(id)) {
-        progressMap.set(id, event.progress.current);
-        if (event.message) progressMessageMap.set(id, event.message);
-      }
+    if (event.type === 'progress_updated' && event.progress) {
+      statusMap.set(id, 'running');
+      progressMap.set(id, event.progress.current);
+      if (event.message) progressMessageMap.set(id, event.message);
     }
-    if (event.type === 'subagent_completed' && event.subAgent) {
-      const id = agentIdFromEvent(event);
-      if (id && statusMap.has(id)) {
-        statusMap.set(id, event.subAgent.status === 'error' ? 'error' : 'completed');
-        if (typeof event.subAgent.elapsed === 'number') elapsedMap.set(id, event.subAgent.elapsed);
-        progressMap.delete(id);
-        progressMessageMap.delete(id);
-      }
+    if (event.type === 'subagent_completed') {
+      statusMap.set(id, event.subAgent.status === 'error' ? 'error' : 'completed');
+      if (typeof event.subAgent.elapsed === 'number') elapsedMap.set(id, event.subAgent.elapsed);
+      progressMap.delete(id);
+      progressMessageMap.delete(id);
     }
   }
 
-  return planAgents.map((a) => ({
-    id: a.id,
-    label: a.agent,
-    status: statusMap.get(a.id) ?? 'pending',
-    elapsed: elapsedMap.get(a.id),
-    startedAt: startedAtMap.get(a.id),
-    progress: progressMap.get(a.id),
-    progressMessage: progressMessageMap.get(a.id),
+  return order.map((id) => ({
+    id,
+    label: labelMap.get(id) ?? id,
+    status: statusMap.get(id) ?? 'pending',
+    elapsed: elapsedMap.get(id),
+    startedAt: startedAtMap.get(id),
+    progress: progressMap.get(id),
+    progressMessage: progressMessageMap.get(id),
   }));
 }
 

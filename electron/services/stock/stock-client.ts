@@ -30,7 +30,7 @@ import {
 import type { IndexKlinePeriod } from './shared.js';
 
 import { analyzeIndicators } from './indicators.js';
-import { calculateChipDistribution, chipRowsToResult } from './chip-distribution.js';
+import { loadStockSdkChipDistributionInWorker, calculateChipDistributionInWorker } from './chip-distribution-worker-client.js';
 import { getStoredQuoteRows } from './quote-store.js';
 import { extractSymbolCandidate, normalizeASymbol, inferExchange, toQuoteSymbol } from './symbols.js';
 import { getBoardDetail, getBaiduStockKline } from './board-detail.js';
@@ -938,13 +938,12 @@ export async function getChipDistribution(symbolInput: string): Promise<IChipDis
 
 async function loadChipDistribution(symbol: string): Promise<IChipDistributionResult> {
   try {
-    const rows = await sdk.chips.cn(symbol, { days: 360, range: 120, includeHistogram: 'all' });
-    return chipRowsToResult(rows, 'stock-sdk');
+    return await loadStockSdkChipDistributionInWorker(symbol);
   } catch (stockSdkError) {
     const stockSdkMessage = stockSdkError instanceof Error ? stockSdkError.message : String(stockSdkError);
     try {
       const klines = await getBaiduStockKline(symbol, 360);
-      return calculateChipDistribution(klines, 'a-stock-data', [`stock-sdk 筹码数据获取失败：${stockSdkMessage}`]);
+      return await calculateChipDistributionInWorker(klines, 'a-stock-data', [`stock-sdk 筹码数据获取失败：${stockSdkMessage}`]);
     } catch (fallbackError) {
       const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
       throw new Error(`筹码分布数据获取失败。stock-sdk：${stockSdkMessage}；a-stock-data 百度日 K：${fallbackMessage}`);
@@ -964,5 +963,5 @@ export {
   listEastmoneySurgeByDate,
   getBoardSnapshot,
 } from './hot-focus.js';
-export { getDragonTigerSnapshot, listDailyDragonTiger, listRecentDragonTigerDays } from './dragon-tiger.js';
+export { getDragonTigerSnapshot, listDailyDragonTiger, listDragonTigerByDate, listRecentDragonTigerDays } from './dragon-tiger.js';
 export type { DailyDragonTigerGroup, DailyDragonTigerItem } from './dragon-tiger.js';

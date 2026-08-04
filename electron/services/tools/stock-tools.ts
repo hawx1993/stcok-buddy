@@ -13,6 +13,7 @@ import {
   resolveASymbol,
 } from '../stock/stock-client.js';
 import { getMarketReview as fetchMarketReview } from '../stock/market-review-service.js';
+import { listNorthboundFlow } from '../stock/northbound-flow.js';
 import type { AgentTool } from './types.js';
 
 function asRecord(input: unknown): Record<string, unknown> {
@@ -182,7 +183,14 @@ export const getDragonTiger: AgentTool<
 
 export const getHotFocus: AgentTool<{ tab: HotFocusTab }, Awaited<ReturnType<typeof listHotFocus>>> = {
   name: 'getHotFocus',
-  description: 'Fetch hot focus list by tab.',
+  description: 'Fetch hot focus list by tab. For northbound/southbound (沪深港通) capital flow use getNorthboundFlow.',
   inputSchema: { type: 'object', properties: { tab: { type: 'string' } }, required: ['tab'] },
   run: (input) => listHotFocus(text(asRecord(input), 'tab', 'surge') as HotFocusTab),
+};
+
+export const getNorthboundFlow: AgentTool<Record<string, never>, Awaited<ReturnType<typeof listNorthboundFlow>>> = {
+  name: 'getNorthboundFlow',
+  description: 'Fetch northbound/southbound (沪深港通) capital flow summary from stock-sdk.',
+  inputSchema: { type: 'object', properties: {} },
+  run: () => listNorthboundFlow(),
 };

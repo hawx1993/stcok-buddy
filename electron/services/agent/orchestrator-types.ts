@@ -26,6 +26,10 @@ export type TAgentIntent =
   | 'market-review'
   | 'board'
   | 'portfolio'
+  | 'shareholder-chip'
+  | 'hot-concepts'
+  | 'industry-ranking'
+  | 'a-stock-data-agent'
   | 'chat';
 
 export interface ILinkedPage {

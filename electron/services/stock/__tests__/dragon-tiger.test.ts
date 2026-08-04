@@ -27,7 +27,7 @@ vi.mock('../../market-data/trade-date-resolver.js', () => ({
   resolveTradingDate: mocks.resolveTradingDate,
 }));
 
-import { dragonTigerTestExports, getDragonTigerSnapshot, listDailyDragonTiger, listRecentDragonTigerDays } from '../dragon-tiger.js';
+import { dragonTigerTestExports, getDragonTigerSnapshot, listDailyDragonTiger, listDragonTigerByDate, listRecentDragonTigerDays } from '../dragon-tiger.js';
 import type { IDragonTigerDetailRow } from '../../../../src/shared/types.js';
 
 type TDetailFixture = Omit<IDragonTigerDetailRow, 'id'>;
@@ -236,6 +236,59 @@ describe('龙虎榜快照服务', () => {
     expect(mocks.detail).toHaveBeenCalledTimes(1);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ code: '600003', netBuy: 20_000_000 });
+  });
+
+  it('指定日期 stock-sdk 为空时用东财真实龙虎榜详情补充', async () => {
+    mocks.detail.mockResolvedValueOnce([]);
+    mockDatacenterRows([
+      [
+        {
+          SECURITY_CODE: '600001',
+          SECURITY_NAME_ABBR: '东财指定日股',
+          TRADE_DATE: '2026-08-04 00:00:00',
+          EXPLANATION: '日涨幅偏离值达到7%的前5只证券',
+          CLOSE_PRICE: 12.34,
+          CHANGE_RATE: 10.01,
+          BILLBOARD_NET_AMT: 80_000_000,
+          BILLBOARD_BUY_AMT: 120_000_000,
+          BILLBOARD_SELL_AMT: 40_000_000,
+          TURNOVERRATE: 23.45,
+        },
+      ],
+    ]);
+
+    const group = await listDragonTigerByDate('2026-08-04');
+
+    expect(group.date).toBe('2026-08-04');
+    expect(group.items).toEqual([
+      expect.objectContaining({ code: '600001', name: '东财指定日股', netBuy: 80_000_000 }),
+    ]);
+  });
+
+  it('指定日期龙虎榜同时返回真实机构买卖数据供探索页机构榜使用', async () => {
+    mocks.detail.mockResolvedValueOnce([
+      createDetail({ code: '600001', name: '机构净买股', date: '2026-08-04', netBuyAmount: 80_000_000, reason: '日涨幅偏离值达到7%的前5只证券' }),
+    ]);
+    mocks.institution.mockResolvedValueOnce([
+      {
+        code: '600001',
+        name: '机构净买股',
+        date: '2026-08-04',
+        changePercent: 9.8,
+        buyOrgCount: 2,
+        sellOrgCount: 1,
+        orgBuyAmount: 90_000_000,
+        orgSellAmount: 20_000_000,
+        orgNetAmount: 70_000_000,
+      },
+    ]);
+    mocks.quotesCn.mockResolvedValueOnce([]);
+
+    const group = await listDragonTigerByDate('2026-08-04');
+
+    expect(group.institutions).toEqual([
+      expect.objectContaining({ code: '600001', name: '机构净买股', orgNetAmount: 70_000_000 }),
+    ]);
   });
 
   it('聚合相同上榜原因', () => {

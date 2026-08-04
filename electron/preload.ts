@@ -83,6 +83,7 @@ const api: StocksenseApi = {
   listSurgeHistory: (date: string, offset?: number, limit?: number) =>
     ipcRenderer.invoke('hot:history', date, offset, limit),
   listStockSurgeEvents: (code: string) => ipcRenderer.invoke('stock:surgeEvents', code),
+  ensureMarketDataReady: () => ipcRenderer.invoke('marketData:ensureReady'),
   getMarketDataSyncStatus: () => ipcRenderer.invoke('marketData:getStatus'),
   startMarketDataSync: () => ipcRenderer.invoke('marketData:startSync'),
   retryMarketDataFailures: () => ipcRenderer.invoke('marketData:retryFailures'),

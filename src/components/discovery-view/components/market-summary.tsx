@@ -244,6 +244,8 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
   } = marketSummary;
 
   const sortedSectors = [...sectors].sort((a, b) => b.changePercent - a.changePercent);
+  const hasMainFundFlow = mainFundFlow !== null;
+  const hasNorthFundFlow = northFundFlow !== null;
 
   const getSectorCellStyle = (sector: ISectorSummary) => ({
     background: sectorCellBg(sector.changePercent),
@@ -329,28 +331,7 @@ export function MarketSummary({ indices, wealthMetrics, bullets, marketSummary }
         ))}
       </div>
 
-      {/* ── Fund Flow & Limit Stats ── */}
-      <div className={styles.msStats}>
-        <div className={styles.msStatCard}>
-          <div className={styles.msStatLabel}>主力资金净流入</div>
-          <div className={`${styles.msStatValue} ${chgClass(mainFundFlow ?? 0)}`}>{formatMoneyYi(mainFundFlow)}</div>
-        </div>
-        <div className={styles.msStatCard}>
-          <div className={styles.msStatLabel}>北向资金</div>
-          <div className={`${styles.msStatValue} ${chgClass(northFundFlow ?? 0)}`}>{formatMoneyYi(northFundFlow)}</div>
-        </div>
-        <div className={styles.msStatCard}>
-          <div className={styles.msStatLabel}>涨停 / 跌停</div>
-          <div className={styles.msStatValue}>
-            <span className={styles.up}>{limitUp}</span>
-            <span className={styles.msStatSlash}> / </span>
-            <span className={styles.down}>{limitDown}</span>
-          </div>
-        </div>
-      </div>
-
       <SentimentBar value={sentimentBar} up={limitUp} down={limitDown} />
-
       {/* ── Sector Heatmap ── */}
       <div className={styles.msSection}>
         <div className={styles.msSectionHead}>

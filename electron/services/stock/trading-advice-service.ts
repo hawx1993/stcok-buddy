@@ -8,15 +8,49 @@ import type { IMarketReviewMetric, ITradingAdvice, ITradingAdviceOptions, ITradi
 
 // ── Data collection ──
 
+const TRADING_ADVICE_SOURCE_TIMEOUT_MS = 4_000;
+const TRADING_ADVICE_LLM_TIMEOUT_MS = 25_000;
+
+async function withAdviceOptional<T>(label: string, promise: Promise<T>, fallback: T): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeout = setTimeout(() => {
+      console.warn(`[trading-advice] source timed out: ${label}`);
+      resolve(fallback);
+    }, TRADING_ADVICE_SOURCE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([promise.catch(() => fallback), timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function withAdviceTimeout<T>(label: string, promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error(`${label}超时，请稍后重试`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 async function collectMarketData() {
   const today = new Date().toISOString().slice(0, 10).replaceAll('-', '');
 
   const [review, dragonTiger, fundFlowRank, eastmoneyPool, conceptBoards] = await Promise.allSettled([
-    getMarketReview(),
-    listDailyDragonTiger(),
-    sdk.fundFlow.rank({ indicator: 'today' }).catch(() => []),
-    listEastmoneySurgeByDate(today),
-    sdk.board.concept.list().catch(() => []),
+    withAdviceOptional(
+      'market review',
+      getMarketReview().then((value): Awaited<ReturnType<typeof getMarketReview>> | undefined => value),
+      undefined,
+    ),
+    withAdviceOptional('dragon tiger', listDailyDragonTiger(), []),
+    withAdviceOptional('fund flow rank', sdk.fundFlow.rank({ indicator: 'today' }), []),
+    withAdviceOptional('eastmoney surge pool', listEastmoneySurgeByDate(today), []),
+    withAdviceOptional('concept boards', sdk.board.concept.list(), []),
   ]);
 
   const reviewData = review.status === 'fulfilled' ? review.value : undefined;
@@ -314,13 +348,18 @@ function isMarketReviewMetricUnit(value: string): value is NonNullable<IMarketRe
   return value === '家' || value === '%' || value === '板' || value === '亿' || value === '分';
 }
 
-function hasHistoricalAdviceData(data: TTradingAdviceData): boolean {
+function hasTradingAdviceData(data: TTradingAdviceData): boolean {
+  const reviewData = data.reviewData;
   return Boolean(
-    data.reviewData?.nextDayFocus?.length ||
-      data.reviewData?.hotThemes?.length ||
+    reviewData?.nextDayFocus?.length ||
+      reviewData?.hotThemes?.length ||
+      reviewData?.sentiment?.length ||
+      reviewData?.wealthEffect?.length ||
+      reviewData?.leaders?.length ||
       data.dtItems.length ||
       data.poolItems.length ||
-      data.reviewData?.sentiment?.length,
+      data.fundFlows.length ||
+      data.concepts.length,
   );
 }
 
@@ -339,7 +378,10 @@ function toMarketReviewWatchCategory(value: string): TMarketReviewWatchCategory 
 }
 
 async function collectHistoricalMarketData(tradeDate: string): Promise<TTradingAdviceData> {
-  const snapshot = await getDiscoverySnapshot({ tradeDate });
+  const snapshot = await getDiscoverySnapshot({
+    tradeDate,
+    sections: ['sentiment', 'dragon-tiger', 'hot-rotation', 'tomorrow'],
+  });
   if (snapshot.unavailableReason) throw new Error(snapshot.unavailableReason);
   const dragonTiger = snapshot.dragonTiger;
   const dtItems = [
@@ -413,7 +455,7 @@ async function collectHistoricalMarketData(tradeDate: string): Promise<TTradingA
     })) ?? [],
   };
   const data = { reviewData, dtItems, fundFlows: [], poolItems, concepts: [], today: compactTradeDate(tradeDate) };
-  if (!hasHistoricalAdviceData(data)) throw new Error('该交易日暂无足够数据生成交易建议');
+  if (!hasTradingAdviceData(data)) throw new Error('该交易日暂无足够数据生成交易建议');
   return data;
 }
 
@@ -428,28 +470,28 @@ async function collectTradingAdviceData(tradeDate: string): Promise<TTradingAdvi
 
 // ── Cache ──
 const adviceCache = new Map<string, ITradingAdvice>();
+const advicePromiseCache = new Map<string, Promise<ITradingAdvice>>();
 
 // ── Main export ──
 
-export async function getTradingAdvice(options: ITradingAdviceOptions = {}): Promise<ITradingAdvice> {
-  const tradeDate = resolveAdviceTradeDate(options);
-
-  const cachedAdvice = adviceCache.get(tradeDate);
-  if (cachedAdvice) return cachedAdvice;
-
+async function buildTradingAdvice(tradeDate: string): Promise<ITradingAdvice> {
   const data = await collectTradingAdviceData(tradeDate);
 
-  if (!data.reviewData) {
+  if (!hasTradingAdviceData(data)) {
     throw new Error('市场数据获取失败，无法生成交易建议');
   }
 
   const userPrompt = buildUserPrompt(data);
   const cfg = getConfig();
 
-  const response = await chatWithOpenAICompatible(cfg.model, [
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: userPrompt },
-  ]);
+  const response = await withAdviceTimeout(
+    'AI交易建议生成',
+    chatWithOpenAICompatible(cfg.model, [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userPrompt },
+    ]),
+    TRADING_ADVICE_LLM_TIMEOUT_MS,
+  );
 
   const parsedAdvice = parseAdviceResponse(response);
   const advice = await reconcileAdviceLeaderStocks(parsedAdvice);
@@ -457,4 +499,18 @@ export async function getTradingAdvice(options: ITradingAdviceOptions = {}): Pro
   adviceCache.set(tradeDate, advice);
 
   return advice;
+}
+
+export async function getTradingAdvice(options: ITradingAdviceOptions = {}): Promise<ITradingAdvice> {
+  const tradeDate = resolveAdviceTradeDate(options);
+
+  const cachedAdvice = adviceCache.get(tradeDate);
+  if (cachedAdvice) return cachedAdvice;
+
+  const pendingAdvice = advicePromiseCache.get(tradeDate);
+  if (pendingAdvice) return pendingAdvice;
+
+  const promise = buildTradingAdvice(tradeDate).finally(() => advicePromiseCache.delete(tradeDate));
+  advicePromiseCache.set(tradeDate, promise);
+  return promise;
 }

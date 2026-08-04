@@ -185,6 +185,34 @@ describe('数据状态', () => {
     expect(useAppUiStore.getState().mainView).toBe('chat');
   });
 
+  it('AI 回答中的流式消息应按会话隔离，不覆盖切换后的当前会话', () => {
+    const thinkingMessage: ChatMessage = {
+      ...createAssistantMessage('assistant-thinking', '初始回答'),
+      thinking: { startedAt: '2026-08-03T00:00:00.000Z', steps: [] },
+    };
+    const otherMessage: ChatMessage = {
+      id: 'user-other',
+      role: 'user',
+      content: '其他会话',
+      createdAt: '2026-08-03T00:00:00.000Z',
+    };
+
+    useAppDataStore.getState().setActiveConversation('conversation-1');
+    useAppDataStore.getState().setMessages([thinkingMessage]);
+    useAppDataStore.getState().setSending(true, 'conversation-1');
+    useAppDataStore.getState().setActiveConversation('conversation-2');
+    useAppDataStore.getState().setMessages([otherMessage]);
+    useAppDataStore.getState().appendToLastAssistant('，流式追加', 'conversation-1');
+
+    expect(useAppDataStore.getState().activeConversationId).toBe('conversation-2');
+    expect(useAppDataStore.getState().messages).toEqual([otherMessage]);
+    expect(useAppDataStore.getState().respondingConversationId).toBe('conversation-1');
+
+    useAppDataStore.getState().setActiveConversation('conversation-1');
+
+    expect(useAppDataStore.getState().messages[0].content).toBe('初始回答，流式追加');
+  });
+
   it('设置选中个股时应复用已缓存的 K 线数据', () => {
     useAppDataStore.getState().rememberStockKline('600000', KLINE_2026_08_03);
     useAppDataStore.getState().setSelectedStock({ code: '600000', name: '浦发银行' });

@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Chart } from 'klinecharts';
 import type { ChipDistribution, TChipDistributionSource } from '../../../shared/types';
+import { getStockComputeWorker } from '../../../workers/stock-compute-client';
+import type { IChipPreparedLayout } from '../../../workers/stock-compute-types';
 import styles from '../index.module.scss';
 
 export const MODAL_CHIP_COLUMN_WIDTH = 220;
@@ -20,12 +22,29 @@ interface IChipOverlayProps {
   showPriceAxis?: boolean;
 }
 
+interface IChipLayoutPoint {
+  price: number;
+  weight: number;
+  width: number;
+  y: number;
+  height: number;
+}
+
+interface IChipLayout {
+  top: number;
+  width: number;
+  barWidth: number;
+  height: number;
+  points: IChipLayoutPoint[];
+}
+
 interface IHoveredChip {
   price: number;
   weight: number;
   y: number;
   profit: boolean;
 }
+
 
 export function ChipOverlay({
   chips,
@@ -39,8 +58,26 @@ export function ChipOverlay({
   showPriceAxis = false,
 }: IChipOverlayProps) {
   const [hovered, setHovered] = useState<IHoveredChip>();
-  const layout = useMemo(() => getChipLayout(chips, chart, showPriceAxis), [chips, chart, layoutVersion, showPriceAxis]);
+  const [prepared, setPrepared] = useState<IChipPreparedLayout>({ date: chips.date, points: [] });
+  const barWidth = showPriceAxis ? MODAL_CHIP_WIDTH : SMALL_CHIP_WIDTH;
+  const layout = useMemo(() => getChipLayout(prepared, chart, showPriceAxis), [prepared, chart, layoutVersion, showPriceAxis]);
   const priceTicks = useMemo(() => showPriceAxis ? getPriceTicks(chart, layout.height) : [], [chart, layout.height, layoutVersion, showPriceAxis]);
+
+  useEffect(() => {
+    let alive = true;
+    getStockComputeWorker()
+      .prepareChipLayout({ chips, barWidth })
+      .then((next) => {
+        if (alive) setPrepared(next);
+      })
+      .catch((error: unknown) => {
+        console.error('[chip] worker prepare layout failed', error);
+        if (alive) setPrepared({ date: chips.date, points: [] });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [barWidth, chips]);
 
   const currentY = priceToY(chart, currentPrice);
   const averageY = chips.avgCost === undefined ? undefined : priceToY(chart, chips.avgCost);
@@ -132,22 +169,18 @@ export function ChipOverlay({
   );
 }
 
-function getChipLayout(chips: ChipDistribution, chart: Chart, showPriceAxis: boolean) {
+function getChipLayout(prepared: IChipPreparedLayout, chart: Chart, showPriceAxis: boolean): IChipLayout {
   const size = chart.getSize('candle_pane', 'main');
   const barWidth = showPriceAxis ? MODAL_CHIP_WIDTH : SMALL_CHIP_WIDTH;
   const width = showPriceAxis ? MODAL_CHIP_COLUMN_WIDTH : SMALL_CHIP_WIDTH;
   const height = size?.height ?? 0;
   const top = size?.top ?? 0;
-  const points = chips.points
-    .filter((point) => Number.isFinite(point.price) && Number.isFinite(point.weight) && point.weight > 0)
-    .sort((left, right) => left.price - right.price);
-  const maxWeight = Math.max(...points.map((point) => point.weight), 0);
-  const coordinates = chart.convertToPixel(points.map((point) => ({ value: point.price })), { paneId: 'candle_pane' });
+  const coordinates = chart.convertToPixel(prepared.points.map((point) => ({ value: point.price })), { paneId: 'candle_pane' });
   const pixels = Array.isArray(coordinates) ? coordinates : [coordinates];
-  const visible = points.flatMap((point, index) => {
+  const visible = prepared.points.flatMap((point, index) => {
     const y = pixels[index]?.y;
-    if (typeof y !== 'number' || y < 0 || y > height || maxWeight <= 0) return [];
-    return [{ ...point, y, width: Math.max(1, (point.weight / maxWeight) * barWidth) }];
+    if (typeof y !== 'number' || y < 0 || y > height || point.width <= 0) return [];
+    return [{ ...point, y }];
   });
   const gaps = visible.slice(1).map((point, index) => Math.abs(point.y - visible[index].y)).filter((gap) => gap > 0);
   const barHeight = Math.max(1, Math.min(3, (gaps.length ? Math.min(...gaps) : 2) * 0.86));

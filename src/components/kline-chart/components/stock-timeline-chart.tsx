@@ -2,14 +2,10 @@ import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } fro
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { IStockTimelinePoint, IStockTimelineSnapshot, StockDetail } from '../../../shared/types';
 import { getMarketColors } from '../../../shared/market-color';
-import {
-  A_SHARE_MORNING_CLOSE_MINUTE,
-  A_SHARE_MARKET_OPEN_MINUTE,
-  A_SHARE_TOTAL_TRADING_MINUTES,
-  getAShareTradingMinuteOffset,
-  isChinaMarketOpen,
-} from '../../../shared/market-time';
+import { isChinaMarketOpen } from '../../../shared/market-time';
 import { useAppDataStore } from '../../../store/app-store';
+import { getStockComputeWorker } from '../../../workers/stock-compute-client';
+import type { IStockTimelineChartPath } from '../../../workers/stock-compute-types';
 import cx from '../../../shared/cx';
 import styles from '../index.module.scss';
 
@@ -22,28 +18,10 @@ interface IStockTimelineChartProps {
   className?: string;
 }
 
-interface IChartPathResult {
-  priceLine: string;
-  priceArea: string;
-  averageLine?: string;
-  preCloseLine?: string;
-  rows: IStockTimelinePoint[];
-  coordinates: Array<{ x: number; y: number }>;
-  yLabels: Array<{ y: number; label: string }>;
-  xLabels: Array<{ x: number; label: string }>;
-}
-
 const VIEWBOX_WIDTH = 960;
 const VIEWBOX_HEIGHT = 360;
-const PADDING_X = 58;
 const PADDING_Y = 34;
-const CHART_WIDTH = VIEWBOX_WIDTH - PADDING_X * 2;
 const TIMELINE_REFRESH_INTERVAL_MS = 15_000;
-const TIMELINE_X_LABELS = [
-  { time: '09:30', offset: 0 },
-  { time: '11:30', offset: A_SHARE_MORNING_CLOSE_MINUTE - A_SHARE_MARKET_OPEN_MINUTE },
-  { time: '15:00', offset: A_SHARE_TOTAL_TRADING_MINUTES },
-];
 
 export function StockTimelineChart({ stock, height = '100%', className }: IStockTimelineChartProps) {
   const marketColorMode = useAppDataStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
@@ -52,6 +30,7 @@ export function StockTimelineChart({ stock, height = '100%', className }: IStock
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [hoverIndex, setHoverIndex] = useState<number>();
+  const [chart, setChart] = useState<IStockTimelineChartPath>();
 
   useEffect(() => {
     if (!stock?.code) {
@@ -88,7 +67,22 @@ export function StockTimelineChart({ stock, height = '100%', className }: IStock
     };
   }, [stock?.code]);
 
-  const chart = useMemo(() => buildChartPath(snapshot), [snapshot]);
+  useEffect(() => {
+    let alive = true;
+    getStockComputeWorker()
+      .buildStockTimelinePath(snapshot)
+      .then((next) => {
+        if (alive) setChart(next);
+      })
+      .catch((err: unknown) => {
+        console.error('[timeline] worker build path failed', err);
+        if (alive) setChart(undefined);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [snapshot]);
+
   const latest = chart?.rows[chart.rows.length - 1];
   const isUp = latest && snapshot?.preClose ? latest.price >= snapshot.preClose : true;
   const hoverPoint = hoverIndex === undefined ? latest : chart?.rows[hoverIndex];
@@ -163,72 +157,6 @@ function TimelineTooltip({ point, preClose }: { point: IStockTimelinePoint; preC
       {changePercent !== undefined ? <em className={changePercent >= 0 ? styles.up : styles.down}>{formatSigned(changePercent)}%</em> : null}
     </div>
   );
-}
-
-function buildChartPath(snapshot: IStockTimelineSnapshot | undefined): IChartPathResult | undefined {
-  const rows = (snapshot?.points ?? []).filter((point) => Number.isFinite(point.price));
-  const timelineRows = rows
-    .map((point) => {
-      const x = toTimelineX(point.time);
-      return x === undefined ? undefined : { point, x };
-    })
-    .filter((row): row is { point: IStockTimelinePoint; x: number } => Boolean(row));
-  if (timelineRows.length < 2) return undefined;
-  const chartRows = timelineRows.map((row) => row.point);
-  const priceValues = chartRows.map((point) => point.price);
-  const averageValues = chartRows.map((point) => point.avgPrice).filter((value): value is number => Number.isFinite(value));
-  const preCloseValues = snapshot?.preClose === undefined ? [] : [snapshot.preClose];
-  const values = [...priceValues, ...averageValues, ...preCloseValues];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const toY = (value: number) => round(PADDING_Y + ((max - value) / range) * (VIEWBOX_HEIGHT - PADDING_Y * 2));
-  const toCoordinate = (value: number, x: number) => `${round(x)},${toY(value)}`;
-  const coordinates = timelineRows.map(({ point, x }) => ({ x: round(x), y: toY(point.price) }));
-  const priceLine = `M ${coordinates.map((point) => `${point.x},${point.y}`).join(' L ')}`;
-  const averageCoordinates = timelineRows
-    .map(({ point, x }) => (point.avgPrice === undefined ? undefined : toCoordinate(point.avgPrice, x)))
-    .filter((value): value is string => Boolean(value));
-  const firstX = PADDING_X;
-  const lastDataX = coordinates[coordinates.length - 1].x;
-  const lastX = VIEWBOX_WIDTH - PADDING_X;
-  const baseline = VIEWBOX_HEIGHT - PADDING_Y;
-  const preCloseY = snapshot?.preClose === undefined ? undefined : toY(snapshot.preClose);
-  return {
-    rows: chartRows,
-    coordinates,
-    priceLine,
-    priceArea: `${priceLine} L ${round(lastDataX)},${baseline} L ${firstX},${baseline} Z`,
-    averageLine: averageCoordinates.length >= 2 ? `M ${averageCoordinates.join(' L ')}` : undefined,
-    preCloseLine: preCloseY ? `M ${firstX},${preCloseY} L ${round(lastX)},${preCloseY}` : undefined,
-    yLabels: buildYLabels(snapshot?.preClose, min, max, range),
-    xLabels: buildXLabels(),
-  };
-}
-
-function buildYLabels(preClose: number | undefined, min: number, max: number, range: number) {
-  if (!preClose) return [];
-  return [max, (max + min) / 2, min].map((value) => ({
-    y: round(PADDING_Y + ((max - value) / range) * (VIEWBOX_HEIGHT - PADDING_Y * 2)),
-    label: `${formatSigned(((value - preClose) / preClose) * 100)}%`,
-  }));
-}
-
-function buildXLabels() {
-  return TIMELINE_X_LABELS.map((item) => ({
-    x: round(PADDING_X + (item.offset / A_SHARE_TOTAL_TRADING_MINUTES) * CHART_WIDTH),
-    label: item.time,
-  }));
-}
-
-function toTimelineX(time: string): number | undefined {
-  const offset = getAShareTradingMinuteOffset(time);
-  if (offset === undefined) return undefined;
-  return PADDING_X + (offset / A_SHARE_TOTAL_TRADING_MINUTES) * CHART_WIDTH;
-}
-
-function round(value: number) {
-  return Number(value.toFixed(2));
 }
 
 function formatPrice(value: number) {

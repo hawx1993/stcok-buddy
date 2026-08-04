@@ -7,6 +7,7 @@ import { executeDag } from './dag-executor.js';
 import { enrichTechnicalCard, dataGaps, dedupeEvidence } from './agent-tool-runtime.js';
 import { quoteToCard } from './agent-result-cards.js';
 import {
+  applyStockAgentRouting,
   classifyIntent,
   extractBoardKeyword,
   extractUrls,
@@ -38,7 +39,11 @@ export async function runOrchestrator(
   const symbolText = command?.args ?? request.message;
   if (symbolText && (await isUnsupportedStockMarketQuery(symbolText))) return unsupportedMarketResponse();
 
-  let intent = command?.intent ?? classifyIntent(request.message);
+  let intent = applyStockAgentRouting(
+    command?.intent ?? classifyIntent(request.message),
+    request.message,
+    Boolean(command),
+  );
   const resolvedSymbol =
     needsSymbol(intent) && symbolText ? await callTool('resolveStockSymbol', { query: symbolText }) : undefined;
   let symbol = readSymbol(resolvedSymbol?.output);
@@ -58,7 +63,7 @@ export async function runOrchestrator(
     intent,
     urls: extractUrls(request.message),
     symbol,
-    boardKeyword: extractBoardKeyword(request.message),
+    boardKeyword: intent === 'board' ? extractBoardKeyword(request.message) : undefined,
     singleAgent: command?.singleAgent,
     evidence: [],
     toolCalls: [],

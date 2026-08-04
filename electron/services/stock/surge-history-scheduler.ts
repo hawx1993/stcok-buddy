@@ -4,19 +4,24 @@ import { flushSurgeSnapshotQueue, pruneSurgeHistory } from './surge-history-stor
 
 const CAPTURE_INTERVAL_MS = 20_000;
 const FLUSH_INTERVAL_MS = 20_000;
+const INITIAL_CAPTURE_DELAY_MS = 20_000;
 let isCapturing = false;
 let isFlushing = false;
 let isStopped = false;
 let captureTimer: NodeJS.Timeout | undefined;
 let flushTimer: NodeJS.Timeout | undefined;
+let initialCaptureTimer: NodeJS.Timeout | undefined;
 let capturePromise: Promise<void> = Promise.resolve();
 let flushPromise: Promise<void> = Promise.resolve();
 let lastPrunedDate = '';
 
 export function ensureSurgeHistoryCapture() {
-  if (captureTimer || flushTimer) return;
+  if (captureTimer || flushTimer || initialCaptureTimer) return;
   isStopped = false;
-  void captureIfTradingTime();
+  initialCaptureTimer = setTimeout(() => {
+    initialCaptureTimer = undefined;
+    void captureIfTradingTime();
+  }, INITIAL_CAPTURE_DELAY_MS);
   void flushQueuedSnapshots();
   captureTimer = setInterval(() => void captureIfTradingTime(), CAPTURE_INTERVAL_MS);
   flushTimer = setInterval(() => void flushQueuedSnapshots(), FLUSH_INTERVAL_MS);
@@ -26,12 +31,14 @@ export function stopSurgeHistoryScheduler() {
   isStopped = true;
   if (captureTimer) clearInterval(captureTimer);
   if (flushTimer) clearInterval(flushTimer);
+  if (initialCaptureTimer) clearTimeout(initialCaptureTimer);
   captureTimer = undefined;
   flushTimer = undefined;
+  initialCaptureTimer = undefined;
 }
 
 export function isSurgeHistorySchedulerRunning() {
-  return Boolean(captureTimer || flushTimer) && !isStopped;
+  return Boolean(captureTimer || flushTimer || initialCaptureTimer) && !isStopped;
 }
 
 export async function waitForSurgeHistoryScheduler() {

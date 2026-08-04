@@ -1,6 +1,6 @@
 import { Dropdown, message as antdMessage } from 'antd';
 import type { MenuProps } from 'antd';
-import { BarChart3, CloudDownload, Compass, Database, FileText, HelpCircle, Info, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
+import { BarChart3, CloudDownload, Compass, Database, FileText, HelpCircle, Info, LoaderCircle, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
 import { useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
 import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import { usePanelResize } from '../../hooks/use-panel-resize';
@@ -76,6 +76,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const [editingTitle, setEditingTitle] = useState('');
   const conversations = useAppDataStore((state) => state.conversations);
   const activeConversationId = useAppDataStore((state) => state.activeConversationId);
+  const respondingConversationId = useAppDataStore((state) => state.respondingConversationId);
   const mainView = useAppUiStore((state) => state.mainView);
   const search = useAppUiStore((state) => state.search);
   const isLeftSidebarCollapsed = useAppUiStore((state) => state.isLeftSidebarCollapsed);
@@ -286,6 +287,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
                     styles['source-item-wrap'],
                     activeConversationId === item.id && styles.active,
                     conversationMenuId === item.id && styles['menu-open'],
+                    respondingConversationId === item.id && styles.responding,
                     editingConversationId === item.id && styles.editing,
                   )}
                 >
@@ -317,17 +319,23 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
                         <span className={styles.label}>{item.title}</span>
                         <span className={styles.count}>{item.count}</span>
                       </button>
-                      <button
-                        className={styles['source-more']}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setConversationMenuId(conversationMenuId === item.id ? undefined : item.id);
-                        }}
-                        type='button'
-                        aria-label='更多操作'
-                      >
-                        <MoreHorizontal size={16} />
-                      </button>
+                      {respondingConversationId === item.id ? (
+                        <span className={cx(styles['source-more'], styles['source-loading'])} aria-label='AI 正在回答'>
+                          <LoaderCircle size={16} />
+                        </span>
+                      ) : (
+                        <button
+                          className={styles['source-more']}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setConversationMenuId(conversationMenuId === item.id ? undefined : item.id);
+                          }}
+                          type='button'
+                          aria-label='更多操作'
+                        >
+                          <MoreHorizontal size={16} />
+                        </button>
+                      )}
                       {conversationMenuId === item.id ? (
                         <div className={styles['conversation-menu']}>
                           <button className={styles['conversation-action']} onClick={() => startRename(item)} type='button'>

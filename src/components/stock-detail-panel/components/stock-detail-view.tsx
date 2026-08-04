@@ -28,11 +28,15 @@ export function StockDetailView({
 }: IStockDetailViewProps) {
   const detailRef = useRef<HTMLDivElement>(null);
   const quoteTimerRef = useRef<number>();
+  const stockSurgeSectionRef = useRef<HTMLDivElement>(null);
+  const stockSurgeRequestedCodeRef = useRef<string>();
   const [isKlineModalOpen, setKlineModalOpen] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(true);
   const [stockSurgeEvents, setStockSurgeEvents] = useState<StockSurgeEvent[]>([]);
   const [stockSurgeLoading, setStockSurgeLoading] = useState(false);
   const [stockSurgeError, setStockSurgeError] = useState<string>();
+  const [stockSurgeVisibleCode, setStockSurgeVisibleCode] = useState<string>();
+  const [stockSurgeReloadKey, setStockSurgeReloadKey] = useState(0);
   const selectedStock = useAppDataStore((state) => state.selectedStock);
   const favoriteStocks = useAppDataStore((state) => state.favoriteStocks);
   const setFavoriteStocks = useAppDataStore((state) => state.setFavoriteStocks);
@@ -41,6 +45,7 @@ export function StockDetailView({
   const clearMessages = useAppDataStore((state) => state.clearMessages);
   const setMainView = useAppUiStore((state) => state.setMainView);
   const selectedIsFavorite = Boolean(selectedStock && favoriteStocks.some((item) => item.code === selectedStock.code));
+  const stockSurgeRequested = Boolean(selectedStock && stockSurgeVisibleCode === selectedStock.code);
 
   useLayoutEffect(() => {
     if (!selectedStock || !detailRef.current) return;
@@ -55,35 +60,66 @@ export function StockDetailView({
     return () => context.revert();
   }, [selectedStock?.code]);
 
+  const selectedKlineLength = selectedStock?.kline?.length ?? 0;
+
   useEffect(() => {
-    if (!selectedStock?.code || selectedStock.kline?.length) return;
+    if (!selectedStock?.code || selectedKlineLength) return;
     let alive = true;
+    const stockCode = selectedStock.code;
     // limit 与 K 线组件 1d 周期默认 frame.limit(360) 保持一致，
     // 主进程会对相同参数的并发请求去重，首次打开只触发一次远程拉取
     getStocksenseApi()
-      .getKline(selectedStock.code, 360, '1d')
+      .getKline(stockCode, 360, '1d')
       .then((kline) => {
-        if (alive && kline.length) useAppDataStore.getState().setSelectedStock({ ...selectedStock, kline });
+        if (!alive || !kline.length) return;
+        const current = useAppDataStore.getState().selectedStock;
+        if (current?.code === stockCode) useAppDataStore.getState().setSelectedStock({ ...current, kline });
       })
       .catch((error: unknown) => console.error(error));
     return () => {
       alive = false;
     };
-  }, [selectedStock]);
+  }, [selectedStock?.code, selectedKlineLength]);
 
   useEffect(() => {
-    if (!selectedStock?.code) {
-      setStockSurgeEvents([]);
-      setStockSurgeLoading(false);
-      setStockSurgeError(undefined);
+    stockSurgeRequestedCodeRef.current = undefined;
+    setStockSurgeEvents([]);
+    setStockSurgeLoading(false);
+    setStockSurgeError(undefined);
+    setStockSurgeVisibleCode(undefined);
+    setStockSurgeReloadKey(0);
+  }, [selectedStock?.code]);
+
+  useEffect(() => {
+    if (!selectedStock?.code || stockSurgeVisibleCode === selectedStock.code) return;
+    const target = stockSurgeSectionRef.current;
+    if (!target) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setStockSurgeVisibleCode(selectedStock.code);
       return;
     }
+    const observedCode = selectedStock.code;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) setStockSurgeVisibleCode(observedCode);
+      },
+      { rootMargin: '120px 0px', threshold: 0.01 },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [selectedStock?.code, stockSurgeVisibleCode]);
+
+  useEffect(() => {
+    if (!selectedStock?.code || stockSurgeVisibleCode !== selectedStock.code) return;
+    const stockCode = selectedStock.code;
+    if (stockSurgeRequestedCodeRef.current === stockCode && stockSurgeReloadKey === 0) return;
+    stockSurgeRequestedCodeRef.current = stockCode;
     let alive = true;
     setStockSurgeEvents([]);
     setStockSurgeLoading(true);
     setStockSurgeError(undefined);
     getStocksenseApi()
-      .listStockSurgeEvents(selectedStock.code)
+      .listStockSurgeEvents(stockCode)
       .then((items) => {
         if (alive) setStockSurgeEvents(items);
       })
@@ -97,39 +133,20 @@ export function StockDetailView({
     return () => {
       alive = false;
     };
-  }, [selectedStock?.code]);
+  }, [selectedStock?.code, stockSurgeReloadKey, stockSurgeVisibleCode]);
 
   // ponytail: when the user clears surge history from the storage manager,
-  // reload the individual surge events so stale in-memory items are replaced
-  // with the now-empty local DB contents (if remote is unavailable) or the
-  // latest remote data. Also clears the local state immediately so the UI
-  // doesn't keep showing records that were just deleted.
+  // clear local state immediately. If the section has already been viewed,
+  // reload it; otherwise keep the lazy-load contract and wait until visible.
   useEffect(() => {
     const onCleared = () => {
       setStockSurgeEvents([]);
-      if (!selectedStock?.code) return;
-      let alive = true;
-      setStockSurgeLoading(true);
       setStockSurgeError(undefined);
-      getStocksenseApi()
-        .listStockSurgeEvents(selectedStock.code)
-        .then((items) => {
-          if (alive) setStockSurgeEvents(items);
-        })
-        .catch((error: unknown) => {
-          if (!alive) return;
-          setStockSurgeError(error instanceof Error ? error.message : '异动记录加载失败');
-        })
-        .finally(() => {
-          if (alive) setStockSurgeLoading(false);
-        });
-      return () => {
-        alive = false;
-      };
+      if (stockSurgeVisibleCode === selectedStock?.code) setStockSurgeReloadKey((value) => value + 1);
     };
     window.addEventListener('surge:historyCleared', onCleared);
     return () => window.removeEventListener('surge:historyCleared', onCleared);
-  }, [selectedStock?.code]);
+  }, [selectedStock?.code, stockSurgeVisibleCode]);
 
   useEffect(() => {
     if (!selectedStock?.code) return;
@@ -319,8 +336,15 @@ export function StockDetailView({
           <div className={styles['section-title']}>快讯</div>
           <StockQuickNews code={selectedStock.code} />
           <div className={styles.divider} />
-          <div className={styles['section-title']}>最近一周异动</div>
-          <StockSurgeEvents events={stockSurgeEvents} loading={stockSurgeLoading} error={stockSurgeError} />
+          <div ref={stockSurgeSectionRef}>
+            <div className={styles['section-title']}>最近一周异动</div>
+            <StockSurgeEvents
+              events={stockSurgeEvents}
+              loading={stockSurgeLoading}
+              error={stockSurgeError}
+              requested={stockSurgeRequested}
+            />
+          </div>
         </div>
       ) : (
         <Empty
@@ -346,10 +370,12 @@ export function StockDetailView({
 interface IStockSurgeEventsProps {
   events: StockSurgeEvent[];
   loading: boolean;
+  requested: boolean;
   error?: string;
 }
 
-function StockSurgeEvents({ events, loading, error }: IStockSurgeEventsProps) {
+function StockSurgeEvents({ events, loading, requested, error }: IStockSurgeEventsProps) {
+  if (!requested) return <div className={styles['stock-surge-error']}>滚动到此处后加载最近一周异动</div>;
   if (loading) return <StockSurgeSkeleton />;
   if (error) return <div className={styles['stock-surge-error']}>{error}</div>;
   if (!events.length) return <Empty text='最近一周暂无异动记录' />;

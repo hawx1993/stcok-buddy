@@ -1,171 +1,27 @@
-import {
-  AlertTriangle,
-  ArrowLeft,
-  BarChart3,
-  CalendarClock,
-  Compass,
-  Eye,
-  Flame,
-  Newspaper,
-  Target,
-  Thermometer,
-  TrendingUp,
-  Trophy,
-} from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getStocksenseApi } from '../../shared/stocksense-api';
+import { ArrowLeft, Compass } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { TDiscoverySnapshotSection } from '../../shared/types';
 import { MarketPhasePill } from '../market-phase-pill';
 import { useAppUiStore } from '../../store/app-store';
 import cx from '../../shared/cx';
-import { HeroGauge } from './components/hero-gauge';
-import { MarketSummary } from './components/market-summary';
-import { MonitoringCenter } from './components/monitoring-center';
-import { OpportunityRadar } from './components/opportunity-radar';
-import { SentimentIndex } from './components/sentiment-index';
-import { DragonTiger } from './components/dragon-tiger';
-import { HotRotation } from './components/hot-rotation';
-import { LimitUpReview } from './components/limit-up-review';
-import { TomorrowPreview } from './components/tomorrow-preview';
-import { TradingAdvice } from './components/trading-advice';
+import { DiscoverySections } from './components/discovery-sections';
 import { SubscribeFooter } from './components/subscribe-footer';
+import { useDiscoverySections } from './hooks/use-discovery-sections';
+import type { IDiscoverySnapshot } from './types';
 import styles from './index.module.scss';
 
-type TStockItem = {
-  code: string;
-  name: string;
-  price?: string;
-  changePercent?: string;
-  amount?: string;
-  industry?: string;
-};
-type TDragonTigerRow = { code: string; name: string; changePercent?: number; netBuy: number; reason: string };
-type TDragonTigerDay = {
-  date: string;
-  weekday: string;
-  inst: TDragonTigerRow[];
-  hot: TDragonTigerRow[];
-  first: TDragonTigerRow[];
-};
+const DISCOVERY_VIEW_AUTO_REFRESH_INTERVAL_MS = 60_000;
 
-interface ISectorSummary {
-  code: string;
-  name: string;
-  changePercent: number;
-  mainNetInflow: number;
-  amount?: number;
-}
-
-interface IOpportunityRadarItem {
-  code: string;
-  name: string;
-  ratio: number;
-  changePercent: number;
-  mainNetInflow: number;
-}
-
-interface IOpportunityRadarData {
-  boards: IOpportunityRadarItem[];
-  stocks: Array<{
-    code: string;
-    name: string;
-    reason: string;
-    changePercent?: number | null;
-    amount?: number | null;
-    score: number;
-  }>;
-}
-
-interface IMonthlyThemeItem {
-  week: string;
-  theme: string;
-  leader: { code: string; name: string } | null;
-}
-
-interface INextWeekSector {
-  code?: string;
-  name: string;
-  score: number;
-  reasoning: {
-    fundFlow: string;
-    news: string;
-    policy: string;
-    technical: string;
-    rotation: string;
-  };
-}
-
-interface IMarketSummary {
-  indices: Array<{ code: string; name: string; price: number; changePercent: number }>;
-  mainFundFlow: number | null;
-  northFundFlow: number | null;
-  limitUp: number;
-  limitDown: number;
-  sentimentBar: number;
-  sectors: ISectorSummary[];
-  opportunityRadar: IOpportunityRadarItem[];
-  monthlyThemes: IMonthlyThemeItem[];
-  nextWeekSectors: INextWeekSector[];
-}
-
-interface IDiscoverySnapshot {
-  tradeDate: string;
-  generatedAt: string;
-  score?: number;
-  scoreLabel?: string;
-  scoreVerdict?: string;
-  scoreTrend?: number[];
-  indices?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
-  bullets?: string[];
-  wealthMetrics?: Array<{ label: string; value: number | null; unit: string }>;
-  opportunityRadar?: IOpportunityRadarData;
-  marketSummary?: IMarketSummary;
-  sentimentScore?: number | null;
-  sentimentFactors?: Array<{ label: string; value: string | number }>;
-  sentimentStocks?: { zt: TStockItem[]; dt: TStockItem[]; zb: TStockItem[] };
-  consecutiveStocks?: TStockItem[];
-  yesterdayZt?: TStockItem[];
-  yesterdayLb?: TStockItem[];
-  leaders?: Array<{
-    code: string;
-    name: string;
-    height?: number | null;
-    amount?: number | null;
-    concepts?: string[];
-    changePercent?: number | null;
-  }>;
-  hotThemes?: Array<{
-    name: string;
-    score?: number | null;
-    changePercent?: number | null;
-    limitUpCount?: number | null;
-    reason?: string | null;
-    leaderName?: string | null;
-    leaderCode?: string | null;
-    leaders?: Array<{ code: string; name: string; height?: number | null }>;
-  }>;
-  limitUps?: Array<{ code: string; name: string; height: string; reason: string }>;
-  dragonTiger?: {
-    inst: TDragonTigerRow[];
-    hot: TDragonTigerRow[];
-    first: TDragonTigerRow[];
-  };
-  dragonTigerHistory?: TDragonTigerDay[];
-  tradeDates?: Array<{ date: string; weekday: string }>;
-  nextDayFocus?: Array<{ category: string; condition: string; baseline?: number | null }>;
-  watchlistQuotes?: Array<{ code: string; name: string; price?: number | string; changePercent?: number | string }>;
-  unavailableReason?: string;
-}
-
-const PILLS = [
-  { id: 'hero', label: '机会分' },
-  { id: 'sec-summary', label: '市场总结' },
-  { id: 'sec-opportunity-radar', label: '机会雷达' },
+const PILLS: Array<{ id: string; label: string; section?: TDiscoverySnapshotSection }> = [
+  { id: 'hero', label: '机会分', section: 'hero' },
+  { id: 'sec-summary', label: '市场总结', section: 'market-summary' },
+  { id: 'sec-opportunity-radar', label: '机会雷达', section: 'opportunity-radar' },
   { id: 'sec-watchlist', label: '监控中心' },
-  { id: 'sec-sentiment', label: '情绪指数' },
-  { id: 'sec-dragontiger', label: '龙虎榜' },
-  { id: 'sec-hotrotation', label: '热点轮动' },
-  { id: 'sec-limitup', label: '涨停复盘' },
-  { id: 'sec-tomorrow', label: '明日预判' },
+  { id: 'sec-sentiment', label: '情绪指数', section: 'sentiment' },
+  { id: 'sec-dragontiger', label: '龙虎榜', section: 'dragon-tiger' },
+  { id: 'sec-hotrotation', label: '热点轮动', section: 'hot-rotation' },
+  { id: 'sec-limitup', label: '涨停复盘', section: 'limit-up' },
+  { id: 'sec-tomorrow', label: '明日预判', section: 'tomorrow' },
   { id: 'sec-trading-advice', label: '交易建议' },
 ];
 
@@ -214,96 +70,44 @@ function getTradeDateOptions(snapshot?: IDiscoverySnapshot) {
   return options.sort((left, right) => left.date.localeCompare(right.date));
 }
 
-const SECTION_ICONS: Record<string, typeof Newspaper> = {
-  'sec-summary': Newspaper,
-  'sec-opportunity-radar': Target,
-  'sec-watchlist': Eye,
-  'sec-sentiment': Thermometer,
-  'sec-dragontiger': Trophy,
-  'sec-hotrotation': Flame,
-  'sec-limitup': TrendingUp,
-  'sec-tomorrow': CalendarClock,
-  'sec-trading-advice': Target,
-};
-
-function toDiscoverySnapshot(input: Record<string, unknown>): IDiscoverySnapshot {
-  return {
-    ...input,
-    tradeDate: typeof input.tradeDate === 'string' ? input.tradeDate : '',
-    generatedAt: typeof input.generatedAt === 'string' ? input.generatedAt : new Date().toISOString(),
-  } as IDiscoverySnapshot;
-}
-
-function SectionTitle({ id, title }: { id: string; title: string }) {
-  const Icon = SECTION_ICONS[id] ?? BarChart3;
-  return (
-    <div className={styles.sectionHead}>
-      <Icon className={styles.sectionIcon} size={16} />
-      <h2 className={styles.sectionTitle}>{title}</h2>
-    </div>
+export function shouldAutoRefreshDiscoverySnapshot(
+  displayedTradeDate: string,
+  tradeDateOptions: Array<{ date: string }>,
+) {
+  const latestTradeDate = tradeDateOptions.reduce(
+    (latest, item) => (item.date > latest ? item.date : latest),
+    '',
   );
+  return !displayedTradeDate || !latestTradeDate || displayedTradeDate === latestTradeDate;
 }
 
-function SectionSkeleton() {
-  return (
-    <div className={styles.localSkeleton}>
-      <div className={styles.skeletonLine} />
-      <div className={styles.skeletonLine} />
-      <div className={styles.skeletonLine} />
-    </div>
-  );
-}
-
-function HeroGaugeSkeleton() {
-  return (
-    <div className='hero-gauge-wrap hero-gauge-skeleton' aria-label='机会评分加载中'>
-      <div className='hero-gauge-skeleton-arc' />
-      <div className='hero-gauge-skeleton-body'>
-        <div className='hero-gauge-skeleton-line short' />
-        <div className='hero-gauge-skeleton-line' />
-        <div className='hero-gauge-skeleton-line' />
-        <div className='hero-gauge-skeleton-trend' />
-      </div>
-    </div>
-  );
-}
-
-function DiscoveryWaitingState({ message }: { message: string }) {
-  return <div className='empty-block'>{message}</div>;
+export function shouldRefreshActiveDiscoverySections(
+  shouldAutoRefresh: boolean,
+  pageVisible: boolean,
+  activeSectionCount: number,
+) {
+  return shouldAutoRefresh && pageVisible && activeSectionCount > 0;
 }
 
 export function DiscoveryView() {
   const setMainView = useAppUiStore((state) => state.setMainView);
   const isLeftSidebarCollapsed = useAppUiStore((state) => state.isLeftSidebarCollapsed);
-  const [snapshot, setSnapshot] = useState<IDiscoverySnapshot | undefined>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const {
+    snapshot,
+    selectedTradeDate,
+    activeSections,
+    activateSection,
+    retrySection,
+    selectTradeDate,
+    refreshActiveSections,
+    getSectionState,
+  } = useDiscoverySections();
   const [activePill, setActivePill] = useState('hero');
   const [currentDate, setCurrentDate] = useState(() => new Date());
-  const [selectedTradeDate, setSelectedTradeDate] = useState('');
   const [hasScrolled, setHasScrolled] = useState(false);
+  const [mountedStandaloneSections, setMountedStandaloneSections] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const tradeDateNavRef = useRef<HTMLDivElement>(null);
-
-  const load = useCallback(async (tradeDate = '') => {
-    setLoading(true);
-    setError('');
-    try {
-      const api = getStocksenseApi();
-      const data = await api.getDiscoverySnapshot(tradeDate ? { tradeDate } : undefined);
-      const nextSnapshot = toDiscoverySnapshot(data);
-      setSnapshot(nextSnapshot);
-      setSelectedTradeDate(tradeDate || nextSnapshot.tradeDate);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '数据加载失败');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load('');
-  }, [load]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -342,10 +146,23 @@ export function DiscoveryView() {
     );
     sections.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [snapshot]);
+  }, []);
 
-  const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const mountStandaloneSection = (id: string) => {
+    setMountedStandaloneSections((current) => {
+      if (current.has(id)) return current;
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+  };
+
+  const scrollTo = (id: string, section?: TDiscoverySnapshotSection) => {
+    if (section) activateSection(section);
+    else mountStandaloneSection(id);
+    window.requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   };
 
   const dateStr = useMemo(() => formatDate(currentDate), [currentDate]);
@@ -355,7 +172,24 @@ export function DiscoveryView() {
   );
   const tradeDateOptions = useMemo(() => getTradeDateOptions(snapshot), [snapshot]);
   const displayedTradeDate = selectedTradeDate || snapshot?.tradeDate || '';
+  const shouldAutoRefreshSnapshot = shouldAutoRefreshDiscoverySnapshot(displayedTradeDate, tradeDateOptions);
   const unavailableReason = snapshot?.unavailableReason;
+
+  useEffect(() => {
+    if (!shouldAutoRefreshSnapshot) return;
+    const timer = window.setInterval(() => {
+      if (
+        shouldRefreshActiveDiscoverySections(
+          shouldAutoRefreshSnapshot,
+          document.visibilityState === 'visible',
+          activeSections.size,
+        )
+      ) {
+        refreshActiveSections(true);
+      }
+    }, DISCOVERY_VIEW_AUTO_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [activeSections.size, refreshActiveSections, shouldAutoRefreshSnapshot]);
 
   useEffect(() => {
     const nav = tradeDateNavRef.current;
@@ -365,8 +199,9 @@ export function DiscoveryView() {
   }, [displayedTradeDate, tradeDateOptions]);
 
   const handleSelectTradeDate = (tradeDate: string) => {
-    setSelectedTradeDate(tradeDate);
-    void load(tradeDate);
+    setMountedStandaloneSections(new Set());
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+    selectTradeDate(tradeDate);
   };
 
   return (
@@ -425,7 +260,7 @@ export function DiscoveryView() {
           <button
             key={pill.id}
             className={cx(styles.pill, activePill === pill.id && styles.pillActive)}
-            onClick={() => scrollTo(pill.id)}
+            onClick={() => scrollTo(pill.id, pill.section)}
             type='button'
           >
             {pill.label}
@@ -436,173 +271,18 @@ export function DiscoveryView() {
       {/* ── Content ── */}
       <div className={styles.scroll} ref={scrollRef}>
         <div className={styles.inner}>
-          {error && !snapshot ? (
-            <div className={styles.inlineErrorState}>
-              <AlertTriangle size={16} />
-              <p>{error}</p>
-              <button className={styles.retryBtn} onClick={() => load()} type='button'>
-                重试
-              </button>
-            </div>
-          ) : null}
-
-          {/* Hero Gauge */}
-          <div data-discovery-section='hero' id='hero' className={styles.section}>
-            <div className={styles.heroCard}>
-              {loading && !snapshot ? (
-                <HeroGaugeSkeleton />
-              ) : unavailableReason ? (
-                <DiscoveryWaitingState message={unavailableReason} />
-              ) : (
-                <HeroGauge
-                  score={snapshot?.score}
-                  scoreLabel={snapshot?.scoreLabel}
-                  scoreVerdict={snapshot?.scoreVerdict}
-                  scoreTrend={snapshot?.scoreTrend}
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Market Summary */}
-          <div data-discovery-section='sec-summary' id='sec-summary' className={styles.section}>
-            <SectionTitle id='sec-summary' title={`AI 市场总结 · ${displayedTradeDate || '--'}`} />
-            <div className={styles.card}>
-              {loading && !snapshot ? (
-                <SectionSkeleton />
-              ) : unavailableReason ? (
-                <DiscoveryWaitingState message={unavailableReason} />
-              ) : (
-                <MarketSummary
-                  indices={snapshot?.indices}
-                  bullets={snapshot?.bullets}
-                  wealthMetrics={snapshot?.wealthMetrics}
-                  marketSummary={snapshot?.marketSummary}
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Opportunity Radar */}
-          <div data-discovery-section='sec-opportunity-radar' id='sec-opportunity-radar' className={styles.section}>
-            <SectionTitle
-              id='sec-opportunity-radar'
-              title={`机会雷达 · 资金抢跑但涨幅未跟上 · ${displayedTradeDate || '--'}`}
-            />
-            <div className={styles.card}>
-              {loading && !snapshot ? (
-                <SectionSkeleton />
-              ) : unavailableReason ? (
-                <DiscoveryWaitingState message={unavailableReason} />
-              ) : (
-                <OpportunityRadar data={snapshot?.opportunityRadar} />
-              )}
-            </div>
-          </div>
-
-          {/* AI Monitor Center */}
-          <div data-discovery-section='sec-watchlist' id='sec-watchlist' className={styles.section}>
-            <SectionTitle id='sec-watchlist' title='AI 监控中心' />
-            <div className={styles.card}>
-              {unavailableReason ? <DiscoveryWaitingState message={unavailableReason} /> : <MonitoringCenter />}
-            </div>
-          </div>
-
-          {/* Sentiment Index */}
-          <div data-discovery-section='sec-sentiment' id='sec-sentiment' className={styles.section}>
-            <SectionTitle id='sec-sentiment' title='AI 情绪指数' />
-            <div className={styles.card}>
-              {loading && !snapshot ? (
-                <SectionSkeleton />
-              ) : unavailableReason ? (
-                <DiscoveryWaitingState message={unavailableReason} />
-              ) : (
-                <SentimentIndex
-                  score={snapshot?.sentimentScore}
-                  factors={snapshot?.sentimentFactors}
-                  stocks={snapshot?.sentimentStocks}
-                  consecutiveStocks={snapshot?.consecutiveStocks}
-                  yesterdayZt={snapshot?.yesterdayZt}
-                  yesterdayLb={snapshot?.yesterdayLb}
-                  leaders={snapshot?.leaders}
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Dragon Tiger */}
-          <div data-discovery-section='sec-dragontiger' id='sec-dragontiger' className={styles.section}>
-            <SectionTitle id='sec-dragontiger' title={`AI 龙虎榜 · ${displayedTradeDate || '--'}`} />
-            <div className={styles.card}>
-              {loading && !snapshot ? (
-                <SectionSkeleton />
-              ) : unavailableReason ? (
-                <DiscoveryWaitingState message={unavailableReason} />
-              ) : (
-                <DragonTiger
-                  inst={snapshot?.dragonTiger?.inst ?? []}
-                  hot={snapshot?.dragonTiger?.hot ?? []}
-                  first={snapshot?.dragonTiger?.first ?? []}
-                  history={snapshot?.dragonTigerHistory}
-                  selectedDate={displayedTradeDate}
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Hot Rotation */}
-          <div data-discovery-section='sec-hotrotation' id='sec-hotrotation' className={styles.section}>
-            <SectionTitle id='sec-hotrotation' title='AI 热点轮动' />
-            <div className={styles.card}>
-              {loading && !snapshot ? (
-                <SectionSkeleton />
-              ) : unavailableReason ? (
-                <DiscoveryWaitingState message={unavailableReason} />
-              ) : (
-                <HotRotation themes={snapshot?.hotThemes} />
-              )}
-            </div>
-          </div>
-
-          {/* Limit Up Review */}
-          <div data-discovery-section='sec-limitup' id='sec-limitup' className={styles.section}>
-            <SectionTitle id='sec-limitup' title='AI 涨停复盘' />
-            <div className={styles.card}>
-              {loading && !snapshot ? (
-                <SectionSkeleton />
-              ) : unavailableReason ? (
-                <DiscoveryWaitingState message={unavailableReason} />
-              ) : (
-                <LimitUpReview items={snapshot?.limitUps} />
-              )}
-            </div>
-          </div>
-
-          {/* Tomorrow Preview */}
-          <div data-discovery-section='sec-tomorrow' id='sec-tomorrow' className={styles.section}>
-            <SectionTitle id='sec-tomorrow' title='AI 明日预判' />
-            <div className={styles.card}>
-              {loading && !snapshot ? (
-                <SectionSkeleton />
-              ) : unavailableReason ? (
-                <DiscoveryWaitingState message={unavailableReason} />
-              ) : (
-                <TomorrowPreview items={snapshot?.nextDayFocus} />
-              )}
-            </div>
-          </div>
-
-          {/* Trading Advice */}
-          <div data-discovery-section='sec-trading-advice' id='sec-trading-advice' className={styles.section}>
-            <SectionTitle id='sec-trading-advice' title='AI 交易建议' />
-            <div className={styles.card}>
-              {unavailableReason ? (
-                <DiscoveryWaitingState message={unavailableReason} />
-              ) : (
-                <TradingAdvice tradeDate={displayedTradeDate} />
-              )}
-            </div>
-          </div>
+          <DiscoverySections
+            snapshot={snapshot}
+            displayedTradeDate={displayedTradeDate}
+            unavailableReason={unavailableReason}
+            activeSections={activeSections}
+            mountedStandaloneSections={mountedStandaloneSections}
+            scrollRef={scrollRef}
+            getSectionState={getSectionState}
+            activateSection={activateSection}
+            retrySection={(section) => void retrySection(section)}
+            mountStandaloneSection={mountStandaloneSection}
+          />
           <SubscribeFooter />
         </div>
       </div>

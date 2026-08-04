@@ -1,6 +1,6 @@
 {
   "name": "stockbuddy-desktop",
-  "version": "0.7.0",
+  "version": "0.7.4",
   "description": "StockBuddy - 对话式 A 股投研助手 Electron 跨端桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
@@ -43,7 +43,8 @@
     "selfcheck:ai-monitor-history": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/monitor-history-store.selfcheck.js",
     "selfcheck:news-summary": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/news-client.selfcheck.js",
     "selfcheck:hot-stock-hints": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/hot-stock-hints.selfcheck.js",
-    "selfcheck:trading-advice": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/trading-advice.selfcheck.js"
+    "selfcheck:trading-advice": "tsc -p tsconfig.node.json && electron dist-electron/electron/selfchecks/trading-advice.selfcheck.js",
+    "selfcheck:cpu": "tsc -p tsconfig.node.json && electron scripts/profile-cpu.selfcheck.cjs"
   },
   "keywords": [
     "electron",
@@ -72,6 +73,7 @@
     "ai": "^7.0.15",
     "antd": "^6.5.0",
     "better-sqlite3": "^12.11.1",
+    "comlink": "^4.4.2",
     "dotenv": "^17.4.2",
     "electron-store": "^10.0.1",
     "electron-updater": "^6.8.9",

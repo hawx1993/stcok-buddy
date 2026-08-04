@@ -2,32 +2,49 @@ import type {
   AgentResultCard,
   AnnouncementItem,
   HotFocusItem,
+  IChipDistributionResult,
   IStockFundFlowSnapshot,
   MarketNewsItem,
   StockDetail,
   TMarketReviewReport,
 } from '../../../src/shared/types.js';
 import type { HistoricalBarsResult } from '../market-data/types.js';
+import type { IHolderNumberChangeRow } from '../stock/a-stock-data-runner.js';
 import type { DailyDragonTigerItem } from '../stock/stock-client.js';
+import type { IHotConceptsToolOutput, IIndustryRankingToolOutput } from '../tools/a-stock-data-tools.js';
 import type { DagNode } from './dag-executor.js';
 import type { IAgentContext, TOnToken } from './orchestrator-types.js';
 import { buildStockAnalysisInput, filterLargeOrders, runContextTool } from './agent-tool-runtime.js';
-import { dailyDragonTigerToCard, newsAnnouncementsToCard, themeAttributionToCard } from './agent-result-cards.js';
+import { callTool } from '../tools/tool-registry.js';
+import {
+  dailyDragonTigerToCard,
+  holderChipToCard,
+  hotConceptsToCard,
+  industryRankingToCard,
+  newsAnnouncementsToCard,
+  themeAttributionToCard,
+} from './agent-result-cards.js';
 import { fetchBoard } from './data-agent.js';
 import {
   evidenceFromAnnouncements,
+  evidenceFromBoardCard,
   evidenceFromChip,
   evidenceFromDragonTiger,
   evidenceFromFundFlow,
   evidenceFromHistoricalBars,
+  evidenceFromHolderChange,
+  evidenceFromHotConcepts,
   evidenceFromHotFocus,
+  evidenceFromIndustryRanking,
   evidenceFromNews,
   evidenceFromQuote,
   evidenceFromTechnical,
-  evidenceFromBoardCard,
 } from './evidence.js';
 import { generateReport } from '../llm/index.js';
+import { agenticAStockDataAnswer } from './a-stock-data-agent.js';
+import { isStockRelatedQuestion } from './intent-routing.js';
 import { createMarketReviewMessages } from './market-review-prompt.js';
+import { createDirectAnswerMessages, createPlainQuestionMessages } from './plain-question-prompt.js';
 import { runNewsAnalysisAgent } from './news-analysis-agent.js';
 import { runStockAnalysisOverview } from './stock-analysis-overview-agent.js';
 import {
@@ -35,6 +52,10 @@ import {
   runStockAnalysisSubAgent,
   stockAnalysisAgentNames,
 } from './stock-analysis-agents.js';
+
+function isSymbolResult(value: unknown): value is { symbol?: string } {
+  return typeof value === 'object' && value !== null;
+}
 
 export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): DagNode<IAgentContext>[] {
   const linkNodes: DagNode<IAgentContext>[] = context.urls.length
@@ -182,14 +203,137 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
     ];
   }
 
+  if (context.intent === 'shareholder-chip') {
+    return [
+      ...linkNodes,
+      {
+        id: 'shareholder-chip-data',
+        agent: 'a-stock-data',
+        description: `拉取 ${context.symbol} 股东户数、筹码集中度与资金面`,
+        run: async (ctx) => {
+          const [quote, holder, chip, flow] = await Promise.all([
+            runContextTool<StockDetail | undefined>(
+              ctx,
+              'getStockQuote',
+              { symbol: ctx.symbol! },
+              () => undefined,
+            ),
+            runContextTool<IHolderNumberChangeRow[] | undefined>(
+              ctx,
+              'getHolderNumberChange',
+              { symbol: ctx.symbol! },
+              () => undefined,
+            ),
+            runContextTool<IChipDistributionResult | undefined>(
+              ctx,
+              'getStockChipDistribution',
+              { symbol: ctx.symbol! },
+              () => undefined,
+            ),
+            runContextTool<IStockFundFlowSnapshot | undefined>(
+              ctx,
+              'getStockFundFlowSnapshot',
+              { symbol: ctx.symbol! },
+              () => undefined,
+            ),
+          ]);
+          ctx.quote = quote;
+          ctx.chip = chip;
+          ctx.fundFlow = flow;
+          ctx.evidence.push(
+            ...evidenceFromQuote(quote),
+            ...evidenceFromHolderChange(ctx.symbol!, holder),
+            ...evidenceFromChip(ctx.symbol!, chip),
+            ...evidenceFromFundFlow(ctx.symbol!, flow),
+          );
+          ctx.board = holderChipToCard({ quote, holder, chip, flow });
+          const hasKeyData = Boolean(holder?.length) || Boolean(chip);
+          ctx.analysisOverview = hasKeyData
+            ? await generateReport(createPlainQuestionMessages(ctx))
+            : '该股股东户数与筹码数据源暂不可用，请稍后重试。';
+        },
+      },
+    ];
+  }
+
+  if (context.intent === 'hot-concepts') {
+    return [
+      ...linkNodes,
+      {
+        id: 'hot-concepts-data',
+        agent: 'a-stock-data',
+        description: '拉取今日热门股与概念归属',
+        run: async (ctx) => {
+          const hot = await runContextTool<IHotConceptsToolOutput | undefined>(ctx, 'getHotConcepts', {}, () => undefined);
+          ctx.evidence.push(...evidenceFromHotConcepts(hot?.list, hot?.source));
+          ctx.board = hotConceptsToCard({ source: hot?.source, list: hot?.list ?? [] });
+          ctx.analysisOverview =
+            hot?.list.length
+              ? await generateReport(createPlainQuestionMessages(ctx))
+              : '今日热门股数据源暂不可用，请稍后重试。';
+        },
+      },
+    ];
+  }
+
+  if (context.intent === 'industry-ranking') {
+    return [
+      ...linkNodes,
+      {
+        id: 'industry-ranking-data',
+        agent: 'a-stock-data',
+        description: '拉取今日行业涨幅与资金流排名',
+        run: async (ctx) => {
+          const data = await runContextTool<IIndustryRankingToolOutput | undefined>(
+            ctx,
+            'getIndustryRanking',
+            {},
+            () => undefined,
+          );
+          ctx.evidence.push(...evidenceFromIndustryRanking(data?.ranking, data?.flow));
+          ctx.board = industryRankingToCard({ ranking: data?.ranking, flow: data?.flow });
+          const hasData = Boolean(data?.ranking?.total) || Boolean(data?.flow?.rows.length);
+          ctx.analysisOverview = hasData
+            ? await generateReport(createPlainQuestionMessages(ctx))
+            : '今日行业涨幅数据源暂不可用，请稍后重试。';
+        },
+      },
+    ];
+  }
+
+  if (context.intent === 'a-stock-data-agent') {
+    return [
+      ...linkNodes,
+      {
+        id: 'a-stock-data-agent',
+        agent: 'a-stock-data',
+        description: '调用 a-stock-data 模型分析中...',
+        run: async (ctx) => {
+          // 预解析股票代码（如「茅台」→600519），帮助智能体直接调用个股工具；market 级问题无代码则跳过
+          const resolved = await callTool('resolveStockSymbol', { query: ctx.query });
+          const out = resolved?.output;
+          if (isSymbolResult(out) && /^\d{6}$/.test(out.symbol ?? '')) ctx.symbol = out.symbol;
+          ctx.analysisOverview = await agenticAStockDataAnswer(ctx);
+        },
+      },
+    ];
+  }
+
   if (!context.symbol) {
+    const stockRelated = isStockRelatedQuestion(context.query);
     return [
       ...linkNodes,
       {
         id: 'chat',
-        agent: 'Orchestrator',
-        description: '未识别到股票代码，转为普通投研问答',
-        run: async () => undefined,
+        agent: stockRelated ? 'a-stock-data' : 'Orchestrator',
+        description: stockRelated
+          ? '识别为 A 股相关问题，调用 a-stock-data 真实数据回答'
+          : '非股票问题，由大模型直接回答',
+        run: async (ctx) => {
+          ctx.analysisOverview = stockRelated
+            ? await agenticAStockDataAnswer(ctx)
+            : await generateReport(createDirectAnswerMessages(ctx.query));
+        },
       },
     ];
   }

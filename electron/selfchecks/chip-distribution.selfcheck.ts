@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateChipDistribution } from '../services/stock/chip-distribution.js';
+import { calculateChipDistributionInWorker, disposeChipDistributionWorker } from '../services/stock/chip-distribution-worker-client.js';
 import type { KlinePoint } from '../../src/shared/types.js';
 
 const start = Date.parse('2026-01-02T00:00:00+08:00');
@@ -19,7 +19,7 @@ const klines: KlinePoint[] = Array.from({ length: 140 }, (_, index) => {
   };
 });
 
-const result = calculateChipDistribution(klines, 'a-stock-data', ['selfcheck fallback']);
+const result = await calculateChipDistributionInWorker(klines, 'a-stock-data', ['selfcheck fallback']);
 const latest = result.latest;
 assert.ok(latest, 'latest chip distribution is required');
 assert.equal(result.source, 'a-stock-data');
@@ -36,4 +36,5 @@ assert.ok(latest.profitRatio !== undefined && latest.profitRatio >= 0 && latest.
 assert.ok(latest.avgCost !== undefined && latest.avgCost > 0);
 assert.ok(latest.cost70 && latest.cost90);
 assert.ok(latest.concentration70 !== undefined && latest.concentration90 !== undefined);
+disposeChipDistributionWorker();
 console.log('chip-distribution selfcheck passed');

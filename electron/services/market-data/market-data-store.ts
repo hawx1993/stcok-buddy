@@ -23,11 +23,10 @@ import type {
   TradeCalendarRecord,
 } from './types.js';
 
-const defaultPath = path.join(
+const dbPath = process.env.STOCKSENSE_MARKET_DB_PATH || path.join(
   app.getPath('userData'),
   app.isPackaged ? 'stocksense-market.duckdb' : 'stocksense-market-dev.duckdb',
 );
-const dbPath = process.env.STOCKSENSE_MARKET_DB_PATH || defaultPath;
 // ponytail: dbReady must be reassignable so we can close the old DuckDB
 // instance and create a fresh one after the database file is deleted by
 // the storage manager. A const here would leave the app permanently
@@ -1144,7 +1143,7 @@ function toSyncJob(row: Record<string, unknown>): SyncJobRecord {
             ? 'idle'
             : status,
     jobType: row.job_type as SyncJobType,
-    targetTradeDate: optionalString(row.target_trade_date),
+    targetTradeDate: toDateString(row.target_trade_date) || undefined,
     processedSymbols: Number(row.processed_symbols),
     totalSymbols: Number(row.total_symbols),
     succeededSymbols: Number(row.succeeded_symbols),

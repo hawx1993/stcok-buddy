@@ -13,6 +13,7 @@ import { findChipDistributionByDate, useChipDistribution } from './components/us
 import { KlineHoverInfo } from './components/kline-hover-info';
 import { KlineModalFrame } from './components/kline-modal-frame';
 import { StockTimelineChart } from './components/stock-timeline-chart';
+import { getStockComputeWorker } from '../../workers/stock-compute-client';
 
 export const klineTimeframes = [
   { id: 'timeline', label: '分时', limit: 0, period: { type: 'minute', span: 1 } },
@@ -99,13 +100,7 @@ export function StockKlineChart({
   const frame = klineTimeframes.find((item) => item.id === tf) ?? klineTimeframes[3];
   const chartData = loadedData;
   chartDataRef.current = chartData;
-  const klineData = useMemo(
-    () =>
-      chartData
-        .map((point, index) => toKLineData(point, index, chartData.length, frame.period))
-        .sort((a, b) => a.timestamp - b.timestamp),
-    [chartData, frame.period],
-  );
+  const [klineData, setKlineData] = useState<KLineData[]>([]);
   const chipsEnabled = tf === '1d' && showChips && chipsOpen;
   const {
     distribution: latestChipDistribution,
@@ -119,6 +114,26 @@ export function StockKlineChart({
   const chipDistribution =
     (hoverPoint ? findChipDistributionByDate(chipDistributions, hoverPoint.time) : latestChipDistribution) ??
     latestChipDistribution;
+
+  useEffect(() => {
+    if (!chartData.length) {
+      setKlineData([]);
+      return;
+    }
+    let alive = true;
+    getStockComputeWorker()
+      .buildKlineData({ data: chartData, period: frame.period })
+      .then((next) => {
+        if (alive) setKlineData(next);
+      })
+      .catch((error: unknown) => {
+        console.error('[kline] worker build data failed', error);
+        if (alive) setKlineData([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [chartData, frame.period]);
 
   useEffect(() => {
     if (usesProvidedData) setLoadedData(data);
@@ -147,10 +162,13 @@ export function StockKlineChart({
     console.log(hasDailySeed ? '[kline] refreshing seed data from API' : '[kline] no seed data, fetching from API', { code: stock?.code });
     getStocksenseApi()
       .getKline(toKlineRequestSymbol(stock), frame.limit, tf)
-      .then((next) => {
+      .then(async (next) => {
         console.log('[kline] API fetch done', { code: stock?.code, bars: next.length, firstDate: next[0]?.time });
         if (alive) {
-          const merged = hasDailySeed ? mergeKlineData(data, next, frame.period) : next;
+          const merged = hasDailySeed
+            ? await getStockComputeWorker().mergeKlineData({ older: data, current: next, period: frame.period })
+            : next;
+          if (!alive) return;
           setLoadedData(merged);
           loadedLimitRef.current = hasDailySeed ? Math.max(data.length, next.length) : frame.limit;
           hasMoreOlderDataRef.current = true;
@@ -188,7 +206,12 @@ export function StockKlineChart({
         options.anchorTimestamp ??
         chartDataRef.current[0]?.timestamp ??
         (chartDataRef.current[0]
-          ? parseKlineTimestamp(chartDataRef.current[0].time, 0, chartDataRef.current.length, frame.period)
+          ? await getStockComputeWorker().parseKlineTimestamp({
+              value: chartDataRef.current[0].time,
+              index: 0,
+              total: chartDataRef.current.length,
+              period: frame.period,
+            })
           : undefined);
       loadingMoreRef.current = true;
       const nextLimit = Math.min(
@@ -199,20 +222,16 @@ export function StockKlineChart({
         const next = loadOlderKline
           ? await loadOlderKline({ timeframe: tf, limit: nextLimit, beforeTimestamp: firstTimestamp })
           : await getStocksenseApi().getKline(toKlineRequestSymbol(stock), nextLimit, tf, firstTimestamp);
-        const older =
-          firstTimestamp === undefined
-            ? next
-            : next.filter(
-                (point, index) =>
-                  (point.timestamp ?? parseKlineTimestamp(point.time, index, next.length, frame.period)) <
-                  firstTimestamp,
-              );
+        const normalizedNext = await getStockComputeWorker().mergeKlineData({ older: next, current: [], period: frame.period });
+        const older = firstTimestamp === undefined ? normalizedNext : normalizedNext.filter((point) => (point.timestamp ?? 0) < firstTimestamp);
         if (!older.length) {
           hasMoreOlderDataRef.current = false;
           return [];
         }
         loadedLimitRef.current = Math.min(KLINE_MAX_LIMIT, chartDataRef.current.length + older.length);
-        setLoadedData((current) => mergeKlineData(older, current, frame.period));
+        const currentData = chartDataRef.current;
+        const merged = await getStockComputeWorker().mergeKlineData({ older, current: currentData, period: frame.period });
+        setLoadedData(merged);
         return older;
       } finally {
         loadingMoreRef.current = false;
@@ -261,13 +280,20 @@ export function StockKlineChart({
     chartRef.current = chart;
     chart.setRightMinVisibleBarCount(2);
     setChartInstance(chart);
-    const refreshChipLayout = () => setChipLayoutVersion((value) => value + 1);
+    const refreshFrameRef = { current: 0 };
+    const refreshChipLayout = () => {
+      if (refreshFrameRef.current) return;
+      refreshFrameRef.current = window.requestAnimationFrame(() => {
+        refreshFrameRef.current = 0;
+        setChipLayoutVersion((value) => value + 1);
+      });
+    };
     const updateHoverIndex = (nextIndex: number | undefined) => {
       const currentLength = chartDataRef.current.length;
       const normalizedIndex =
         nextIndex === undefined || !currentLength ? undefined : Math.max(0, Math.min(currentLength - 1, nextIndex));
       if (normalizedIndex !== undefined && normalizedIndex < 12)
-        requestOlderData(getFirstKlineTimestamp(frame.period, chartDataRef.current));
+        requestOlderData(getFirstKlineTimestamp(chartDataRef.current));
       setHoverIndex((current) => (current === normalizedIndex ? current : normalizedIndex));
       setHoverPoint((current) => {
         const nextPoint = normalizedIndex === undefined ? undefined : chartDataRef.current[normalizedIndex];
@@ -279,7 +305,7 @@ export function StockKlineChart({
     };
     const onVisibleRangeChange = (value?: unknown) => {
       const range = value as VisibleRange | undefined;
-      if (range && range.from === 0) requestOlderData(getFirstKlineTimestamp(frame.period, chartDataRef.current));
+      if (range && range.from === 0) requestOlderData(getFirstKlineTimestamp(chartDataRef.current));
       refreshChipLayout();
     };
     const onChartLayoutChange = () => refreshChipLayout();
@@ -302,6 +328,7 @@ export function StockKlineChart({
     });
     resizeObserver.observe(hostRef.current);
     return () => {
+      if (refreshFrameRef.current) window.cancelAnimationFrame(refreshFrameRef.current);
       resizeObserver.disconnect();
       chart.unsubscribeAction('onCrosshairChange', onCrosshairChange);
       chart.unsubscribeAction('onVisibleRangeChange', onVisibleRangeChange);
@@ -473,18 +500,8 @@ export function KlineModal({
   return createPortal(modal, document.body);
 }
 
-function mergeKlineData(older: KlinePoint[], current: KlinePoint[], period: Period) {
-  const rows = new Map<number, KlinePoint>();
-  [...older, ...current].forEach((point, index) => {
-    const timestamp = point.timestamp ?? parseKlineTimestamp(point.time, index, older.length + current.length, period);
-    rows.set(timestamp, { ...point, timestamp });
-  });
-  return [...rows.values()].sort((left, right) => (left.timestamp ?? 0) - (right.timestamp ?? 0));
-}
-
-function getFirstKlineTimestamp(period: Period, data: KlinePoint[]) {
-  const first = data[0];
-  return first ? (first.timestamp ?? parseKlineTimestamp(first.time, 0, data.length, period)) : undefined;
+function getFirstKlineTimestamp(data: KlinePoint[]) {
+  return data[0]?.timestamp;
 }
 
 function toKlineRequestSymbol(stock: KlineStock) {
@@ -517,47 +534,6 @@ function resolveCrosshairIndex(crosshair: Crosshair | undefined, data: KlinePoin
 
 function clampIndex(index: number, length: number) {
   return Math.max(0, Math.min(length - 1, index));
-}
-
-function toKLineData(point: KlinePoint, index: number, total: number, period: Period): KLineData {
-  return {
-    timestamp:
-      (Number.isFinite(point.timestamp) ? point.timestamp : undefined) ??
-      parseKlineTimestamp(point.time, index, total, period),
-    open: point.open,
-    high: point.high,
-    low: point.low,
-    close: point.close,
-    volume: point.volume,
-    turnover: point.amount,
-    source: point,
-  };
-}
-
-function parseKlineTimestamp(value: string, index: number, total: number, period: Period) {
-  const text = String(value || '').trim();
-  const date = text.includes('-')
-    ? new Date(text).getTime()
-    : Number(text.length === 8 ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6)}` : text);
-  if (Number.isFinite(date) && date > 10_000_000_000) return date;
-  const compactMinute = text.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
-  if (compactMinute)
-    return new Date(
-      `${compactMinute[1]}-${compactMinute[2]}-${compactMinute[3]}T${compactMinute[4]}:${compactMinute[5]}:00+08:00`,
-    ).getTime();
-  const compactDay = text.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (compactDay) return new Date(`${compactDay[1]}-${compactDay[2]}-${compactDay[3]}T00:00:00+08:00`).getTime();
-  const span =
-    period.type === 'minute'
-      ? period.span * 60_000
-      : period.type === 'hour'
-        ? period.span * 3_600_000
-        : period.type === 'week'
-          ? 7 * 86_400_000
-          : period.type === 'month'
-            ? 30 * 86_400_000
-            : 86_400_000;
-  return new Date('2024-01-01').getTime() + (index - total) * span;
 }
 
 function getYAxisStyles(hideLabels: boolean) {
