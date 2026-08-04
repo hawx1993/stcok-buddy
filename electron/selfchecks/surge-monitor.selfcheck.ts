@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { app } from 'electron';
+import { app } from '../electron-runtime.js';
 import { isChinaMarketOpen } from '../../src/shared/market-time.js';
 import type { HotFocusItem } from '../../src/shared/types.js';
 

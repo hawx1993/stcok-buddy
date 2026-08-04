@@ -31,9 +31,25 @@ argument-hint: '[开发任务描述]'
 - **精准修改**：不得改动需求之外的文件、逻辑和公共 API。
 - **金融计算**：禁止用浮点数做金额/收益等金融计算；必要时使用整数单位或可靠数值工具。
 
+## 2. 必读 Knowledge
+
+执行开发任务前必须先读取 `.claude/knowledge/api-guide.md`，再按任务领域读取对应知识文档：
+
+| 任务领域 | 必读 Knowledge |
+| -------- | -------------- |
+| Agent / 投研 / 子 Agent | `.claude/knowledge/agent-services.md` |
+| Agent 工具 / Tool Registry | `.claude/knowledge/agent-tools.md` |
+| 市场数据同步 / DuckDB / 本地优先查询 | `.claude/knowledge/market-data-services.md` |
+| 股票、行情、探索、监控、新闻、板块 | `.claude/knowledge/stock-services.md` |
+| Electron 顶层服务、配置、会话、通知、更新、商店 | `.claude/knowledge/electron-services-overview.md` |
+| IPC、preload、renderer API | `.claude/knowledge/ipc-data-flow.md` |
+| React 组件、Zustand store、Web Worker | `.claude/knowledge/frontend-architecture.md` |
+
+如本技能中的速查内容与 `.claude/knowledge/*` 不一致，以 `.claude/rules/*` 和 `.claude/knowledge/*` 的最新描述为准。
+
 ---
 
-## 2. 当前项目结构
+## 3. 当前项目结构
 
 ```text
 src/                                  # React 渲染进程
@@ -123,7 +139,7 @@ selfchecks/                           # Electron/Node 自检脚本
 
 ---
 
-## 3. 数据访问与 Provider 规则
+## 4. 数据访问与 Provider 规则
 
 ### 3.1 标准数据流
 
@@ -188,7 +204,7 @@ Data Source
 
 ---
 
-## 4. 本地数据库与缓存
+## 5. 本地数据库与缓存
 
 ### 4.1 市场数据 DuckDB
 
@@ -240,7 +256,7 @@ Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地�
 
 ---
 
-## 5. IPC 与 stocksenseApi 速查
+## 6. IPC 与 stocksenseApi 速查
 
 ### 5.1 新增 API 必改位置
 
@@ -285,7 +301,7 @@ Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地�
 
 ---
 
-## 6. 主要前端模块约定
+## 7. 主要前端模块约定
 
 ### 6.1 组件组织
 
@@ -308,7 +324,7 @@ Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地�
 
 ---
 
-## 7. AI Agent 与投研输出约定
+## 8. AI Agent 与投研输出约定
 
 主要入口：
 
@@ -328,7 +344,7 @@ Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地�
 
 ---
 
-## 8. 新增功能 Checklist
+## 9. 新增功能 Checklist
 
 开发全新页面、面板、数据展示、IPC/API 时按以下顺序：
 
@@ -343,7 +359,7 @@ Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地�
 
 ---
 
-## 9. Bug 修复 Checklist
+## 10. Bug 修复 Checklist
 
 修 Bug 必须优先定位根因，不得隐藏错误或删除业务逻辑。修改前先回答：
 
@@ -373,7 +389,7 @@ Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地�
 
 ---
 
-## 10. 编码规范速查
+## 11. 编码规范速查
 
 ### 命名
 
@@ -404,7 +420,7 @@ Memory Cache → 15~30 秒批量写入 SQLite → UI 读取优先 Memory/本地�
 
 ---
 
-## 11. 常用命令
+## 12. 常用命令
 
 ```bash
 pnpm dev                         # 启动 Electron 开发模式
@@ -434,7 +450,7 @@ pnpm selfcheck:trading-advice     # 交易建议自检
 
 ---
 
-## 12. 相关技能
+## 13. 相关技能
 
 | 技能            | 用途                                                |
 | --------------- | --------------------------------------------------- |
@@ -446,7 +462,7 @@ pnpm selfcheck:trading-advice     # 交易建议自检
 
 ---
 
-## 13. 历史风险提醒
+## 14. 历史风险提醒
 
 项目历史上存在过 preview/fallback/hardcoded 数据模式。后续触碰相关文件时不得扩展这些模式，应逐步替换为真实数据源或明确空/错状态：
 
@@ -455,7 +471,7 @@ pnpm selfcheck:trading-advice     # 交易建议自检
 - `src/components/kline-chart/index.tsx`：不得根据单个价格或涨跌幅生成走势图。
 - Agent fallback 文案只能表达数据不可用，不能伪造市场数值。
 
-## 14. 单元测试
+## 15. 单元测试
 
 - 所写的重点逻辑代码必须有单元测试覆盖。
 - 测试代码需放在`__tests__/`目录下`, 文件名以`\*.test.ts`结尾。

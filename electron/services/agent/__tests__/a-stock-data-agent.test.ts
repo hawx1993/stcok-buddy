@@ -47,6 +47,10 @@ describe('A_STOCK_DATA_TOOLBOX', () => {
     expect(names).toContain('getHolderNumberChange');
     expect(names).toContain('getDividendHistory');
     expect(names).toContain('getStockQuoteLocalFirst');
+    expect(names).toContain('screenLocalAStocks');
+    expect(names).toContain('queryLocalMarketDuckDB');
+    expect(names).toContain('queryLocalMonitorDuckDB');
+    expect(names).toContain('queryLocalSurgeDuckDB');
     expect(names).not.toContain('getStockQuote');
   });
 
@@ -56,6 +60,13 @@ describe('A_STOCK_DATA_TOOLBOX', () => {
     const northbound = A_STOCK_DATA_TOOLBOX.find((tool) => tool.name === 'getNorthboundFlow');
     expect(hotFocus?.description).toContain('getNorthboundFlow');
     expect(northbound?.description).toContain('北向');
+  });
+
+  it('全市场条件筛选描述引导到本地 DuckDB', () => {
+    const screen = A_STOCK_DATA_TOOLBOX.find((tool) => tool.name === 'screenLocalAStocks');
+    expect(screen?.description).toContain('全市场本地筛选');
+    expect(screen?.description).toContain('筹码+涨幅');
+    expect(screen?.description).toContain('90%筹码集中度<15%');
   });
 });
 

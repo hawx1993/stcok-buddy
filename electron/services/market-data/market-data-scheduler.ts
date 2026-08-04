@@ -1,4 +1,5 @@
 import { requestMarketDataSyncStop, startMarketDataSync, waitForMarketDataSync } from './market-data-sync.js';
+import { disposeMarketDataSyncWorker } from './market-data-sync-worker-client.js';
 import { getLatestSyncJob, initializeMarketDataStore } from './market-data-store.js';
 
 const INITIAL_SYNC_DELAY_MS = 15_000;
@@ -32,6 +33,11 @@ export function stopMarketDataScheduler() {
   initialTimer = undefined;
 }
 
+export async function shutdownMarketDataScheduler() {
+  stopMarketDataScheduler();
+  await disposeMarketDataSyncWorker().catch((error) => console.warn('[market-data] worker dispose failed', error));
+}
+
 export function waitForMarketDataScheduler() {
   return waitForMarketDataSync();
 }
@@ -42,6 +48,7 @@ async function scheduleInitialSyncIfNeeded() {
     initialTimer = undefined;
     void checkAndSync();
   }, INITIAL_SYNC_DELAY_MS);
+  initialTimer.unref?.();
 }
 
 async function checkAndSync() {

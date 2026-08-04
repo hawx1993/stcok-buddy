@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection } from '@duckdb/node-api';
 import path from 'node:path';
 import type { IMonitorEvent, TMonitorCategory } from '../../../src/shared/types.js';
@@ -288,6 +288,10 @@ export async function closeMonitorHistoryStore(timeoutMs?: number) {
 
 export async function closeMonitorHistoryInstance() {
   try {
+    if (activeConnections > 0) {
+      console.warn(`[monitor-history] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`);
+      return;
+    }
     if (dbReady) {
       const instance = await dbReady;
       instance.closeSync();

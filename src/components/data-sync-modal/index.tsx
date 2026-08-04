@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { useAppUiStore } from '../../store/app-store';
 import type { DataSyncTaskType, IDataSyncTaskProgress } from '../../shared/types';
+import { getTaskProgressDisplay } from './progress';
 import styles from './index.module.scss';
 
 interface ISyncTaskDef {
@@ -18,7 +19,7 @@ const SYNC_TASKS: ISyncTaskDef[] = [
     type: 'kline',
     icon: <BarChart3 size={18} />,
     title: '日K线数据',
-    desc: '同步所有A股历史日K（近十年）到本地数据库',
+    desc: '优先同步近期日K到本地数据库，历史数据后台补齐',
   },
   {
     type: 'surge',
@@ -177,7 +178,9 @@ export function DataSyncModal() {
                 ? '日K线同步完成'
                 : isFailed
                   ? '日K线同步失败'
-                  : `正在同步日K线数据（${p.processed}/${p.total}）`),
+                  : p.total > 0
+                    ? `正在同步日K线数据（${p.processed}/${p.total}）`
+                    : '正在准备日K线同步…'),
             error: isFailed ? p.message || '日K线同步失败' : undefined,
             lastSyncTime: isFinal ? new Date().toISOString() : undefined,
           });
@@ -309,6 +312,27 @@ export function DataSyncModal() {
     api
       .getMarketDataSyncStatus()
       .then((status) => {
+        if (status.state === 'checking' || status.state === 'initializing' || status.state === 'syncing') {
+          runningRef.current.add('kline');
+          klineProgressRef.current = {
+            processed: status.processedSymbols,
+            total: status.totalSymbols,
+            message: status.message ?? '正在准备日K线同步…',
+            state: status.state,
+          };
+          setTasks((prev) => ({
+            ...prev,
+            kline: {
+              ...prev.kline,
+              status: 'running',
+              processed: status.processedSymbols,
+              total: status.totalSymbols,
+              message: status.message ?? '正在准备日K线同步…',
+              lastSyncTime: status.finishedAt ?? prev.kline.lastSyncTime,
+            },
+          }));
+          return;
+        }
         if (status.finishedAt) {
           setTasks((prev) => ({
             ...prev,
@@ -325,7 +349,13 @@ export function DataSyncModal() {
     async (taskType: DataSyncTaskType) => {
       if (runningRef.current.has(taskType)) return;
       runningRef.current.add(taskType);
-      updateTask(taskType, { status: 'running', processed: 0, total: 0, message: '正在启动同步…', error: undefined });
+      updateTask(taskType, {
+        status: 'running',
+        processed: 0,
+        total: 0,
+        message: taskType === 'kline' ? '正在准备日K线同步…' : '正在启动同步…',
+        error: undefined,
+      });
       // ponytail: seed the kline ref so the throttled interval has something to
       // render before the first main-process progress event arrives. Without
       // this the bar collapses to 0% for the first 80ms+ and users report it
@@ -334,8 +364,8 @@ export function DataSyncModal() {
         klineProgressRef.current = {
           processed: 0,
           total: 0,
-          message: '正在启动同步…',
-          state: 'syncing',
+          message: '正在准备日K线同步…',
+          state: 'checking',
         };
       }
 
@@ -449,23 +479,7 @@ export function DataSyncModal() {
           <div className={styles['task-list']}>
             {SYNC_TASKS.map((task) => {
               const state = tasks[task.type];
-              const rawPct = state.total > 0 ? (state.processed / state.total) * 100 : 0;
-              // ponytail: when sync just started and no symbols have been
-              // processed yet, show a thin indeterminate bar so the user can
-              // see "it's working" instead of an invisible 0% bar. Once the
-              // first symbol completes we switch to a real percentage.
-              const isStarting = state.status === 'running' && state.processed === 0;
-              const barWidth = isStarting
-                ? 100 // full width container, inner bar uses indeterminate animation
-                : state.processed > 0
-                  ? Math.max(rawPct, 0.5)
-                  : 0;
-              const pct = rawPct;
-              const badgeText = isStarting
-                ? '准备中'
-                : pct < 1 && state.processed > 0
-                  ? `${state.processed}/${state.total}`
-                  : `${pct.toFixed(1)}%`;
+              const { isStarting, barWidth, badgeText } = getTaskProgressDisplay(state);
 
               const isCooldown =
                 task.type === 'kline' && state.status === 'idle' && state.message?.includes('小时后可再次同步');

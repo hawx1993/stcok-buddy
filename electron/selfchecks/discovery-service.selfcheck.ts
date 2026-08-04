@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { app } from 'electron';
+import { app } from '../electron-runtime.js';
 import { rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';

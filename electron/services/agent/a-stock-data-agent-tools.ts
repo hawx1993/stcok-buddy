@@ -21,6 +21,22 @@ export const A_STOCK_DATA_TOOLBOX: IToolSpec[] = [
     name: 'getStockKlineLocalFirst',
     description: '获取个股日K线，优先本地 DuckDB，其次 a-stock-data(百度)，stock-sdk 兜底，输入 {symbol, limit?}。',
   },
+  {
+    name: 'screenLocalAStocks',
+    description: '全市场本地筛选 A 股，优先用于选股/条件筛选/筹码+涨幅组合筛选，输入 {changePercentMin?, concentration90Max?, limit?, sortBy?, sortOrder?}。例如 90%筹码集中度<15% 且涨幅>5%。',
+  },
+  {
+    name: 'queryLocalMarketDuckDB',
+    description: '查询本地 stocksense-market DuckDB 的基础信息/K线/交易日历/板块缓存/发现页快照/筹码/股票快照，输入 {dataset, symbol?, boardCode?, snapshotKey?, startDate?, endDate?, limit?}。',
+  },
+  {
+    name: 'queryLocalMonitorDuckDB',
+    description: '查询本地 stocksense-monitor DuckDB 的 AI 监控历史，输入 {date?, categories?, offset?, limit?, includeCounts?}。未传 date 时返回最近可用日期。',
+  },
+  {
+    name: 'queryLocalSurgeDuckDB',
+    description: '查询本地 stocksense-surge DuckDB 的异动历史 stock_surge_events，输入 {date?, code?, tradeDates?, keepDays?, offset?, limit?}。',
+  },
   { name: 'getStockChipDistribution', description: '获取个股筹码分布（获利比例、成本集中度，本地 DuckDB 优先），输入 {symbol}。' },
   {
     name: 'getStockFundFlowLocalFirst',

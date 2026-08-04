@@ -1,18 +1,19 @@
 import { captureEvent } from '../llm/posthog-client.js';
 import type { AgentTool, ToolCallRecord } from './types.js';
 import { readUrl } from './web-tools.js';
-import {
-  getDividendHistory,
-  getHolderNumberChange,
-  getHotConcepts,
-  getIndustryRanking,
-} from './a-stock-data-tools.js';
+import { getDividendHistory, getHolderNumberChange, getHotConcepts, getIndustryRanking } from './a-stock-data-tools.js';
 import {
   getStockFundFlowLocalFirst,
   getStockKlineLocalFirst,
   getStockQuoteLocalFirst,
   queryLocalDuckDBData,
 } from '../agent/agent-data-tools.js';
+import {
+  queryLocalMarketDuckDB,
+  queryLocalMonitorDuckDB,
+  queryLocalSurgeDuckDB,
+  screenLocalAStocks,
+} from '../agent/agent-local-duckdb-tools.js';
 import {
   getDragonTiger,
   getHistoricalDailyBars,
@@ -53,6 +54,10 @@ export const stockToolRegistry = {
   getStockKlineLocalFirst,
   getStockFundFlowLocalFirst,
   queryLocalDuckDBData,
+  screenLocalAStocks,
+  queryLocalMarketDuckDB,
+  queryLocalMonitorDuckDB,
+  queryLocalSurgeDuckDB,
   readUrl,
 } satisfies Record<string, AgentTool>;
 

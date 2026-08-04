@@ -3,12 +3,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('electron', () => ({
-  app: {
-    getPath: () => os.tmpdir(),
-    isPackaged: false,
-  },
-}));
+vi.mock('electron', () => {
+  const electron = {
+    app: {
+      getPath: () => os.tmpdir(),
+      isPackaged: false,
+    },
+  };
+  return { ...electron, default: electron };
+});
 
 import type { BoardDetail, IBoardDashboardSnapshot, MarketBoardRow } from '../../../../src/shared/types.js';
 import type { DailyBarRecord, SecurityRecord } from '../types.js';
@@ -115,6 +118,21 @@ describe('市场数据 DuckDB 存储', () => {
     expect(ranged.map((bar) => bar.tradeDate)).toEqual(['2026-07-10']);
     expect(await currentStore.getLatestDailyBar('600519', 'qfq')).toMatchObject({ tradeDate: '2026-07-10', close: 1520 });
     expect(await currentStore.countDailyBarsForDate('2026-07-09')).toBe(1);
+  });
+
+  it('可以按日期范围读取交易日历', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('market data store not loaded');
+
+    await currentStore.upsertTradingCalendar([
+      { market: 'A', tradeDate: '2026-07-08', isOpen: true, nextTradeDate: '2026-07-09', source: 'vitest', updatedAt: '2026-07-08T10:00:00.000Z' },
+      { market: 'A', tradeDate: '2026-07-09', isOpen: true, previousTradeDate: '2026-07-08', nextTradeDate: '2026-07-10', source: 'vitest', updatedAt: '2026-07-09T10:00:00.000Z' },
+      { market: 'HK', tradeDate: '2026-07-09', isOpen: true, source: 'vitest', updatedAt: '2026-07-09T10:00:00.000Z' },
+    ]);
+
+    expect(await currentStore.listTradeCalendar({ market: 'A', startDate: '2026-07-09', limit: 5 })).toEqual([
+      expect.objectContaining({ market: 'A', tradeDate: '2026-07-09', previousTradeDate: '2026-07-08' }),
+    ]);
   });
 
   it('可以写入证券主表并关联 DuckDB 最新行情快照', async () => {
@@ -264,6 +282,9 @@ describe('市场数据 DuckDB 存储', () => {
     ]);
     expect(await currentStore.getStockChip('600519')).toEqual(chip);
     expect(await currentStore.getStockChip('000001')).toBeUndefined();
+    expect(await currentStore.listStockChips()).toEqual([
+      expect.objectContaining({ symbol: '600519', data: chip, fetchedAt: expect.any(String) }),
+    ]);
   });
 
   it('可以记录同步任务、失败项和统计信息', async () => {

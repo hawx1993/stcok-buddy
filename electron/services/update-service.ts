@@ -1,4 +1,4 @@
-import { app, shell } from 'electron';
+import { app, shell } from '../electron-runtime.js';
 import { copyFileSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';

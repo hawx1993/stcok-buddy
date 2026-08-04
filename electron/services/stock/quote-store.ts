@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app } from '../../electron-runtime.js';
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import type { MarketQuoteRow, MarketTab } from '../../../src/shared/types.js';
@@ -9,6 +9,10 @@ const dirtyCodes = new Set<string>();
 const quoteSources = new Map<string, string>();
 const quoteUpdatedAt = new Map<string, string>();
 let flushTimer: NodeJS.Timeout | undefined;
+
+type TCloseQuoteStoreOptions = {
+  flush?: boolean;
+};
 
 const FLUSH_INTERVAL_MS = 10_000;
 
@@ -75,10 +79,10 @@ export function initializeQuoteStore() {
   }
 }
 
-export function closeQuoteStore() {
+export function closeQuoteStore(options: TCloseQuoteStoreOptions = {}) {
   if (flushTimer) clearTimeout(flushTimer);
   flushTimer = undefined;
-  flushQuoteRows();
+  if (options.flush !== false) flushQuoteRows();
   if (db?.open) db.close();
 }
 
@@ -150,6 +154,7 @@ function scheduleFlush() {
       console.warn('[quote-store] flush failed', error);
     }
   }, FLUSH_INTERVAL_MS);
+  flushTimer.unref?.();
 }
 
 function getDb() {

@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -17,9 +17,11 @@ import type {
   MarketBoardRecord,
   MarketDataStats,
   SecurityRecord,
+  StockChipCacheRecord,
   SyncJobRecord,
   SyncJobStatus,
   SyncJobType,
+  TradeCalendarQueryOptions,
   TradeCalendarRecord,
 } from './types.js';
 
@@ -265,6 +267,21 @@ export async function getStockChip(symbol: string): Promise<unknown | undefined>
   }
 }
 
+export async function listStockChips(limit = 5000): Promise<StockChipCacheRecord[]> {
+  return read(async (connection) => {
+    const safeLimit = Math.max(1, Math.min(10000, Math.floor(limit)));
+    const rows = await all<{ symbol: string; data_json: string; fetched_at: string }>(
+      connection,
+      `SELECT symbol, data_json, fetched_at::VARCHAR AS fetched_at FROM stock_chips ORDER BY symbol LIMIT ${safeLimit}`,
+    );
+    return rows.map((row) => ({
+      symbol: String(row.symbol),
+      data: JSON.parse(row.data_json),
+      fetchedAt: String(row.fetched_at),
+    }));
+  });
+}
+
 export function updateSecurityIndustries(items: Array<{ symbol: string; industry: string }>) {
   if (!items.length) return Promise.resolve();
   return write(async (connection) => {
@@ -313,6 +330,40 @@ export function upsertTradingCalendar(items: TradeCalendarRecord[]) {
       await connection.run('ROLLBACK');
       throw error;
     }
+  });
+}
+
+export async function listTradeCalendar(options: TradeCalendarQueryOptions = {}): Promise<TradeCalendarRecord[]> {
+  return read(async (connection) => {
+    const conditions: string[] = [];
+    const values: Record<string, DuckDBValue> = {};
+    if (options.market) {
+      conditions.push('market = $market');
+      values.market = options.market;
+    }
+    if (options.startDate) {
+      conditions.push('trade_date >= $startDate');
+      values.startDate = options.startDate;
+    }
+    if (options.endDate) {
+      conditions.push('trade_date <= $endDate');
+      values.endDate = options.endDate;
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 60)));
+    const rows = await all<Record<string, unknown>>(
+      connection,
+      `
+        SELECT market, trade_date::VARCHAR AS trade_date, is_open, previous_trade_date::VARCHAR AS previous_trade_date,
+               next_trade_date::VARCHAR AS next_trade_date, source, updated_at::VARCHAR AS updated_at
+        FROM trade_calendar
+        ${where}
+        ORDER BY trade_date DESC
+        LIMIT ${limit}
+      `,
+      values,
+    );
+    return rows.map(toTradeCalendarRecord);
   });
 }
 
@@ -992,6 +1043,19 @@ export async function closeMarketDataStore(timeoutMs?: number) {
     });
 }
 
+export async function closeMarketDataInstance() {
+  try {
+    if (activeConnections > 0) {
+      console.warn(`[market-data] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`);
+      return;
+    }
+    const instance = await dbReady;
+    instance.closeSync();
+  } catch (error) {
+    console.warn('[market-data] failed to close DuckDB instance', error);
+  }
+}
+
 /**
  * ponytail: After closeMarketDataStore() + file deletion, the module is in a
  * permanently broken state — isClosing is true, ready/writeQueue reference
@@ -1127,6 +1191,18 @@ function toSecurityRecord(row: Record<string, unknown>): SecurityRecord {
   };
 }
 
+function toTradeCalendarRecord(row: Record<string, unknown>): TradeCalendarRecord {
+  return {
+    market: String(row.market),
+    tradeDate: toDateString(row.trade_date),
+    isOpen: Boolean(row.is_open),
+    previousTradeDate: optionalString(row.previous_trade_date),
+    nextTradeDate: optionalString(row.next_trade_date),
+    source: String(row.source),
+    updatedAt: String(row.updated_at),
+  };
+}
+
 function toSyncJob(row: Record<string, unknown>): SyncJobRecord {
   const status = String(row.status) as SyncJobStatus;
   return {
@@ -1134,7 +1210,7 @@ function toSyncJob(row: Record<string, unknown>): SyncJobRecord {
     status,
     state:
       status === 'running'
-        ? row.job_type === 'initial_backfill'
+        ? row.job_type === 'initial_backfill' || row.job_type === 'recent_initial'
           ? 'initializing'
           : 'syncing'
         : status === 'pending'

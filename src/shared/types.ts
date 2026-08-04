@@ -46,7 +46,9 @@ export type DataFreshness = 'live' | 'current' | 'historical' | 'stale' | 'fallb
 
 export interface MarketDataSyncStatus {
   state: 'idle' | 'checking' | 'initializing' | 'syncing' | 'completed' | 'partial' | 'failed';
-  jobType?: 'initial_backfill' | 'daily_incremental' | 'repair';
+  jobType?: 'initial_backfill' | 'recent_initial' | 'historical_backfill' | 'daily_incremental' | 'repair';
+  phase?: 'recent' | 'historical';
+  backfillPending?: boolean;
   targetTradeDate?: string;
   processedSymbols: number;
   totalSymbols: number;

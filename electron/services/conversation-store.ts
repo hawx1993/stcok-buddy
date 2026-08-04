@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app } from '../electron-runtime.js';
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import type { ChatMessage, ConversationSummary } from '../../src/shared/types.js';

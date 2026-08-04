@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from './electron-runtime.js';
 import { existsSync, statSync, statfsSync, truncateSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import type {

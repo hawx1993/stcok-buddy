@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection } from '@duckdb/node-api';
 import path from 'node:path';
 import type { HotFocusItem, StockSurgeEvent } from '../../../src/shared/types.js';
@@ -364,11 +364,13 @@ export async function closeSurgeHistoryStore(timeoutMs?: number) {
 }
 
 export async function closeSurgeHistoryInstance() {
-  // ponytail: close the actual DuckDB instance to release the file handle.
-  // closeSurgeHistoryStore only waits for connections; without closing the
-  // instance the OS may keep the old inode alive and the clear can look like
-  // it failed.
+  // ponytail: close the actual DuckDB instance to release native scheduler
+  // threads before Electron tears down Node/N-API during app quit.
   try {
+    if (activeConnections > 0) {
+      console.warn(`[surge-history] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`);
+      return;
+    }
     if (dbReady) {
       const instance = await dbReady;
       instance.closeSync();

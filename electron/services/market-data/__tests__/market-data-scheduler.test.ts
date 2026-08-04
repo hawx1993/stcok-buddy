@@ -11,13 +11,19 @@ vi.mock('../market-data-store.js', () => ({
   initializeMarketDataStore: vi.fn(() => Promise.resolve()),
 }));
 
+const workerClient = vi.hoisted(() => ({
+  disposeMarketDataSyncWorker: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock('../market-data-sync.js', () => ({
   requestMarketDataSyncStop: vi.fn(),
   startMarketDataSync: vi.fn(() => Promise.resolve()),
   waitForMarketDataSync: vi.fn(() => Promise.resolve()),
 }));
 
-import { shouldAutoSyncMarketDataForTest } from '../market-data-scheduler.js';
+vi.mock('../market-data-sync-worker-client.js', () => workerClient);
+
+import { shouldAutoSyncMarketDataForTest, shutdownMarketDataScheduler } from '../market-data-scheduler.js';
 
 describe('市场数据自动同步调度器', () => {
   it('没有历史同步记录时需要自动同步', async () => {
@@ -42,5 +48,11 @@ describe('市场数据自动同步调度器', () => {
     latestJob.value = { targetTradeDate: '2026-06-01', succeededSymbols: 100 };
 
     await expect(shouldAutoSyncMarketDataForTest(new Date('2026-08-03T10:00:00+08:00'))).resolves.toBe(true);
+  });
+
+  it('退出调度器时会等待 worker 释放', async () => {
+    await shutdownMarketDataScheduler();
+
+    expect(workerClient.disposeMarketDataSyncWorker).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,21 +1,22 @@
-import { app, BrowserWindow, shell } from 'electron';
+import type { BrowserWindow as TBrowserWindow } from 'electron';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { registerIpcHandlers } from './ipc.js';
-import { closeMarketDataStore } from './services/market-data/market-data-store.js';
-import { ensureMarketDataRuntime, stopMarketDataScheduler, waitForMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
+import { closeMarketDataInstance, closeMarketDataStore } from './services/market-data/market-data-store.js';
+import { ensureMarketDataRuntime, shutdownMarketDataScheduler, stopMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
-import { stopSurgeHistoryScheduler, waitForSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
+import { shutdownSurgeHistoryScheduler, stopSurgeHistoryScheduler, waitForSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { stopDiscoveryRefreshLoop } from './services/stock/discovery-service.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
-import { closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
+import { closeSurgeHistoryInstance, closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
 import { stopMonitorHistoryScheduler, waitForMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
 import { closeMonitorHistoryInstance, closeMonitorHistoryStore } from './services/stock/monitor-history-store.js';
 import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
 import { checkAppUpdate, setInstallUpdateHandler } from './services/update-service.js';
+import { app, BrowserWindow, shell } from './electron-runtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -25,12 +26,14 @@ const appIcon = isDev
   ? path.join(__dirname, '../public/icons/icon.svg')
   : path.join(process.resourcesPath, 'icons/icon.svg');
 
-let mainWindow: BrowserWindow | null = null;
+let mainWindow: TBrowserWindow | null = null;
 let cleanupStarted = false;
 let cleanupDone = false;
 let installingUpdate = false;
-let forceExitTimer: NodeJS.Timeout | undefined;
 let sessionStartedAt = Date.now();
+
+const QUIT_SCHEDULER_WAIT_MS = 500;
+const QUIT_POSTHOG_WAIT_MS = 800;
 
 function getPackageVersion() {
   try {
@@ -66,11 +69,65 @@ function configureAboutPanel() {
 function prepareForUpdateInstall() {
   installingUpdate = true;
   cleanupDone = true;
-  if (forceExitTimer) clearTimeout(forceExitTimer);
   stopMarketDataScheduler();
   stopDiscoveryRefreshLoop();
   stopSurgeHistoryScheduler();
   stopMonitorHistoryScheduler();
+}
+
+function finishQuit() {
+  cleanupDone = true;
+  app.quit();
+}
+
+async function runCleanupStep(name: string, cleanup: () => Promise<void> | void) {
+  const startedAt = Date.now();
+  try {
+    await cleanup();
+  } catch (error) {
+    console.warn(`[app] quit cleanup ${name} failed`, error);
+  } finally {
+    console.log(`[app] quit cleanup ${name} finished in ${Date.now() - startedAt}ms`);
+  }
+}
+
+async function waitWithTimeout(name: string, work: Promise<void>, timeoutMs: number) {
+  let timeout: NodeJS.Timeout | undefined;
+  const observedWork = work
+    .then(() => 'done' as const)
+    .catch((error) => {
+      console.warn(`[app] quit cleanup ${name} failed`, error);
+      return 'done' as const;
+    });
+  const timeoutPromise = new Promise<'timeout'>((resolve) => {
+    timeout = setTimeout(() => resolve('timeout'), timeoutMs);
+    timeout.unref?.();
+  });
+  const result = await Promise.race([observedWork, timeoutPromise]);
+  if (timeout) clearTimeout(timeout);
+  if (result === 'timeout') console.warn(`[app] quit cleanup ${name} timed out after ${timeoutMs}ms`);
+}
+
+async function cleanupAndQuit() {
+  await runCleanupStep('quote-store', () => closeQuoteStore({ flush: false }));
+  await runCleanupStep('conversation-store', () => closeConversationStore());
+  await runCleanupStep('market-data-duckdb', async () => {
+    await waitWithTimeout('market-data-scheduler', shutdownMarketDataScheduler(), QUIT_SCHEDULER_WAIT_MS);
+    await closeMarketDataStore(500);
+    await closeMarketDataInstance();
+  });
+  await runCleanupStep('surge-history-duckdb', async () => {
+    await waitForSurgeHistoryScheduler({ flushQueued: false, timeoutMs: QUIT_SCHEDULER_WAIT_MS });
+    await closeSurgeHistoryStore(500);
+    await closeSurgeHistoryInstance();
+  });
+  await runCleanupStep('monitor-history-duckdb', async () => {
+    await waitForMonitorHistoryScheduler({ flushQueued: false, timeoutMs: QUIT_SCHEDULER_WAIT_MS });
+    await closeMonitorHistoryStore(500);
+    await closeMonitorHistoryInstance();
+  });
+  await runCleanupStep('posthog', () => waitWithTimeout('posthog', shutdownPostHog(), QUIT_POSTHOG_WAIT_MS));
+  finishQuit();
 }
 
 function createWindow() {
@@ -118,9 +175,10 @@ app.whenReady().then(() => {
   });
   registerIpcHandlers();
   createWindow();
-  setTimeout(() => {
+  const updateCheckTimer = setTimeout(() => {
     void checkAppUpdate({ silent: true });
   }, 5000);
+  updateCheckTimer.unref?.();
   captureEvent('app_started');
 
   app.on('activate', () => {
@@ -133,31 +191,18 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
-  if (installingUpdate) return;
+  if (installingUpdate || cleanupDone) return;
+  event.preventDefault();
   stopMarketDataScheduler();
   stopDiscoveryRefreshLoop();
-  stopSurgeHistoryScheduler();
+  shutdownSurgeHistoryScheduler();
   stopMonitorHistoryScheduler();
-  if (cleanupDone || cleanupStarted) return;
-  event.preventDefault();
+  if (cleanupStarted) return;
   cleanupStarted = true;
+  mainWindow?.destroy();
+  mainWindow = null;
   captureEvent('app_closing', { session_duration_seconds: Math.round((Date.now() - sessionStartedAt) / 1000) });
-  forceExitTimer = setTimeout(() => {
-    cleanupDone = true;
-    app.quit();
-  }, 8000);
-  void Promise.allSettled([
-    waitForMarketDataScheduler().then(() => closeMarketDataStore()),
-    waitForSurgeHistoryScheduler().then(() => closeSurgeHistoryStore()),
-    waitForMonitorHistoryScheduler().then(() => closeMonitorHistoryStore()).then(() => closeMonitorHistoryInstance()),
-    Promise.resolve(closeQuoteStore()),
-    Promise.resolve(closeConversationStore()),
-    shutdownPostHog(),
-  ]).finally(() => {
-    if (forceExitTimer) clearTimeout(forceExitTimer);
-    cleanupDone = true;
-    app.quit();
-  });
+  void cleanupAndQuit();
 });
 
 process.on('uncaughtException', (error) => {

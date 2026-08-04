@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app } from '../../electron-runtime.js';
 import { release } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
