@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { A_STOCK_DATA_TOOLBOX, parseToolCall } from '../a-stock-data-agent-tools.js';
+import {
+  A_STOCK_DATA_TOOLBOX,
+  isNoDataToolResult,
+  parseToolCall,
+  shouldQueryLocalDuckDB,
+} from '../a-stock-data-agent-tools.js';
 
 describe('parseToolCall 解析工具调用', () => {
   it('解析整段 JSON 工具调用', () => {
@@ -51,5 +56,25 @@ describe('A_STOCK_DATA_TOOLBOX', () => {
     const northbound = A_STOCK_DATA_TOOLBOX.find((tool) => tool.name === 'getNorthboundFlow');
     expect(hotFocus?.description).toContain('getNorthboundFlow');
     expect(northbound?.description).toContain('北向');
+  });
+});
+
+describe('a-stock-data 无数据后本地 DuckDB 续查判断', () => {
+  it('识别空结果和暂不可用文案为无数据', () => {
+    expect(isNoDataToolResult([])).toBe(true);
+    expect(isNoDataToolResult({ rows: [] })).toBe(true);
+    expect(isNoDataToolResult({ list: [] })).toBe(true);
+    expect(isNoDataToolResult({ news: [], announcements: [] })).toBe(true);
+    expect(isNoDataToolResult('该数据源暂不可用')).toBe(true);
+  });
+
+  it('有效数据不会触发本地 DuckDB 续查', () => {
+    expect(shouldQueryLocalDuckDB('getHotConcepts', { list: [{ code: '600519' }] })).toBe(false);
+    expect(shouldQueryLocalDuckDB('getStockNewsAnnouncements', { news: [{ title: '公告' }], announcements: [] })).toBe(false);
+  });
+
+  it('本地 DuckDB 工具自身不会递归续查', () => {
+    expect(shouldQueryLocalDuckDB('queryLocalDuckDBData', { rows: [] })).toBe(false);
+    expect(shouldQueryLocalDuckDB('getHotConcepts', { rows: [] })).toBe(true);
   });
 });

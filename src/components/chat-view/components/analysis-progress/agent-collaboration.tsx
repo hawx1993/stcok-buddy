@@ -37,7 +37,7 @@ export function AgentCollaboration({
       case 'completed':
         return agent.elapsed ? `已完成，耗时 ${agent.elapsed.toFixed(1)}s` : '已完成';
       case 'running':
-        return '调用模型分析中...';
+        return agent.progressMessage ?? '调用模型分析中...';
       case 'error':
         return '失败';
       default:

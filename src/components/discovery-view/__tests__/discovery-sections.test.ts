@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { mergeDiscoverySectionSnapshot, mergeDiscoveryTradeDateNavSnapshot } from '../hooks/use-discovery-sections';
+import {
+  getNextDiscoverySectionLoadingState,
+  mergeDiscoverySectionSnapshot,
+  mergeDiscoveryTradeDateNavSnapshot,
+  shouldRestoreDiscoverySectionsCache,
+} from '../hooks/use-discovery-sections';
 
 const marketSummary = {
   indices: [],
@@ -93,5 +98,18 @@ describe('探索页分区快照合并', () => {
     expect(merged.score).toBe(62);
     expect(merged.marketSummary?.sectors[0]?.name).toBe('半导体');
     expect(merged.tradeDates?.map((item) => item.date)).toEqual(['2026-08-04', '2026-08-03']);
+  });
+
+  it('已加载区块刷新时保持 loaded，避免重新显示骨架屏', () => {
+    expect(getNextDiscoverySectionLoadingState({ status: 'loaded' })).toEqual({ status: 'loaded' });
+    expect(getNextDiscoverySectionLoadingState({ status: 'error', error: '数据加载失败' })).toEqual({ status: 'loading' });
+    expect(getNextDiscoverySectionLoadingState(undefined)).toEqual({ status: 'loading' });
+  });
+
+  it('4 小时内复用探索页状态，超过 4 小时后重新进入允许首屏骨架屏', () => {
+    const now = new Date('2026-08-04T10:00:00+08:00').getTime();
+    expect(shouldRestoreDiscoverySectionsCache(now - 4 * 60 * 60 * 1000 + 1, now)).toBe(true);
+    expect(shouldRestoreDiscoverySectionsCache(now - 4 * 60 * 60 * 1000, now)).toBe(false);
+    expect(shouldRestoreDiscoverySectionsCache(undefined, now)).toBe(false);
   });
 });

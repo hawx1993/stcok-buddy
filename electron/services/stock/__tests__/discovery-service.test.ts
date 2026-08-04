@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const stockSdkInstances = vi.hoisted(() => [] as Array<{
   fundFlow: { market: ReturnType<typeof vi.fn>; rank: ReturnType<typeof vi.fn>; sectorRank: ReturnType<typeof vi.fn> };
+  northbound: { summary: ReturnType<typeof vi.fn> };
   board: {
     concept: { constituents: ReturnType<typeof vi.fn>; list: ReturnType<typeof vi.fn>; kline: ReturnType<typeof vi.fn> };
     industry: { constituents: ReturnType<typeof vi.fn>; list: ReturnType<typeof vi.fn>; kline: ReturnType<typeof vi.fn> };
@@ -11,6 +12,7 @@ const stockSdkInstances = vi.hoisted(() => [] as Array<{
 vi.mock('stock-sdk', () => ({
   default: class StockSDKMock {
     fundFlow = { market: vi.fn(), rank: vi.fn(), sectorRank: vi.fn() };
+    northbound = { summary: vi.fn() };
     board = {
       concept: { constituents: vi.fn(), list: vi.fn(), kline: vi.fn() },
       industry: { constituents: vi.fn(), list: vi.fn(), kline: vi.fn() },
@@ -73,6 +75,8 @@ vi.mock('../monitor-service.js', () => ({
 }));
 
 import { isRemoteTradingDay, listRemoteTradingCalendar } from '../../market-data/providers.js';
+import { getConfig } from '../../config-store.js';
+import { chatWithOpenAICompatible } from '../../llm/openai-compatible-client.js';
 import { listMarketBoards, writeDiscoverySnapshot } from '../../market-data/market-data-store.js';
 import { getMarketReview, scoreSentiment } from '../market-review-service.js';
 import { listEastmoneySurgeByDate } from '../stock-client.js';
@@ -120,6 +124,8 @@ import type { TLocalBoardSummary } from '../discovery-service.js';
 
 const mockedIsRemoteTradingDay = vi.mocked(isRemoteTradingDay);
 const mockedListRemoteTradingCalendar = vi.mocked(listRemoteTradingCalendar);
+const mockedGetConfig = vi.mocked(getConfig);
+const mockedChatWithOpenAICompatible = vi.mocked(chatWithOpenAICompatible);
 const mockedListMarketBoards = vi.mocked(listMarketBoards);
 const mockedWriteDiscoverySnapshot = vi.mocked(writeDiscoverySnapshot);
 const mockedGetMarketReview = vi.mocked(getMarketReview);
@@ -127,6 +133,26 @@ const mockedScoreSentiment = vi.mocked(scoreSentiment);
 const mockedListEastmoneySurgeByDate = vi.mocked(listEastmoneySurgeByDate);
 const mockedListSurgeDates = vi.mocked(listSurgeDates);
 const mockedListSurgeHistory = vi.mocked(listSurgeHistory);
+
+const testAppConfig = {
+  theme: 'dark',
+  marketColorMode: 'red-up-green-down',
+  model: {
+    provider: 'deepseek',
+    apiKey: '',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-v4-flash',
+    customModel: '',
+  },
+  appUpdate: {
+    channel: 'stable',
+    downloadDirectory: '',
+  },
+  tradeStyle: 'value',
+  riskProfile: 'moderate',
+  holdingPeriod: 'medium',
+  notifyOnAiResponse: true,
+} satisfies ReturnType<typeof getConfig>;
 
 function getDiscoverySdk() {
   const sdk = stockSdkInstances[stockSdkInstances.length - 1];
@@ -138,6 +164,10 @@ beforeEach(() => {
   resetDiscoveryFundFlowCachesForTest();
   mockedListRemoteTradingCalendar.mockReset();
   mockedListRemoteTradingCalendar.mockResolvedValue([]);
+  mockedGetConfig.mockReset();
+  mockedGetConfig.mockReturnValue(testAppConfig);
+  mockedChatWithOpenAICompatible.mockReset();
+  mockedChatWithOpenAICompatible.mockResolvedValue('[]');
   mockedGetMarketReview.mockReset();
   mockedScoreSentiment.mockReset();
   mockedScoreSentiment.mockReturnValue(50);
@@ -151,14 +181,25 @@ beforeEach(() => {
   mockedListSurgeHistory.mockResolvedValue([]);
   for (const sdk of stockSdkInstances) {
     sdk.fundFlow.market.mockReset();
+    sdk.fundFlow.market.mockResolvedValue([]);
     sdk.fundFlow.rank.mockReset();
+    sdk.fundFlow.rank.mockResolvedValue([]);
     sdk.fundFlow.sectorRank.mockReset();
+    sdk.fundFlow.sectorRank.mockResolvedValue([]);
+    sdk.northbound.summary.mockReset();
+    sdk.northbound.summary.mockResolvedValue([]);
     sdk.board.concept.constituents.mockReset();
+    sdk.board.concept.constituents.mockResolvedValue([]);
     sdk.board.concept.list.mockReset();
+    sdk.board.concept.list.mockResolvedValue([]);
     sdk.board.concept.kline.mockReset();
+    sdk.board.concept.kline.mockResolvedValue([]);
     sdk.board.industry.constituents.mockReset();
+    sdk.board.industry.constituents.mockResolvedValue([]);
     sdk.board.industry.list.mockReset();
+    sdk.board.industry.list.mockResolvedValue([]);
     sdk.board.industry.kline.mockReset();
+    sdk.board.industry.kline.mockResolvedValue([]);
   }
 });
 

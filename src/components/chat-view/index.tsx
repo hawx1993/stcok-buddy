@@ -117,6 +117,7 @@ export function ChatView() {
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [storeOpen, setStoreOpen] = useState(false);
   const activeRequestRef = useRef<string>();
+  const activeRequestConversationRef = useRef<string>();
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [installedStoreItems, setInstalledStoreItems] = useState<string[]>([]);
   const messages = useAppDataStore((state) => state.messages);
@@ -238,20 +239,26 @@ export function ChatView() {
 
   const stopThinking = () => {
     trackButtonClick('stop_thinking');
+    const conversationId = activeRequestConversationRef.current ?? activeConversationId ?? 'conv-1';
     activeRequestRef.current = undefined;
-    replaceLastAssistant({
-      id: `assistant-stopped-${Date.now()}`,
-      role: 'assistant',
-      content: '已暂停思考。',
-      createdAt: new Date().toISOString(),
-    });
-    setSending(false);
+    activeRequestConversationRef.current = undefined;
+    replaceLastAssistant(
+      {
+        id: `assistant-stopped-${Date.now()}`,
+        role: 'assistant',
+        content: '已暂停思考。',
+        createdAt: new Date().toISOString(),
+      },
+      conversationId,
+    );
+    setSending(false, conversationId);
   };
 
   const send = async (override?: string) => {
     const text = (override ?? input).trim();
     if (!text || isSending) return;
     setInput('');
+    const conversationId = activeConversationId ?? 'conv-1';
     const command = text.startsWith('/') ? text.split(/\s+/, 1)[0] : undefined;
     trackButtonClick('send_chat', { command, message_length: text.length, has_stock_code: /\d{6}/.test(text) });
     track('stock_query_entered', {
@@ -276,13 +283,13 @@ export function ChatView() {
       };
       addMessage(assistantMessage);
       const api = getStocksenseApi();
-      await api.saveMessage(activeConversationId ?? 'conv-1', userMessage);
-      await api.saveMessage(activeConversationId ?? 'conv-1', assistantMessage);
+      await api.saveMessage(conversationId, userMessage);
+      await api.saveMessage(conversationId, assistantMessage);
       api.listConversations().then(useAppDataStore.getState().setConversations).catch(console.error);
       return;
     }
 
-    setSending(true);
+    setSending(true, conversationId);
     addMessage({
       id: `assistant-thinking-${Date.now()}`,
       role: 'assistant',
@@ -294,32 +301,37 @@ export function ChatView() {
     const api = getStocksenseApi();
     try {
       activeRequestRef.current = requestId;
+      activeRequestConversationRef.current = conversationId;
       await api.testModelConfig(await api.getConfig());
     } catch (error) {
-      replaceLastAssistant({
-        id: `assistant-error-${Date.now()}`,
-        role: 'assistant',
-        content: error instanceof Error ? error.message : '模型配置校验失败，请检查 API 配置。',
-        createdAt: new Date().toISOString(),
-      });
+      replaceLastAssistant(
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: 'assistant',
+          content: error instanceof Error ? error.message : '模型配置校验失败，请检查 API 配置。',
+          createdAt: new Date().toISOString(),
+        },
+        conversationId,
+      );
       activeRequestRef.current = undefined;
-      setSending(false);
+      activeRequestConversationRef.current = undefined;
+      setSending(false, conversationId);
       return;
     }
     let offToken: (() => void) | undefined;
     try {
       offToken = api.onChatToken?.((event) => {
         if (event.requestId !== requestId || activeRequestRef.current !== requestId) return;
-        if (event.runEvent) applyRunEventToLastAssistant(event.runEvent);
-        if (event.token) appendToLastAssistant(event.token);
+        if (event.runEvent) applyRunEventToLastAssistant(event.runEvent, conversationId);
+        if (event.token) appendToLastAssistant(event.token, conversationId);
       });
       const response = await api.sendChat({
-        conversationId: activeConversationId ?? 'conv-1',
+        conversationId,
         message: text,
         requestId,
       });
       if (activeRequestRef.current !== requestId) return;
-      finalizeLastAssistant(response.message);
+      finalizeLastAssistant(response.message, conversationId);
       const stock = response.events.find((event) => event.stock)?.stock;
       if (stock) {
         const resultStock = response.message.result?.stocks?.find((item) => item.code === stock.code);
@@ -332,16 +344,22 @@ export function ChatView() {
       api.listConversations().then(useAppDataStore.getState().setConversations).catch(console.error);
     } catch (error) {
       if (activeRequestRef.current !== requestId) return;
-      replaceLastAssistant({
-        id: `assistant-error-${Date.now()}`,
-        role: 'assistant',
-        content: error instanceof Error ? error.message : '请求失败，请稍后重试。',
-        createdAt: new Date().toISOString(),
-      });
+      replaceLastAssistant(
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: 'assistant',
+          content: error instanceof Error ? error.message : '请求失败，请稍后重试。',
+          createdAt: new Date().toISOString(),
+        },
+        conversationId,
+      );
     } finally {
       offToken?.();
-      if (activeRequestRef.current === requestId) activeRequestRef.current = undefined;
-      setSending(false);
+      if (activeRequestRef.current === requestId) {
+        activeRequestRef.current = undefined;
+        activeRequestConversationRef.current = undefined;
+      }
+      setSending(false, conversationId);
     }
   };
 

@@ -17,6 +17,16 @@ interface IFavoritesPanelProps {
 
 const FAVORITE_QUOTE_REFRESH_INTERVAL_MS = 15_000;
 const FAVORITE_TIMELINE_REFRESH_INTERVAL_MS = 60_000;
+const FAVORITE_TIMELINE_SWITCH_STORAGE_KEY = 'stocksense-favorite-timeline-visible';
+
+export function readFavoriteTimelineSwitchCache() {
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(FAVORITE_TIMELINE_SWITCH_STORAGE_KEY) === 'true';
+}
+
+export function writeFavoriteTimelineSwitchCache(visible: boolean) {
+  localStorage.setItem(FAVORITE_TIMELINE_SWITCH_STORAGE_KEY, String(visible));
+}
 
 export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -25,7 +35,7 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   const timelineTimerRef = useRef<number>();
   const [quotes, setQuotes] = useState<Record<string, StockDetail>>({});
   const [timelines, setTimelines] = useState<Record<string, IStockTimelineSnapshot>>({});
-  const [showTimeline, setShowTimeline] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(readFavoriteTimelineSwitchCache);
   const [visibleCodes, setVisibleCodes] = useState<string[]>([]);
   const favoriteStocks = useAppDataStore((state) => state.favoriteStocks);
   const setFavoriteStocks = useAppDataStore((state) => state.setFavoriteStocks);
@@ -47,6 +57,11 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
       if (!hasCode) return current;
       return current.filter((item) => item !== code);
     });
+  }, []);
+
+  const handleTimelineSwitchChange = useCallback((checked: boolean) => {
+    writeFavoriteTimelineSwitchCache(checked);
+    setShowTimeline(checked);
   }, []);
 
   useEffect(() => {
@@ -206,7 +221,7 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
         </span>
         <span className={styles['favorite-timeline-switch']}>
           <small>分时图</small>
-          <Switch size='small' checked={showTimeline} onChange={setShowTimeline} />
+          <Switch size='small' checked={showTimeline} onChange={handleTimelineSwitchChange} />
         </span>
       </div>
       <div className={cx(styles['right-panel-body'], styles['news-panel-body'])} ref={listRef}>

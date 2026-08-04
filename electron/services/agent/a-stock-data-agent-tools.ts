@@ -8,6 +8,9 @@ export interface IToolSpec {
   description: string;
 }
 
+const LOCAL_DUCKDB_TOOL_NAME = 'queryLocalDuckDBData';
+const NO_DATA_TEXT_MARKERS = ['暂无数据', '暂不可用', '无可用数据', '空结果', 'not available'];
+
 export const A_STOCK_DATA_TOOLBOX: IToolSpec[] = [
   { name: 'resolveStockSymbol', description: '把股票名称或代码解析为 6 位代码，输入 {query}。股票相关问题通常第一步调用。' },
   {
@@ -53,4 +56,31 @@ export function parseToolCall(response: string): { tool: string; input: unknown 
     }
   }
   return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+}
+
+export function isNoDataToolResult(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return !text || NO_DATA_TEXT_MARKERS.some((marker) => text.toLowerCase().includes(marker.toLowerCase()));
+  }
+  if (Array.isArray(value)) return value.length === 0;
+  const record = asRecord(value);
+  if (!record) return false;
+  if (record.isEmpty === true) return true;
+  const arrayKeys = ['rows', 'list', 'items', 'data', 'news', 'announcements'];
+  const arrays = arrayKeys
+    .map((key) => record[key])
+    .filter((item): item is unknown[] => Array.isArray(item));
+  if (arrays.length > 0 && arrays.every((items) => items.length === 0)) return true;
+  if ('ranking' in record && 'flow' in record && !record.ranking && !record.flow) return true;
+  return false;
+}
+
+export function shouldQueryLocalDuckDB(toolName: string, result: unknown): boolean {
+  return toolName !== LOCAL_DUCKDB_TOOL_NAME && isNoDataToolResult(result);
 }

@@ -2,7 +2,12 @@ import type { LlmChatMessage } from '../llm/openai-compatible-client.js';
 import { generateReport } from '../llm/index.js';
 import { runContextTool } from './agent-tool-runtime.js';
 import type { IAgentContext } from './orchestrator-types.js';
-import { A_STOCK_DATA_TOOLBOX, parseToolCall } from './a-stock-data-agent-tools.js';
+import {
+  A_STOCK_DATA_TOOLBOX,
+  isNoDataToolResult,
+  parseToolCall,
+  shouldQueryLocalDuckDB,
+} from './a-stock-data-agent-tools.js';
 
 /**
  * 智能体式 a-stock-data 回答：股票 / A 股相关问题由大模型自主决定调用哪个真实数据工具，
@@ -11,6 +16,7 @@ import { A_STOCK_DATA_TOOLBOX, parseToolCall } from './a-stock-data-agent-tools.
  */
 
 const MAX_TOOL_ROUNDS = 3;
+const LOCAL_DUCKDB_TOOL_NAME = 'queryLocalDuckDBData';
 
 function buildAgenticSystemPrompt(): string {
   const tools = A_STOCK_DATA_TOOLBOX.map((tool) => `- ${tool.name}：${tool.description}`).join('\n');
@@ -32,6 +38,74 @@ ${tools}
 function summarizeToolResult(value: unknown): string {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   return (text ?? '').slice(0, 4000) || '（空结果）';
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+}
+
+function readTextField(value: unknown, key: string): string | undefined {
+  const raw = asRecord(value)?.[key];
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : undefined;
+}
+
+function buildLocalDuckDBInput(ctx: IAgentContext, input: unknown): { symbol?: string; limit: number } {
+  const symbol = readTextField(input, 'symbol') ?? readTextField(input, 'code') ?? ctx.symbol;
+  return { symbol, limit: 60 };
+}
+
+async function queryLocalDuckDBAfterNoData(ctx: IAgentContext, sourceTool: string, input: unknown): Promise<unknown> {
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
+  const step = {
+    id: 'local-duckdb',
+    agent: 'LocalDuckDBAgent',
+    description: '查询本地 DuckDB 数据库',
+    status: 'running' as const,
+    startedAt,
+  };
+  ctx.emitEvent?.({
+    type: 'subagent_started',
+    title: '子 Agent 启动',
+    message: '查询本地 DuckDB 数据库中...',
+    step,
+    subAgent: {
+      name: '本地 DuckDB 数据库',
+      description: `a-stock-data 工具 ${sourceTool} 无数据，改查本地 DuckDB`,
+      status: 'running',
+      summary: '查询本地 DuckDB 数据库中...',
+    },
+  });
+
+  const result = await runContextTool(ctx, LOCAL_DUCKDB_TOOL_NAME, buildLocalDuckDBInput(ctx, input), () => ({
+    source: 'duckdb:local',
+    storage: 'local',
+    kline: [],
+    marketRows: [],
+    warnings: ['本地 DuckDB 查询失败'],
+    isEmpty: true,
+  }));
+  const endedAtMs = Date.now();
+  const empty = isNoDataToolResult(result);
+  ctx.emitEvent?.({
+    type: 'subagent_completed',
+    title: '子 Agent 结果',
+    message: empty ? '本地 DuckDB 查询完成，但暂无可用数据' : '本地 DuckDB 查询完成',
+    step: {
+      ...step,
+      status: 'completed',
+      elapsed: Math.max(0, Math.round((endedAtMs - startedAtMs) / 100) / 10),
+      endedAt: new Date(endedAtMs).toISOString(),
+    },
+    subAgent: {
+      name: '本地 DuckDB 数据库',
+      description: '查询本地 DuckDB 数据库',
+      status: 'completed',
+      elapsed: Math.max(0, Math.round((endedAtMs - startedAtMs) / 100) / 10),
+      summary: empty ? '本地 DuckDB 暂无可用数据' : '本地 DuckDB 返回可用数据',
+    },
+  });
+  return result;
 }
 
 function emitAgentProgress(ctx: IAgentContext, message: string, round: number): void {
@@ -68,9 +142,26 @@ export async function agenticAStockDataAnswer(ctx: IAgentContext): Promise<strin
       continue;
     }
     const result = await runContextTool(ctx, call.tool, call.input, () => '该数据源暂不可用');
-    emitAgentProgress(ctx, `已获取 ${call.tool} 真实数据，继续分析...`, round + 1);
+    const localDuckDBResult = shouldQueryLocalDuckDB(call.tool, result)
+      ? await queryLocalDuckDBAfterNoData(ctx, call.tool, call.input)
+      : undefined;
+    emitAgentProgress(
+      ctx,
+      localDuckDBResult === undefined
+        ? `已获取 ${call.tool} 真实数据，继续分析...`
+        : 'a-stock-data 无可用数据，已继续查询本地 DuckDB...',
+      round + 1,
+    );
     messages.push({ role: 'assistant', content: response });
-    messages.push({ role: 'user', content: `工具 ${call.tool} 返回结果：\n${summarizeToolResult(result)}` });
+    messages.push({
+      role: 'user',
+      content:
+        localDuckDBResult === undefined
+          ? `工具 ${call.tool} 返回结果：\n${summarizeToolResult(result)}`
+          : `工具 ${call.tool} 返回为空或暂不可用：\n${summarizeToolResult(
+              result,
+            )}\n\n已继续查询本地 DuckDB，返回结果：\n${summarizeToolResult(localDuckDBResult)}`,
+    });
   }
 
   emitAgentProgress(ctx, '已达工具调用上限，汇总真实数据生成最终回答...', MAX_TOOL_ROUNDS);

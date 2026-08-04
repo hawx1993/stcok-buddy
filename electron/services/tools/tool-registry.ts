@@ -11,6 +11,7 @@ import {
   getStockFundFlowLocalFirst,
   getStockKlineLocalFirst,
   getStockQuoteLocalFirst,
+  queryLocalDuckDBData,
 } from '../agent/agent-data-tools.js';
 import {
   getDragonTiger,
@@ -51,6 +52,7 @@ export const stockToolRegistry = {
   getStockQuoteLocalFirst,
   getStockKlineLocalFirst,
   getStockFundFlowLocalFirst,
+  queryLocalDuckDBData,
   readUrl,
 } satisfies Record<string, AgentTool>;
 

@@ -5,12 +5,22 @@ import type { IDiscoverySnapshot } from '../types';
 
 export type TDiscoverySectionStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
-interface IDiscoverySectionState {
+export interface IDiscoverySectionState {
   status: TDiscoverySectionStatus;
   error?: string;
 }
 
+interface IDiscoverySectionsCache {
+  snapshot?: IDiscoverySnapshot;
+  selectedTradeDate: string;
+  activeSections: TDiscoverySnapshotSection[];
+  sectionStates: Partial<Record<TDiscoverySnapshotSection, IDiscoverySectionState>>;
+  updatedAt: number;
+}
+
 const IDLE_SECTION_STATE: IDiscoverySectionState = { status: 'idle' };
+const DISCOVERY_SECTIONS_CACHE_TTL_MS = 4 * 60 * 60 * 1000;
+let discoverySectionsCache: IDiscoverySectionsCache | undefined;
 
 function toDiscoverySnapshot(input: Record<string, unknown>): IDiscoverySnapshot {
   return {
@@ -18,6 +28,28 @@ function toDiscoverySnapshot(input: Record<string, unknown>): IDiscoverySnapshot
     tradeDate: typeof input.tradeDate === 'string' ? input.tradeDate : '',
     generatedAt: typeof input.generatedAt === 'string' ? input.generatedAt : new Date().toISOString(),
   } as IDiscoverySnapshot;
+}
+
+export function shouldRestoreDiscoverySectionsCache(updatedAt: number | undefined, now = Date.now()) {
+  return typeof updatedAt === 'number' && Number.isFinite(updatedAt) && now - updatedAt < DISCOVERY_SECTIONS_CACHE_TTL_MS;
+}
+
+export function getNextDiscoverySectionLoadingState(
+  current: IDiscoverySectionState | undefined,
+): IDiscoverySectionState {
+  return current?.status === 'loaded' ? current : { status: 'loading' };
+}
+
+function readDiscoverySectionsCache() {
+  if (!shouldRestoreDiscoverySectionsCache(discoverySectionsCache?.updatedAt)) {
+    discoverySectionsCache = undefined;
+    return undefined;
+  }
+  return discoverySectionsCache;
+}
+
+function writeDiscoverySectionsCache(input: Omit<IDiscoverySectionsCache, 'updatedAt'>) {
+  discoverySectionsCache = { ...input, updatedAt: Date.now() };
 }
 
 export function mergeDiscoverySectionSnapshot(
@@ -48,18 +80,21 @@ export function mergeDiscoveryTradeDateNavSnapshot(
 }
 
 export function useDiscoverySections() {
-  const [snapshot, setSnapshot] = useState<IDiscoverySnapshot>();
-  const [selectedTradeDate, setSelectedTradeDate] = useState('');
+  const initialCacheRef = useRef(readDiscoverySectionsCache());
+  const [snapshot, setSnapshot] = useState<IDiscoverySnapshot | undefined>(() => initialCacheRef.current?.snapshot);
+  const [selectedTradeDate, setSelectedTradeDate] = useState(() => initialCacheRef.current?.selectedTradeDate ?? '');
   const [activeSections, setActiveSections] = useState<Set<TDiscoverySnapshotSection>>(
-    () => new Set<TDiscoverySnapshotSection>(['hero']),
+    () => new Set<TDiscoverySnapshotSection>(initialCacheRef.current?.activeSections ?? ['hero']),
   );
   const [sectionStates, setSectionStates] = useState<Partial<Record<TDiscoverySnapshotSection, IDiscoverySectionState>>>(
-    {},
+    () => initialCacheRef.current?.sectionStates ?? {},
   );
   const generationRef = useRef(0);
   const requestIdsRef = useRef(new Map<TDiscoverySnapshotSection, number>());
-  const selectedTradeDateRef = useRef('');
-  const sectionStatesRef = useRef<Partial<Record<TDiscoverySnapshotSection, IDiscoverySectionState>>>({});
+  const selectedTradeDateRef = useRef(initialCacheRef.current?.selectedTradeDate ?? '');
+  const sectionStatesRef = useRef<Partial<Record<TDiscoverySnapshotSection, IDiscoverySectionState>>>(
+    initialCacheRef.current?.sectionStates ?? {},
+  );
 
   const setSectionState = useCallback((section: TDiscoverySnapshotSection, state: IDiscoverySectionState) => {
     sectionStatesRef.current = { ...sectionStatesRef.current, [section]: state };
@@ -72,8 +107,9 @@ export function useDiscoverySections() {
   ) => {
     const generation = generationRef.current;
     const requestId = (requestIdsRef.current.get(section) ?? 0) + 1;
+    const currentState = sectionStatesRef.current[section];
     requestIdsRef.current.set(section, requestId);
-    setSectionState(section, { status: 'loading' });
+    setSectionState(section, getNextDiscoverySectionLoadingState(currentState));
     try {
       const data = await getStocksenseApi().getDiscoverySnapshot({
         ...(tradeDate ? { tradeDate } : {}),
@@ -90,6 +126,10 @@ export function useDiscoverySections() {
       setSectionState(section, { status: 'loaded' });
     } catch (error) {
       if (generation !== generationRef.current || requestIdsRef.current.get(section) !== requestId) return;
+      if (currentState?.status === 'loaded') {
+        setSectionState(section, currentState);
+        return;
+      }
       setSectionState(section, {
         status: 'error',
         error: error instanceof Error ? error.message : '数据加载失败',
@@ -146,6 +186,16 @@ export function useDiscoverySections() {
     const tradeDate = useDefaultTradeDate ? '' : selectedTradeDate;
     for (const section of activeSections) void loadSection(section, tradeDate);
   }, [activeSections, loadSection, selectedTradeDate]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    writeDiscoverySectionsCache({
+      snapshot,
+      selectedTradeDate,
+      activeSections: Array.from(activeSections),
+      sectionStates,
+    });
+  }, [activeSections, sectionStates, selectedTradeDate, snapshot]);
 
   useEffect(() => {
     void loadTradeDateNav('');

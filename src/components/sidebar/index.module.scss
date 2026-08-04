@@ -253,7 +253,8 @@
   opacity: 0.65;
 }
 .source-item-wrap:hover .count,
-.source-item-wrap.menu-open .count {
+.source-item-wrap.menu-open .count,
+.source-item-wrap.responding .count {
   opacity: 0;
 }
 .source-more {
@@ -272,12 +273,25 @@
   z-index: 2;
 }
 .source-item-wrap:hover .source-more,
-.source-item-wrap.menu-open .source-more {
+.source-item-wrap.menu-open .source-more,
+.source-item-wrap.responding .source-more {
   opacity: 1;
+}
+.source-loading {
+  color: var(--accent);
+  pointer-events: none;
+}
+.source-loading svg {
+  animation: source-loading-spin 0.9s linear infinite;
 }
 .source-more:hover {
   background: var(--surface-hover);
   color: var(--fg);
+}
+@keyframes source-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .rename-row {
   width: 100%;

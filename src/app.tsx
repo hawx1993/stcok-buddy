@@ -32,6 +32,7 @@ export function App() {
   const setConversations = useAppDataStore((state) => state.setConversations);
   const setFavoriteStocks = useAppDataStore((state) => state.setFavoriteStocks);
   const activeConversationId = useAppDataStore((state) => state.activeConversationId);
+  const respondingConversationId = useAppDataStore((state) => state.respondingConversationId);
   const mainView = useAppUiStore((state) => state.mainView);
   const setMessages = useAppDataStore((state) => state.setMessages);
   const isLeftSidebarCollapsed = useAppUiStore((state) => state.isLeftSidebarCollapsed);
@@ -61,6 +62,7 @@ export function App() {
         const state = useAppDataStore.getState();
         if (state.activeConversationId !== activeConversationId) return;
         if (
+          state.respondingConversationId === activeConversationId &&
           (state.isSending || state.messages.some((message) => message.thinking)) &&
           items.length < state.messages.length
         )
@@ -68,7 +70,7 @@ export function App() {
         setMessages(items);
       })
       .catch(console.error);
-  }, [activeConversationId, setMessages]);
+  }, [activeConversationId, respondingConversationId, setMessages]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = config?.theme ?? 'dark';
