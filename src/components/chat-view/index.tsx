@@ -13,12 +13,7 @@ import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import { track, trackButtonClick } from '../../shared/analytics';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
-import {
-  getChatAutoScrollBehavior,
-  getChatLastMessageIndex,
-  isNearChatBottom,
-  type TChatAutoScrollReason,
-} from './auto-scroll';
+import { useStickToBottom } from 'use-stick-to-bottom';
 import { CHAT_MESSAGE_PAGE_SIZE } from '../../shared/chat-message-pagination';
 
 const builtInSlashItems = [
@@ -121,13 +116,12 @@ setBuiltInSlashItems(builtInSlashItems);
 
 export function ChatView() {
   const rootRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const [input, setInput] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [storeOpen, setStoreOpen] = useState(false);
   const activeRequestRef = useRef<string>();
   const activeRequestConversationRef = useRef<string>();
-  const userScrolledAwayRef = useRef(false);
   const shouldSuppressConversationScrollRef = useRef(false);
   const loadingEarlierRef = useRef(false);
   const noMoreEarlierConversationRef = useRef<string>();
@@ -141,7 +135,6 @@ export function ChatView() {
   const [now, setNow] = useState(Date.now());
   const activeConversationId = useAppDataStore((state) => state.activeConversationId);
   const isSending = useAppDataStore((state) => state.isSending);
-  const previousIsSendingRef = useRef(isSending);
   const config = useAppDataStore((state) => state.config);
   const chatSearchHighlight = useAppUiStore((state) => state.chatSearchHighlight);
   const clearChatSearchHighlight = useAppUiStore((state) => state.clearChatSearchHighlight);
@@ -174,6 +167,19 @@ export function ChatView() {
     getItemKey: (index) => messages[index]?.id ?? index,
     overscan: 4,
   });
+
+  const { contentRef, scrollRef, scrollToBottom: stickToBottom } = useStickToBottom({
+    resize: 'instant',
+    initial: 'instant',
+  });
+
+  const setScrollRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      listRef.current = el;
+      scrollRef(el);
+    },
+    [scrollRef],
+  );
 
   useEffect(() => {
     const api = getStocksenseApi();
@@ -208,15 +214,6 @@ export function ChatView() {
     return () => ctx.revert();
   }, []);
 
-  const scrollToBottom = useCallback(
-    (behavior: ScrollBehavior = 'smooth') => {
-      const lastMessageIndex = getChatLastMessageIndex(messages.length);
-      if (lastMessageIndex === undefined) return;
-      messageVirtualizer.scrollToIndex(lastMessageIndex, { align: 'end', behavior });
-    },
-    [messageVirtualizer, messages.length],
-  );
-
   const isActiveConversationLoading = isMessagesLoading && messagesLoadingConversationId === activeConversationId;
 
   const loadEarlierMessages = useCallback(async () => {
@@ -243,7 +240,6 @@ export function ChatView() {
       if (useAppDataStore.getState().activeConversationId !== activeConversationId) return;
       if (olderMessages.length < CHAT_MESSAGE_PAGE_SIZE) noMoreEarlierConversationRef.current = activeConversationId;
       if (!olderMessages.length) return;
-      userScrolledAwayRef.current = true;
       prependMessages(activeConversationId, olderMessages);
       window.requestAnimationFrame(() => {
         const currentListElement = listRef.current;
@@ -260,41 +256,28 @@ export function ChatView() {
 
   const handleMessagesScroll = useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
-      const { scrollTop, clientHeight, scrollHeight } = event.currentTarget;
-      userScrolledAwayRef.current = !isNearChatBottom({ scrollTop, clientHeight, scrollHeight });
-      if (scrollTop <= 48) void loadEarlierMessages();
+      if (event.currentTarget.scrollTop <= 48) void loadEarlierMessages();
     },
     [loadEarlierMessages],
   );
 
   useLayoutEffect(() => {
     shouldSuppressConversationScrollRef.current = true;
-    userScrolledAwayRef.current = true;
     loadingEarlierRef.current = false;
     setIsLoadingEarlierMessages(false);
   }, [activeConversationId]);
 
   useLayoutEffect(() => {
-    const responseFinished = previousIsSendingRef.current && !isSending;
-    previousIsSendingRef.current = isSending;
+    // pony: useStickToBottom.resize handles streaming auto-scroll.
+    // Only need manual control for conversation switch.
     if (shouldSuppressConversationScrollRef.current) {
       if (!isActiveConversationLoading) {
         shouldSuppressConversationScrollRef.current = false;
-        scrollToBottom('auto');
-        userScrolledAwayRef.current = false;
+        stickToBottom({ animation: 'instant' });
       }
       return;
     }
-    const reason: TChatAutoScrollReason = responseFinished ? 'response-finished' : 'message-added';
-    const behavior = getChatAutoScrollBehavior({
-      isResponding: isSending,
-      reason,
-      userScrolledAway: userScrolledAwayRef.current,
-    });
-    if (!behavior) return;
-    scrollToBottom(behavior);
-    if (responseFinished) userScrolledAwayRef.current = false;
-  }, [activeConversationId, isActiveConversationLoading, isSending, messages.length, scrollToBottom]);
+  }, [activeConversationId, isActiveConversationLoading, stickToBottom]);
 
   useLayoutEffect(() => {
     if (!chatSearchHighlight || chatSearchHighlight.conversationId !== activeConversationId) return;
@@ -302,7 +285,6 @@ export function ChatView() {
     if (!messageId) return;
     const messageIndex = messages.findIndex((message) => message.id === messageId);
     if (messageIndex < 0) return;
-    userScrolledAwayRef.current = true;
     setAppliedSearchHighlight({
       messageId,
       query: chatSearchHighlight.query,
@@ -407,7 +389,7 @@ export function ChatView() {
   const send = async (override?: string) => {
     const text = (override ?? input).trim();
     if (!text || isSending) return;
-    userScrolledAwayRef.current = false;
+    stickToBottom({ animation: 'instant' });
     setInput('');
     const conversationId = activeConversationId ?? 'conv-1';
     const command = text.startsWith('/') ? text.split(/\s+/, 1)[0] : undefined;
@@ -535,12 +517,12 @@ export function ChatView() {
 
   return (
     <div className={styles['chat-wrap']} ref={rootRef}>
-      <div className={styles['chat-messages']} ref={listRef} onScroll={handleMessagesScroll}>
+      <div className={styles['chat-messages']} ref={setScrollRef} onScroll={handleMessagesScroll}>
         {isLoadingEarlierMessages ? <div className={styles['chat-loading-earlier']}>正在加载更早消息…</div> : null}
         {messages.length === 0 && !isMessagesLoading ? (
           <QuickEntry conversationId={activeConversationId} onSubmit={send} slashItems={slashItems} />
         ) : (
-          <div style={{ height: messageVirtualizer.getTotalSize(), position: 'relative' }}>
+          <div ref={contentRef} style={{ height: messageVirtualizer.getTotalSize(), position: 'relative' }}>
             {messageVirtualizer.getVirtualItems().map((virtualMessage) => {
               const message = messages[virtualMessage.index];
               if (!message) return null;

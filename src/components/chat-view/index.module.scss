@@ -13,6 +13,7 @@
   min-height: 0;
   overflow-y: auto;
   padding: 16px 28px 8px;
+  contain: layout style paint;
 }
 .chat-loading-earlier {
   position: sticky;
