@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import type { KlinePoint, MarketIndexPeriod, MarketIndexSnapshot } from '../../src/shared/types.js';
+import { closeMarketDataInstance, closeMarketDataStore } from '../services/market-data/market-data-store.js';
 import { getMarketPageSnapshot } from '../services/stock/market-page.js';
 import { getKline } from '../services/stock/stock-client.js';
 
@@ -74,4 +75,7 @@ function assertSnapshotLatestBar(index: MarketIndexSnapshot, expectedRows: Kline
   assert.equal(latest.low, expected.low, `${label} latest low should keep period K-line value`);
 }
 
+await closeMarketDataStore();
+await closeMarketDataInstance();
 console.log('index-kline selfcheck passed');
+process.exit(0);

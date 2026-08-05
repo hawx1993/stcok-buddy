@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { getOpportunityRadarMetaText, hasOpportunityRadarItems } from '../opportunity-radar';
-import type { IOpportunityRadarData } from '../opportunity-radar';
+import { getOpportunityRadarMetaText, hasOpportunityRadarItems } from '../opportunity-radar-utils';
+import type { IOpportunityRadarData } from '../opportunity-radar-utils';
 
 describe('探索页机会雷达空态判断', () => {
   it('只有板块机会数据时显示空态', () => {

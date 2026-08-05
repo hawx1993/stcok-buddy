@@ -1,23 +1,27 @@
 import { captureEvent } from '../llm/posthog-client.js';
 import type { AgentTool, ToolCallRecord } from './types.js';
 import { readUrl } from './web-tools.js';
+import { getDividendHistory, getHolderNumberChange, getHotConcepts, getIndustryRanking } from './a-stock-data-tools.js';
 import {
-  getDividendHistory,
-  getHolderNumberChange,
-  getHotConcepts,
-  getIndustryRanking,
-} from './a-stock-data-tools.js';
-import {
+  getStockChipDistributionLocalFirst,
   getStockFundFlowLocalFirst,
   getStockKlineLocalFirst,
   getStockQuoteLocalFirst,
+  getStockSurgeEventsLocalFirst,
   queryLocalDuckDBData,
 } from '../agent/agent-data-tools.js';
+import {
+  queryLocalMarketDuckDB,
+  queryLocalMonitorDuckDB,
+  queryLocalSurgeDuckDB,
+  screenLocalAStocks,
+} from '../agent/agent-local-duckdb-tools.js';
 import {
   getDragonTiger,
   getHistoricalDailyBars,
   getHotFocus,
   getNorthboundFlow,
+  screenASharesByMarketCap,
   getMarketDataStatus,
   getMarketReview,
   getMarketNews,
@@ -45,6 +49,7 @@ export const stockToolRegistry = {
   getDragonTiger,
   getHotFocus,
   getNorthboundFlow,
+  screenASharesByMarketCap,
   getHolderNumberChange,
   getDividendHistory,
   getIndustryRanking,
@@ -52,7 +57,13 @@ export const stockToolRegistry = {
   getStockQuoteLocalFirst,
   getStockKlineLocalFirst,
   getStockFundFlowLocalFirst,
+  getStockSurgeEventsLocalFirst,
+  getStockChipDistributionLocalFirst,
   queryLocalDuckDBData,
+  screenLocalAStocks,
+  queryLocalMarketDuckDB,
+  queryLocalMonitorDuckDB,
+  queryLocalSurgeDuckDB,
   readUrl,
 } satisfies Record<string, AgentTool>;
 

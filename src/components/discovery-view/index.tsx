@@ -7,6 +7,7 @@ import cx from '../../shared/cx';
 import { DiscoverySections } from './components/discovery-sections';
 import { SubscribeFooter } from './components/subscribe-footer';
 import { useDiscoverySections } from './hooks/use-discovery-sections';
+import { shouldAutoRefreshDiscoverySnapshot, shouldRefreshActiveDiscoverySections } from './auto-refresh';
 import type { IDiscoverySnapshot } from './types';
 import styles from './index.module.scss';
 
@@ -68,25 +69,6 @@ function getTradeDateOptions(snapshot?: IDiscoverySnapshot) {
   snapshot?.dragonTigerHistory?.forEach((day) => add(day.date, day.weekday));
   add(snapshot?.tradeDate);
   return options.sort((left, right) => left.date.localeCompare(right.date));
-}
-
-export function shouldAutoRefreshDiscoverySnapshot(
-  displayedTradeDate: string,
-  tradeDateOptions: Array<{ date: string }>,
-) {
-  const latestTradeDate = tradeDateOptions.reduce(
-    (latest, item) => (item.date > latest ? item.date : latest),
-    '',
-  );
-  return !displayedTradeDate || !latestTradeDate || displayedTradeDate === latestTradeDate;
-}
-
-export function shouldRefreshActiveDiscoverySections(
-  shouldAutoRefresh: boolean,
-  pageVisible: boolean,
-  activeSectionCount: number,
-) {
-  return shouldAutoRefresh && pageVisible && activeSectionCount > 0;
 }
 
 export function DiscoveryView() {

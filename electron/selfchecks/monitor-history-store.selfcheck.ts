@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { app } from 'electron';
+import { app } from '../electron-runtime.js';
 import type { IMonitorEvent } from '../../src/shared/types.js';
 
 const dbPath = path.join(os.tmpdir(), `stocksense-monitor-selfcheck-${process.pid}.duckdb`);

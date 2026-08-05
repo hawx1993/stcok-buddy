@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from './electron-runtime.js';
 import { existsSync, statSync, statfsSync, truncateSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import type {
@@ -38,6 +38,7 @@ import {
   listConversations,
   listMessages,
   renameConversation,
+  searchConversations,
   saveAssistantMessage,
   saveMessage,
   saveUserMessage,
@@ -183,7 +184,10 @@ export function registerIpcHandlers() {
   ipcMain.handle('conversation:create', () => createConversation());
   ipcMain.handle('conversation:delete', (_event, id: string) => deleteConversation(id));
   ipcMain.handle('conversation:rename', (_event, id: string, title: string) => renameConversation(id, title));
-  ipcMain.handle('message:list', (_event, conversationId: string) => listMessages(conversationId));
+  ipcMain.handle('conversation:search', (_event, query: string) => searchConversations(query));
+  ipcMain.handle('message:list', (_event, conversationId: string, options?: Parameters<typeof listMessages>[1]) =>
+    listMessages(conversationId, options),
+  );
   ipcMain.handle('message:save', (_event, conversationId: string, message: ChatMessage) =>
     saveMessage(conversationId, message),
   );
@@ -266,14 +270,9 @@ export function registerIpcHandlers() {
   // Data sync handlers
   ipcMain.handle('dataSync:syncKlines', async () => {
     await ensureMarketDataRuntime();
-    // ponytail: if a sync is already running (e.g. started by the scheduler),
-    // ask it to stop at its next checkpoint so the user's explicit force-sync
-    // can take over. startMarketDataSync(true) then waits for the old run to
-    // finish before kicking off a fresh force run — we no longer race a fixed
-    // 1500ms sleep that could return the stale promise and leave the UI at 0%.
-    if ((await getMarketDataSyncStatus()).state !== 'idle') {
-      requestMarketDataSyncStop();
-      await waitForMarketDataSync();
+    const status = await getMarketDataSyncStatus();
+    if (status.state === 'checking' || status.state === 'initializing' || status.state === 'syncing') {
+      return startMarketDataSync(false);
     }
     return startMarketDataSync(true);
   });

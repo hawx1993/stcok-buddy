@@ -1,6 +1,7 @@
-import { app } from 'electron';
+import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection } from '@duckdb/node-api';
 import path from 'node:path';
+import { shouldKeepSurgeItem } from './surge-large-order.js';
 import type { HotFocusItem, StockSurgeEvent } from '../../../src/shared/types.js';
 
 interface SurgeRow {
@@ -29,6 +30,8 @@ let ready: Promise<void> | undefined;
 let queue = Promise.resolve();
 let isClosing = false;
 let activeConnections = 0;
+
+const DUCKDB_SINGLE_THREAD_SQL = 'SET threads TO 1';
 let closeResolve: (() => void) | undefined;
 
 // ponytail: marker set when the user explicitly clears surge history. While
@@ -108,7 +111,7 @@ function dedupeStockSurgeEvents(events: StockSurgeEvent[]) {
 }
 
 export function saveSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
-  const uniqueItems = dedupeHotFocusItems(items);
+  const uniqueItems = dedupeHotFocusItems(items.filter(shouldKeepSurgeItem));
   if (!uniqueItems.length) return Promise.resolve();
   // ponytail: drop writes while the clear marker is active so the DB file is
   // not recreated immediately after a clear.
@@ -141,8 +144,9 @@ export function saveSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date()
 }
 
 export function enqueueSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
-  if (!items.length || isSurgeHistoryClearMarkerActive()) return;
-  for (const item of items) {
+  const filteredItems = items.filter(shouldKeepSurgeItem);
+  if (!filteredItems.length || isSurgeHistoryClearMarkerActive()) return;
+  for (const item of filteredItems) {
     surgeSnapshotQueue.set(`${tradeDate}|${item.id}`, { item, capturedAt, tradeDate });
   }
 }
@@ -208,23 +212,12 @@ export function listSurgeHistory(date: string, offset = 0, limit = 20) {
       `SELECT trade_date, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type
        FROM stock_surge_events
        WHERE trade_date = ${sqlValue(date)}
-       ORDER BY COALESCE(time, '') DESC, id DESC
-       LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+       ORDER BY COALESCE(time, '') DESC, id DESC`,
     );
-    return rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      code: row.code,
-      name: row.name,
-      time: row.time,
-      price: row.price,
-      changePercent: row.change_percent,
-      turnover: row.turnover,
-      amount: row.amount,
-      description: row.description,
-      tag: row.tag,
-      type: row.type,
-    } satisfies HotFocusItem));
+    return rows
+      .map(mapSurgeRowToHotFocusItem)
+      .filter(shouldKeepSurgeItem)
+      .slice(safeOffset, safeOffset + safeLimit);
   });
 }
 
@@ -273,10 +266,9 @@ export function listRecentStockSurgeEvents(code: string, keepDays = 7) {
   });
 }
 
-function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
-  const events = rows.map((row) => ({
+function mapSurgeRowToHotFocusItem(row: SurgeRow): HotFocusItem {
+  return {
     id: row.id,
-    tradeDate: row.trade_date,
     title: row.title,
     code: row.code,
     name: row.name,
@@ -288,7 +280,16 @@ function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
     description: row.description,
     tag: row.tag,
     type: row.type,
-  } satisfies StockSurgeEvent));
+  };
+}
+
+function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
+  const events = rows
+    .map((row) => ({
+      ...mapSurgeRowToHotFocusItem(row),
+      tradeDate: row.trade_date,
+    } satisfies StockSurgeEvent))
+    .filter(shouldKeepSurgeItem);
   // De-duplicate anomalies that come from both the hot-list snapshot and
   // the per-stock individual history (they share the same time/tag/price).
   const seen = new Set<string>();
@@ -301,7 +302,7 @@ function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
 }
 
 export function saveIndividualSurgeHistory(events: StockSurgeEvent[]) {
-  const uniqueEvents = dedupeStockSurgeEvents(events);
+  const uniqueEvents = dedupeStockSurgeEvents(events.filter(shouldKeepSurgeItem));
   if (!uniqueEvents.length) return Promise.resolve();
   // ponytail: drop writes while the clear marker is active.
   if (isSurgeHistoryClearMarkerActive()) return Promise.resolve();
@@ -364,11 +365,13 @@ export async function closeSurgeHistoryStore(timeoutMs?: number) {
 }
 
 export async function closeSurgeHistoryInstance() {
-  // ponytail: close the actual DuckDB instance to release the file handle.
-  // closeSurgeHistoryStore only waits for connections; without closing the
-  // instance the OS may keep the old inode alive and the clear can look like
-  // it failed.
+  // ponytail: close the actual DuckDB instance to release native scheduler
+  // threads before Electron tears down Node/N-API during app quit.
   try {
+    if (activeConnections > 0) {
+      console.warn(`[surge-history] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`);
+      return;
+    }
     if (dbReady) {
       const instance = await dbReady;
       instance.closeSync();
@@ -402,18 +405,15 @@ export async function resetSurgeHistoryStore() {
 
 function readDb<T>(work: () => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('surge history store is closing'));
-  return ensureReady()
-    .then(work)
-    .catch(async (error) => {
-      if (!isDuckDbFatalInvalidation(error)) throw error;
-      await recoverSurgeHistoryStoreAfterFatal(error);
-      await ensureReady();
-      return work();
-    });
+  return enqueueDbOperation(work);
 }
 
 function withDb<T>(work: () => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('surge history store is closing'));
+  return enqueueDbOperation(work);
+}
+
+function enqueueDbOperation<T>(work: () => Promise<T>) {
   const next = queue.then(async () => {
     if (isClosing) throw new Error('surge history store is closing');
     try {
@@ -477,6 +477,7 @@ async function withConnection<T>(work: (connection: DuckDBConnection) => Promise
   const connection = await (await getDbReady()).connect();
   activeConnections += 1;
   try {
+    await connection.run(DUCKDB_SINGLE_THREAD_SQL);
     return await work(connection);
   } finally {
     connection.closeSync();

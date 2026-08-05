@@ -132,6 +132,7 @@ assert.equal(board?.source, 'selfcheck');
 assert(board?.updatedAt);
 
 await store.closeMarketDataStore();
+await store.closeMarketDataInstance();
 for (const suffix of ['', '.wal']) {
   try {
     rmSync(`${dbPath}${suffix}`);
@@ -140,3 +141,4 @@ for (const suffix of ['', '.wal']) {
   }
 }
 console.log('market-data selfcheck passed');
+process.exit(0);

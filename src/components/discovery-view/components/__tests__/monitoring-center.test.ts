@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getLatestVisibleMonitorEvents } from '../monitoring-center';
+import { getLatestVisibleMonitorEvents } from '../monitoring-center-utils';
 import type { IMonitorFeed, IMonitorEvent } from '../../../../shared/types';
 
 function makeEvent(id: string, timestamp: string, category: IMonitorEvent['category']): IMonitorEvent {

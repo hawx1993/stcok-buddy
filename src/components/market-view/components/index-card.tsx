@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import type { MarketIndexPeriod, MarketIndexSnapshot } from '../../../shared/types';
 import { StockKlineChart } from '../../kline-chart';
-import type { TimeframeId } from '../../kline-chart';
+import type { TimeframeId } from '../../kline-chart/constants';
 import { formatMoney, formatPercent, formatSigned } from '../market-format';
 import styles from '../index.module.scss';
 

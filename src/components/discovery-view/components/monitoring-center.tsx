@@ -2,11 +2,10 @@ import { AlertTriangle, BadgeCent, BarChart3, Bot, CircleAlert, Newspaper, Trend
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
-import type { IMonitorEvent, IMonitorFeed, TMonitorCategory, StockDetail } from '../../../shared/types';
+import type { TMonitorCategory, StockDetail } from '../../../shared/types';
 import cx from '../../../shared/cx';
-
-type TVisibleMonitorCategory = Exclude<TMonitorCategory, 'dragon-tiger'>;
-type TVisibleMonitorEvent = IMonitorEvent & { category: TVisibleMonitorCategory };
+import { getLatestVisibleMonitorEvents } from './monitoring-center-utils';
+import type { TVisibleMonitorCategory, TVisibleMonitorEvent } from './monitoring-center-utils';
 
 const CATEGORY_CONFIG: Record<TVisibleMonitorCategory, { label: string; Icon: typeof BadgeCent; color: string }> = {
   'large-order': { label: '大单异动', Icon: BadgeCent, color: '#22c55e' },
@@ -46,17 +45,6 @@ function formatChange(value?: number | string) {
   if (Number.isNaN(num)) return '--';
   const sign = num >= 0 ? '+' : '';
   return `${sign}${num.toFixed(2)}%`;
-}
-
-function isVisibleMonitorEvent(event: IMonitorEvent): event is TVisibleMonitorEvent {
-  return event.category !== 'dragon-tiger';
-}
-
-export function getLatestVisibleMonitorEvents(feed: IMonitorFeed) {
-  return feed.events
-    .filter(isVisibleMonitorEvent)
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 8);
 }
 
 export function MonitoringCenter() {

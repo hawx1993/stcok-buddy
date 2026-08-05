@@ -15,6 +15,13 @@ export interface ISyncBannerState {
   message: string;
 }
 
+export interface IChatSearchHighlightRequest {
+  conversationId: string;
+  messageId?: string;
+  query: string;
+  requestedAt: number;
+}
+
 let latestNewsReaderRequestId = 0;
 
 interface INewsReaderState {
@@ -37,6 +44,7 @@ interface IAppUiState {
   isLeftSidebarCollapsed: boolean;
   isRightPanelCollapsed: boolean;
   search: string;
+  chatSearchHighlight?: IChatSearchHighlightRequest;
   isSettingsOpen: boolean;
   isAboutOpen: boolean;
   isStorageManagerOpen: boolean;
@@ -57,6 +65,8 @@ interface IAppUiState {
   openBoardPanel(): void;
   openAiMonitorPanel(): void;
   setSearch(search: string): void;
+  requestChatSearchHighlight(request: Omit<IChatSearchHighlightRequest, 'requestedAt'>): void;
+  clearChatSearchHighlight(): void;
   setSettingsOpen(open: boolean): void;
   setAboutOpen(open: boolean): void;
   setStorageManagerOpen(open: boolean): void;
@@ -73,6 +83,7 @@ export const useAppUiStore = create<IAppUiState>((set) => ({
   isLeftSidebarCollapsed: false,
   isRightPanelCollapsed: true,
   search: '',
+  chatSearchHighlight: undefined,
   isSettingsOpen: false,
   isAboutOpen: false,
   isStorageManagerOpen: false,
@@ -123,6 +134,9 @@ export const useAppUiStore = create<IAppUiState>((set) => ({
   openBoardPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'board' }),
   openAiMonitorPanel: () => set({ isRightPanelCollapsed: false, rightPanelTab: 'ai-monitor' }),
   setSearch: (search) => set({ search }),
+  requestChatSearchHighlight: (request) =>
+    set({ chatSearchHighlight: { ...request, query: request.query.trim(), requestedAt: Date.now() } }),
+  clearChatSearchHighlight: () => set({ chatSearchHighlight: undefined }),
   setSettingsOpen: (open) => set({ isSettingsOpen: open }),
   setAboutOpen: (open) => set({ isAboutOpen: open }),
   setStorageManagerOpen: (open) => set({ isStorageManagerOpen: open }),

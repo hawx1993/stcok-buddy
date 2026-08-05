@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow } from '../../electron-runtime.js';
 import { listSecurities } from './market-data-store.js';
 import { ensureSurgeHistoryCapture, isSurgeHistorySchedulerRunning } from '../stock/surge-history-scheduler.js';
 import { clearSurgeHistoryClearMarker } from '../stock/surge-history-store.js';

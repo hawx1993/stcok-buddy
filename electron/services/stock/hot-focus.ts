@@ -15,10 +15,11 @@ import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from
 import { getBoardDetail } from './board-detail.js';
 import { normalizeASymbol } from './symbols.js';
 import { withTimeoutReject } from './shared.js';
+import { shouldKeepSurgeItem } from './surge-large-order.js';
 import type { DailyDragonTigerItem } from './dragon-tiger.js';
 import {
   isSurgeHistoryClearMarkerActive,
-  listStockSurgeEventsByTradeDates,
+  listRecentStockSurgeEvents,
   listSurgeHistory,
   enqueueSurgeSnapshot,
   saveIndividualSurgeHistory,
@@ -191,7 +192,9 @@ async function fetchSurgeHot(): Promise<HotFocusItem[]> {
   const items = [
     ...changes,
     ...pools.filter((pool) => !changes.some((change) => change.code === pool.code && change.tag === pool.tag)),
-  ].sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time));
+  ]
+    .filter(shouldKeepSurgeItem)
+    .sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time));
   surgeCache = { items, updatedAt: Date.now() };
   enqueueSurgeSnapshot(items);
   return items;
@@ -204,13 +207,12 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
   if (isSurgeHistoryClearMarkerActive()) return [];
 
   // Local-first: if we already have cached events, render them immediately and
-  // refresh from the network in the background. This avoids keeping the
-  // skeleton spinner for several seconds when offline or on a slow connection.
-  const tradeDate = formatIsoDate(new Date());
-  const tradeDates = await resolveLatestTradeDates(tradeDate, 6);
+  // refresh from the network in the background. listRecentStockSurgeEvents is a
+  // pure DuckDB read with no calendar network round-trips, so the skeleton is
+  // not blocked on sequential remote date resolution.
   let localEvents: StockSurgeEvent[] = [];
   try {
-    localEvents = await listStockSurgeEventsByTradeDates(symbol, tradeDates);
+    localEvents = await listRecentStockSurgeEvents(symbol, 7);
   } catch (error) {
     console.warn('[surge] local read failed', symbol, error);
   }
@@ -219,9 +221,11 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     return localEvents;
   }
 
+  // No local cache yet: resolve the trading dates, then fetch from remote.
+  const tradeDate = formatIsoDate(new Date());
+  const tradeDates = await resolveLatestTradeDates(tradeDate, 6);
   if (!tradeDates.includes(tradeDate)) return [];
 
-  // No local cache yet: fetch from remote, persist, and return.
   const [historyResult, currentResult] = await Promise.allSettled([
     withTimeoutReject(
       sdk.marketEvent.individualChangesHistory(symbol, { days: 6 }),
@@ -250,7 +254,17 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
   return mergedEvents.filter((item) => tradeDates.includes(item.tradeDate));
 }
 
+// ponytail: the trading calendar is stable within a day; cache the resolved
+// dates so the cold path (no cached events yet) pays the sequential calendar
+// network calls at most once per trade date instead of once per stock open.
+let resolvedTradeDatesCache: { key: string; dates: string[]; updatedAt: number } | undefined;
+const RESOLVED_TRADE_DATES_TTL_MS = 6 * 60 * 60 * 1000;
+
 async function resolveLatestTradeDates(tradeDate: string, count: number) {
+  const cached = resolvedTradeDatesCache;
+  if (cached?.key === tradeDate && Date.now() - cached.updatedAt < RESOLVED_TRADE_DATES_TTL_MS) {
+    return cached.dates;
+  }
   const dates: string[] = [];
   let cursor = tradeDate;
   while (dates.length < count) {
@@ -259,6 +273,7 @@ async function resolveLatestTradeDates(tradeDate: string, count: number) {
     if (dates.length >= count) break;
     cursor = await previousRemoteTradingDay(cursor).catch(() => previousWeekdayDate(cursor));
   }
+  resolvedTradeDatesCache = { key: tradeDate, dates, updatedAt: Date.now() };
   return dates;
 }
 
@@ -366,23 +381,25 @@ function formatIsoDate(date: Date) {
 type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
 
 function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEvent.stockChanges>>): HotFocusItem[] {
-  return changes.map((item, index) => {
-    const parsed = parseStockChangeInfo(item.changeType, item.info);
-    const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType);
-    return {
-      id: `surge-${item.changeType}-${item.time}-${item.code}-${index}`,
-      title: `${item.name} ${item.code}`,
-      code: item.code,
-      name: item.name,
-      time: item.time,
-      price: parsed.price === undefined ? undefined : parsed.price.toFixed(2),
-      changePercent: parsed.pct === undefined ? undefined : formatPercent(parsed.pct),
-      amount: formatChangeHands(parsed.hands, reason) ?? parsed.amount,
-      description: reason,
-      tag: reason,
-      type: /卖|跌|跳水|下挫|低|开板/.test(reason) ? 'plummet' : 'surge',
-    };
-  });
+  return changes
+    .map((item, index) => {
+      const parsed = parseStockChangeInfo(item.changeType, item.info);
+      const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType);
+      return {
+        id: `surge-${item.changeType}-${item.time}-${item.code}-${index}`,
+        title: `${item.name} ${item.code}`,
+        code: item.code,
+        name: item.name,
+        time: item.time,
+        price: parsed.price === undefined ? undefined : parsed.price.toFixed(2),
+        changePercent: parsed.pct === undefined ? undefined : formatPercent(parsed.pct),
+        amount: formatChangeHands(parsed.hands, reason) ?? parsed.amount,
+        description: reason,
+        tag: reason,
+        type: /卖|跌|跳水|下挫|低|开板/.test(reason) ? 'plummet' : 'surge',
+      } satisfies HotFocusItem;
+    })
+    .filter(shouldKeepSurgeItem);
 }
 
 function parseStockChangeInfo(type: string | undefined, info: string) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { marked } from 'marked';
 import type { ITimelineEntry } from './types';
 import styles from './index.module.scss';
@@ -20,11 +20,6 @@ function stripMarkdown(text: string): string {
 
 export function TimelineView({ entries }: { entries: ITimelineEntry[] }) {
   const [showAll, setShowAll] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [entries.length]);
 
   const visible = showAll ? entries : entries.slice(-MAX_VISIBLE);
   const hidden = entries.length - MAX_VISIBLE;
@@ -46,7 +41,6 @@ export function TimelineView({ entries }: { entries: ITimelineEntry[] }) {
           </div>
         ))}
       </div>
-      <div ref={bottomRef} />
     </div>
   );
 }

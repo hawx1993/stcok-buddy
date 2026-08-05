@@ -1,7 +1,7 @@
 import { Dropdown, message as antdMessage } from 'antd';
 import type { MenuProps } from 'antd';
-import { BarChart3, CloudDownload, Compass, Database, FileText, HelpCircle, Info, LoaderCircle, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Settings, Trash2 } from 'lucide-react';
-import { useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
+import { BarChart3, CloudDownload, Compass, Database, FileText, HelpCircle, Info, RefreshCw, Settings } from 'lucide-react';
+import { useCallback, useDeferredValue, useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
 import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import { usePanelResize } from '../../hooks/use-panel-resize';
 import { ThemeToggle } from '../theme-toggle';
@@ -13,13 +13,12 @@ import { OfflineIndicator } from './components/offline-indicator';
 import type { ConversationSummary } from '../../shared/types';
 import { trackButtonClick, trackPageView } from '../../shared/analytics';
 import { WhaleLogo } from '../chat-view/components/whale-logo';
+import { ConversationList } from './components/conversation-list';
+import { groupConversations } from './components/conversation-groups';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
 
-interface IConversationGroup {
-  label: string;
-  conversations: ConversationSummary[];
-}
+export { groupConversations } from './components/conversation-groups';
 
 const releaseNotesUrl = 'https://ncnidfotktyq.feishu.cn/wiki/XX5RwTiQzi3HGwkpA0RcwF4UnLd';
 
@@ -48,27 +47,6 @@ function isMacPlatform() {
   return typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 }
 
-function calendarDateKey(date: Date) {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
-function groupConversations(conversations: ConversationSummary[], now = new Date()): IConversationGroup[] {
-  const today = calendarDateKey(now);
-  const groups = new Map<string, ConversationSummary[]>();
-
-  for (const conversation of [...conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))) {
-    const updatedAt = new Date(conversation.updatedAt);
-    const date = Number.isNaN(updatedAt.getTime()) ? new Date(0) : updatedAt;
-    const dateKey = calendarDateKey(date);
-    const label = dateKey === today ? '最新' : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(date);
-    groups.set(label, [...(groups.get(label) ?? []), conversation]);
-  }
-
-  return [...groups.entries()].map(([label, group]) => ({ label, conversations: group }));
-}
-
 export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const searchRef = useRef<HTMLInputElement>(null);
   const [conversationMenuId, setConversationMenuId] = useState<string>();
@@ -90,40 +68,56 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const setDataSyncOpen = useAppUiStore((state) => state.setDataSyncOpen);
   const setMainView = useAppUiStore((state) => state.setMainView);
 
-  const createConversation = createChatConversation;
-  const isMac = isMacPlatform();
+  const isMac = useMemo(isMacPlatform, []);
   const settingsShortcut = isMac ? '⌘,' : 'Ctrl,';
+  const deferredSearch = useDeferredValue(search);
 
-  const deleteConversation = async (id: string) => {
-    trackButtonClick('delete_conversation');
-    const next = await getStocksenseApi().deleteConversation(id);
-    setConversationMenuId(undefined);
-    setConversations(next);
-    if (activeConversationId === id) {
-      setActiveConversation(next[0]?.id);
-      if (!next.length) clearMessages();
-    }
-  };
+  const selectConversation = useCallback(
+    (item: ConversationSummary) => {
+      trackButtonClick('select_conversation');
+      setConversationMenuId(undefined);
+      if (activeConversationId === item.id) return;
+      setActiveConversation(item.id);
+    },
+    [activeConversationId, setActiveConversation],
+  );
 
-  const startRename = (item: ConversationSummary) => {
+  const deleteConversation = useCallback(
+    async (id: string) => {
+      trackButtonClick('delete_conversation');
+      const next = await getStocksenseApi().deleteConversation(id);
+      setConversationMenuId(undefined);
+      setConversations(next);
+      if (activeConversationId === id) {
+        setActiveConversation(next[0]?.id);
+        if (!next.length) clearMessages();
+      }
+    },
+    [activeConversationId, clearMessages, setActiveConversation, setConversations],
+  );
+
+  const startRename = useCallback((item: ConversationSummary) => {
     trackButtonClick('rename_conversation');
     setConversationMenuId(undefined);
     setEditingConversationId(item.id);
     setEditingTitle(item.title);
-  };
+  }, []);
 
-  const saveRename = async (id: string) => {
-    const title = editingTitle.trim();
-    if (!title) {
+  const saveRename = useCallback(
+    async (id: string) => {
+      const title = editingTitle.trim();
+      if (!title) {
+        setEditingConversationId(undefined);
+        return;
+      }
+      setConversations(await getStocksenseApi().renameConversation(id, title));
       setEditingConversationId(undefined);
-      return;
-    }
-    setConversations(await getStocksenseApi().renameConversation(id, title));
-    setEditingConversationId(undefined);
-    antdMessage.success('修改成功');
-  };
+      antdMessage.success('修改成功');
+    },
+    [editingTitle, setConversations],
+  );
 
-  const checkUpdate = async () => {
+  const checkUpdate = useCallback(async () => {
     trackButtonClick('sidebar_check_update');
     if (!navigator.onLine) {
       antdMessage.info('网络已断开，无法检查更新');
@@ -141,70 +135,78 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
       hideLoading();
       antdMessage.error(error instanceof Error ? error.message : '检查更新失败');
     }
-  };
+  }, []);
 
-  const menuItems: MenuProps['items'] = [
-    { key: 'about', label: menuLabel(<Info size={15} />, '关于 StockBuddy'), className: styles['about-menu-item'] },
-    { key: 'settings', label: menuLabel(<Settings size={15} />, '系统设置', settingsShortcut) },
-    { key: 'storage', label: menuLabel(<Database size={15} />, '存储空间管理') },
-    { key: 'data-sync', label: menuLabel(<CloudDownload size={15} />, '数据同步') },
-    { key: 'check-update', label: menuLabel(<RefreshCw size={15} />, '检查更新') },
-    { key: 'release-notes', label: menuLabel(<FileText size={15} />, '更新日志') },
-    { key: 'feedback', label: menuLabel(<HelpCircle size={15} />, '帮助与反馈') },
-  ];
+  const menuItems = useMemo<MenuProps['items']>(
+    () => [
+      { key: 'about', label: menuLabel(<Info size={15} />, '关于 StockBuddy'), className: styles['about-menu-item'] },
+      { key: 'settings', label: menuLabel(<Settings size={15} />, '系统设置', settingsShortcut) },
+      { key: 'storage', label: menuLabel(<Database size={15} />, '存储空间管理') },
+      { key: 'data-sync', label: menuLabel(<CloudDownload size={15} />, '数据同步') },
+      { key: 'check-update', label: menuLabel(<RefreshCw size={15} />, '检查更新') },
+      { key: 'release-notes', label: menuLabel(<FileText size={15} />, '更新日志') },
+      { key: 'feedback', label: menuLabel(<HelpCircle size={15} />, '帮助与反馈') },
+    ],
+    [settingsShortcut],
+  );
 
-  const runAccountMenuAction: MenuProps['onClick'] = ({ key }) => {
-    if (key === 'settings') {
-      trackButtonClick('open_settings');
-      setSettingsOpen(true);
-      return;
-    }
-    if (key === 'check-update') {
-      void checkUpdate();
-      return;
-    }
-    if (key === 'release-notes') {
-      trackButtonClick('open_release_notes');
-      window.open(releaseNotesUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    if (key === 'feedback') {
-      trackButtonClick('open_feedback_email');
-      getStocksenseApi()
-        .openFeedbackEmail()
-        .catch((error: unknown) => {
-          antdMessage.error(error instanceof Error ? error.message : '打开邮件客户端失败');
-        });
-      return;
-    }
-    if (key === 'about') {
-      trackButtonClick('open_about_stockbuddy');
-      setAboutOpen(true);
-    }
-    if (key === 'storage') {
-      trackButtonClick('open_storage_manager');
-      setStorageManagerOpen(true);
-      return;
-    }
-    if (key === 'data-sync') {
-      trackButtonClick('open_data_sync');
-      setDataSyncOpen(true);
-      return;
-    }
-  };
+  const runAccountMenuAction = useCallback<NonNullable<MenuProps['onClick']>>(
+    ({ key }) => {
+      if (key === 'settings') {
+        trackButtonClick('open_settings');
+        setSettingsOpen(true);
+        return;
+      }
+      if (key === 'check-update') {
+        void checkUpdate();
+        return;
+      }
+      if (key === 'release-notes') {
+        trackButtonClick('open_release_notes');
+        window.open(releaseNotesUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      if (key === 'feedback') {
+        trackButtonClick('open_feedback_email');
+        getStocksenseApi()
+          .openFeedbackEmail()
+          .catch((error: unknown) => {
+            antdMessage.error(error instanceof Error ? error.message : '打开邮件客户端失败');
+          });
+        return;
+      }
+      if (key === 'about') {
+        trackButtonClick('open_about_stockbuddy');
+        setAboutOpen(true);
+        return;
+      }
+      if (key === 'storage') {
+        trackButtonClick('open_storage_manager');
+        setStorageManagerOpen(true);
+        return;
+      }
+      if (key === 'data-sync') {
+        trackButtonClick('open_data_sync');
+        setDataSyncOpen(true);
+      }
+    },
+    [checkUpdate, setAboutOpen, setDataSyncOpen, setSettingsOpen, setStorageManagerOpen],
+  );
 
-  const query = search.toLowerCase();
+  const query = deferredSearch.toLowerCase();
   const conversationGroups = useMemo(() => {
-    const filtered = conversations.filter(
-      (item) => !query || `${item.title}${item.preview}`.toLowerCase().includes(query),
-    );
+    const filtered = conversations.filter((item) => {
+      const searchText = `${item.title ?? ''}${item.preview ?? ''}`.toLowerCase();
+      return !query || searchText.includes(query);
+    });
     return groupConversations(filtered);
   }, [conversations, query]);
-  const moveGlow = (event: React.MouseEvent<HTMLElement>) => {
+
+  const moveGlow = useCallback((event: React.MouseEvent<HTMLElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     event.currentTarget.style.setProperty('--mx', `${event.clientX - rect.left}px`);
     event.currentTarget.style.setProperty('--my', `${event.clientY - rect.top}px`);
-  };
+  }, []);
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
@@ -230,7 +232,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
         <button
           className={styles['btn-new-conversation']}
           onMouseMove={moveGlow}
-          onClick={createConversation}
+          onClick={createChatConversation}
           type='button'
         >
           <span>＋</span>新建会话
@@ -274,94 +276,21 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
         ) : null}
       </div>
 
-      <div className={styles['sidebar-list']}>
-        {conversationGroups.length ? (
-          conversationGroups.map((group) => (
-            <section key={group.label} className={styles['conversation-group']}>
-              <h2 className={styles['conversation-group-title']}>{group.label}</h2>
-              {group.conversations.map((item) => (
-                <div
-                  key={item.id}
-                  onMouseMove={moveGlow}
-                  className={cx(
-                    styles['source-item-wrap'],
-                    activeConversationId === item.id && styles.active,
-                    conversationMenuId === item.id && styles['menu-open'],
-                    respondingConversationId === item.id && styles.responding,
-                    editingConversationId === item.id && styles.editing,
-                  )}
-                >
-                  {editingConversationId === item.id ? (
-                    <div className={styles['rename-row']}>
-                      <MessageCircle size={17} className={styles['source-icon']} />
-                      <input
-                        value={editingTitle}
-                        onChange={(event) => setEditingTitle(event.target.value)}
-                        onBlur={() => void saveRename(item.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') void saveRename(item.id);
-                        }}
-                        autoFocus
-                      />
-                    </div>
-                  ) : (
-                    <>
-                      <button
-                        className={styles['source-item']}
-                        onClick={() => {
-                          trackButtonClick('select_conversation');
-                          setConversationMenuId(undefined);
-                          setActiveConversation(item.id);
-                        }}
-                        type='button'
-                      >
-                        <MessageCircle size={17} className={styles['source-icon']} />
-                        <span className={styles.label}>{item.title}</span>
-                        <span className={styles.count}>{item.count}</span>
-                      </button>
-                      {respondingConversationId === item.id ? (
-                        <span className={cx(styles['source-more'], styles['source-loading'])} aria-label='AI 正在回答'>
-                          <LoaderCircle size={16} />
-                        </span>
-                      ) : (
-                        <button
-                          className={styles['source-more']}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setConversationMenuId(conversationMenuId === item.id ? undefined : item.id);
-                          }}
-                          type='button'
-                          aria-label='更多操作'
-                        >
-                          <MoreHorizontal size={16} />
-                        </button>
-                      )}
-                      {conversationMenuId === item.id ? (
-                        <div className={styles['conversation-menu']}>
-                          <button className={styles['conversation-action']} onClick={() => startRename(item)} type='button'>
-                            <Pencil size={15} />
-                            <span>重命名</span>
-                          </button>
-                          <button
-                            className={cx(styles['conversation-action'], styles.danger)}
-                            onClick={() => void deleteConversation(item.id)}
-                            type='button'
-                          >
-                            <Trash2 size={15} />
-                            <span>删除对话</span>
-                          </button>
-                        </div>
-                      ) : null}
-                    </>
-                  )}
-                </div>
-              ))}
-            </section>
-          ))
-        ) : (
-          <div className={styles['empty-list']}>无匹配对话</div>
-        )}
-      </div>
+      <ConversationList
+        conversationGroups={conversationGroups}
+        activeConversationId={activeConversationId}
+        respondingConversationId={respondingConversationId}
+        conversationMenuId={conversationMenuId}
+        editingConversationId={editingConversationId}
+        editingTitle={editingTitle}
+        onEditingTitleChange={setEditingTitle}
+        onSelectConversation={selectConversation}
+        onToggleConversationMenu={(id) => setConversationMenuId((current) => (current === id ? undefined : id))}
+        onStartRename={startRename}
+        onSaveRename={(id) => void saveRename(id)}
+        onDeleteConversation={(id) => void deleteConversation(id)}
+        onMoveGlow={moveGlow}
+      />
 
       <UpdateBanner />
       <SyncBanner />

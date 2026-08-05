@@ -1,4 +1,4 @@
-import type { ComplianceReview, EvidenceItem, StructuredAgentFinding } from '../../../src/shared/types.js';
+import type { ComplianceReview, EvidenceItem, IAgentDataGap, StructuredAgentFinding } from '../../../src/shared/types.js';
 
 const disclaimer = '以上内容基于公开数据自动生成，仅供研究参考，不构成投资建议。';
 const forbiddenEmoji: Record<string, string> = {
@@ -19,6 +19,7 @@ export function reviewComplianceStructured(input: {
   text: string;
   evidence: EvidenceItem[];
   findings: StructuredAgentFinding[];
+  dataGaps?: IAgentDataGap[];
 }): ComplianceReview {
   const issues: ComplianceReview['issues'] = [];
   let revisedText = input.text;
@@ -52,8 +53,13 @@ export function reviewComplianceStructured(input: {
     [/龙虎榜|席位/, 'dragon-tiger', '文本包含龙虎榜结论但缺少 dragon-tiger evidence。'],
   ];
   for (const [pattern, source, message] of sourceChecks) {
-    if (pattern.test(revisedText) && !sources.has(source) && !sources.has('fallback'))
+    if (pattern.test(revisedText) && !sources.has(source))
       issues.push({ type: 'unsupported-claim', severity: 'medium', message });
+  }
+
+  if (input.dataGaps?.length && /无风险|风险已排除|确定|必然|明确看多|明确看空/.test(revisedText)) {
+    revisedText = `${revisedText.trim()}\n\n### ⚠️ 数据缺口与影响\n${input.dataGaps.map((gap) => `- ${gap.userMessage}`).join('\n')}`;
+    issues.push({ type: 'unsupported-claim', severity: 'medium', message: '存在数据缺口时已补充不确定性说明。' });
   }
 
   if (!/风险|不确定|波动/.test(revisedText)) {

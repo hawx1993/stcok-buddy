@@ -1,4 +1,4 @@
-import { Notification, systemPreferences, BrowserWindow } from 'electron';
+import { BrowserWindow, Notification, systemPreferences } from '../electron-runtime.js';
 
 const MAX_NOTIFICATION_BODY_LENGTH = 120;
 

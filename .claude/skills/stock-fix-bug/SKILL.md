@@ -19,6 +19,22 @@ argument-hint: '用户问题描述'
 
 若本技能与上述规则冲突，以上规则优先。不得用 mock、假数据、静默 fallback、`any`、`@ts-ignore`、删除逻辑或关闭检查来掩盖问题。
 
+## Bug 定位前必须读取 Knowledge
+
+定位和修复 Bug 前必须先读取 `.claude/knowledge/api-guide.md`，再按用户症状所在链路读取对应知识文档：
+
+| 症状 / 链路 | 必读 Knowledge |
+| ----------- | -------------- |
+| UI、Hook、Store、Worker、组件状态 | `.claude/knowledge/frontend-architecture.md` |
+| IPC、preload、renderer API、channel 缺失 | `.claude/knowledge/ipc-data-flow.md` |
+| 股票、行情、探索、监控、新闻、板块 | `.claude/knowledge/stock-services.md` |
+| 市场数据同步、DuckDB、本地优先查询、交易日 | `.claude/knowledge/market-data-services.md` |
+| Agent、投研输出、runEvents、意图路由、DAG | `.claude/knowledge/agent-services.md` |
+| Agent 工具、ToolCallRecord、本地 DuckDB 工具 | `.claude/knowledge/agent-tools.md` |
+| 配置、会话、通知、更新、商店 | `.claude/knowledge/electron-services-overview.md` |
+
+根因定位不能只看单个报错文件，必须沿 `UI 状态 / 事件 → Hook / Store → stocksenseApi / IPC → Service → Provider / 本地库 → 真实数据源` 链路检查调用方和数据来源。
+
 ## 总原则
 
 - 先找根因，再修复；禁止绕过、隐藏或删除功能。

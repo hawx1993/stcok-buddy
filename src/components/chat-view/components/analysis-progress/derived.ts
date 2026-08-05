@@ -40,12 +40,167 @@ const STEP_LABELS: Record<string, string> = {
 
 function stepLabel(nodeId: string, description?: string): string {
   if (STEP_LABELS[nodeId]) return STEP_LABELS[nodeId];
-  if (description) return description.length > 18 ? `${description.slice(0, 16)}…` : description;
+  if (description) return description;
   return nodeId;
+}
+
+type TProviderStage = 'duckdb' | 'stock-sdk' | 'a-stock-data';
+
+const PROVIDER_STAGE_LABELS: Record<TProviderStage, string> = {
+  duckdb: '1. 查询 DuckDB 本地库',
+  'stock-sdk': '2. stock-sdk 补充',
+  'a-stock-data': '3. a-stock-data 补充',
+};
+
+const LOCAL_TOOL_NAMES = new Set([
+  'queryLocalDuckDBData',
+  'screenLocalAStocks',
+  'queryLocalMarketDuckDB',
+  'queryLocalMonitorDuckDB',
+  'queryLocalSurgeDuckDB',
+]);
+
+const STOCK_SDK_TOOL_NAMES = new Set([
+  'getStockQuoteLocalFirst',
+  'getStockKlineLocalFirst',
+  'getStockFundFlowLocalFirst',
+  'getStockQuote',
+  'getStockKline',
+  'getHistoricalDailyBars',
+  'getTechnicalIndicators',
+  'getStockChipDistribution',
+  'getStockNewsAnnouncements',
+  'getMarketReview',
+  'getNorthboundFlow',
+  'getDragonTiger',
+]);
+
+const A_STOCK_DATA_TOOL_NAMES = new Set([
+  'getHotConcepts',
+  'getIndustryRanking',
+  'getHotFocus',
+  'getHolderNumberChange',
+  'getDividendHistory',
+]);
+
+function providerStageForTool(toolName: string): TProviderStage | undefined {
+  if (LOCAL_TOOL_NAMES.has(toolName)) return 'duckdb';
+  if (STOCK_SDK_TOOL_NAMES.has(toolName)) return 'stock-sdk';
+  if (A_STOCK_DATA_TOOL_NAMES.has(toolName)) return 'a-stock-data';
+  return undefined;
+}
+
+function isFreeQuestionProviderFlow(events: AgentRunEvent[]): boolean {
+  return events.some(
+    (event) =>
+      event.step?.id === 'a-stock-data-agent' ||
+      event.plan?.agents.some((agent) => agent.id === 'a-stock-data-agent'),
+  );
+}
+
+function providerStepLabel(stage: TProviderStage, status: IStep['status']): string {
+  if (stage === 'duckdb') {
+    if (status === 'running') return '1. 正在查询 DuckDB 本地库';
+    if (status === 'completed') return '1. DuckDB 本地库数据可用';
+    if (status === 'error') return '1. DuckDB 本地库不可用';
+  }
+  if (stage === 'stock-sdk') {
+    if (status === 'running') return '2. 正在调用 stock-sdk 补充';
+    if (status === 'completed') return '2. stock-sdk 数据可用';
+    if (status === 'skipped') return '2. stock-sdk 已跳过';
+    if (status === 'error') return '2. stock-sdk 不可用';
+  }
+  if (stage === 'a-stock-data') {
+    if (status === 'running') return '3. 正在调用 a-stock-data 补充';
+    if (status === 'completed') return '3. a-stock-data 数据可用';
+    if (status === 'skipped') return '3. a-stock-data 已跳过';
+    if (status === 'error') return '3. a-stock-data 不可用';
+  }
+  return PROVIDER_STAGE_LABELS[stage];
+}
+
+function isTerminalStepStatus(status: IStep['status']): boolean {
+  return status === 'completed' || status === 'skipped' || status === 'error';
+}
+
+function setProviderStageStatus(
+  statusMap: Map<TProviderStage, IStep['status']>,
+  stage: TProviderStage,
+  status: IStep['status'],
+): void {
+  const previous = statusMap.get(stage);
+  if (status === 'running' && previous && isTerminalStepStatus(previous)) return;
+  statusMap.set(stage, status);
+}
+
+function deriveProviderSteps(events: AgentRunEvent[]): IStep[] | undefined {
+  if (!isFreeQuestionProviderFlow(events)) return undefined;
+
+  const statusMap = new Map<TProviderStage, IStep['status']>([
+    ['duckdb', 'pending'],
+    ['stock-sdk', 'pending'],
+    ['a-stock-data', 'pending'],
+  ]);
+  let hasProviderTool = false;
+
+  for (const event of events) {
+    const stage = event.tool?.name ? providerStageForTool(event.tool.name) : undefined;
+    if (!stage) continue;
+    hasProviderTool = true;
+    if (event.type === 'tool_started') setProviderStageStatus(statusMap, stage, 'running');
+    if (event.type === 'tool_completed')
+      setProviderStageStatus(statusMap, stage, event.tool?.status === 'failed' ? 'error' : 'completed');
+    if (event.type === 'tool_failed') setProviderStageStatus(statusMap, stage, 'error');
+  }
+
+  if (!hasProviderTool) {
+    const duckdbPreparing = events.some((event) => event.message?.includes('DuckDB'));
+    if (!duckdbPreparing) return undefined;
+    statusMap.set('duckdb', 'running');
+  }
+
+  const finished = events.some(
+    (event) => event.type === 'final_answer' || (event.type === 'subagent_completed' && event.step?.id === 'a-stock-data-agent'),
+  );
+  const duckdbStatus = statusMap.get('duckdb');
+  const stockSdkStatus = statusMap.get('stock-sdk');
+  const aStockDataStatus = statusMap.get('a-stock-data');
+
+  if (finished && duckdbStatus === 'completed' && stockSdkStatus === 'pending' && aStockDataStatus === 'pending') {
+    statusMap.set('stock-sdk', 'skipped');
+    statusMap.set('a-stock-data', 'skipped');
+  } else if (finished && aStockDataStatus === 'completed' && stockSdkStatus === 'pending') {
+    statusMap.set('stock-sdk', 'skipped');
+  } else if (finished && stockSdkStatus === 'completed' && aStockDataStatus === 'pending') {
+    statusMap.set('a-stock-data', 'skipped');
+  }
+
+  return (['duckdb', 'stock-sdk', 'a-stock-data'] as const).map((stage) => {
+    const status = statusMap.get(stage) ?? 'pending';
+    return { id: `provider-${stage}`, label: providerStepLabel(stage, status), status };
+  });
+}
+
+function providerFlowSummary(events: AgentRunEvent[]): string | undefined {
+  const steps = deriveProviderSteps(events);
+  if (!steps) return undefined;
+  const duckdb = steps.find((step) => step.id === 'provider-duckdb')?.status;
+  const stockSdk = steps.find((step) => step.id === 'provider-stock-sdk')?.status;
+  const aStockData = steps.find((step) => step.id === 'provider-a-stock-data')?.status;
+  if (duckdb === 'running') return '正在查询 DuckDB 本地库';
+  if (duckdb === 'completed' && stockSdk === 'skipped' && aStockData === 'skipped') return 'DuckDB 数据可用，已跳过 stock-sdk/a-stock-data';
+  if (stockSdk === 'running') return 'DuckDB 不足，正在调用 stock-sdk';
+  if (stockSdk === 'completed' && aStockData === 'skipped') return 'stock-sdk 数据可用，已跳过 a-stock-data';
+  if (aStockData === 'running') return 'stock-sdk 不足，正在调用 a-stock-data';
+  if (aStockData === 'completed') return '已使用 a-stock-data 补充数据';
+  return undefined;
 }
 
 // ── Derive step list from events ──
 export function deriveSteps(events: AgentRunEvent[]): IStep[] {
+  const providerSteps = deriveProviderSteps(events);
+  if (providerSteps) return providerSteps;
+
   const planEvent = events.find((e) => e.type === 'plan_created');
   const total = planEvent?.progress?.total ?? 0;
   if (!total) return [];
@@ -104,7 +259,9 @@ export function deriveAgentStatuses(events: AgentRunEvent[]): IAgentStatus[] {
   const startedAtMap = new Map<string, string>();
   const progressMap = new Map<string, number>();
   const progressMessageMap = new Map<string, string>();
+  const runningAgentIds = new Set<string>();
   const order: string[] = [];
+  let latestRunningAgentId: string | undefined;
 
   const ensureAgent = (id: string, label: string) => {
     if (!statusMap.has(id)) {
@@ -116,29 +273,65 @@ export function deriveAgentStatuses(events: AgentRunEvent[]): IAgentStatus[] {
     if (!labelMap.get(id)) labelMap.set(id, label);
   };
 
+  const markAgentRunning = (id: string) => {
+    statusMap.set(id, 'running');
+    runningAgentIds.add(id);
+    latestRunningAgentId = id;
+  };
+
+  const currentRunningAgentId = () => {
+    const ids = [...runningAgentIds];
+    return latestRunningAgentId ?? ids[ids.length - 1];
+  };
+
   for (const agent of planAgents) ensureAgent(agent.id, agent.agent);
 
   for (const event of events) {
+    if (event.type === 'tool_started' && event.tool?.name) {
+      const id = currentRunningAgentId();
+      if (id) progressMessageMap.set(id, `正在调用工具：${event.tool.name}`);
+      continue;
+    }
+
+    if ((event.type === 'tool_completed' || event.type === 'tool_failed') && event.tool?.name) {
+      const id = currentRunningAgentId();
+      if (id) {
+        const failed = event.type === 'tool_failed' || event.tool.status === 'failed';
+        progressMessageMap.set(id, `${failed ? '工具失败' : '工具完成'}：${event.tool.name}`);
+      }
+      continue;
+    }
+
     const id = agentIdFromEvent(event);
     if (!id || !event.subAgent) continue;
     ensureAgent(id, event.subAgent.name);
 
     if (event.type === 'subagent_started') {
-      statusMap.set(id, 'running');
+      markAgentRunning(id);
       if (event.step?.startedAt) startedAtMap.set(id, event.step.startedAt);
       if (event.message) progressMessageMap.set(id, event.message);
     }
     if (event.type === 'progress_updated' && event.progress) {
-      statusMap.set(id, 'running');
+      markAgentRunning(id);
       progressMap.set(id, event.progress.current);
       if (event.message) progressMessageMap.set(id, event.message);
     }
     if (event.type === 'subagent_completed') {
       statusMap.set(id, event.subAgent.status === 'error' ? 'error' : 'completed');
+      runningAgentIds.delete(id);
+      if (latestRunningAgentId === id) {
+        const ids = [...runningAgentIds];
+        latestRunningAgentId = ids[ids.length - 1];
+      }
       if (typeof event.subAgent.elapsed === 'number') elapsedMap.set(id, event.subAgent.elapsed);
       progressMap.delete(id);
       progressMessageMap.delete(id);
     }
+  }
+
+  const providerSummary = providerFlowSummary(events);
+  if (providerSummary && statusMap.has('a-stock-data-agent')) {
+    progressMessageMap.set('a-stock-data-agent', providerSummary);
   }
 
   return order.map((id) => ({
@@ -234,6 +427,24 @@ export function resetStartTime(): void {
 export function calcElapsed(events: AgentRunEvent[]): number {
   const t0 = getStartTime(events);
   return Math.round((Date.now() - t0) / 1000);
+}
+
+export function formatProgressSummary({
+  preparing,
+  pending,
+  terminal,
+  total,
+  elapsedSec,
+}: {
+  preparing: boolean;
+  pending: boolean;
+  terminal: number;
+  total: number;
+  elapsedSec: number;
+}): string {
+  if (preparing) return '准备中…';
+  const stepSummary = `${terminal}/${total} 步骤`;
+  return pending ? `${stepSummary} · ${elapsedSec}s` : stepSummary;
 }
 
 export function calcEstimatedRemaining(events: AgentRunEvent[]): number | undefined {

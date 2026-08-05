@@ -1,7 +1,9 @@
-import { app } from 'electron';
+import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
+import { isMainThread } from 'node:worker_threads';
+import { probeMarketDatabaseCorruption } from './market-data-integrity.js';
 import type {
   IBoardDashboardSnapshot,
   TBoardDashboardRange,
@@ -17,9 +19,11 @@ import type {
   MarketBoardRecord,
   MarketDataStats,
   SecurityRecord,
+  StockChipCacheRecord,
   SyncJobRecord,
   SyncJobStatus,
   SyncJobType,
+  TradeCalendarQueryOptions,
   TradeCalendarRecord,
 } from './types.js';
 
@@ -31,10 +35,20 @@ const dbPath = process.env.STOCKSENSE_MARKET_DB_PATH || path.join(
 // instance and create a fresh one after the database file is deleted by
 // the storage manager. A const here would leave the app permanently
 // pointing at a closed instance after "清空本地行情数据库".
-let dbReady = DuckDBInstance.fromCache(dbPath);
+//
+// Lazily created so the first access happens inside the integrity probe gate
+// (ensureReady) — the probe child process needs the file exclusively, and an
+// eager open here would lock it out.
+let dbReady: Promise<DuckDBInstance> | undefined;
+function getDbReady() {
+  dbReady ??= DuckDBInstance.fromCache(dbPath);
+  return dbReady;
+}
 let ready: Promise<void> | undefined;
-let writeQueue = Promise.resolve();
+let operationQueue = Promise.resolve();
 let isClosing = false;
+
+const DUCKDB_SINGLE_THREAD_SQL = 'SET threads TO 1';
 let activeConnections = 0;
 let closeResolve: (() => void) | undefined;
 
@@ -144,6 +158,25 @@ const schemaSql = `
   );
   DROP INDEX IF EXISTS idx_board_constituents_stock;
 `;
+
+export interface IAShareMarketCapSnapshotRow {
+  symbol: string;
+  name: string;
+  exchange: SecurityRecord['exchange'];
+  industry?: string;
+  isSt: boolean;
+  price?: number;
+  change?: number;
+  changePercent?: number;
+  volume?: number;
+  amount?: number;
+  turnoverRate?: number;
+  pe?: number;
+  pb?: number;
+  totalMarketCap?: number;
+  circulatingMarketCap?: number;
+  fetchedAt?: string;
+}
 
 export function initializeMarketDataStore() {
   return ensureReady();
@@ -265,6 +298,21 @@ export async function getStockChip(symbol: string): Promise<unknown | undefined>
   }
 }
 
+export async function listStockChips(limit = 5000): Promise<StockChipCacheRecord[]> {
+  return read(async (connection) => {
+    const safeLimit = Math.max(1, Math.min(10000, Math.floor(limit)));
+    const rows = await all<{ symbol: string; data_json: string; fetched_at: string }>(
+      connection,
+      `SELECT symbol, data_json, fetched_at::VARCHAR AS fetched_at FROM stock_chips ORDER BY symbol LIMIT ${safeLimit}`,
+    );
+    return rows.map((row) => ({
+      symbol: String(row.symbol),
+      data: JSON.parse(row.data_json),
+      fetchedAt: String(row.fetched_at),
+    }));
+  });
+}
+
 export function updateSecurityIndustries(items: Array<{ symbol: string; industry: string }>) {
   if (!items.length) return Promise.resolve();
   return write(async (connection) => {
@@ -316,6 +364,40 @@ export function upsertTradingCalendar(items: TradeCalendarRecord[]) {
   });
 }
 
+export async function listTradeCalendar(options: TradeCalendarQueryOptions = {}): Promise<TradeCalendarRecord[]> {
+  return read(async (connection) => {
+    const conditions: string[] = [];
+    const values: Record<string, DuckDBValue> = {};
+    if (options.market) {
+      conditions.push('market = $market');
+      values.market = options.market;
+    }
+    if (options.startDate) {
+      conditions.push('trade_date >= $startDate');
+      values.startDate = options.startDate;
+    }
+    if (options.endDate) {
+      conditions.push('trade_date <= $endDate');
+      values.endDate = options.endDate;
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 60)));
+    const rows = await all<Record<string, unknown>>(
+      connection,
+      `
+        SELECT market, trade_date::VARCHAR AS trade_date, is_open, previous_trade_date::VARCHAR AS previous_trade_date,
+               next_trade_date::VARCHAR AS next_trade_date, source, updated_at::VARCHAR AS updated_at
+        FROM trade_calendar
+        ${where}
+        ORDER BY trade_date DESC
+        LIMIT ${limit}
+      `,
+      values,
+    );
+    return rows.map(toTradeCalendarRecord);
+  });
+}
+
 export function upsertDailyBars(items: DailyBarRecord[]) {
   if (!items.length) return Promise.resolve();
   return write(async (connection) => {
@@ -345,6 +427,43 @@ export async function listSecurities() {
       `SELECT * FROM securities WHERE status = 'listed' ORDER BY symbol`,
     );
     return rows.map(toSecurityRecord);
+  });
+}
+
+export async function listAShareMarketCapSnapshotRows(includeST = false): Promise<IAShareMarketCapSnapshotRow[]> {
+  return read(async (connection) => {
+    const stCondition = includeST
+      ? ''
+      : "AND s.is_st = FALSE AND s.name NOT LIKE '*ST%' AND s.name NOT LIKE 'ST%'";
+    const rows = await all<Record<string, unknown>>(
+      connection,
+      `
+        SELECT
+          s.symbol,
+          COALESCE(NULLIF(s.name, ''), ss.name, s.symbol) AS name,
+          s.exchange,
+          s.industry,
+          s.is_st,
+          ss.price,
+          ss.change,
+          ss.change_percent,
+          ss.volume,
+          ss.amount,
+          ss.turnover_rate,
+          ss.pe,
+          ss.pb,
+          ss.total_market_cap,
+          ss.circulating_market_cap,
+          ss.fetched_at::VARCHAR AS fetched_at
+        FROM securities s
+        LEFT JOIN stock_snapshots ss ON ss.symbol = s.symbol
+        WHERE s.status = 'listed'
+          AND s.security_type = 'stock'
+          ${stCondition}
+        ORDER BY s.symbol
+      `,
+    );
+    return rows.map(toAShareMarketCapSnapshotRow);
   });
 }
 
@@ -980,7 +1099,7 @@ export function getMarketDataStats(): Promise<MarketDataStats> {
 
 export async function closeMarketDataStore(timeoutMs?: number) {
   isClosing = true;
-  await writeQueue.catch((error) => console.warn('[market-data] close wait failed', error));
+  await operationQueue.catch((error) => console.warn('[market-data] close wait failed', error));
   if (activeConnections > 0)
     await new Promise<void>((resolve) => {
       closeResolve = resolve;
@@ -992,9 +1111,22 @@ export async function closeMarketDataStore(timeoutMs?: number) {
     });
 }
 
+export async function closeMarketDataInstance() {
+  try {
+    if (activeConnections > 0) {
+      console.warn(`[market-data] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`);
+      return;
+    }
+    const instance = await getDbReady();
+    instance.closeSync();
+  } catch (error) {
+    console.warn('[market-data] failed to close DuckDB instance', error);
+  }
+}
+
 /**
  * ponytail: After closeMarketDataStore() + file deletion, the module is in a
- * permanently broken state — isClosing is true, ready/writeQueue reference
+ * permanently broken state — isClosing is true, ready/operationQueue reference
  * the old instance, and dbReady points at a closed DuckDB instance. This
  * function resets all module-level state and creates a brand-new DuckDB
  * instance so the store can be used again without an app restart.
@@ -1011,7 +1143,7 @@ export async function resetMarketDataStore() {
   // opens a brand-new inode).
   if (activeConnections === 0) {
     try {
-      const oldInstance = await dbReady;
+      const oldInstance = await getDbReady();
       oldInstance.closeSync();
     } catch (error) {
       console.warn('[market-data] failed to close old DuckDB instance during reset', error);
@@ -1025,41 +1157,130 @@ export async function resetMarketDataStore() {
   dbReady = DuckDBInstance.create(dbPath);
   // Reset all module-level state so read()/write() work again
   ready = undefined;
-  writeQueue = Promise.resolve();
+  integrityReady = undefined;
+  operationQueue = Promise.resolve();
   isClosing = false;
   activeConnections = 0;
   closeResolve = undefined;
 }
 
 function ensureReady() {
-  ready ??= withConnection((connection) => connection.run(schemaSql).then(() => undefined));
+  ready ??= ensureDatabaseIntegrity().then(() =>
+    withConnection((connection) => connection.run(schemaSql).then(() => undefined)),
+  );
   return ready;
 }
 
-async function read<T>(work: (connection: DuckDBConnection) => Promise<T>) {
-  if (isClosing) throw new Error('market data store is closing');
-  await ensureReady();
-  return withConnection(work);
+let integrityReady: Promise<void> | undefined;
+
+/**
+ * Probes the market DuckDB from a child process before the store is first used.
+ * A corrupted table (a native DuckDB SIGSEGV cannot be caught in-process) is
+ * dropped here; the schema is re-applied right after, so the sync can rebuild
+ * it from real data. Runs once per store lifetime.
+ *
+ * Only the main process runs the probe: the sync worker loads this module in a
+ * separate thread/isolate with its own DuckDB instance, and a second probe there
+ * would either be redundant or fail on the file lock held by the main process.
+ */
+async function ensureDatabaseIntegrity() {
+  if (!isMainThread) return;
+  integrityReady ??= (async () => {
+    try {
+      const corruptTables = await probeMarketDatabaseCorruption(dbPath);
+      if (!corruptTables.length) return;
+      await withConnection(async (connection) => {
+        for (const table of corruptTables) {
+          if (!/^[a-z_][a-z0-9_]*$/.test(table)) continue;
+          await connection.run(`DROP TABLE IF EXISTS "${table}"`);
+          console.warn(`[market-data] dropped corrupt table ${table}; it will be recreated and re-synced`);
+        }
+        // Invalidate the sync bookkeeping: the scheduler otherwise believes the
+        // dropped table's data is still up to date and would never re-sync it.
+        await connection.run('DELETE FROM sync_jobs');
+      });
+    } catch (error) {
+      console.warn('[market-data] integrity probe failed', error);
+    }
+  })();
+  return integrityReady;
+}
+
+function read<T>(work: (connection: DuckDBConnection) => Promise<T>) {
+  if (isClosing) return Promise.reject(new Error('market data store is closing'));
+  return enqueueOperation(work);
 }
 
 function write<T>(work: (connection: DuckDBConnection) => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('market data store is closing'));
-  const next = writeQueue.then(async () => {
-    await ensureReady();
-    return withConnection(work);
+  return enqueueOperation(work);
+}
+
+function enqueueOperation<T>(work: (connection: DuckDBConnection) => Promise<T>) {
+  const next = operationQueue.then(async () => {
+    if (isClosing) throw new Error('market data store is closing');
+    try {
+      await ensureReady();
+      return await withConnection(work);
+    } catch (error) {
+      if (!isDuckDbFatalInvalidation(error)) throw error;
+      await recoverMarketDataStoreAfterFatal(error);
+      await ensureReady();
+      return withConnection(work);
+    }
   });
-  writeQueue = next.then(
+  operationQueue = next.then(
     () => undefined,
     () => undefined,
   );
   return next;
 }
 
+function isDuckDbFatalInvalidation(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('database has been invalidated') ||
+    message.includes('The database must be restarted prior to being used again') ||
+    message.includes('Invalid bitpacking mode') ||
+    // ponytail: DuckDB INTERNAL errors during COMMIT/checkpoint (e.g.
+    // ART::TransformToDeprecated) mean the on-disk index structure is
+    // corrupted. Reopening the same file won't help — delete and recreate.
+    message.includes('INTERNAL Error')
+  );
+}
+
+async function recoverMarketDataStoreAfterFatal(error: unknown) {
+  console.warn('[market-data] recovering DuckDB after fatal error, deleting corrupted database', error);
+  // Close the old instance. It may already be invalidated — swallow errors.
+  try {
+    const oldInstance = await getDbReady();
+    oldInstance.closeSync();
+  } catch (closeError) {
+    console.warn('[market-data] failed to close old DuckDB instance during recovery', closeError);
+  }
+  // Delete the corrupted database file and its WAL so DuckDB creates a
+  // fresh empty database. The sync scheduler will rebuild data from real
+  // sources on the next cycle.
+  try {
+    if (existsSync(dbPath)) unlinkSync(dbPath);
+    const walPath = dbPath + '.wal';
+    if (existsSync(walPath)) unlinkSync(walPath);
+    console.warn('[market-data] deleted corrupted database, recreating from scratch');
+  } catch (deleteError) {
+    console.warn('[market-data] failed to delete corrupted database file', deleteError);
+  }
+  // Create a fresh instance and reset module state
+  dbReady = DuckDBInstance.create(dbPath);
+  ready = undefined;
+  integrityReady = undefined;
+}
+
 async function withConnection<T>(work: (connection: DuckDBConnection) => Promise<T>) {
   if (isClosing) throw new Error('market data store is closing');
-  const connection = await (await dbReady).connect();
+  const connection = await (await getDbReady()).connect();
   activeConnections += 1;
   try {
+    await connection.run(DUCKDB_SINGLE_THREAD_SQL);
     return await work(connection);
   } finally {
     connection.closeSync();
@@ -1127,6 +1348,39 @@ function toSecurityRecord(row: Record<string, unknown>): SecurityRecord {
   };
 }
 
+function toAShareMarketCapSnapshotRow(row: Record<string, unknown>): IAShareMarketCapSnapshotRow {
+  return {
+    symbol: String(row.symbol),
+    name: String(row.name),
+    exchange: row.exchange as SecurityRecord['exchange'],
+    industry: optionalString(row.industry),
+    isSt: Boolean(row.is_st),
+    price: optionalNumber(row.price),
+    change: optionalNumber(row.change),
+    changePercent: optionalNumber(row.change_percent),
+    volume: optionalNumber(row.volume),
+    amount: optionalNumber(row.amount),
+    turnoverRate: optionalNumber(row.turnover_rate),
+    pe: optionalNumber(row.pe),
+    pb: optionalNumber(row.pb),
+    totalMarketCap: optionalNumber(row.total_market_cap),
+    circulatingMarketCap: optionalNumber(row.circulating_market_cap),
+    fetchedAt: optionalString(row.fetched_at),
+  };
+}
+
+function toTradeCalendarRecord(row: Record<string, unknown>): TradeCalendarRecord {
+  return {
+    market: String(row.market),
+    tradeDate: toDateString(row.trade_date),
+    isOpen: Boolean(row.is_open),
+    previousTradeDate: optionalString(row.previous_trade_date),
+    nextTradeDate: optionalString(row.next_trade_date),
+    source: String(row.source),
+    updatedAt: String(row.updated_at),
+  };
+}
+
 function toSyncJob(row: Record<string, unknown>): SyncJobRecord {
   const status = String(row.status) as SyncJobStatus;
   return {
@@ -1134,7 +1388,7 @@ function toSyncJob(row: Record<string, unknown>): SyncJobRecord {
     status,
     state:
       status === 'running'
-        ? row.job_type === 'initial_backfill'
+        ? row.job_type === 'initial_backfill' || row.job_type === 'recent_initial'
           ? 'initializing'
           : 'syncing'
         : status === 'pending'

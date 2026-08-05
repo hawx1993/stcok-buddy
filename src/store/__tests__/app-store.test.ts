@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useAppDataStore, useAppUiStore } from '../app-store';
+import { hasLocalAssistantDraft, useAppDataStore, useAppUiStore } from '../app-store';
 import type { AppConfig, ChatMessage, KlinePoint, MarketNewsItem } from '../../shared/types';
 
 const TEST_CONFIG: AppConfig = {
@@ -185,6 +185,88 @@ describe('数据状态', () => {
     expect(useAppUiStore.getState().mainView).toBe('chat');
   });
 
+  it('切换到未缓存的已有消息会话时应清空中间栏并标记加载中', () => {
+    const currentMessage = createAssistantMessage('assistant-current', '当前会话内容');
+    const loadedMessage = createAssistantMessage('assistant-loaded', '加载后的会话内容');
+    useAppDataStore.getState().setConversations([
+      { id: 'c-1', title: '当前会话', preview: '预览', date: '2026-08-03', updatedAt: '2026-08-03', tab: 'stock', count: 1 },
+      { id: 'c-2', title: '已有会话', preview: '预览', date: '2026-08-04', updatedAt: '2026-08-04', tab: 'market', count: 2 },
+    ]);
+    useAppDataStore.getState().setActiveConversationWithMessages('c-1', [currentMessage]);
+
+    useAppDataStore.getState().setActiveConversation('c-2');
+
+    expect(useAppDataStore.getState().activeConversationId).toBe('c-2');
+    expect(useAppDataStore.getState().messages).toEqual([]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(true);
+    expect(useAppDataStore.getState().messagesLoadingConversationId).toBe('c-2');
+
+    useAppDataStore.getState().setMessagesLoading('c-2', true);
+
+    expect(useAppDataStore.getState().messages).toEqual([]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(true);
+    expect(useAppDataStore.getState().messagesLoadingConversationId).toBe('c-2');
+
+    useAppDataStore.getState().setMessages([loadedMessage]);
+
+    expect(useAppDataStore.getState().messages).toEqual([loadedMessage]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(false);
+    expect(useAppDataStore.getState().messagesLoadingConversationId).toBeUndefined();
+  });
+
+  it('带消息切换会话时应原子写入消息并缓存会话内容', () => {
+    const message = createAssistantMessage('assistant-1', '已有本地消息');
+    useAppUiStore.getState().setMainView('discovery');
+
+    useAppDataStore.getState().setActiveConversationWithMessages('c-2', [message]);
+
+    expect(useAppDataStore.getState().activeConversationId).toBe('c-2');
+    expect(useAppDataStore.getState().messages).toEqual([message]);
+    expect(useAppDataStore.getState().conversationMessages['c-2']).toEqual([message]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(false);
+    expect(useAppUiStore.getState().mainView).toBe('chat');
+  });
+
+  it('切换到已有缓存的会话时应直接显示缓存内容', () => {
+    const firstMessage = createAssistantMessage('assistant-1', '第一个会话');
+    const secondMessage = createAssistantMessage('assistant-2', '第二个会话');
+    useAppDataStore.getState().setConversations([
+      { id: 'c-1', title: '会话 1', preview: '预览', date: '2026-08-03', updatedAt: '2026-08-03', tab: 'stock', count: 1 },
+      { id: 'c-2', title: '会话 2', preview: '预览', date: '2026-08-04', updatedAt: '2026-08-04', tab: 'market', count: 1 },
+    ]);
+    useAppDataStore.getState().setActiveConversationWithMessages('c-1', [firstMessage]);
+    useAppDataStore.getState().setActiveConversationWithMessages('c-2', [secondMessage]);
+
+    useAppDataStore.getState().setActiveConversation('c-1');
+
+    expect(useAppDataStore.getState().messages).toEqual([firstMessage]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(false);
+  });
+
+  it('向上加载更早消息时应去重并追加到当前会话缓存前方', () => {
+    const oldMessage = createAssistantMessage('assistant-old', '更早消息');
+    const currentMessage = createAssistantMessage('assistant-current', '当前消息');
+    useAppDataStore.getState().setActiveConversationWithMessages('c-1', [currentMessage]);
+
+    useAppDataStore.getState().prependMessages('c-1', [oldMessage, currentMessage]);
+
+    expect(useAppDataStore.getState().messages).toEqual([oldMessage, currentMessage]);
+    expect(useAppDataStore.getState().conversationMessages['c-1']).toEqual([oldMessage, currentMessage]);
+  });
+
+  it('切换到空白会话时不应标记消息加载中', () => {
+    useAppDataStore.getState().setConversations([
+      { id: 'c-1', title: '空会话', preview: '', date: '2026-08-03', updatedAt: '2026-08-03', tab: 'stock', count: 0 },
+    ]);
+
+    useAppDataStore.getState().setActiveConversation('c-1');
+    useAppDataStore.getState().setMessagesLoading('c-1', true);
+
+    expect(useAppDataStore.getState().messages).toEqual([]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(false);
+    expect(useAppDataStore.getState().messagesLoadingConversationId).toBeUndefined();
+  });
+
   it('AI 回答中的流式消息应按会话隔离，不覆盖切换后的当前会话', () => {
     const thinkingMessage: ChatMessage = {
       ...createAssistantMessage('assistant-thinking', '初始回答'),
@@ -326,5 +408,83 @@ describe('数据状态', () => {
     expect(message.thinking).toBeUndefined();
     expect(message.runEvents).toEqual([{ type: 'step_started', title: '开始' }]);
     expect(message.processedSeconds).toBeGreaterThanOrEqual(0.1);
+  });
+
+  it('暂停 assistant 时应保留已有内容和分析进度并清理 thinking 状态', () => {
+    useAppDataStore.getState().addMessage({
+      ...createAssistantMessage('assistant-1', '已生成的部分回答'),
+      thinking: {
+        startedAt: '2026-08-03T00:00:00.000Z',
+        steps: [{ id: 'step-1', agent: 'planner', description: '规划中', status: 'running' }],
+      },
+      steps: [{ id: 'step-1', agent: 'planner', description: '规划中', status: 'running' }],
+      runEvents: [{ type: 'step_started', title: '开始' }],
+      toolCalls: [{ id: 'tool-1', toolName: 'getStockQuote', input: { symbol: '600519' }, startedAt: '2026-08-03T00:00:00.000Z' }],
+    });
+
+    useAppDataStore.getState().stopLastAssistant();
+
+    const message = useAppDataStore.getState().messages[0];
+
+    expect(message.content).toContain('已生成的部分回答');
+    expect(message.content).toContain('已暂停思考。');
+    expect(message.thinking).toBeUndefined();
+    expect(message.steps).toEqual([{ id: 'step-1', agent: 'planner', description: '规划中', status: 'running' }]);
+    expect(message.toolCalls?.[0]?.toolName).toBe('getStockQuote');
+    expect(message.runEvents).toEqual([
+      { type: 'step_started', title: '开始' },
+      { type: 'final_answer', title: '已暂停思考', message: '已暂停思考。' },
+    ]);
+  });
+
+  it('暂停空内容 assistant 时应显示暂停状态并保留 runEvents', () => {
+    useAppDataStore.getState().addMessage({
+      ...createAssistantMessage('assistant-1', ''),
+      thinking: { startedAt: '2026-08-03T00:00:00.000Z', steps: [] },
+      runEvents: [{ type: 'tool_started', title: '工具调用' }],
+    });
+
+    useAppDataStore.getState().stopLastAssistant();
+
+    const message = useAppDataStore.getState().messages[0];
+
+    expect(message.content).toBe('已暂停思考。');
+    expect(message.thinking).toBeUndefined();
+    expect(message.runEvents).toEqual([
+      { type: 'tool_started', title: '工具调用' },
+      { type: 'final_answer', title: '已暂停思考', message: '已暂停思考。' },
+    ]);
+  });
+
+  it('本地暂停 assistant 应标记为本地草稿以阻止短消息列表覆盖', () => {
+    const messages: ChatMessage[] = [
+      {
+        ...createAssistantMessage('assistant-1', '部分回答\n\n> 已暂停思考。'),
+        runEvents: [{ type: 'final_answer', title: '已暂停思考', message: '已暂停思考。' }],
+      },
+    ];
+
+    expect(hasLocalAssistantDraft(messages)).toBe(true);
+  });
+
+  it('普通已完成 assistant 不应标记为本地草稿', () => {
+    expect(hasLocalAssistantDraft([createAssistantMessage('assistant-1', '最终回答')])).toBe(false);
+  });
+
+  it('重复暂停 assistant 时不应重复追加暂停文案和结束事件', () => {
+    useAppDataStore.getState().addMessage({
+      ...createAssistantMessage('assistant-1', '部分回答'),
+      thinking: { startedAt: '2026-08-03T00:00:00.000Z', steps: [] },
+      runEvents: [{ type: 'step_started', title: '开始' }],
+    });
+
+    useAppDataStore.getState().stopLastAssistant();
+    useAppDataStore.getState().stopLastAssistant();
+
+    const message = useAppDataStore.getState().messages[0];
+    const pauseTextMatches = message.content.match(/已暂停思考。/g) ?? [];
+
+    expect(pauseTextMatches).toHaveLength(1);
+    expect(message.runEvents?.filter((event) => event.type === 'final_answer')).toHaveLength(1);
   });
 });

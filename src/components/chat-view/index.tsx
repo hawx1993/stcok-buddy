@@ -1,22 +1,23 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { message as antdMessage } from 'antd';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import gsap from 'gsap';
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import { AnalysisProgress } from './components/analysis-progress';
-import { WhaleLogo } from './components/whale-logo';
-import { ThinkingBanner, AnalysisThinkingBanner, ProcessedBanner } from './components/thinking-components';
-import { formatMessageTime } from './components/message-utils';
-import { createThinkingSteps, setBuiltInSlashItems, isGreeting } from './components/thinking-steps';
-import { ResultCard } from './components/result-card';
-import { MarketReviewCard } from './components/market-review-card';
-import { QuickEntry, type TSlashItem } from './components/quick-entry';
+import { trackButtonClick } from '../../shared/analytics';
+import { setBuiltInSlashItems } from './components/thinking-steps';
+import { MessageBubble } from './components/message-bubble';
+import { QuickEntry } from './components/quick-entry';
 import { SlashCommandMenu } from './components/slash-command-menu';
-import { renderCommandInText, renderMarkdownContent } from './components/markdown';
-import type { BoardDetail, ChatMessage, StockDetail, StoreCategory, StoreItem } from '../../shared/types';
+import { findSearchTargetMessageId } from './components/search-highlight';
+import { AppStoreBar } from './components/app-store-bar';
+import { AppStoreModal } from './components/app-store-modal';
+import { storeItemToSlashItem } from './utils';
+import { useChatSend } from './hooks/use-chat-send';
+import type { StoreItem } from '../../shared/types';
 import { useAppDataStore, useAppUiStore } from '../../store/app-store';
-import { track, trackButtonClick } from '../../shared/analytics';
-import styles from './index.module.scss';
+import { useStickToBottom } from 'use-stick-to-bottom';
 import cx from '../../shared/cx';
+import styles from './index.module.scss';
 
 const builtInSlashItems = [
   {
@@ -99,45 +100,62 @@ const builtInSlashItems = [
     description: '分析个股当前的筹码结构、主力控盘情况以及未来走势',
     argPlaceholder: '[输入股票代码或名称]',
   },
-] satisfies SlashItem[];
+] satisfies Array<{
+  id: string;
+  section: string;
+  label: string;
+  command: string;
+  description: string;
+  argPlaceholder: string;
+}>;
 
-type SlashItem = TSlashItem;
-const storeTabs: Array<{ id: StoreCategory; label: string }> = [
-  { id: 'commands', label: 'Commands' },
-  { id: 'skills', label: 'Skills' },
-  { id: 'sub-agents', label: '子代理' },
-];
+type SlashItem = (typeof builtInSlashItems)[number];
 
 setBuiltInSlashItems(builtInSlashItems);
 
+type TAppliedSearchHighlight = {
+  messageId: string;
+  query: string;
+  requestedAt: number;
+};
+
 export function ChatView() {
   const rootRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [storeOpen, setStoreOpen] = useState(false);
-  const activeRequestRef = useRef<string>();
-  const activeRequestConversationRef = useRef<string>();
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [installedStoreItems, setInstalledStoreItems] = useState<string[]>([]);
-  const messages = useAppDataStore((state) => state.messages);
+  const [appliedSearchHighlight, setAppliedSearchHighlight] = useState<TAppliedSearchHighlight>();
   const [now, setNow] = useState(Date.now());
+
+  const messages = useAppDataStore((state) => state.messages);
+  const isMessagesLoading = useAppDataStore((state) => state.isMessagesLoading);
+  const messagesLoadingConversationId = useAppDataStore((state) => state.messagesLoadingConversationId);
   const activeConversationId = useAppDataStore((state) => state.activeConversationId);
   const isSending = useAppDataStore((state) => state.isSending);
   const config = useAppDataStore((state) => state.config);
+  const chatSearchHighlight = useAppUiStore((state) => state.chatSearchHighlight);
+  const clearChatSearchHighlight = useAppUiStore((state) => state.clearChatSearchHighlight);
   const setSettingsOpen = useAppUiStore((state) => state.setSettingsOpen);
-  const addMessage = useAppDataStore((state) => state.addMessage);
-  const replaceLastAssistant = useAppDataStore((state) => state.replaceLastAssistant);
-  const finalizeLastAssistant = useAppDataStore((state) => state.finalizeLastAssistant);
-  const appendToLastAssistant = useAppDataStore((state) => state.appendToLastAssistant);
-  const applyRunEventToLastAssistant = useAppDataStore((state) => state.applyRunEventToLastAssistant);
-  const setSending = useAppDataStore((state) => state.setSending);
-  const rememberStockKline = useAppDataStore((state) => state.rememberStockKline);
-  const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
-  const setSelectedBoard = useAppDataStore((state) => state.setSelectedBoard);
-  const selectedBoard = useAppDataStore((state) => state.selectedBoard);
-  const openRightPanel = useAppUiStore((state) => state.openRightPanel);
-  const openBoardPanel = useAppUiStore((state) => state.openBoardPanel);
+
+  const { contentRef, scrollRef, scrollToBottom: stickToBottom } = useStickToBottom({
+    resize: 'instant',
+    initial: 'instant',
+  });
+
+  const {
+    send,
+    stopThinking,
+    loadEarlierMessages,
+    isLoadingEarlierMessages,
+    openStockDetail,
+    openBoardDetail,
+  } = useChatSend({ stickToBottom });
+
+  const shouldSuppressConversationScrollRef = useRef(false);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
   const slashItems = useMemo(
     () => [
       ...builtInSlashItems,
@@ -146,6 +164,23 @@ export function ChatView() {
     [installedStoreItems, storeItems],
   );
 
+  const messageVirtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => 240,
+    getItemKey: (index) => messages[index]?.id ?? index,
+    overscan: 4,
+  });
+
+  const setScrollRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      listRef.current = el;
+      scrollRef(el);
+    },
+    [scrollRef],
+  );
+
+  // ── store items ──────────────────────────────────────────────────────
   useEffect(() => {
     const api = getStocksenseApi();
     void Promise.all([api.listStoreItems(), api.listInstalledStoreItems()])
@@ -157,19 +192,18 @@ export function ChatView() {
   }, []);
 
   const installStoreCommand = async (id: string) => {
-    trackButtonClick('install_store_item', { item_id: id });
     const installed = await getStocksenseApi().installStoreItem(id);
     setInstalledStoreItems(installed);
     antdMessage.success('安装成功');
   };
 
   const uninstallStoreCommand = async (id: string) => {
-    trackButtonClick('uninstall_store_item', { item_id: id });
     const installed = await getStocksenseApi().uninstallStoreItem(id);
     setInstalledStoreItems(installed);
     antdMessage.success('已卸载');
   };
 
+  // ── GSAP entrance animation ──────────────────────────────────────────
   useLayoutEffect(() => {
     if (!rootRef.current) return;
     const ctx = gsap.context(() => {
@@ -179,15 +213,54 @@ export function ChatView() {
     return () => ctx.revert();
   }, []);
 
+  // ── conversation switch ──────────────────────────────────────────────
   useLayoutEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages.length]);
+    shouldSuppressConversationScrollRef.current = true;
+  }, [activeConversationId]);
 
+  const isActiveConversationLoading = isMessagesLoading && messagesLoadingConversationId === activeConversationId;
+
+  useLayoutEffect(() => {
+    if (shouldSuppressConversationScrollRef.current) {
+      if (!isActiveConversationLoading) {
+        shouldSuppressConversationScrollRef.current = false;
+        stickToBottom({ animation: 'instant' });
+      }
+      return;
+    }
+  }, [activeConversationId, isActiveConversationLoading, stickToBottom]);
+
+  // ── search highlight ─────────────────────────────────────────────────
+  useLayoutEffect(() => {
+    if (!chatSearchHighlight || chatSearchHighlight.conversationId !== activeConversationId) return;
+    const messageId = findSearchTargetMessageId(messages, chatSearchHighlight);
+    if (!messageId) return;
+    const messageIndex = messages.findIndex((message) => message.id === messageId);
+    if (messageIndex < 0) return;
+    setAppliedSearchHighlight({ messageId, query: chatSearchHighlight.query, requestedAt: chatSearchHighlight.requestedAt });
+    messageVirtualizer.scrollToIndex(messageIndex, { align: 'center', behavior: 'smooth' });
+    clearChatSearchHighlight();
+  }, [activeConversationId, chatSearchHighlight, clearChatSearchHighlight, messageVirtualizer, messages]);
+
+  useEffect(() => {
+    if (!appliedSearchHighlight) return;
+    const timer = window.setTimeout(() => {
+      setAppliedSearchHighlight((current) =>
+        current?.requestedAt === appliedSearchHighlight.requestedAt && current.messageId === appliedSearchHighlight.messageId
+          ? undefined
+          : current,
+      );
+    }, 2600);
+    return () => window.clearTimeout(timer);
+  }, [appliedSearchHighlight]);
+
+  // ── periodic timestamp ───────────────────────────────────────────────
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(id);
   }, []);
 
+  // ── AI response notification ─────────────────────────────────────────
   useEffect(() => {
     const api = getStocksenseApi();
     const unsubscribe = api.onAiResponseNotification?.((payload) => {
@@ -202,34 +275,12 @@ export function ChatView() {
     return () => unsubscribe?.();
   }, []);
 
-  const openStockDetail = async (stock: Pick<StockDetail, 'code' | 'name'>) => {
-    trackButtonClick('open_stock_detail', { code: stock.code, name: stock.name });
-    const kline = findMessageKline(messages, stock.code);
-    openRightPanel();
-    setSelectedStock({ ...stock, kline } as StockDetail);
-    try {
-      const detail = await getStocksenseApi().getStockDetail(stock.code);
-      setSelectedStock({ ...detail, kline: kline?.length ? kline : detail.kline });
-    } catch {
-      setSelectedStock({ ...stock, kline } as StockDetail);
-    }
-  };
-
-  const openBoardDetail = async (board: Pick<BoardDetail, 'code' | 'name'>) => {
-    trackButtonClick('open_board_detail', { code: board.code, name: board.name });
-    openBoardPanel();
-    if (selectedBoard?.code !== board.code) setSelectedBoard(board as BoardDetail);
-    try {
-      setSelectedBoard(await getStocksenseApi().getBoardDetail(board.code, false, board.name));
-    } catch {
-      if (selectedBoard?.code !== board.code) setSelectedBoard(board as BoardDetail);
-    }
-  };
-
+  // ── slash command helpers ────────────────────────────────────────────
   const slashOpen = input.startsWith('/') && !input.includes(' ');
   const activeModelName = config?.model.customModel?.trim() || config?.model.model || '模型设置';
   const activeCommand = slashItems.find((item) => input.startsWith(`${item.command} `));
   const commandArg = activeCommand ? input.slice(activeCommand.command.length + 1) : '';
+
   const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
     if (item) {
       trackButtonClick('select_slash_command', { command: item.command });
@@ -237,132 +288,15 @@ export function ChatView() {
     }
   };
 
-  const stopThinking = () => {
-    trackButtonClick('stop_thinking');
-    const conversationId = activeRequestConversationRef.current ?? activeConversationId ?? 'conv-1';
-    activeRequestRef.current = undefined;
-    activeRequestConversationRef.current = undefined;
-    replaceLastAssistant(
-      {
-        id: `assistant-stopped-${Date.now()}`,
-        role: 'assistant',
-        content: '已暂停思考。',
-        createdAt: new Date().toISOString(),
-      },
-      conversationId,
-    );
-    setSending(false, conversationId);
-  };
+  // ── scroll handler ───────────────────────────────────────────────────
+  const handleMessagesScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      if (event.currentTarget.scrollTop <= 48) void loadEarlierMessages();
+    },
+    [loadEarlierMessages],
+  );
 
-  const send = async (override?: string) => {
-    const text = (override ?? input).trim();
-    if (!text || isSending) return;
-    setInput('');
-    const conversationId = activeConversationId ?? 'conv-1';
-    const command = text.startsWith('/') ? text.split(/\s+/, 1)[0] : undefined;
-    trackButtonClick('send_chat', { command, message_length: text.length, has_stock_code: /\d{6}/.test(text) });
-    track('stock_query_entered', {
-      query_kind: /^\d{6}$/.test(text) ? 'code' : command ? 'command' : 'text',
-      command,
-      has_stock_code: /\d{6}/.test(text),
-    });
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: text,
-      createdAt: new Date().toISOString(),
-    };
-    addMessage(userMessage);
-    if (isGreeting(text)) {
-      const assistantMessage: ChatMessage = {
-        id: `assistant-greeting-${Date.now()}`,
-        role: 'assistant',
-        content:
-          '你好！我是 StockBuddy。本条是本地欢迎语，不会调用大模型厂商。若要测试模型配置，请在系统设置中保存并完成模型连接校验；也可以直接输入股票代码或投研命令开始分析。',
-        createdAt: new Date().toISOString(),
-      };
-      addMessage(assistantMessage);
-      const api = getStocksenseApi();
-      await api.saveMessage(conversationId, userMessage);
-      await api.saveMessage(conversationId, assistantMessage);
-      api.listConversations().then(useAppDataStore.getState().setConversations).catch(console.error);
-      return;
-    }
-
-    setSending(true, conversationId);
-    addMessage({
-      id: `assistant-thinking-${Date.now()}`,
-      role: 'assistant',
-      content: '',
-      createdAt: new Date().toISOString(),
-      thinking: { startedAt: new Date().toISOString(), steps: createThinkingSteps(text) },
-    });
-    const requestId = `chat-${Date.now()}`;
-    const api = getStocksenseApi();
-    try {
-      activeRequestRef.current = requestId;
-      activeRequestConversationRef.current = conversationId;
-      await api.testModelConfig(await api.getConfig());
-    } catch (error) {
-      replaceLastAssistant(
-        {
-          id: `assistant-error-${Date.now()}`,
-          role: 'assistant',
-          content: error instanceof Error ? error.message : '模型配置校验失败，请检查 API 配置。',
-          createdAt: new Date().toISOString(),
-        },
-        conversationId,
-      );
-      activeRequestRef.current = undefined;
-      activeRequestConversationRef.current = undefined;
-      setSending(false, conversationId);
-      return;
-    }
-    let offToken: (() => void) | undefined;
-    try {
-      offToken = api.onChatToken?.((event) => {
-        if (event.requestId !== requestId || activeRequestRef.current !== requestId) return;
-        if (event.runEvent) applyRunEventToLastAssistant(event.runEvent, conversationId);
-        if (event.token) appendToLastAssistant(event.token, conversationId);
-      });
-      const response = await api.sendChat({
-        conversationId,
-        message: text,
-        requestId,
-      });
-      if (activeRequestRef.current !== requestId) return;
-      finalizeLastAssistant(response.message, conversationId);
-      const stock = response.events.find((event) => event.stock)?.stock;
-      if (stock) {
-        const resultStock = response.message.result?.stocks?.find((item) => item.code === stock.code);
-        const chartData =
-          response.message.result?.chart?.type === 'kline' ? response.message.result.chart.data : undefined;
-        rememberStockKline(stock.code, chartData);
-        openRightPanel();
-        setSelectedStock({ ...stock, ...resultStock, kline: chartData });
-      }
-      api.listConversations().then(useAppDataStore.getState().setConversations).catch(console.error);
-    } catch (error) {
-      if (activeRequestRef.current !== requestId) return;
-      replaceLastAssistant(
-        {
-          id: `assistant-error-${Date.now()}`,
-          role: 'assistant',
-          content: error instanceof Error ? error.message : '请求失败，请稍后重试。',
-          createdAt: new Date().toISOString(),
-        },
-        conversationId,
-      );
-    } finally {
-      offToken?.();
-      if (activeRequestRef.current === requestId) {
-        activeRequestRef.current = undefined;
-        activeRequestConversationRef.current = undefined;
-      }
-      setSending(false, conversationId);
-    }
-  };
-
+  // ── external send triggers ───────────────────────────────────────────
   useEffect(() => {
     const handleReport = (event: Event) => {
       const code = (event as CustomEvent<string>).detail;
@@ -374,7 +308,8 @@ export function ChatView() {
       delete (window as typeof window & { __stocksensePendingReport?: string }).__stocksensePendingReport;
       void send(`/综合投研报告 ${pending}`);
     }
-    const pendingSectorChat = (window as typeof window & { __stocksensePendingSectorChat?: string }).__stocksensePendingSectorChat;
+    const pendingSectorChat = (window as typeof window & { __stocksensePendingSectorChat?: string })
+      .__stocksensePendingSectorChat;
     if (pendingSectorChat) {
       delete (window as typeof window & { __stocksensePendingSectorChat?: string }).__stocksensePendingSectorChat;
       void send(pendingSectorChat);
@@ -382,24 +317,53 @@ export function ChatView() {
     return () => window.removeEventListener('stocksense:send-report', handleReport);
   });
 
+  // ── render ───────────────────────────────────────────────────────────
   return (
     <div className={styles['chat-wrap']} ref={rootRef}>
-      <div className={styles['chat-messages']} ref={listRef}>
-        {messages.length === 0 ? (
+      <div className={styles['chat-messages']} ref={setScrollRef} onScroll={handleMessagesScroll} data-chat-scroll>
+        {isLoadingEarlierMessages ? <div className={styles['chat-loading-earlier']}>正在加载更早消息…</div> : null}
+        {messages.length === 0 && !isMessagesLoading ? (
           <QuickEntry conversationId={activeConversationId} onSubmit={send} slashItems={slashItems} />
         ) : (
-          messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              now={now}
-              slashItems={slashItems}
-              onStockClick={openStockDetail}
-              onBoardClick={openBoardDetail}
-            />
-          ))
+          <div ref={contentRef} style={{ height: messageVirtualizer.getTotalSize(), position: 'relative' }}>
+            {messageVirtualizer.getVirtualItems().map((virtualMessage) => {
+              const message = messages[virtualMessage.index];
+              if (!message) return null;
+              const isSearchHighlighted = appliedSearchHighlight?.messageId === message.id;
+              return (
+                <div
+                  key={message.id}
+                  data-index={virtualMessage.index}
+                  ref={messageVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    paddingBottom: 18,
+                    transform: `translateY(${virtualMessage.start}px)`,
+                  }}
+                >
+                  <MessageBubble
+                    message={message}
+                    now={now}
+                    slashItems={slashItems}
+                    searchQuery={isSearchHighlighted ? appliedSearchHighlight?.query : undefined}
+                    onStockClick={openStockDetail}
+                    onBoardClick={openBoardDetail}
+                  />
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
+      {isActiveConversationLoading ? (
+        <div className={styles['chat-loading-overlay']} role='status' aria-live='polite'>
+          <span className={styles['chat-loading-dot']} />
+          正在加载会话…
+        </div>
+      ) : null}
       {messages.length ? (
         <div className={styles['chat-input']}>
           {slashOpen ? (
@@ -427,7 +391,7 @@ export function ChatView() {
                         setInput('');
                         return;
                       }
-                      if (event.key === 'Enter') void send();
+                      if (event.key === 'Enter') void send(input);
                     }}
                     placeholder={activeCommand.argPlaceholder}
                     autoFocus
@@ -453,7 +417,7 @@ export function ChatView() {
                       setSelectedSlashIndex((value) => Math.max(value - 1, 0));
                       return;
                     }
-                    if (event.key === 'Enter') void send();
+                    if (event.key === 'Enter') void send(input);
                   }}
                   placeholder='输入 / 打开命令，或直接输入A股股票名称/代码'
                 />
@@ -477,7 +441,7 @@ export function ChatView() {
                 </button>
                 <button
                   className={cx(styles['send-btn'], isSending && styles.sending)}
-                  onClick={isSending ? stopThinking : () => void send()}
+                  onClick={isSending ? stopThinking : () => void send(input)}
                   type='button'
                   aria-label={isSending ? '暂停思考' : '发送'}
                   title={isSending ? '暂停思考' : '发送'}
@@ -500,208 +464,4 @@ export function ChatView() {
       ) : null}
     </div>
   );
-}
-
-function AppStoreBar({ onOpen }: { onOpen(): void }) {
-  return (
-    <div className={styles['store-bar']}>
-      <button
-        onClick={() => {
-          trackButtonClick('open_store');
-          onOpen();
-        }}
-        type='button'
-      >
-        ＋
-      </button>
-      <span>插件</span>
-    </div>
-  );
-}
-
-function AppStoreModal({
-  items,
-  installed,
-  onInstall,
-  onUninstall,
-  onClose,
-}: {
-  items: StoreItem[];
-  installed: string[];
-  onInstall(id: string): Promise<void>;
-  onUninstall(id: string): Promise<void>;
-  onClose(): void;
-}) {
-  const [activeTab, setActiveTab] = useState<StoreCategory>('commands');
-  const tabItems = items.filter((item) => item.category === activeTab);
-  return (
-    <div className={styles['store-overlay']} onClick={onClose}>
-      <div className={styles['store-modal']} onClick={(event) => event.stopPropagation()}>
-        <div className={styles['store-header']}>
-          <h2>应用商店</h2>
-          <button onClick={onClose} type='button'>
-            ✕
-          </button>
-        </div>
-        <div className={styles['store-tabs']}>
-          {storeTabs.map((tab) => (
-            <button
-              key={tab.id}
-              className={activeTab === tab.id ? styles.active : ''}
-              onClick={() => setActiveTab(tab.id)}
-              type='button'
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        <div className={styles['store-list']}>
-          {tabItems.length ? (
-            tabItems.map((item) => {
-              const isInstalled = installed.includes(item.id);
-              return (
-                <div className={styles['store-item']} key={item.id}>
-                  <div>
-                    <div className={styles['store-item-title']}>{item.name}</div>
-                    <div className={styles['store-item-desc']}>{item.description}</div>
-                  </div>
-                  <button
-                    className={isInstalled ? styles['store-uninstall'] : ''}
-                    onClick={() => void (isInstalled ? onUninstall(item.id) : onInstall(item.id))}
-                    type='button'
-                  >
-                    {isInstalled ? '卸载' : '安装'}
-                  </button>
-                </div>
-              );
-            })
-          ) : (
-            <div className={styles['store-empty']}>暂无可安装内容</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function storeItemToSlashItem(item: StoreItem): SlashItem {
-  return {
-    id: item.id,
-    section: item.section,
-    label: item.name,
-    command: item.command!,
-    description: item.description,
-    argPlaceholder: item.argPlaceholder ?? '[请输入参数]',
-  };
-}
-
-function MessageBubble({
-  message,
-  now,
-  slashItems,
-  onStockClick,
-  onBoardClick,
-}: {
-  message: ChatMessage;
-  now: number;
-  slashItems: SlashItem[];
-  onStockClick(stock: StockDetail): void;
-  onBoardClick(board: Pick<BoardDetail, 'code' | 'name'>): void;
-}) {
-  const copySelectedMessage = async (event: React.MouseEvent<HTMLDivElement>) => {
-    if (message.role !== 'user') return;
-    const selection = window.getSelection();
-    const text = selection?.toString().trim();
-    if (!text || !selection?.anchorNode || !event.currentTarget.contains(selection.anchorNode)) return;
-    await navigator.clipboard.writeText(text);
-    antdMessage.success('复制成功');
-  };
-
-  const openLinkedStock = (event: React.MouseEvent<HTMLDivElement>) => {
-    const boardLink = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[data-board-code]');
-    if (boardLink) {
-      event.preventDefault();
-      onBoardClick({
-        code: boardLink.dataset.boardCode!,
-        name: boardLink.dataset.boardName ?? boardLink.textContent ?? boardLink.dataset.boardCode!,
-      });
-      return;
-    }
-    const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[data-stock-code]');
-    if (!link) return;
-    event.preventDefault();
-    onStockClick({
-      code: link.dataset.stockCode!,
-      name: link.dataset.stockName ?? link.textContent ?? link.dataset.stockCode!,
-    });
-  };
-
-  return (
-    <div
-      className={cx(
-        styles.msg,
-        'msg',
-        message.role === 'user' ? styles.user : styles.agent,
-        message.role === 'user' ? 'user' : 'agent',
-      )}
-      data-msg
-    >
-      <div className={styles['msg-avatar']} data-avatar>
-        {message.role === 'user' ? (
-          '我'
-        ) : (
-          <span className={cx(styles.whale, message.thinking && styles.busy)} aria-label='AI 鲸鱼头像' role='img'>
-            <WhaleLogo />
-            <span className={styles['whale-splash']}>
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-            </span>
-          </span>
-        )}
-      </div>
-      <div className={styles['msg-body']} data-msgbody>
-        {message.thinking ? (
-          message.runEvents?.length ? <AnalysisThinkingBanner /> : <ThinkingBanner />
-        ) : message.processedSeconds ? (
-          <ProcessedBanner seconds={message.processedSeconds} />
-        ) : null}
-        {message.runEvents?.length || message.thinking ? (
-          <AnalysisProgress events={message.runEvents ?? []} toolCalls={message.toolCalls} />
-        ) : null}
-        {message.content.trim() ? (
-          <div
-            className='msg-text'
-            onClick={openLinkedStock}
-            onMouseUp={copySelectedMessage}
-            dangerouslySetInnerHTML={{
-              __html: renderMarkdownContent(renderCommandInText(message.content, slashItems), {
-                disclaimer:
-                  message.role === 'assistant' &&
-                  Boolean(
-                    message.result || message.evidence?.length || message.findings?.length || message.toolCalls?.length,
-                  ),
-              }),
-            }}
-          />
-        ) : null}
-        {message.marketReview ? <MarketReviewCard report={message.marketReview} onBoardClick={onBoardClick} /> : null}
-        {message.result ? (
-          <ResultCard result={message.result} onStockClick={onStockClick} onBoardClick={onBoardClick} />
-        ) : null}
-        <div className={styles['msg-time']}>{formatMessageTime(message.createdAt, now)}</div>
-      </div>
-    </div>
-  );
-}
-
-function findMessageKline(messages: ChatMessage[], code: string) {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const result = messages[i].result;
-    if (result?.chart?.type === 'kline' && result.stocks?.some((stock) => stock.code === code))
-      return result.chart.data;
-  }
-  return undefined;
 }

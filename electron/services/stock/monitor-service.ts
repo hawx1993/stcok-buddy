@@ -11,6 +11,7 @@ import {
   pruneMonitorHistory,
 } from './monitor-history-store.js';
 import { listRecentStockSurgeEvents } from './surge-history-store.js';
+import { isLargeOrderItem as isSurgeLargeOrderItem, largeOrderHands } from './surge-large-order.js';
 import { getStockChip } from '../market-data/market-data-store.js';
 import { getAllMarketQuoteRows } from './market-page.js';
 import { getBatchQuotes, getChipDistribution, listHotFocus } from './stock-client.js';
@@ -336,17 +337,7 @@ function createLargeOrderEvents(
 }
 
 export function isLargeOrderItem(item: HotFocusItem) {
-  const text = `${item.title} ${item.description ?? ''} ${item.tag ?? ''}`;
-  return /特大单买入|特大单卖出|大笔买入|大笔卖出/.test(text) && largeOrderHands(item) >= 10000;
-}
-
-function largeOrderHands(item: HotFocusItem) {
-  const text = [item.amount, item.description, item.title, item.tag].filter(isString).join(' ');
-  const match = text.match(/(?:买入|卖出)?([0-9]+(?:\.[0-9]+)?)(万)?手/);
-  if (!match) return 0;
-  const value = Number(match[1]);
-  if (!Number.isFinite(value)) return 0;
-  return match[2] ? value * 10000 : value;
+  return isSurgeLargeOrderItem(item);
 }
 
 function createChipEvent(

@@ -8,6 +8,7 @@ import {
 import {
   requestMarketDataWorkerStop,
   retryMarketDataFailuresInWorker,
+  runHistoricalBackfillInWorker,
   runMarketDataSyncInWorker,
 } from './market-data-sync-worker-client.js';
 import type { MarketDataSyncStatus } from './types.js';
@@ -16,6 +17,7 @@ const FORCE_SYNC_COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12h
 
 let currentSync: Promise<MarketDataSyncStatus> | undefined;
 let stopRequested = false;
+let historicalBackfillQueued = false;
 let memoryStatus: MarketDataSyncStatus = idleStatus();
 const events = new EventEmitter();
 
@@ -117,6 +119,7 @@ async function runSyncInWorker(force: boolean): Promise<MarketDataSyncStatus> {
   try {
     const result = await runMarketDataSyncInWorker(force, updateMemory);
     if (stopRequested) return memoryStatus;
+    if (result.backfillPending) queueHistoricalBackfill();
     return result;
   } catch (error) {
     const failed: MarketDataSyncStatus = {
@@ -124,6 +127,49 @@ async function runSyncInWorker(force: boolean): Promise<MarketDataSyncStatus> {
       state: 'failed',
       finishedAt: new Date().toISOString(),
       message: error instanceof Error ? error.message : '日K线同步失败',
+    };
+    updateMemory(failed);
+    throw error;
+  }
+}
+
+function queueHistoricalBackfill() {
+  if (historicalBackfillQueued || stopRequested) return;
+  historicalBackfillQueued = true;
+  setTimeout(() => {
+    if (currentSync || stopRequested) {
+      historicalBackfillQueued = false;
+      if (!stopRequested) queueHistoricalBackfill();
+      return;
+    }
+    historicalBackfillQueued = false;
+    currentSync = runHistoricalBackfill()
+      .catch(() => memoryStatus)
+      .finally(() => {
+        currentSync = undefined;
+      });
+  }, 1000);
+}
+
+async function runHistoricalBackfill(): Promise<MarketDataSyncStatus> {
+  updateMemory({
+    ...idleStatus(),
+    state: 'syncing',
+    phase: 'historical',
+    totalSymbols: 0,
+    message: '近期日K已可用，正在后台补齐历史数据…',
+  });
+  try {
+    const result = await runHistoricalBackfillInWorker(updateMemory);
+    if (stopRequested) return memoryStatus;
+    return result;
+  } catch (error) {
+    const failed: MarketDataSyncStatus = {
+      ...memoryStatus,
+      state: 'failed',
+      phase: 'historical',
+      finishedAt: new Date().toISOString(),
+      message: error instanceof Error ? error.message : '历史日K补齐失败',
     };
     updateMemory(failed);
     throw error;

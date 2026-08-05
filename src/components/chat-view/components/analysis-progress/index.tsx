@@ -14,6 +14,7 @@ import {
   calcElapsed,
   calcEstimatedRemaining,
   extractStockName,
+  formatProgressSummary,
   hasPendingAgents,
   resetStartTime,
 } from './derived';
@@ -33,7 +34,7 @@ export function AnalysisProgress({ events, toolCalls }: { events: AgentRunEvent[
   const remaining = useMemo(() => calcEstimatedRemaining(events), [events]);
   const preparing = !events.length;
 
-  const completed = steps.filter((s) => s.status === 'completed').length;
+  const terminal = steps.filter((s) => s.status === 'completed' || s.status === 'skipped' || s.status === 'error').length;
   const total = steps.length || 1;
 
   useEffect(() => {
@@ -46,7 +47,8 @@ export function AnalysisProgress({ events, toolCalls }: { events: AgentRunEvent[
     return () => clearInterval(interval);
   }, [events, pending, preparing]);
 
-  const elapsedSec = elapsed || calcElapsed(events);
+  const elapsedSec = pending && !preparing ? elapsed || calcElapsed(events) : 0;
+  const progressSummary = formatProgressSummary({ preparing, pending, terminal, total, elapsedSec });
 
   return (
     <div className={styles['analysis-progress']}>
@@ -54,9 +56,7 @@ export function AnalysisProgress({ events, toolCalls }: { events: AgentRunEvent[
         <span className={styles['ap-header-left']}>
           <span className={styles['ap-dot']}>{preparing || pending ? '⏳' : '✅'}</span>
           <span className={styles['ap-title']}>{stockName ? `分析 ${stockName}` : 'AI 分析过程'}</span>
-          <span className={styles['ap-summary']}>
-            {preparing ? '准备中…' : `${completed}/${total} 步骤 · ${elapsedSec}s`}
-          </span>
+          <span className={styles['ap-summary']}>{progressSummary}</span>
         </span>
         <span className={styles['ap-caret']}>{open ? '▾' : '▸'}</span>
       </button>

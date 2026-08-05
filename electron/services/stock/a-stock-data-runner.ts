@@ -14,6 +14,7 @@ export type AStockDataFnName =
   | 'tencent_quote'
   | 'baidu_kline_with_ma'
   | 'eastmoney_fund_flow_minute'
+  | 'tdx_transactions'
   | 'industry_comparison'
   | 'board_fund_flow'
   | 'ths_hot_list'
@@ -76,6 +77,15 @@ export interface IEMFundFlowMinuteRow {
   mid_net: number;
   large_net: number;
   super_net: number;
+}
+
+// 通达信逐笔成交（a-stock-data 兜底）
+export interface ITdxTransactionRow {
+  time: string;
+  price: number | null;
+  vol: number | null;
+  num: number | null;
+  buyorsell: number | null;
 }
 
 // 行业涨跌幅排名

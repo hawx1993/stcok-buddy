@@ -17,10 +17,15 @@ export function useSyncProgressPump() {
   useEffect(() => {
     const api = getStocksenseApi();
 
-    // K-line progress via marketData:progress
+    // K-line progress via marketData:progress. Only show it in the global
+    // banner after the user starts K-line sync from the data-sync modal; startup
+    // background progress should not flash "日K线 0.0%" in the lower-left corner.
     if (api.onMarketDataProgress) {
       removeKlineRef.current = api.onMarketDataProgress((status) => {
         if (status.state === 'idle') return;
+        const trackedKline = useAppUiStore.getState().syncProgress.kline;
+        if (!runningRef.current.has('kline') && trackedKline?.status !== 'running') return;
+        runningRef.current.add('kline');
         const isFinal = status.state === 'completed' || status.state === 'partial';
         setSyncProgress('kline', {
           status: isFinal ? 'completed' : 'running',

@@ -14,7 +14,16 @@ import type { DailyDragonTigerItem } from '../stock/stock-client.js';
 import type { IHotConceptsToolOutput, IIndustryRankingToolOutput } from '../tools/a-stock-data-tools.js';
 import type { DagNode } from './dag-executor.js';
 import type { IAgentContext, TOnToken } from './orchestrator-types.js';
-import { buildStockAnalysisInput, filterLargeOrders, runContextTool } from './agent-tool-runtime.js';
+import { buildStockAnalysisInput, createSkippedDataStatus, filterLargeOrders, runContextTool } from './agent-tool-runtime.js';
+import {
+  createPlanAgentsFromNodes,
+  formatPlanUpdatedMessage,
+  planNeedsAnyData,
+  planNeedsData,
+  planNeedsNode,
+  shouldRunPlanNode,
+} from './agent-planning.js';
+import { reflectOnPlanAfterData } from './agent-reflection.js';
 import { callTool } from '../tools/tool-registry.js';
 import {
   dailyDragonTigerToCard,
@@ -57,6 +66,44 @@ function isSymbolResult(value: unknown): value is { symbol?: string } {
   return typeof value === 'object' && value !== null;
 }
 
+function emitReflectionEvents(ctx: IAgentContext, nodes: DagNode<IAgentContext>[], reason: string) {
+  const reflection = reflectOnPlanAfterData(ctx, reason);
+  if (reflection.passed) return;
+  for (const gap of reflection.dataGaps) {
+    ctx.emitEvent?.({
+      type: 'data_gap_detected',
+      title: '数据缺口',
+      message: gap.userMessage,
+      dataGap: gap,
+    });
+  }
+  const plan = {
+    agents: createPlanAgentsFromNodes(nodes),
+    items: ctx.plan?.items,
+    dataGaps: ctx.plan?.dataGaps,
+    revisions: ctx.plan?.revisions,
+    summary: ctx.plan?.summary,
+  };
+  ctx.emitEvent?.({
+    type: 'plan_updated',
+    title: '计划调整',
+    message: ctx.plan ? formatPlanUpdatedMessage(ctx.plan) : '关键数据缺口已记录，后续分析会降低相关维度置信度。',
+    plan,
+    reflection,
+  });
+  ctx.emitEvent?.({
+    type: 'reflection_completed',
+    title: '数据后反思',
+    message: '已根据数据缺口调整后续分析计划。',
+    plan,
+    reflection,
+  });
+}
+
+function recordSkippedData(ctx: IAgentContext, toolName: string, dataName: string, reason: string) {
+  ctx.dataStatuses = [...(ctx.dataStatuses ?? []), createSkippedDataStatus(ctx, toolName, dataName, reason)];
+}
+
 export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): DagNode<IAgentContext>[] {
   const linkNodes: DagNode<IAgentContext>[] = context.urls.length
     ? [
@@ -94,7 +141,7 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
     : [];
 
   if (context.intent === 'board') {
-    return [
+    const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
       {
         id: 'board-data',
@@ -104,9 +151,11 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           ctx.board = await fetchBoard(ctx.boardKeyword ?? '资金');
           ctx.analysisOverview = ctx.board.narrative ?? '';
           ctx.evidence.push(...evidenceFromBoardCard(ctx.board));
+          emitReflectionEvents(ctx, nodes, 'board-data');
         },
       },
     ];
+    return nodes;
   }
 
   if (context.intent === 'portfolio') {
@@ -128,7 +177,7 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
   }
 
   if (context.intent === 'theme-attribution') {
-    return [
+    const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
       {
         id: 'theme-attribution-data',
@@ -144,13 +193,15 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           ctx.evidence.push(...evidenceFromHotFocus(ctx.hotFocus));
           ctx.board = themeAttributionToCard(surge, sector, flow);
           ctx.themeAttribution = ctx.board.narrative;
+          emitReflectionEvents(ctx, nodes, 'theme-attribution-data');
         },
       },
     ];
+    return nodes;
   }
 
   if (context.intent === 'market-review') {
-    return [
+    const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
       {
         id: 'market-review-data',
@@ -163,6 +214,7 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
             {},
             () => undefined,
           );
+          emitReflectionEvents(ctx, nodes, 'market-review-data');
         },
       },
       {
@@ -179,10 +231,11 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         },
       },
     ];
+    return nodes;
   }
 
   if (context.intent === 'daily-lhb') {
-    return [
+    const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
       {
         id: 'daily-lhb-data',
@@ -198,13 +251,15 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           ctx.evidence.push(...evidenceFromDragonTiger(ctx.dailyDragonTiger));
           ctx.board = dailyDragonTigerToCard(ctx.dailyDragonTiger);
           ctx.analysisOverview = ctx.board.narrative;
+          emitReflectionEvents(ctx, nodes, 'daily-lhb-data');
         },
       },
     ];
+    return nodes;
   }
 
   if (context.intent === 'shareholder-chip') {
-    return [
+    const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
       {
         id: 'shareholder-chip-data',
@@ -251,13 +306,15 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           ctx.analysisOverview = hasKeyData
             ? await generateReport(createPlainQuestionMessages(ctx))
             : '该股股东户数与筹码数据源暂不可用，请稍后重试。';
+          emitReflectionEvents(ctx, nodes, 'shareholder-chip-data');
         },
       },
     ];
+    return nodes;
   }
 
   if (context.intent === 'hot-concepts') {
-    return [
+    const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
       {
         id: 'hot-concepts-data',
@@ -271,13 +328,15 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
             hot?.list.length
               ? await generateReport(createPlainQuestionMessages(ctx))
               : '今日热门股数据源暂不可用，请稍后重试。';
+          emitReflectionEvents(ctx, nodes, 'hot-concepts-data');
         },
       },
     ];
+    return nodes;
   }
 
   if (context.intent === 'industry-ranking') {
-    return [
+    const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
       {
         id: 'industry-ranking-data',
@@ -296,9 +355,11 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           ctx.analysisOverview = hasData
             ? await generateReport(createPlainQuestionMessages(ctx))
             : '今日行业涨幅数据源暂不可用，请稍后重试。';
+          emitReflectionEvents(ctx, nodes, 'industry-ranking-data');
         },
       },
     ];
+    return nodes;
   }
 
   if (context.intent === 'a-stock-data-agent') {
@@ -307,7 +368,7 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
       {
         id: 'a-stock-data-agent',
         agent: 'a-stock-data',
-        description: '调用 a-stock-data 模型分析中...',
+        description: '先查本地 DuckDB，再按 stock-sdk/a-stock-data 补充分析...',
         run: async (ctx) => {
           // 预解析股票代码（如「茅台」→600519），帮助智能体直接调用个股工具；market 级问题无代码则跳过
           const resolved = await callTool('resolveStockSymbol', { query: ctx.query });
@@ -374,6 +435,7 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           ctx.announcements = data.announcements;
           ctx.evidence.push(...evidenceFromNews(ctx.news), ...evidenceFromAnnouncements(ctx.announcements));
           ctx.board = newsAnnouncementsToCard(ctx.quote, data.news, data.announcements);
+          emitReflectionEvents(ctx, nodes, 'news-announcements');
         },
       },
       {
@@ -393,12 +455,17 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
   }
 
   if (context.intent === 'analysis') {
-    const analysisAgents = context.singleAgent
+    const allAnalysisAgents = context.singleAgent
       ? stockAnalysisAgentNames().filter((agent) => agent.name === context.singleAgent)
       : stockAnalysisAgentNames();
+    const analysisAgents = allAnalysisAgents.filter((agent) => planNeedsNode(context.plan, `analysis-${agent.name}`));
 
-    const needsLargeOrders = analysisAgents.some((agent) => agent.name === 'capital');
-    const needsChip = analysisAgents.some((agent) => agent.name === 'chip');
+    const needsKline = planNeedsAnyData(context.plan, ['K线', '历史日线', '技术指标']);
+    const needsTechnical = planNeedsAnyData(context.plan, ['技术指标', 'K线']);
+    const needsNews = planNeedsAnyData(context.plan, ['新闻', '公告', '热点题材', '行业/概念强度']);
+    const needsLargeOrders = planNeedsAnyData(context.plan, ['特大单', '热点/特大单', '资金流']);
+    const needsChip = planNeedsData(context.plan, '筹码集中度');
+    const needsFundFlow = planNeedsData(context.plan, '资金流');
 
     nodes.push(
       {
@@ -407,42 +474,56 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         description: `拉取 ${context.symbol} K线、指标与新闻样本`,
         dependsOn: ['quote'],
         run: async (ctx) => {
-          const [historical, technical, stockNewsResult, largeOrders, chip, fundFlow] = await Promise.all([
-            runContextTool<HistoricalBarsResult>(
-              ctx,
-              'getHistoricalDailyBars',
-              { symbol: ctx.symbol!, limit: 120, adjustType: 'qfq' },
-              () => ({
-                data: [],
-                meta: {
-                  source: 'fallback',
-                  storage: 'local',
-                  freshness: 'fallback',
-                  isComplete: false,
-                  warnings: ['历史日线获取失败'],
-                  adjustType: 'qfq',
-                },
-              }),
-            ),
-            runContextTool<AgentResultCard | undefined>(
-              ctx,
-              'getTechnicalIndicators',
-              { symbol: ctx.symbol! },
-              () => undefined,
-            ),
-            runContextTool<{ news: MarketNewsItem[]; announcements: AnnouncementItem[] }>(
-              ctx,
-              'getStockNewsAnnouncements',
-              { symbol: ctx.symbol!, limit: 10 },
-              () => ({ news: [], announcements: [] }),
-            ),
+          const [historical, technical, stockNewsResult, hotLargeOrders, localSurge, chip, fundFlow] = await Promise.all([
+            needsKline
+              ? runContextTool<HistoricalBarsResult>(
+                  ctx,
+                  'getHistoricalDailyBars',
+                  { symbol: ctx.symbol!, limit: 120, adjustType: 'qfq' },
+                  () => ({
+                    data: [],
+                    meta: {
+                      source: 'fallback',
+                      storage: 'local',
+                      freshness: 'fallback',
+                      isComplete: false,
+                      warnings: ['历史日线获取失败'],
+                      adjustType: 'qfq',
+                    },
+                  }),
+                )
+              : Promise.resolve(undefined),
+            needsTechnical
+              ? runContextTool<AgentResultCard | undefined>(
+                  ctx,
+                  'getTechnicalIndicators',
+                  { symbol: ctx.symbol! },
+                  () => undefined,
+                )
+              : Promise.resolve(undefined),
+            needsNews
+              ? runContextTool<{ news: MarketNewsItem[]; announcements: AnnouncementItem[] }>(
+                  ctx,
+                  'getStockNewsAnnouncements',
+                  { symbol: ctx.symbol!, limit: 10 },
+                  () => ({ news: [], announcements: [] }),
+                )
+              : Promise.resolve(undefined),
             needsLargeOrders
               ? runContextTool<HotFocusItem[]>(ctx, 'getHotFocus', { tab: 'surge' }, () => [])
               : Promise.resolve([]),
+            needsLargeOrders
+              ? runContextTool<{ rows?: HotFocusItem[] } | undefined>(
+                  ctx,
+                  'getStockSurgeEventsLocalFirst',
+                  { symbol: ctx.symbol!, days: 7, limit: 200, minHands: 10000 },
+                  () => undefined,
+                )
+              : Promise.resolve(undefined),
             needsChip
               ? runContextTool<unknown>(ctx, 'getStockChipDistribution', { symbol: ctx.symbol! }, () => undefined)
               : Promise.resolve(undefined),
-            needsLargeOrders
+            needsFundFlow
               ? runContextTool<IStockFundFlowSnapshot | undefined>(
                   ctx,
                   'getStockFundFlowSnapshot',
@@ -451,25 +532,28 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
                 )
               : Promise.resolve(undefined),
           ]);
-          const kline = historical.data;
-          ctx.kline = kline;
+          const kline = historical?.data ?? [];
+          ctx.kline = needsKline ? kline : undefined;
           ctx.technical = technical?.chart
             ? technical
             : technical
               ? { ...technical, chart: { type: 'kline', data: kline } }
               : undefined;
-          ctx.news = stockNewsResult.news;
+          ctx.news = stockNewsResult?.news ?? [];
+          ctx.announcements = stockNewsResult?.announcements ?? [];
           ctx.chip = chip;
           ctx.fundFlow = fundFlow;
-          ctx.largeOrders = filterLargeOrders(largeOrders, ctx.symbol!);
-          ctx.evidence.push(
-            ...evidenceFromHistoricalBars(ctx.symbol!, historical),
-            ...evidenceFromTechnical(ctx.symbol!, ctx.technical),
-            ...evidenceFromNews(stockNewsResult.news),
-            ...evidenceFromHotFocus(ctx.largeOrders),
-            ...evidenceFromFundFlow(ctx.symbol!, fundFlow),
-          );
+          ctx.largeOrders = filterLargeOrders([...(localSurge?.rows ?? []), ...hotLargeOrders], ctx.symbol!);
+          if (historical) ctx.evidence.push(...evidenceFromHistoricalBars(ctx.symbol!, historical));
+          if (needsTechnical) ctx.evidence.push(...evidenceFromTechnical(ctx.symbol!, ctx.technical));
+          if (needsNews) ctx.evidence.push(...evidenceFromNews(ctx.news), ...evidenceFromAnnouncements(ctx.announcements));
+          if (needsLargeOrders) ctx.evidence.push(...evidenceFromHotFocus(ctx.largeOrders));
+          if (needsFundFlow) ctx.evidence.push(...evidenceFromFundFlow(ctx.symbol!, fundFlow));
           if (needsChip) ctx.evidence.push(...evidenceFromChip(ctx.symbol!, ctx.chip));
+          if (!needsChip && planNeedsNode(ctx.plan, 'analysis-chip')) {
+            recordSkippedData(ctx, 'getStockChipDistribution', '筹码集中度', '当前计划未要求筹码维度，已跳过。');
+          }
+          emitReflectionEvents(ctx, nodes, 'market-data');
         },
       },
       ...analysisAgents.map((agent) => ({
@@ -478,6 +562,10 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         description: `${agent.label}：${context.symbol}`,
         dependsOn: ['market-data'],
         run: async (ctx: IAgentContext) => {
+          if (!shouldRunPlanNode(ctx.plan, `analysis-${agent.name}`)) {
+            recordSkippedData(ctx, `analysis-${agent.name}`, agent.label, '数据缺口导致该分析维度本轮跳过。');
+            return;
+          }
           const shouldStream = Boolean(context.singleAgent);
           const result = await runStockAnalysisSubAgent(
             agent.name,
@@ -542,6 +630,7 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           () => undefined,
         );
         ctx.evidence.push(...evidenceFromTechnical(ctx.symbol!, ctx.technical));
+        emitReflectionEvents(ctx, nodes, 'technical');
       },
     });
   }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { readFavoriteTimelineSwitchCache, writeFavoriteTimelineSwitchCache } from '../favorites-panel';
+import { readFavoriteTimelineSwitchCache, writeFavoriteTimelineSwitchCache } from '../favorite-timeline-switch-cache';
 
 function createMemoryStorage(): Storage {
   const entries = new Map<string, string>();

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { formatSearchChangePercent, formatSearchQuoteValue, getSearchChangeTone } from '../index';
+import {
+  formatSearchChangePercent,
+  formatSearchQuoteValue,
+  getConversationRoleLabel,
+  getGlobalSearchResultKey,
+  getSearchChangeTone,
+  isConversationSearchResult,
+} from '../utils';
 import { getGlobalSearchShortcutLabel, isGlobalSearchShortcut, isMacPlatform } from '../shortcut';
 
 function keyEvent(key: string, metaKey = false, ctrlKey = false): Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey'> {
@@ -45,5 +52,23 @@ describe('全局行情搜索结果行情字段格式化', () => {
     expect(getSearchChangeTone(1.2)).toBe('up');
     expect(getSearchChangeTone('-0.35%')).toBe('down');
     expect(getSearchChangeTone('--')).toBe('flat');
+  });
+});
+
+describe('全局搜索会话结果辅助函数', () => {
+  it('识别会话和消息结果', () => {
+    expect(isConversationSearchResult({ kind: 'conversation', conversationId: 'c-1', title: '会话', preview: '', updatedAt: '2026', snippet: '会话' })).toBe(true);
+    expect(isConversationSearchResult({ kind: 'board', code: 'BK0001', name: '板块', minutes: [] })).toBe(false);
+  });
+
+  it('生成稳定搜索结果 key', () => {
+    expect(getGlobalSearchResultKey({ code: '600519', name: '贵州茅台' })).toBe('stock-600519');
+    expect(getGlobalSearchResultKey({ kind: 'message', conversationId: 'c-1', messageId: 'm-1', title: '会话', preview: '', updatedAt: '2026', snippet: 'AI 内容' })).toBe('message-c-1-m-1');
+  });
+
+  it('展示会话角色标签', () => {
+    expect(getConversationRoleLabel('user')).toBe('用户');
+    expect(getConversationRoleLabel('assistant')).toBe('AI');
+    expect(getConversationRoleLabel()).toBe('会话');
   });
 });

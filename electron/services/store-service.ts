@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app } from '../electron-runtime.js';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentRunEvent, ChatMessage, ChatResponse, StoreItem } from '../../src/shared/types.js';

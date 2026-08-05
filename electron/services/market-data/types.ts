@@ -8,7 +8,7 @@ import type {
 
 export type AdjustType = 'qfq' | 'none' | 'qfq_weekly' | 'qfq_monthly';
 export type DataFreshness = 'live' | 'current' | 'historical' | 'stale' | 'fallback';
-export type SyncJobType = 'initial_backfill' | 'daily_incremental' | 'repair';
+export type SyncJobType = 'initial_backfill' | 'recent_initial' | 'historical_backfill' | 'daily_incremental' | 'repair';
 export type SyncJobStatus = 'pending' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
 
 export interface DataMeta {
@@ -53,6 +53,19 @@ export interface TradeCalendarRecord {
   updatedAt: string;
 }
 
+export interface TradeCalendarQueryOptions {
+  market?: string;
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+}
+
+export interface StockChipCacheRecord {
+  symbol: string;
+  data: unknown;
+  fetchedAt: string;
+}
+
 export interface DailyBarRecord {
   symbol: string;
   tradeDate: string;
@@ -86,6 +99,8 @@ export interface HistoricalBarProvider {
 export interface MarketDataSyncStatus {
   state: 'idle' | 'checking' | 'initializing' | 'syncing' | 'completed' | 'partial' | 'failed';
   jobType?: SyncJobType;
+  phase?: 'recent' | 'historical';
+  backfillPending?: boolean;
   targetTradeDate?: string;
   processedSymbols: number;
   totalSymbols: number;

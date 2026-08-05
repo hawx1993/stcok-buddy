@@ -1,6 +1,6 @@
 {
   "name": "stockbuddy-desktop",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "StockBuddy - 对话式 A 股投研助手 Electron 跨端桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
@@ -87,6 +87,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "stock-sdk": "^2.4.1",
+    "use-stick-to-bottom": "^1.1.6",
     "zod": "^3.23.8",
     "zustand": "^5.0.2"
   },

@@ -9,7 +9,7 @@ vi.mock('../evidence.js', () => ({
 }));
 
 import { buildStockAnalysisInputForAgent, parseStructuredAgentOutput, stockAnalysisAgentNames } from '../stock-analysis-agents.js';
-import type { EvidenceItem, KlinePoint } from '../../../../src/shared/types.js';
+import type { EvidenceItem, IAgentDataGap, IAgentPlan, KlinePoint } from '../../../../src/shared/types.js';
 import type { StockAnalysisInput } from '../stock-analysis-agents.js';
 
 const evidence: EvidenceItem[] = [
@@ -48,6 +48,27 @@ function input(): StockAnalysisInput {
 
 const agent = { name: 'technical' as const, label: '技术面', dimension: 'technical' as const };
 
+const plan: IAgentPlan = {
+  id: 'plan-analysis-600001',
+  intent: 'analysis',
+  target: '600001',
+  summary: '测试计划',
+  assumptions: [],
+  items: [],
+  dataGaps: [],
+  revisions: [],
+};
+
+const klineGap: IAgentDataGap = {
+  id: 'gap-kline',
+  dataName: 'K线',
+  status: 'empty',
+  reason: 'K线为空',
+  affectedPlanItemIds: ['technical-structure'],
+  impact: 'high',
+  userMessage: 'K线数据为空，技术判断需降低置信度。',
+};
+
 describe('股票分析子 Agent 输入裁剪', () => {
   it('技术面输入保留最近 30 根 K 线和相关证据', () => {
     const result = buildStockAnalysisInputForAgent('technical', input());
@@ -68,6 +89,19 @@ describe('股票分析子 Agent 输入裁剪', () => {
   it('返回可用子 Agent 名称和中文标签', () => {
     expect(stockAnalysisAgentNames().map((item) => item.name)).toEqual(['technical', 'fundamental', 'capital', 'sentiment', 'chip']);
     expect(stockAnalysisAgentNames()[0].label).toContain('技术面分析');
+  });
+
+  it('保留计划并按维度过滤数据缺口', () => {
+    const result = buildStockAnalysisInputForAgent('technical', {
+      ...input(),
+      plan,
+      dataGaps: [klineGap, { ...klineGap, id: 'gap-news', dataName: '新闻', userMessage: '新闻为空。' }],
+      planRevisions: [{ id: 'r1', reason: '数据采集后计划反思', changes: ['降低置信度'], createdAt: '2026-08-05T00:00:00.000Z' }],
+    });
+
+    expect(result.plan?.summary).toBe('测试计划');
+    expect(result.dataGaps?.map((gap) => gap.dataName)).toEqual(['K线']);
+    expect(result.planRevisions?.[0].changes).toContain('降低置信度');
   });
 });
 
@@ -91,5 +125,24 @@ describe('结构化 Agent 输出解析', () => {
     expect(result.findings[0].id).toBe('technical-fallback');
     expect(result.evidence[0]).toEqual(expect.objectContaining({ source: 'fallback' }));
     expect(result.markdown).toContain('数据不足');
+  });
+
+  it('有数据缺口时兜底 finding 降低置信度并写入风险', () => {
+    const result = parseStructuredAgentOutput('不是 JSON', agent, { ...input(), dataGaps: [klineGap] }, []);
+
+    expect(result.findings[0].confidence).toBe(0.25);
+    expect(result.findings[0].score).toBeUndefined();
+    expect(result.findings[0].risks[0]).toContain('K线数据为空');
+  });
+
+  it('数据缺口覆盖维度时会压低模型返回的确定性结论', () => {
+    const raw = '{"findings":[{"id":"f1","dimension":"technical","stance":"bullish","score":90,"confidence":0.9,"summary":"突破","evidenceIds":["kline-1"],"risks":[]}],"markdown":"### 技术面"}';
+
+    const result = parseStructuredAgentOutput(raw, agent, { ...input(), dataGaps: [klineGap] }, evidence);
+
+    expect(result.findings[0].stance).toBe('unknown');
+    expect(result.findings[0].score).toBeUndefined();
+    expect(result.findings[0].confidence).toBeLessThanOrEqual(0.4);
+    expect(result.findings[0].risks.join('')).toContain('K线数据为空');
   });
 });

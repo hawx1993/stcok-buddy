@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection } from '@duckdb/node-api';
 import path from 'node:path';
 import type { IMonitorEvent, TMonitorCategory } from '../../../src/shared/types.js';
@@ -41,6 +41,8 @@ let ready: Promise<void> | undefined;
 let queue = Promise.resolve();
 let isClosing = false;
 let activeConnections = 0;
+
+const DUCKDB_SINGLE_THREAD_SQL = 'SET threads TO 1';
 let closeResolve: (() => void) | undefined;
 
 type TQueuedMonitorEvents = {
@@ -232,8 +234,11 @@ export function countMonitorHistoryByCategory(options: Pick<IMonitorHistoryQuery
 
 export function pruneMonitorHistory(keepTradingDays = 7) {
   return withDb(async () => {
-    const dates = await listMonitorDates(Math.max(keepTradingDays, 1) + 1);
-    const cutoff = dates[Math.max(keepTradingDays, 1)];
+    const safeLimit = Math.max(keepTradingDays, 1) + 1;
+    const rows = await all<{ trade_date: string }>(
+      `SELECT DISTINCT trade_date FROM ai_monitor_events ORDER BY trade_date DESC LIMIT ${safeLimit}`,
+    );
+    const cutoff = rows.map((row) => row.trade_date)[Math.max(keepTradingDays, 1)];
     if (!cutoff) return;
     await run(`DELETE FROM ai_monitor_events WHERE trade_date <= ${sqlValue(cutoff)}`);
   });
@@ -288,6 +293,10 @@ export async function closeMonitorHistoryStore(timeoutMs?: number) {
 
 export async function closeMonitorHistoryInstance() {
   try {
+    if (activeConnections > 0) {
+      console.warn(`[monitor-history] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`);
+      return;
+    }
     if (dbReady) {
       const instance = await dbReady;
       instance.closeSync();
@@ -317,11 +326,15 @@ export async function resetMonitorHistoryStore() {
 
 function readDb<T>(work: () => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('monitor history store is closing'));
-  return ensureReady().then(work);
+  return enqueueDbOperation(work);
 }
 
 function withDb<T>(work: () => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('monitor history store is closing'));
+  return enqueueDbOperation(work);
+}
+
+function enqueueDbOperation<T>(work: () => Promise<T>) {
   const next = queue.then(async () => {
     if (isClosing) throw new Error('monitor history store is closing');
     await ensureReady();
@@ -355,6 +368,7 @@ async function withConnection<T>(work: (connection: DuckDBConnection) => Promise
   const connection = await (await getDbReady()).connect();
   activeConnections += 1;
   try {
+    await connection.run(DUCKDB_SINGLE_THREAD_SQL);
     return await work(connection);
   } finally {
     connection.closeSync();

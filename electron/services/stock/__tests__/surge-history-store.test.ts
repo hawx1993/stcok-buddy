@@ -164,6 +164,49 @@ describe('异动历史 DuckDB 存储', () => {
     ]);
   });
 
+  it('过滤一万手以下的特大单快照并在过滤后分页', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('surge history store not loaded');
+
+    await currentStore.saveSurgeSnapshot([
+      createItem({ id: 'invalid-buy', time: '10:04', amount: '买入183手', tag: '特大单买入', description: '特大单买入' }),
+      createItem({ id: 'invalid-sell', time: '10:03', amount: '卖出9999手', tag: '特大单卖出', description: '特大单卖出' }),
+      createItem({ id: 'valid-buy', time: '10:02', amount: '买入1万手', tag: '特大单买入', description: '特大单买入' }),
+      createItem({ id: 'valid-sell', time: '10:01', amount: '卖出10000手', tag: '特大单卖出', description: '特大单卖出' }),
+      createItem({ id: 'normal-surge', time: '10:00', amount: '183手', tag: '快速涨幅', description: '快速涨幅' }),
+    ], new Date('2026-07-24T02:30:00.000Z'), '2026-07-24');
+
+    const firstPage = await currentStore.listSurgeHistory('2026-07-24', 0, 2);
+    expect(firstPage.map((item) => item.id)).toEqual(['valid-buy', 'valid-sell']);
+    expect(await currentStore.listSurgeHistory('2026-07-24', 2, 2)).toEqual([
+      expect.objectContaining({ id: 'normal-surge' }),
+    ]);
+  });
+
+  it('队列和个股历史写入时过滤一万手以下的特大单', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('surge history store not loaded');
+
+    currentStore.enqueueSurgeSnapshot([
+      createItem({ id: 'queued-invalid', amount: '买入183手', tag: '特大单买入', description: '特大单买入' }),
+      createItem({ id: 'queued-valid', amount: '买入1万手', tag: '特大单买入', description: '特大单买入' }),
+    ], new Date('2026-07-25T02:01:00.000Z'), '2026-07-25');
+    await currentStore.flushSurgeSnapshotQueue();
+
+    expect(await currentStore.listSurgeHistory('2026-07-25', 0, 10)).toEqual([
+      expect.objectContaining({ id: 'queued-valid' }),
+    ]);
+
+    await currentStore.saveIndividualSurgeHistory([
+      { ...createItem({ id: 'individual-invalid', amount: '买入183手', tag: '特大单买入', description: '特大单买入' }), tradeDate: '2026-07-26' },
+      { ...createItem({ id: 'individual-valid', amount: '买入1万手', tag: '特大单买入', description: '特大单买入' }), tradeDate: '2026-07-26' },
+    ]);
+
+    expect(await currentStore.listStockSurgeEvents('600519', '2026-07-26')).toEqual([
+      expect.objectContaining({ id: 'individual-valid' }),
+    ]);
+  });
+
   it('可以清理指定日期和全部历史并在清理标记期间阻止写入', async () => {
     const currentStore = store;
     if (!currentStore) throw new Error('surge history store not loaded');

@@ -5,6 +5,9 @@ import type {
   ComplianceReview,
   EvidenceItem,
   HotFocusItem,
+  IAgentDataStatus,
+  IAgentPlan,
+  IAgentReflectionResult,
   IStockFundFlowSnapshot,
   KlinePoint,
   MarketNewsItem,
@@ -64,6 +67,9 @@ export interface IAgentContext {
   evidence: EvidenceItem[];
   toolCalls: ToolCallRecord[];
   findings: StructuredAgentFinding[];
+  plan?: IAgentPlan;
+  dataStatuses?: IAgentDataStatus[];
+  finalReflection?: IAgentReflectionResult;
   compliance?: ComplianceReview;
   emitEvent?: (event: AgentRunEvent) => void;
 }
