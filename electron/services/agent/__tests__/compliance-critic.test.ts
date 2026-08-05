@@ -65,13 +65,35 @@ describe('结构化合规审查', () => {
     ]));
   });
 
-  it('存在 fallback 证据时不报 unsupported claim', () => {
+  it('fallback 证据不能支撑确定性行情或新闻结论', () => {
     const result = reviewComplianceStructured({
       text: '行情和新闻均提示需要观察波动。不构成投资建议。',
       evidence: [evidence('fallback')],
       findings: [finding],
     });
 
-    expect(result.issues.some((item) => item.type === 'unsupported-claim')).toBe(false);
+    expect(result.issues.some((item) => item.type === 'unsupported-claim')).toBe(true);
+  });
+
+  it('存在数据缺口和确定措辞时补充不确定性说明', () => {
+    const result = reviewComplianceStructured({
+      text: '风险已排除，技术方向确定。不构成投资建议。',
+      evidence: [evidence('technical')],
+      findings: [finding],
+      dataGaps: [
+        {
+          id: 'gap-1',
+          dataName: '新闻',
+          status: 'empty',
+          reason: '新闻为空',
+          affectedPlanItemIds: ['event-risk'],
+          impact: 'medium',
+          userMessage: '新闻数据为空，事件风险不能视为已排除。',
+        },
+      ],
+    });
+
+    expect(result.revisedText).toContain('数据缺口与影响');
+    expect(result.revisedText).toContain('新闻数据为空');
   });
 });

@@ -35,7 +35,7 @@ export function AgentCollaboration({
   const statusText = (agent: IAgentStatus) => {
     switch (agent.status) {
       case 'completed':
-        return agent.elapsed ? `已完成，耗时 ${agent.elapsed.toFixed(1)}s` : '已完成';
+        return agent.progressMessage ?? (agent.elapsed ? `已完成，耗时 ${agent.elapsed.toFixed(1)}s` : '已完成');
       case 'running':
         return agent.progressMessage ?? '调用模型分析中...';
       case 'error':

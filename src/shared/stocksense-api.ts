@@ -17,6 +17,7 @@ import type {
   IHotStockHintSource,
   IAppUpdateState,
   IStockNewsPreferences,
+  IConversationSearchResult,
 } from './types.js';
 import StockSDK from 'stock-sdk';
 import { listHotStockHintSource, type IHotStockHintLoaders } from './hot-stock-hints-service.js';
@@ -83,6 +84,10 @@ export function getStocksenseApi(): StocksenseApi {
       window
         .stocksense!.removeFavoriteStock(code)
         .catch(fallbackFavoriteError(() => webFallbackApi.removeFavoriteStock(code))),
+    searchConversations: (query) => {
+      if (typeof window.stocksense!.searchConversations === 'function') return window.stocksense!.searchConversations(query);
+      return Promise.reject(new Error('会话搜索功能不可用，请重启客户端'));
+    },
     toggleFavoriteStockPin: (code) =>
       window
         .stocksense!.toggleFavoriteStockPin(code)
@@ -224,6 +229,53 @@ function saveLocalMessage(conversationId: string, message: ChatMessage) {
       : conversation,
   );
   writeConversations(conversations);
+}
+
+function createConversationSnippet(content: string, keyword: string) {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  const index = normalized.toLowerCase().indexOf(keyword.toLowerCase());
+  const radius = 32;
+  const start = index >= 0 ? Math.max(0, index - radius) : 0;
+  const end = index >= 0 ? Math.min(normalized.length, index + keyword.length + radius) : Math.min(normalized.length, radius * 2);
+  return `${start > 0 ? '…' : ''}${normalized.slice(start, end)}${end < normalized.length ? '…' : ''}`;
+}
+
+function searchLocalConversations(query: string): IConversationSearchResult[] {
+  const keyword = query.trim();
+  if (!keyword) return [];
+  const lowerKeyword = keyword.toLowerCase();
+  const results: IConversationSearchResult[] = [];
+  for (const conversation of readConversations()) {
+    const headerText = `${conversation.title} ${conversation.preview}`;
+    if (headerText.toLowerCase().includes(lowerKeyword)) {
+      results.push({
+        kind: 'conversation',
+        conversationId: conversation.id,
+        title: conversation.title,
+        preview: conversation.preview,
+        updatedAt: conversation.updatedAt,
+        snippet: createConversationSnippet(headerText, keyword),
+      });
+    }
+    for (const message of readMessages(conversation.id)) {
+      if (results.length >= 30) return results;
+      if ((message.role !== 'user' && message.role !== 'assistant') || !message.content.toLowerCase().includes(lowerKeyword)) continue;
+      results.push({
+        kind: 'message',
+        conversationId: conversation.id,
+        title: conversation.title,
+        preview: conversation.preview,
+        updatedAt: conversation.updatedAt,
+        messageId: message.id,
+        role: message.role,
+        createdAt: message.createdAt,
+        snippet: createConversationSnippet(message.content, keyword),
+      });
+    }
+    if (results.length >= 30) return results;
+  }
+  return results;
 }
 
 function pageItems(items: MarketNewsItem[], page = 1, pageSize = 30): PagedMarketNews {
@@ -422,6 +474,9 @@ const webFallbackApi: StocksenseApi = {
         item.id === id ? { ...item, title: title.trim() || item.title, updatedAt: new Date().toISOString() } : item,
       ),
     );
+  },
+  async searchConversations(query: string) {
+    return searchLocalConversations(query);
   },
   async listMessages(conversationId: string) {
     return readMessages(conversationId);

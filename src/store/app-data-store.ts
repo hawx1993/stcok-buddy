@@ -57,6 +57,7 @@ interface IAppDataState {
   rememberStockKline(code: string, data?: NonNullable<AgentResultCard['chart']>['data']): void;
   setMessages(messages: ChatMessage[]): void;
   replaceLastAssistant(message: ChatMessage, conversationId?: string): void;
+  stopLastAssistant(conversationId?: string): void;
   finalizeLastAssistant(message: ChatMessage, conversationId?: string): void;
   appendToLastAssistant(token: string, conversationId?: string): void;
   applyRunEventToLastAssistant(event: AgentRunEvent, conversationId?: string): void;
@@ -123,6 +124,25 @@ export const useAppDataStore = create<IAppDataState>((set, get) => ({
         const index = findLastAssistantIndex(messages);
         if (index >= 0) messages[index] = message;
         else messages.push(message);
+        return messages;
+      }),
+    ),
+  stopLastAssistant: (conversationId) =>
+    set((state) =>
+      updateConversationMessages(state, conversationId, (currentMessages) => {
+        const messages = [...currentMessages];
+        const index = findLastAssistantIndex(messages);
+        if (index < 0) {
+          messages.push(createStoppedAssistantMessage());
+          return messages;
+        }
+        const current = messages[index];
+        messages[index] = {
+          ...current,
+          content: appendStoppedNotice(current.content),
+          thinking: undefined,
+          runEvents: appendStoppedFinalEvent(current.runEvents),
+        };
         return messages;
       }),
     ),
@@ -194,6 +214,39 @@ export const useAppDataStore = create<IAppDataState>((set, get) => ({
       return { isSending: false, respondingConversationId: undefined };
     }),
 }));
+
+const STOPPED_ASSISTANT_TEXT = '已暂停思考。';
+
+function createStoppedAssistantMessage(): ChatMessage {
+  return {
+    id: `assistant-stopped-${Date.now()}`,
+    role: 'assistant',
+    content: STOPPED_ASSISTANT_TEXT,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function appendStoppedNotice(content: string): string {
+  if (content.includes(STOPPED_ASSISTANT_TEXT)) return content || STOPPED_ASSISTANT_TEXT;
+  const trimmedEnd = content.trimEnd();
+  if (!trimmedEnd) return STOPPED_ASSISTANT_TEXT;
+  return `${trimmedEnd}\n\n> ${STOPPED_ASSISTANT_TEXT}`;
+}
+
+function appendStoppedFinalEvent(runEvents: AgentRunEvent[] | undefined): AgentRunEvent[] | undefined {
+  if (!runEvents?.length || runEvents.some((event) => event.type === 'final_answer')) return runEvents;
+  return [...runEvents, { type: 'final_answer', title: '已暂停思考', message: STOPPED_ASSISTANT_TEXT }];
+}
+
+export function hasLocalAssistantDraft(messages: ChatMessage[]): boolean {
+  return messages.some(
+    (message) =>
+      message.role === 'assistant' &&
+      (Boolean(message.thinking) ||
+        message.content.includes(STOPPED_ASSISTANT_TEXT) ||
+        Boolean(message.runEvents?.some((event) => event.type === 'final_answer' && event.title === '已暂停思考'))),
+  );
+}
 
 function findLastAssistantIndex(messages: ChatMessage[]) {
   for (let i = messages.length - 1; i >= 0; i -= 1) {

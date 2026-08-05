@@ -15,6 +15,7 @@ import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from
 import { getBoardDetail } from './board-detail.js';
 import { normalizeASymbol } from './symbols.js';
 import { withTimeoutReject } from './shared.js';
+import { shouldKeepSurgeItem } from './surge-large-order.js';
 import type { DailyDragonTigerItem } from './dragon-tiger.js';
 import {
   isSurgeHistoryClearMarkerActive,
@@ -191,7 +192,9 @@ async function fetchSurgeHot(): Promise<HotFocusItem[]> {
   const items = [
     ...changes,
     ...pools.filter((pool) => !changes.some((change) => change.code === pool.code && change.tag === pool.tag)),
-  ].sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time));
+  ]
+    .filter(shouldKeepSurgeItem)
+    .sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time));
   surgeCache = { items, updatedAt: Date.now() };
   enqueueSurgeSnapshot(items);
   return items;
@@ -366,23 +369,25 @@ function formatIsoDate(date: Date) {
 type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
 
 function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEvent.stockChanges>>): HotFocusItem[] {
-  return changes.map((item, index) => {
-    const parsed = parseStockChangeInfo(item.changeType, item.info);
-    const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType);
-    return {
-      id: `surge-${item.changeType}-${item.time}-${item.code}-${index}`,
-      title: `${item.name} ${item.code}`,
-      code: item.code,
-      name: item.name,
-      time: item.time,
-      price: parsed.price === undefined ? undefined : parsed.price.toFixed(2),
-      changePercent: parsed.pct === undefined ? undefined : formatPercent(parsed.pct),
-      amount: formatChangeHands(parsed.hands, reason) ?? parsed.amount,
-      description: reason,
-      tag: reason,
-      type: /卖|跌|跳水|下挫|低|开板/.test(reason) ? 'plummet' : 'surge',
-    };
-  });
+  return changes
+    .map((item, index) => {
+      const parsed = parseStockChangeInfo(item.changeType, item.info);
+      const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType);
+      return {
+        id: `surge-${item.changeType}-${item.time}-${item.code}-${index}`,
+        title: `${item.name} ${item.code}`,
+        code: item.code,
+        name: item.name,
+        time: item.time,
+        price: parsed.price === undefined ? undefined : parsed.price.toFixed(2),
+        changePercent: parsed.pct === undefined ? undefined : formatPercent(parsed.pct),
+        amount: formatChangeHands(parsed.hands, reason) ?? parsed.amount,
+        description: reason,
+        tag: reason,
+        type: /卖|跌|跳水|下挫|低|开板/.test(reason) ? 'plummet' : 'surge',
+      } satisfies HotFocusItem;
+    })
+    .filter(shouldKeepSurgeItem);
 }
 
 function parseStockChangeInfo(type: string | undefined, info: string) {

@@ -13,6 +13,7 @@ a-stock-data 运行时执行器（只移植所需函数）
 """
 import json
 import random
+import socket
 import sys
 import time
 
@@ -93,6 +94,12 @@ _BOARD_PERIOD = {
     "10d": ("f174", "f174", "f175", "f160", None),  # 10日领涨股名称字段不稳定，省略
 }
 EM_HOT_BODY = {"appId": "appId01", "globalId": "786e4c21-70dc-435a-93bb-38"}
+_TDX_SERVERS = [
+    ("119.97.185.59", 7709), ("124.70.133.119", 7709), ("116.205.183.150", 7709),
+    ("123.60.73.44", 7709), ("116.205.163.254", 7709), ("121.36.225.169", 7709),
+    ("123.60.70.228", 7709), ("124.71.9.153", 7709), ("110.41.147.114", 7709),
+    ("124.71.187.122", 7709),
+]
 
 
 # ── §4.3 股东户数变化 ──────────────────────────────────────────────────
@@ -445,6 +452,77 @@ def eastmoney_fund_flow_minute(code: str) -> list[dict]:
     return rows
 
 
+def _probe_tdx(ip: str, port: int, timeout: float = 2.0) -> bool:
+    try:
+        with socket.create_connection((ip, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def tdx_client(market: str = "std"):
+    try:
+        from mootdx.quotes import Quotes
+    except Exception as exc:
+        raise RuntimeError(f"mootdx 未安装，无法读取通达信逐笔成交：{exc}") from exc
+
+    for ip, port in _TDX_SERVERS:
+        if _probe_tdx(ip, port):
+            return Quotes.factory(market=market, server=(ip, port))
+    try:
+        return Quotes.factory(market=market, bestip=True)
+    except Exception:
+        pass
+    try:
+        return Quotes.factory(market=market)
+    except Exception as exc:
+        raise RuntimeError(f"所有 mootdx 服务器均不可达，无法读取逐笔成交：{exc}") from exc
+
+
+def _safe_number(value):
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except Exception:
+        return None
+    if number != number:
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def tdx_transactions(code: str, date: str = "", min_hands: int = 10000, limit: int = 200) -> list[dict]:
+    """通达信逐笔成交大单兜底。返回: [{time, price, vol, num, buyorsell}]。"""
+    code = str(code).strip()
+    if not code:
+        raise ValueError("code 不能为空")
+    trade_date = str(date).replace("-", "") if date else time.strftime("%Y%m%d")
+    client = tdx_client()
+    rows = client.transaction(symbol=code, date=trade_date)
+    if hasattr(rows, "to_dict"):
+        records = rows.to_dict("records")
+    else:
+        records = list(rows or [])
+
+    result = []
+    for row in records:
+        vol = _safe_number(row.get("vol") if isinstance(row, dict) else None)
+        if vol is None or vol < int(min_hands):
+            continue
+        result.append(
+            {
+                "time": str(row.get("time") or row.get("datetime") or ""),
+                "price": _safe_number(row.get("price")),
+                "vol": vol,
+                "num": _safe_number(row.get("num")),
+                "buyorsell": _safe_number(row.get("buyorsell")),
+            }
+        )
+        if len(result) >= int(limit):
+            break
+    return result
+
+
 # ── §4.4 分红送转历史 ─────────────────────────────────────────────────
 def dividend_history(code: str, page_size: int = 20) -> list[dict]:
     """分红送转历史。返回: [{date, bonus_rmb(每股派息), transfer_ratio(每10股转增), bonus_ratio(每10股送股), plan}]"""
@@ -475,6 +553,7 @@ FUNCS = {
     "tencent_quote": tencent_quote,
     "baidu_kline_with_ma": baidu_kline_with_ma,
     "eastmoney_fund_flow_minute": eastmoney_fund_flow_minute,
+    "tdx_transactions": tdx_transactions,
     "industry_comparison": industry_comparison,
     "board_fund_flow": board_fund_flow,
     "ths_hot_list": ths_hot_list,

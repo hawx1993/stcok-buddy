@@ -4,6 +4,9 @@ import type {
   EvidenceItem,
   EvidenceSource,
   HotFocusItem,
+  IAgentDataGap,
+  IAgentPlan,
+  IAgentPlanRevision,
   IChipDistributionResult,
   IStockFundFlowSnapshot,
   KlinePoint,
@@ -14,6 +17,7 @@ import type {
 } from '../../../src/shared/types.js';
 import { generateReport } from '../llm/index.js';
 import { fallbackEvidence } from './evidence.js';
+import { formatDataGapsForPrompt, formatPlanRevisionsForPrompt } from './agent-reflection.js';
 
 export type StockAnalysisAgentName = 'technical' | 'fundamental' | 'capital' | 'sentiment' | 'chip';
 
@@ -32,6 +36,9 @@ export type StockAnalysisInput = {
   fundFlow?: IStockFundFlowSnapshot;
   chip?: unknown;
   evidence?: EvidenceItem[];
+  plan?: IAgentPlan;
+  dataGaps?: IAgentDataGap[];
+  planRevisions?: IAgentPlanRevision[];
 };
 
 export type StockAnalysisResult = {
@@ -51,6 +58,9 @@ export function buildStockAnalysisInputForAgent(
     symbol: input.symbol,
     stockLabel: input.stockLabel,
     quote: input.quote,
+    plan: input.plan,
+    dataGaps: input.dataGaps,
+    planRevisions: input.planRevisions,
   };
 
   switch (agentName) {
@@ -60,6 +70,7 @@ export function buildStockAnalysisInputForAgent(
         technical: input.technical,
         kline: input.kline?.slice(-30),
         evidence: filterEvidenceFor(input.evidence, ['quote', 'kline', 'technical']),
+        dataGaps: filterDataGapsFor(input.dataGaps, ['行情', 'K线', '技术指标']),
       };
     case 'fundamental':
       return {
@@ -71,6 +82,7 @@ export function buildStockAnalysisInputForAgent(
           'local-market-data',
           'remote-market-data',
         ]),
+        dataGaps: filterDataGapsFor(input.dataGaps, ['行情', 'K线', '技术指标']),
       };
     case 'capital':
       return {
@@ -79,12 +91,14 @@ export function buildStockAnalysisInputForAgent(
         largeOrders: input.largeOrders,
         kline: input.kline?.slice(-5),
         evidence: filterEvidenceFor(input.evidence, ['quote', 'fund-flow', 'hot-focus']),
+        dataGaps: filterDataGapsFor(input.dataGaps, ['行情', '资金流', '热点/特大单']),
       };
     case 'sentiment':
       return {
         ...base,
         news: input.news,
         evidence: filterEvidenceFor(input.evidence, ['quote', 'news', 'announcement']),
+        dataGaps: filterDataGapsFor(input.dataGaps, ['行情', '新闻', '公告']),
       };
     case 'chip':
       return {
@@ -92,6 +106,7 @@ export function buildStockAnalysisInputForAgent(
         chip: input.chip,
         kline: input.kline?.slice(-5),
         evidence: filterEvidenceFor(input.evidence, ['quote', 'kline', 'chip']),
+        dataGaps: filterDataGapsFor(input.dataGaps, ['行情', 'K线', '筹码集中度']),
       };
     default:
       return input;
@@ -100,6 +115,10 @@ export function buildStockAnalysisInputForAgent(
 
 function filterEvidenceFor(evidence: EvidenceItem[] = [], sources: EvidenceSource[]): EvidenceItem[] {
   return evidence.filter((item) => sources.includes(item.source));
+}
+
+function filterDataGapsFor(gaps: IAgentDataGap[] = [], dataNames: string[]): IAgentDataGap[] {
+  return gaps.filter((gap) => dataNames.some((name) => gap.dataName.includes(name) || name.includes(gap.dataName)));
 }
 
 type StockAnalysisAgentDef = {
@@ -526,13 +545,15 @@ export async function runStockAnalysisSubAgent(
     }
 
     const data = JSON.stringify(compactInput({ ...input, evidence }), null, 2);
+    const gapPrompt = formatDataGapsForPrompt(input.dataGaps);
+    const revisionPrompt = formatPlanRevisionsForPrompt(input.planRevisions);
     onProgress?.('调用模型分析中…', 10);
     const raw = await withProgressTicker(
       () =>
         generateReport([
           {
             role: 'system',
-            content: `${agent.prompt}\n只返回 JSON，不要输出额外解释。格式：{"findings":[{"id":"${agent.name}-1","dimension":"${agent.dimension}","stance":"bullish|neutral|bearish|unknown","score":0,"confidence":0.5,"summary":"...","evidenceIds":["..."],"risks":["..."]}],"markdown":"### ${agent.label}\\n..."}。所有 evidenceIds 必须来自输入 evidence；缺失数据必须说明不足，不得编造。markdown 控制在 300 字以内。`,
+            content: `${agent.prompt}\n只返回 JSON，不要输出额外解释。格式：{"findings":[{"id":"${agent.name}-1","dimension":"${agent.dimension}","stance":"bullish|neutral|bearish|unknown","score":0,"confidence":0.5,"summary":"...","evidenceIds":["..."],"risks":["..."]}],"markdown":"### ${agent.label}\\n..."}。所有 evidenceIds 必须来自输入 evidence；缺失数据必须说明不足，不得编造。若输入 dataGaps 覆盖本维度，不能输出确定性强弱/方向判断，confidence 不得高于 0.4，markdown 必须说明“数据不足/不可判断/置信度降低”。markdown 控制在 300 字以内。\n\n本轮数据缺口：\n${gapPrompt}\n\n计划调整：\n${revisionPrompt}\n\n分析时必须遵守这些缺口约束。`,
           },
           {
             role: 'user',
@@ -587,7 +608,7 @@ export function parseStructuredAgentOutput(
     const fallbackId =
       evidence[0]?.id ?? fallbackEvidence(`${agent.name}:${input.symbol}`, `${agent.label}证据不足`).id;
     const findings = (Array.isArray(parsed.findings) ? parsed.findings : []).map((item, index) =>
-      sanitizeFinding(item, agent, index, allowedEvidenceIds, fallbackId),
+      sanitizeFinding(item, agent, input, index, allowedEvidenceIds, fallbackId),
     );
     const markdown =
       typeof parsed.markdown === 'string' && parsed.markdown.trim()
@@ -616,6 +637,7 @@ function extractJson(raw: string) {
 function sanitizeFinding(
   item: unknown,
   agent: Pick<StockAnalysisAgentDef, 'name' | 'dimension'>,
+  input: StockAnalysisInput,
   index: number,
   allowedEvidenceIds: Set<string>,
   fallbackId: string,
@@ -624,18 +646,33 @@ function sanitizeFinding(
   const evidenceIds = Array.isArray(record.evidenceIds)
     ? record.evidenceIds.map(String).filter((id) => allowedEvidenceIds.has(id))
     : [];
+  const hasGap = dataGapAffectsAgent(input.dataGaps, agent.name);
+  const risks = Array.isArray(record.risks)
+    ? record.risks.map(String).filter(Boolean)
+    : ['数据样本不足导致判断置信度有限。'];
+  const gapRisks = hasGap ? (input.dataGaps ?? []).map((gap) => gap.userMessage) : [];
   return {
     id: String(record.id ?? `${agent.name}-${index + 1}`),
     dimension: sanitizeDimension(record.dimension, agent.dimension),
-    stance: sanitizeStance(record.stance),
-    score: clamp(Number(record.score ?? 50), 0, 100),
-    confidence: clamp(Number(record.confidence ?? 0.5), 0, 1),
-    summary: String(record.summary ?? '数据不足，暂不形成强结论。'),
+    stance: hasGap ? 'unknown' : sanitizeStance(record.stance),
+    score: hasGap ? undefined : clamp(Number(record.score ?? 50), 0, 100),
+    confidence: hasGap ? Math.min(0.4, clamp(Number(record.confidence ?? 0.35), 0, 1)) : clamp(Number(record.confidence ?? 0.5), 0, 1),
+    summary: hasGap ? `数据缺口覆盖本维度，${String(record.summary ?? '暂不形成强结论。')}` : String(record.summary ?? '数据不足，暂不形成强结论。'),
     evidenceIds: evidenceIds.length ? evidenceIds : [fallbackId],
-    risks: Array.isArray(record.risks)
-      ? record.risks.map(String).filter(Boolean)
-      : ['数据样本不足导致判断置信度有限。'],
+    risks: [...risks, ...gapRisks].filter(Boolean),
   };
+}
+
+function dataGapAffectsAgent(gaps: IAgentDataGap[] = [], agentName: StockAnalysisAgentName): boolean {
+  const namesByAgent: Record<StockAnalysisAgentName, string[]> = {
+    technical: ['K线', '技术指标'],
+    fundamental: ['行情'],
+    capital: ['资金流', '热点/特大单'],
+    sentiment: ['新闻', '公告'],
+    chip: ['筹码集中度'],
+  };
+  const names = namesByAgent[agentName];
+  return gaps.some((gap) => names.some((name) => gap.dataName.includes(name) || name.includes(gap.dataName)));
 }
 
 function fallbackStructuredAgentOutput(
@@ -661,15 +698,16 @@ function fallbackFinding(
   evidenceId: string,
   markdown?: string,
 ): StructuredAgentFinding {
+  const gapRisks = input.dataGaps?.map((gap) => gap.userMessage) ?? [];
   return {
     id: `${agent.name}-fallback`,
     dimension: agent.dimension,
     stance: 'unknown',
-    score: 50,
-    confidence: 0.35,
+    score: input.dataGaps?.length ? undefined : 50,
+    confidence: input.dataGaps?.length ? 0.25 : 0.35,
     summary: oneLineSummary(markdown) ?? `${input.stockLabel} 当前可用数据不足，需继续补充公开信息。`,
     evidenceIds: [evidenceId],
-    risks: ['数据样本不足或上游接口暂不可用。'],
+    risks: gapRisks.length ? gapRisks : ['数据样本不足或上游接口暂不可用。'],
   };
 }
 
@@ -815,5 +853,13 @@ function compactInput(input: StockAnalysisInput) {
       value: item.value,
       timestamp: item.timestamp,
     })),
+    plan: input.plan
+      ? {
+          summary: input.plan.summary,
+          items: input.plan.items.map((item) => ({ id: item.id, title: item.title, status: item.status })),
+        }
+      : undefined,
+    dataGaps: input.dataGaps,
+    planRevisions: input.planRevisions,
   };
 }

@@ -3,7 +3,7 @@ import type { StructuredAgentFinding } from '../../../../shared/types';
 export interface IStep {
   id: string;
   label: string;
-  status: 'pending' | 'running' | 'completed' | 'error';
+  status: 'pending' | 'running' | 'completed' | 'skipped' | 'error';
 }
 
 export interface IAgentStatus {

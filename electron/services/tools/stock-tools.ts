@@ -1,6 +1,7 @@
 import type { HotFocusTab } from '../../../src/shared/types.js';
 import { getMarketDataSyncStatus } from '../market-data/market-data-sync.js';
 import { queryHistoricalBars } from '../market-data/market-data-query.js';
+import { screenASharesByMarketCap as screenASharesByMarketCapService } from '../market-data/market-cap-screener.js';
 import { runTechnicalAnalysis } from '../agent/analysis-agent.js';
 import { listMarketNews, listStockNewsAnnouncements } from '../stock/news-client.js';
 import {
@@ -193,4 +194,48 @@ export const getNorthboundFlow: AgentTool<Record<string, never>, Awaited<ReturnT
   description: 'Fetch northbound/southbound (沪深港通) capital flow summary from stock-sdk.',
   inputSchema: { type: 'object', properties: {} },
   run: () => listNorthboundFlow(),
+};
+
+export const screenASharesByMarketCap: AgentTool<
+  {
+    minMarketCap?: number;
+    maxMarketCap?: number;
+    unit?: 'yuan' | 'yi';
+    marketCapField?: 'total' | 'circulating';
+    limit?: number;
+    includeST?: boolean;
+    sortOrder?: 'asc' | 'desc';
+  },
+  Awaited<ReturnType<typeof screenASharesByMarketCapService>>
+> = {
+  name: 'screenASharesByMarketCap',
+  description:
+    '全市场 A 股市值筛选工具，用真实数据按 DuckDB → stock-sdk → a-stock-data 获取个股总市值/流通市值。用于“市值在30亿到100亿”“总市值小于50亿”“流通市值30亿到100亿”等查询。输入示例 {minMarketCap:30,maxMarketCap:100,unit:"yi",marketCapField:"total"}。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      minMarketCap: { type: 'number' },
+      maxMarketCap: { type: 'number' },
+      unit: { type: 'string', enum: ['yuan', 'yi'] },
+      marketCapField: { type: 'string', enum: ['total', 'circulating'] },
+      limit: { type: 'number' },
+      includeST: { type: 'boolean' },
+      sortOrder: { type: 'string', enum: ['asc', 'desc'] },
+    },
+  },
+  run: (input) => {
+    const record = asRecord(input);
+    const unit = text(record, 'unit', 'yi') === 'yuan' ? 'yuan' : 'yi';
+    const marketCapField = text(record, 'marketCapField', 'total') === 'circulating' ? 'circulating' : 'total';
+    const sortOrder = text(record, 'sortOrder', 'asc') === 'desc' ? 'desc' : 'asc';
+    return screenASharesByMarketCapService({
+      minMarketCap: record.minMarketCap === undefined ? undefined : num(record, 'minMarketCap', 0),
+      maxMarketCap: record.maxMarketCap === undefined ? undefined : num(record, 'maxMarketCap', 0),
+      unit,
+      marketCapField,
+      limit: num(record, 'limit', 50),
+      includeST: record.includeST === true,
+      sortOrder,
+    });
+  },
 };

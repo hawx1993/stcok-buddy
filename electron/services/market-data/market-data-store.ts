@@ -147,6 +147,25 @@ const schemaSql = `
   DROP INDEX IF EXISTS idx_board_constituents_stock;
 `;
 
+export interface IAShareMarketCapSnapshotRow {
+  symbol: string;
+  name: string;
+  exchange: SecurityRecord['exchange'];
+  industry?: string;
+  isSt: boolean;
+  price?: number;
+  change?: number;
+  changePercent?: number;
+  volume?: number;
+  amount?: number;
+  turnoverRate?: number;
+  pe?: number;
+  pb?: number;
+  totalMarketCap?: number;
+  circulatingMarketCap?: number;
+  fetchedAt?: string;
+}
+
 export function initializeMarketDataStore() {
   return ensureReady();
 }
@@ -396,6 +415,43 @@ export async function listSecurities() {
       `SELECT * FROM securities WHERE status = 'listed' ORDER BY symbol`,
     );
     return rows.map(toSecurityRecord);
+  });
+}
+
+export async function listAShareMarketCapSnapshotRows(includeST = false): Promise<IAShareMarketCapSnapshotRow[]> {
+  return read(async (connection) => {
+    const stCondition = includeST
+      ? ''
+      : "AND s.is_st = FALSE AND s.name NOT LIKE '*ST%' AND s.name NOT LIKE 'ST%'";
+    const rows = await all<Record<string, unknown>>(
+      connection,
+      `
+        SELECT
+          s.symbol,
+          COALESCE(NULLIF(s.name, ''), ss.name, s.symbol) AS name,
+          s.exchange,
+          s.industry,
+          s.is_st,
+          ss.price,
+          ss.change,
+          ss.change_percent,
+          ss.volume,
+          ss.amount,
+          ss.turnover_rate,
+          ss.pe,
+          ss.pb,
+          ss.total_market_cap,
+          ss.circulating_market_cap,
+          ss.fetched_at::VARCHAR AS fetched_at
+        FROM securities s
+        LEFT JOIN stock_snapshots ss ON ss.symbol = s.symbol
+        WHERE s.status = 'listed'
+          AND s.security_type = 'stock'
+          ${stCondition}
+        ORDER BY s.symbol
+      `,
+    );
+    return rows.map(toAShareMarketCapSnapshotRow);
   });
 }
 
@@ -1188,6 +1244,27 @@ function toSecurityRecord(row: Record<string, unknown>): SecurityRecord {
     isSt: Boolean(row.is_st),
     source: String(row.source),
     updatedAt: String(row.updated_at),
+  };
+}
+
+function toAShareMarketCapSnapshotRow(row: Record<string, unknown>): IAShareMarketCapSnapshotRow {
+  return {
+    symbol: String(row.symbol),
+    name: String(row.name),
+    exchange: row.exchange as SecurityRecord['exchange'],
+    industry: optionalString(row.industry),
+    isSt: Boolean(row.is_st),
+    price: optionalNumber(row.price),
+    change: optionalNumber(row.change),
+    changePercent: optionalNumber(row.change_percent),
+    volume: optionalNumber(row.volume),
+    amount: optionalNumber(row.amount),
+    turnoverRate: optionalNumber(row.turnover_rate),
+    pe: optionalNumber(row.pe),
+    pb: optionalNumber(row.pb),
+    totalMarketCap: optionalNumber(row.total_market_cap),
+    circulatingMarketCap: optionalNumber(row.circulating_market_cap),
+    fetchedAt: optionalString(row.fetched_at),
   };
 }
 

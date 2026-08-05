@@ -82,6 +82,7 @@ export function DataSyncModal() {
   const isOpen = useAppUiStore((state) => state.isDataSyncOpen);
   const setOpen = useAppUiStore((state) => state.setDataSyncOpen);
   const syncProgress = useAppUiStore((state) => state.syncProgress);
+  const setSyncProgress = useAppUiStore((state) => state.setSyncProgress);
   const syncProgressRef = useRef(syncProgress);
   syncProgressRef.current = syncProgress;
   const [tasks, setTasks] = useState(initialState);
@@ -136,15 +137,10 @@ export function DataSyncModal() {
     if (api.onMarketDataProgress) {
       removeMarketDataListenerRef.current = api.onMarketDataProgress((status) => {
         if (!runningRef.current.has('kline')) return;
-        // ponytail: main process emits 'idle' in two scenarios:
-        //   1. User cancelled sync from elsewhere (settings modal close)
-        //   2. dataSync:syncKlines IPC handler stops an in-progress scheduler
-        //      sync before starting a fresh force sync — in this case a new
-        //      'checking'/'syncing' event will follow within seconds.
-        // We can't reliably tell the two apart here, so just clear the ref
-        // and let startSync's IPC-resolve logic (which inspects result.state)
-        // decide the final task status. This avoids spuriously marking the
-        // task as failed right before the real force sync kicks off.
+        // ponytail: main process emits 'idle' when the user cancels sync from
+        // elsewhere (settings modal close, storage cleanup, or this modal's
+        // cancel button). Clear the ref and let startSync's IPC-resolve logic
+        // decide the final task status.
         if (status.state === 'idle') {
           klineProgressRef.current = { processed: 0, total: 0, message: '', state: '' };
           return;
@@ -284,9 +280,11 @@ export function DataSyncModal() {
           next[key as DataSyncTaskType] = { ...next[key as DataSyncTaskType], lastSyncTime: time };
         }
       }
-      // Seed running tasks from global store (background sync still in progress)
+      // Only resume tasks that were started from this modal instance. App-level
+      // background sync progress should stay in the banner and must not make the
+      // modal look like the user started a K-line sync on open.
       for (const [key, sp] of Object.entries(syncProgressRef.current)) {
-        if (sp.status === 'running' && next[key as DataSyncTaskType]) {
+        if (sp.status === 'running' && runningRef.current.has(key) && next[key as DataSyncTaskType]) {
           next[key as DataSyncTaskType] = {
             ...next[key as DataSyncTaskType],
             status: 'running',
@@ -294,7 +292,6 @@ export function DataSyncModal() {
             total: sp.total,
             message: sp.message,
           };
-          runningRef.current.add(key);
           if (key === 'kline') {
             klineProgressRef.current = {
               processed: sp.processed,
@@ -313,7 +310,7 @@ export function DataSyncModal() {
       .getMarketDataSyncStatus()
       .then((status) => {
         if (status.state === 'checking' || status.state === 'initializing' || status.state === 'syncing') {
-          runningRef.current.add('kline');
+          if (!runningRef.current.has('kline')) return;
           klineProgressRef.current = {
             processed: status.processedSymbols,
             total: status.totalSymbols,
@@ -367,6 +364,12 @@ export function DataSyncModal() {
           message: '正在准备日K线同步…',
           state: 'checking',
         };
+        setSyncProgress('kline', {
+          status: 'running',
+          processed: 0,
+          total: 0,
+          message: '正在准备日K线同步…',
+        });
       }
 
       const api = getStocksenseApi();
@@ -398,6 +401,12 @@ export function DataSyncModal() {
               lastSyncTime: now,
               message: result.message || '同步完成',
             });
+            setSyncProgress('kline', {
+              status: 'completed',
+              processed: klineProgressRef.current.processed,
+              total: klineProgressRef.current.total,
+              message: result.message || '同步完成',
+            });
             runningRef.current.delete(taskType);
             if (klineIntervalRef.current) {
               clearInterval(klineIntervalRef.current);
@@ -414,6 +423,12 @@ export function DataSyncModal() {
               status: 'idle',
               message: result.message,
             });
+            setSyncProgress('kline', {
+              status: 'completed',
+              processed: 0,
+              total: 0,
+              message: result.message,
+            });
             runningRef.current.delete(taskType);
             if (klineIntervalRef.current) {
               clearInterval(klineIntervalRef.current);
@@ -424,6 +439,12 @@ export function DataSyncModal() {
             updateTask(taskType, {
               status: 'error',
               error: errMsg,
+              message: errMsg,
+            });
+            setSyncProgress('kline', {
+              status: 'error',
+              processed: klineProgressRef.current.processed,
+              total: klineProgressRef.current.total,
               message: errMsg,
             });
             runningRef.current.delete(taskType);
@@ -447,6 +468,14 @@ export function DataSyncModal() {
           error: errMsg,
           message: errMsg,
         });
+        if (taskType === 'kline') {
+          setSyncProgress('kline', {
+            status: 'error',
+            processed: klineProgressRef.current.processed,
+            total: klineProgressRef.current.total,
+            message: errMsg,
+          });
+        }
         runningRef.current.delete(taskType);
         if (taskType === 'kline' && klineIntervalRef.current) {
           clearInterval(klineIntervalRef.current);
@@ -454,7 +483,46 @@ export function DataSyncModal() {
         }
       }
     },
-    [updateTask],
+    [setSyncProgress, updateTask],
+  );
+
+  const cancelSync = useCallback(
+    async (taskType: DataSyncTaskType) => {
+      if (taskType !== 'kline' || !runningRef.current.has(taskType)) return;
+
+      try {
+        const status = await getStocksenseApi().cancelMarketDataSync();
+        const message = status.message ?? '同步已取消，当前批次将安全停止';
+        runningRef.current.delete(taskType);
+        klineProgressRef.current = { processed: 0, total: 0, message: '', state: '' };
+        klineStallRef.current = 0;
+        if (klineIntervalRef.current) {
+          clearInterval(klineIntervalRef.current);
+          klineIntervalRef.current = undefined;
+        }
+        updateTask(taskType, {
+          status: 'idle',
+          processed: status.processedSymbols,
+          total: status.totalSymbols,
+          message,
+          error: undefined,
+        });
+        setSyncProgress(taskType, {
+          status: 'completed',
+          processed: status.processedSymbols,
+          total: status.totalSymbols,
+          message,
+        });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : '取消同步失败';
+        updateTask(taskType, {
+          status: 'error',
+          error: errMsg,
+          message: errMsg,
+        });
+      }
+    },
+    [setSyncProgress, updateTask],
   );
 
   const startAll = useCallback(async () => {
@@ -480,6 +548,7 @@ export function DataSyncModal() {
             {SYNC_TASKS.map((task) => {
               const state = tasks[task.type];
               const { isStarting, barWidth, badgeText } = getTaskProgressDisplay(state);
+              const canCancel = task.type === 'kline' && state.status === 'running';
 
               const isCooldown =
                 task.type === 'kline' && state.status === 'idle' && state.message?.includes('小时后可再次同步');
@@ -518,17 +587,19 @@ export function DataSyncModal() {
                   </div>
                   <button
                     className={styles['task-action']}
-                    disabled={isAnyRunning || isCooldown}
-                    onClick={() => startSync(task.type)}
+                    disabled={(isAnyRunning && !canCancel) || isCooldown}
+                    onClick={() => (canCancel ? cancelSync(task.type) : startSync(task.type))}
                     type='button'
                   >
-                    {state.status === 'running'
-                      ? '同步中…'
-                      : isCooldown
-                        ? '冷却中'
-                        : state.status === 'completed'
-                          ? '重新同步'
-                          : '立即同步'}
+                    {canCancel
+                      ? '取消同步'
+                      : state.status === 'running'
+                        ? '同步中…'
+                        : isCooldown
+                          ? '冷却中'
+                          : state.status === 'completed'
+                            ? '重新同步'
+                            : '立即同步'}
                   </button>
                 </div>
               );

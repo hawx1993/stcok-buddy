@@ -182,11 +182,22 @@
     transform: translate(calc(var(--x) * 1.08), calc(var(--y) * 1.08)) scale(0.15);
   }
 }
+@keyframes chat-search-hit-flash {
+  0% {
+    background: color-mix(in srgb, var(--accent) 58%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 62%, transparent);
+  }
+  100% {
+    background: color-mix(in srgb, var(--accent) 34%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 46%, transparent);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .whale-eye::after,
   .whale.busy,
   .whale.busy .whale-logo,
-  .whale.busy .whale-splash span {
+  .whale.busy .whale-splash span,
+  :global(.chat-search-hit) {
     animation: none;
   }
 }
@@ -212,6 +223,14 @@
 .msg.user .msg-text *::selection {
   background: rgba(255, 255, 255, 0.38);
   color: #fff;
+}
+:global(.chat-search-hit) {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+  color: inherit;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 46%, transparent);
+  animation: chat-search-hit-flash 1.2s ease-out 2;
 }
 .msg-time {
   font-size: 10px;

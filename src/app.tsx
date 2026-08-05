@@ -1,6 +1,6 @@
 import { Activity, Bot, Layers, LineChart, MessageSquarePlus, Newspaper, Search, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useAppDataStore, useAppUiStore } from './store/app-store';
+import { hasLocalAssistantDraft, useAppDataStore, useAppUiStore } from './store/app-store';
 import { usePanelResize } from './hooks/use-panel-resize';
 import { Sidebar } from './components/sidebar';
 import { createChatConversation } from './components/sidebar/components/create-chat-conversation';
@@ -24,7 +24,6 @@ import cx from './shared/cx';
 
 export function App() {
   useSyncProgressPump();
-  const [searchOpen, setSearchOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const globalSearchShortcutLabel = getGlobalSearchShortcutLabel();
   const config = useAppDataStore((state) => state.config);
@@ -62,9 +61,8 @@ export function App() {
         const state = useAppDataStore.getState();
         if (state.activeConversationId !== activeConversationId) return;
         if (
-          state.respondingConversationId === activeConversationId &&
-          (state.isSending || state.messages.some((message) => message.thinking)) &&
-          items.length < state.messages.length
+          items.length < state.messages.length &&
+          (state.respondingConversationId === activeConversationId || state.isSending || hasLocalAssistantDraft(state.messages))
         )
           return;
         setMessages(items);
@@ -149,10 +147,10 @@ export function App() {
                 void createChatConversation();
                 return;
               }
-              trackButtonClick('toggle_search');
-              setSearchOpen((open) => !open);
+              trackButtonClick('open_global_search_sidebar');
+              setGlobalSearchOpen(true);
             }}
-            title={isLeftSidebarCollapsed ? '新建会话' : `搜索会话 · 全局行情搜索 ${globalSearchShortcutLabel}`}
+            title={isLeftSidebarCollapsed ? '新建会话' : `全局搜索 ${globalSearchShortcutLabel}`}
             type='button'
             aria-label={isLeftSidebarCollapsed ? '新建会话' : '搜索'}
           >
@@ -160,7 +158,7 @@ export function App() {
           </button>
         </div>
         <ErrorBoundary name='左侧栏'>
-          <Sidebar searchOpen={searchOpen} />
+          <Sidebar searchOpen={false} />
         </ErrorBoundary>
         <main className={styles.main}>
           <ErrorBoundary

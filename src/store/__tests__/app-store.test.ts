@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useAppDataStore, useAppUiStore } from '../app-store';
+import { hasLocalAssistantDraft, useAppDataStore, useAppUiStore } from '../app-store';
 import type { AppConfig, ChatMessage, KlinePoint, MarketNewsItem } from '../../shared/types';
 
 const TEST_CONFIG: AppConfig = {
@@ -326,5 +326,83 @@ describe('数据状态', () => {
     expect(message.thinking).toBeUndefined();
     expect(message.runEvents).toEqual([{ type: 'step_started', title: '开始' }]);
     expect(message.processedSeconds).toBeGreaterThanOrEqual(0.1);
+  });
+
+  it('暂停 assistant 时应保留已有内容和分析进度并清理 thinking 状态', () => {
+    useAppDataStore.getState().addMessage({
+      ...createAssistantMessage('assistant-1', '已生成的部分回答'),
+      thinking: {
+        startedAt: '2026-08-03T00:00:00.000Z',
+        steps: [{ id: 'step-1', agent: 'planner', description: '规划中', status: 'running' }],
+      },
+      steps: [{ id: 'step-1', agent: 'planner', description: '规划中', status: 'running' }],
+      runEvents: [{ type: 'step_started', title: '开始' }],
+      toolCalls: [{ id: 'tool-1', toolName: 'getStockQuote', input: { symbol: '600519' }, startedAt: '2026-08-03T00:00:00.000Z' }],
+    });
+
+    useAppDataStore.getState().stopLastAssistant();
+
+    const message = useAppDataStore.getState().messages[0];
+
+    expect(message.content).toContain('已生成的部分回答');
+    expect(message.content).toContain('已暂停思考。');
+    expect(message.thinking).toBeUndefined();
+    expect(message.steps).toEqual([{ id: 'step-1', agent: 'planner', description: '规划中', status: 'running' }]);
+    expect(message.toolCalls?.[0]?.toolName).toBe('getStockQuote');
+    expect(message.runEvents).toEqual([
+      { type: 'step_started', title: '开始' },
+      { type: 'final_answer', title: '已暂停思考', message: '已暂停思考。' },
+    ]);
+  });
+
+  it('暂停空内容 assistant 时应显示暂停状态并保留 runEvents', () => {
+    useAppDataStore.getState().addMessage({
+      ...createAssistantMessage('assistant-1', ''),
+      thinking: { startedAt: '2026-08-03T00:00:00.000Z', steps: [] },
+      runEvents: [{ type: 'tool_started', title: '工具调用' }],
+    });
+
+    useAppDataStore.getState().stopLastAssistant();
+
+    const message = useAppDataStore.getState().messages[0];
+
+    expect(message.content).toBe('已暂停思考。');
+    expect(message.thinking).toBeUndefined();
+    expect(message.runEvents).toEqual([
+      { type: 'tool_started', title: '工具调用' },
+      { type: 'final_answer', title: '已暂停思考', message: '已暂停思考。' },
+    ]);
+  });
+
+  it('本地暂停 assistant 应标记为本地草稿以阻止短消息列表覆盖', () => {
+    const messages: ChatMessage[] = [
+      {
+        ...createAssistantMessage('assistant-1', '部分回答\n\n> 已暂停思考。'),
+        runEvents: [{ type: 'final_answer', title: '已暂停思考', message: '已暂停思考。' }],
+      },
+    ];
+
+    expect(hasLocalAssistantDraft(messages)).toBe(true);
+  });
+
+  it('普通已完成 assistant 不应标记为本地草稿', () => {
+    expect(hasLocalAssistantDraft([createAssistantMessage('assistant-1', '最终回答')])).toBe(false);
+  });
+
+  it('重复暂停 assistant 时不应重复追加暂停文案和结束事件', () => {
+    useAppDataStore.getState().addMessage({
+      ...createAssistantMessage('assistant-1', '部分回答'),
+      thinking: { startedAt: '2026-08-03T00:00:00.000Z', steps: [] },
+      runEvents: [{ type: 'step_started', title: '开始' }],
+    });
+
+    useAppDataStore.getState().stopLastAssistant();
+    useAppDataStore.getState().stopLastAssistant();
+
+    const message = useAppDataStore.getState().messages[0];
+    const pauseTextMatches = message.content.match(/已暂停思考。/g) ?? [];
+
+    expect(pauseTextMatches).toHaveLength(1);
+    expect(message.runEvents?.filter((event) => event.type === 'final_answer')).toHaveLength(1);
   });
 });

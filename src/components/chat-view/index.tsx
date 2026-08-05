@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { message as antdMessage } from 'antd';
 import gsap from 'gsap';
 import { getStocksenseApi } from '../../shared/stocksense-api';
@@ -12,11 +12,13 @@ import { MarketReviewCard } from './components/market-review-card';
 import { QuickEntry, type TSlashItem } from './components/quick-entry';
 import { SlashCommandMenu } from './components/slash-command-menu';
 import { renderCommandInText, renderMarkdownContent } from './components/markdown';
+import { findSearchTargetMessageId, highlightSearchTermInHtml } from './components/search-highlight';
 import type { BoardDetail, ChatMessage, StockDetail, StoreCategory, StoreItem } from '../../shared/types';
 import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import { track, trackButtonClick } from '../../shared/analytics';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
+import { isNearChatBottom, shouldAutoScrollChat, type TChatAutoScrollReason } from './auto-scroll';
 
 const builtInSlashItems = [
   {
@@ -108,26 +110,41 @@ const storeTabs: Array<{ id: StoreCategory; label: string }> = [
   { id: 'sub-agents', label: '子代理' },
 ];
 
+type TStockLinkTarget = { code?: string; name: string };
+
+type TAppliedSearchHighlight = {
+  messageId: string;
+  query: string;
+  requestedAt: number;
+};
+
 setBuiltInSlashItems(builtInSlashItems);
 
 export function ChatView() {
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const messageRefsRef = useRef(new Map<string, HTMLDivElement>());
   const [input, setInput] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [storeOpen, setStoreOpen] = useState(false);
   const activeRequestRef = useRef<string>();
   const activeRequestConversationRef = useRef<string>();
+  const userScrolledAwayRef = useRef(false);
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [installedStoreItems, setInstalledStoreItems] = useState<string[]>([]);
+  const [appliedSearchHighlight, setAppliedSearchHighlight] = useState<TAppliedSearchHighlight>();
   const messages = useAppDataStore((state) => state.messages);
   const [now, setNow] = useState(Date.now());
   const activeConversationId = useAppDataStore((state) => state.activeConversationId);
   const isSending = useAppDataStore((state) => state.isSending);
+  const previousIsSendingRef = useRef(isSending);
   const config = useAppDataStore((state) => state.config);
+  const chatSearchHighlight = useAppUiStore((state) => state.chatSearchHighlight);
+  const clearChatSearchHighlight = useAppUiStore((state) => state.clearChatSearchHighlight);
   const setSettingsOpen = useAppUiStore((state) => state.setSettingsOpen);
   const addMessage = useAppDataStore((state) => state.addMessage);
   const replaceLastAssistant = useAppDataStore((state) => state.replaceLastAssistant);
+  const stopLastAssistant = useAppDataStore((state) => state.stopLastAssistant);
   const finalizeLastAssistant = useAppDataStore((state) => state.finalizeLastAssistant);
   const appendToLastAssistant = useAppDataStore((state) => state.appendToLastAssistant);
   const applyRunEventToLastAssistant = useAppDataStore((state) => state.applyRunEventToLastAssistant);
@@ -179,9 +196,58 @@ export function ChatView() {
     return () => ctx.revert();
   }, []);
 
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const list = listRef.current;
+    if (!list) return;
+    list.scrollTo({ top: list.scrollHeight, behavior });
+  }, []);
+
+  const setMessageElement = useCallback((messageId: string, element: HTMLDivElement | null) => {
+    if (element) messageRefsRef.current.set(messageId, element);
+    else messageRefsRef.current.delete(messageId);
+  }, []);
+
+  const handleMessagesScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, clientHeight, scrollHeight } = event.currentTarget;
+    userScrolledAwayRef.current = !isNearChatBottom({ scrollTop, clientHeight, scrollHeight });
+  }, []);
+
   useLayoutEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages.length]);
+    const responseFinished = previousIsSendingRef.current && !isSending;
+    previousIsSendingRef.current = isSending;
+    const reason: TChatAutoScrollReason = responseFinished ? 'response-finished' : 'message-added';
+    if (!shouldAutoScrollChat({ isResponding: isSending, reason, userScrolledAway: userScrolledAwayRef.current })) return;
+    scrollToBottom();
+    if (responseFinished) userScrolledAwayRef.current = false;
+  }, [isSending, messages.length, scrollToBottom]);
+
+  useLayoutEffect(() => {
+    if (!chatSearchHighlight || chatSearchHighlight.conversationId !== activeConversationId) return;
+    const messageId = findSearchTargetMessageId(messages, chatSearchHighlight);
+    if (!messageId) return;
+    const element = messageRefsRef.current.get(messageId);
+    if (!element) return;
+    userScrolledAwayRef.current = true;
+    setAppliedSearchHighlight({
+      messageId,
+      query: chatSearchHighlight.query,
+      requestedAt: chatSearchHighlight.requestedAt,
+    });
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    clearChatSearchHighlight();
+  }, [activeConversationId, chatSearchHighlight, clearChatSearchHighlight, messages]);
+
+  useEffect(() => {
+    if (!appliedSearchHighlight) return;
+    const timer = window.setTimeout(() => {
+      setAppliedSearchHighlight((current) =>
+        current?.requestedAt === appliedSearchHighlight.requestedAt && current.messageId === appliedSearchHighlight.messageId
+          ? undefined
+          : current,
+      );
+    }, 2600);
+    return () => window.clearTimeout(timer);
+  }, [appliedSearchHighlight]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -202,16 +268,27 @@ export function ChatView() {
     return () => unsubscribe?.();
   }, []);
 
-  const openStockDetail = async (stock: Pick<StockDetail, 'code' | 'name'>) => {
-    trackButtonClick('open_stock_detail', { code: stock.code, name: stock.name });
-    const kline = findMessageKline(messages, stock.code);
-    openRightPanel();
-    setSelectedStock({ ...stock, kline } as StockDetail);
+  const openStockDetail = async (stock: TStockLinkTarget) => {
+    let resolvedStock: Pick<StockDetail, 'code' | 'name'> | undefined;
     try {
-      const detail = await getStocksenseApi().getStockDetail(stock.code);
+      resolvedStock = await resolveStockLinkTarget(stock);
+    } catch {
+      antdMessage.error(`未能解析 ${stock.name} 的股票代码，请稍后重试。`);
+      return;
+    }
+    if (!resolvedStock) {
+      antdMessage.warning(`未找到 ${stock.name} 的股票代码。`);
+      return;
+    }
+    trackButtonClick('open_stock_detail', { code: resolvedStock.code, name: resolvedStock.name });
+    const kline = findMessageKline(messages, resolvedStock.code);
+    openRightPanel();
+    setSelectedStock({ ...resolvedStock, kline } as StockDetail);
+    try {
+      const detail = await getStocksenseApi().getStockDetail(resolvedStock.code);
       setSelectedStock({ ...detail, kline: kline?.length ? kline : detail.kline });
     } catch {
-      setSelectedStock({ ...stock, kline } as StockDetail);
+      setSelectedStock({ ...resolvedStock, kline } as StockDetail);
     }
   };
 
@@ -242,21 +319,14 @@ export function ChatView() {
     const conversationId = activeRequestConversationRef.current ?? activeConversationId ?? 'conv-1';
     activeRequestRef.current = undefined;
     activeRequestConversationRef.current = undefined;
-    replaceLastAssistant(
-      {
-        id: `assistant-stopped-${Date.now()}`,
-        role: 'assistant',
-        content: '已暂停思考。',
-        createdAt: new Date().toISOString(),
-      },
-      conversationId,
-    );
+    stopLastAssistant(conversationId);
     setSending(false, conversationId);
   };
 
   const send = async (override?: string) => {
     const text = (override ?? input).trim();
     if (!text || isSending) return;
+    userScrolledAwayRef.current = false;
     setInput('');
     const conversationId = activeConversationId ?? 'conv-1';
     const command = text.startsWith('/') ? text.split(/\s+/, 1)[0] : undefined;
@@ -384,20 +454,25 @@ export function ChatView() {
 
   return (
     <div className={styles['chat-wrap']} ref={rootRef}>
-      <div className={styles['chat-messages']} ref={listRef}>
+      <div className={styles['chat-messages']} ref={listRef} onScroll={handleMessagesScroll}>
         {messages.length === 0 ? (
           <QuickEntry conversationId={activeConversationId} onSubmit={send} slashItems={slashItems} />
         ) : (
-          messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              now={now}
-              slashItems={slashItems}
-              onStockClick={openStockDetail}
-              onBoardClick={openBoardDetail}
-            />
-          ))
+          messages.map((message) => {
+            const isSearchHighlighted = appliedSearchHighlight?.messageId === message.id;
+            return (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                now={now}
+                slashItems={slashItems}
+                searchQuery={isSearchHighlighted ? appliedSearchHighlight?.query : undefined}
+                messageRef={(element) => setMessageElement(message.id, element)}
+                onStockClick={openStockDetail}
+                onBoardClick={openBoardDetail}
+              />
+            );
+          })
         )}
       </div>
       {messages.length ? (
@@ -502,6 +577,15 @@ export function ChatView() {
   );
 }
 
+async function resolveStockLinkTarget(stock: TStockLinkTarget): Promise<Pick<StockDetail, 'code' | 'name'> | undefined> {
+  if (stock.code) return { code: stock.code, name: stock.name };
+  const results = await getStocksenseApi().searchStocks(stock.name);
+  const matchedStock =
+    results.find((item) => item.kind !== 'board' && item.name === stock.name) ??
+    results.find((item) => item.kind !== 'board');
+  return matchedStock ? { code: matchedStock.code, name: matchedStock.name } : undefined;
+}
+
 function AppStoreBar({ onOpen }: { onOpen(): void }) {
   return (
     <div className={styles['store-bar']}>
@@ -599,13 +683,17 @@ function MessageBubble({
   message,
   now,
   slashItems,
+  searchQuery,
+  messageRef,
   onStockClick,
   onBoardClick,
 }: {
   message: ChatMessage;
   now: number;
   slashItems: SlashItem[];
-  onStockClick(stock: StockDetail): void;
+  searchQuery?: string;
+  messageRef(element: HTMLDivElement | null): void;
+  onStockClick(stock: TStockLinkTarget): void;
   onBoardClick(board: Pick<BoardDetail, 'code' | 'name'>): void;
 }) {
   const copySelectedMessage = async (event: React.MouseEvent<HTMLDivElement>) => {
@@ -617,6 +705,18 @@ function MessageBubble({
     antdMessage.success('复制成功');
   };
 
+  const renderedMessageHtml = message.content.trim()
+    ? renderMarkdownContent(renderCommandInText(message.content, slashItems), {
+        disclaimer:
+          message.role === 'assistant' &&
+          Boolean(message.result || message.evidence?.length || message.findings?.length || message.toolCalls?.length),
+        stocks: message.result?.stocks,
+      })
+    : '';
+  const highlightedMessageHtml = searchQuery
+    ? highlightSearchTermInHtml(renderedMessageHtml, searchQuery)
+    : renderedMessageHtml;
+
   const openLinkedStock = (event: React.MouseEvent<HTMLDivElement>) => {
     const boardLink = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[data-board-code]');
     if (boardLink) {
@@ -627,17 +727,20 @@ function MessageBubble({
       });
       return;
     }
-    const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[data-stock-code]');
+    const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[data-stock-code], a[data-stock-name]');
     if (!link) return;
+    const name = link.dataset.stockName ?? link.textContent?.trim() ?? link.dataset.stockCode;
+    if (!name) return;
     event.preventDefault();
     onStockClick({
-      code: link.dataset.stockCode!,
-      name: link.dataset.stockName ?? link.textContent ?? link.dataset.stockCode!,
+      code: link.dataset.stockCode,
+      name,
     });
   };
 
   return (
     <div
+      ref={messageRef}
       className={cx(
         styles.msg,
         'msg',
@@ -645,6 +748,7 @@ function MessageBubble({
         message.role === 'user' ? 'user' : 'agent',
       )}
       data-msg
+      data-message-id={message.id}
     >
       <div className={styles['msg-avatar']} data-avatar>
         {message.role === 'user' ? (
@@ -671,20 +775,12 @@ function MessageBubble({
         {message.runEvents?.length || message.thinking ? (
           <AnalysisProgress events={message.runEvents ?? []} toolCalls={message.toolCalls} />
         ) : null}
-        {message.content.trim() ? (
+        {highlightedMessageHtml ? (
           <div
             className='msg-text'
             onClick={openLinkedStock}
             onMouseUp={copySelectedMessage}
-            dangerouslySetInnerHTML={{
-              __html: renderMarkdownContent(renderCommandInText(message.content, slashItems), {
-                disclaimer:
-                  message.role === 'assistant' &&
-                  Boolean(
-                    message.result || message.evidence?.length || message.findings?.length || message.toolCalls?.length,
-                  ),
-              }),
-            }}
+            dangerouslySetInnerHTML={{ __html: highlightedMessageHtml }}
           />
         ) : null}
         {message.marketReview ? <MarketReviewCard report={message.marketReview} onBoardClick={onBoardClick} /> : null}

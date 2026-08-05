@@ -1,4 +1,6 @@
 import type {
+  ChipDistribution,
+  HotFocusItem,
   IChipDistributionResult,
   TMonitorCategory,
 } from '../../../src/shared/types.js';
@@ -17,11 +19,14 @@ import {
   readDiscoverySnapshot,
 } from '../market-data/market-data-store.js';
 import { countMonitorHistory, countMonitorHistoryByCategory, listMonitorDates, listMonitorHistory } from '../stock/monitor-history-store.js';
+import { largeOrderHands } from '../stock/surge-large-order.js';
 import { listRecentStockSurgeEvents, listStockSurgeEventsByTradeDates, listSurgeDates, listSurgeHistory } from '../stock/surge-history-store.js';
 import type { AgentTool } from '../tools/types.js';
 
 type TSortBy = 'changePercent' | 'concentration90' | 'amount' | 'turnoverRate';
 type TSortOrder = 'asc' | 'desc';
+type TChipMatchMode = 'latest' | 'all' | 'any';
+type TSurgeOrderSide = 'buy' | 'sell' | 'all';
 type TMarketDataset =
   | 'securities'
   | 'daily_bars'
@@ -40,7 +45,10 @@ interface IScreenLocalAStocksInput {
   concentration90Max?: number;
   concentration90Min?: number;
   concentration70Max?: number;
+  concentration70Min?: number;
   profitRatioMin?: number;
+  chipLookbackDays?: number;
+  chipMatchMode?: TChipMatchMode;
   limit?: number;
   sortBy?: TSortBy;
   sortOrder?: TSortOrder;
@@ -59,6 +67,10 @@ interface IScreenLocalAStockRow {
   concentration70Percent?: number;
   profitRatioPercent?: number;
   chipDate?: string;
+  chipLookbackDays?: number;
+  chipMatchedDays?: number;
+  recentConcentration90Percent?: number[];
+  recentConcentration70Percent?: number[];
 }
 
 interface IScreenLocalAStocksOutput {
@@ -146,6 +158,46 @@ function monitorCategories(input: Record<string, unknown>) {
   return categories.length ? categories : undefined;
 }
 
+interface ISurgeOrderFilter {
+  side: TSurgeOrderSide;
+  minHands?: number;
+}
+
+type TSurgeOrderFields = Pick<HotFocusItem, 'amount' | 'description' | 'tag' | 'title'>;
+
+function buildSurgeOrderFilter(input: Record<string, unknown>): ISurgeOrderFilter {
+  const minHands = optionalNum(input, 'minHands');
+  return {
+    side: enumValue(input, 'side', ['buy', 'sell', 'all'] as const, 'all'),
+    minHands: minHands === undefined ? undefined : Math.max(1, Math.floor(minHands)),
+  };
+}
+
+function isSurgeOrderFilterActive(filter: ISurgeOrderFilter) {
+  return filter.side !== 'all' || filter.minHands !== undefined;
+}
+
+function surgeOrderText(item: TSurgeOrderFields) {
+  return [item.title, item.description, item.tag, item.amount]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ');
+}
+
+function matchesSurgeOrderSide(item: TSurgeOrderFields, side: TSurgeOrderSide) {
+  if (side === 'all') return true;
+  const textValue = surgeOrderText(item);
+  if (side === 'buy') return /买入|大笔买入|特大单买入/.test(textValue) && !/卖出|大笔卖出|特大单卖出/.test(textValue);
+  return /卖出|大笔卖出|特大单卖出/.test(textValue) && !/买入|大笔买入|特大单买入/.test(textValue);
+}
+
+function filterSurgeOrders<T extends TSurgeOrderFields>(rows: T[], filter: ISurgeOrderFilter) {
+  if (!isSurgeOrderFilterActive(filter)) return rows;
+  return rows.filter((item) => {
+    if (!matchesSurgeOrderSide(item, filter.side)) return false;
+    return filter.minHands === undefined || largeOrderHands(item) >= filter.minHands;
+  });
+}
+
 function formatError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -169,7 +221,10 @@ function buildScreenInput(input: unknown): IScreenLocalAStocksInput {
     concentration90Max: optionalNum(record, 'concentration90Max'),
     concentration90Min: optionalNum(record, 'concentration90Min'),
     concentration70Max: optionalNum(record, 'concentration70Max'),
+    concentration70Min: optionalNum(record, 'concentration70Min'),
     profitRatioMin: optionalNum(record, 'profitRatioMin'),
+    chipLookbackDays: Math.max(1, Math.min(60, Math.floor(num(record, 'chipLookbackDays', 1)))),
+    chipMatchMode: enumValue(record, 'chipMatchMode', ['latest', 'all', 'any'] as const, 'latest'),
     limit: limit(record, 50, 500),
     sortBy: enumValue(record, 'sortBy', ['changePercent', 'concentration90', 'amount', 'turnoverRate'] as const, 'changePercent'),
     sortOrder: enumValue(record, 'sortOrder', ['asc', 'desc'] as const, 'desc'),
@@ -198,6 +253,57 @@ function sortValue(row: IScreenLocalAStockRow, sortBy: TSortBy) {
   }
 }
 
+function hasChipRangeCondition(options: IScreenLocalAStocksInput): boolean {
+  return options.concentration90Min !== undefined
+    || options.concentration90Max !== undefined
+    || options.concentration70Min !== undefined
+    || options.concentration70Max !== undefined;
+}
+
+function chipItemPassesRanges(
+  item: { concentration90?: number; concentration70?: number },
+  options: IScreenLocalAStocksInput,
+): boolean {
+  const concentration90Percent = ratioPercent(item.concentration90);
+  const concentration70Percent = ratioPercent(item.concentration70);
+  return passesNumberRange(concentration90Percent, options.concentration90Min, options.concentration90Max)
+    && passesNumberRange(concentration70Percent, options.concentration70Min, options.concentration70Max);
+}
+
+function recentChipWindow(result: IChipDistributionResult, options: IScreenLocalAStocksInput): ChipDistribution[] {
+  const days = options.chipLookbackDays ?? 1;
+  if ((options.chipMatchMode ?? 'latest') === 'latest') return result.latest ? [result.latest] : [];
+  return result.distributions.slice(-days);
+}
+
+function countChipMatches(result: IChipDistributionResult, options: IScreenLocalAStocksInput): number {
+  const window = recentChipWindow(result, options);
+  if (!hasChipRangeCondition(options)) return window.length;
+  return window.filter((item) => chipItemPassesRanges(item, options)).length;
+}
+
+function chipWindowPasses(result: IChipDistributionResult, options: IScreenLocalAStocksInput): boolean {
+  const mode = options.chipMatchMode ?? 'latest';
+  const window = recentChipWindow(result, options);
+  if (!hasChipRangeCondition(options)) return true;
+  if (!window.length) return false;
+  if (mode === 'all' && window.length < (options.chipLookbackDays ?? 1)) return false;
+  const matches = countChipMatches(result, options);
+  if (mode === 'any') return matches > 0;
+  if (mode === 'all') return matches === window.length;
+  return matches > 0;
+}
+
+function windowPercents(
+  result: IChipDistributionResult,
+  key: 'concentration90' | 'concentration70',
+  options: IScreenLocalAStocksInput,
+): number[] {
+  return recentChipWindow(result, options)
+    .map((item) => ratioPercent(item[key]))
+    .filter((value): value is number => value !== undefined);
+}
+
 export const screenLocalAStocks: AgentTool<IScreenLocalAStocksInput, IScreenLocalAStocksOutput> = {
   name: 'screenLocalAStocks',
   description: 'Screen all A-shares from local DuckDB by quote snapshot and chip distribution conditions. Prefer for market-wide local screening.',
@@ -209,7 +315,10 @@ export const screenLocalAStocks: AgentTool<IScreenLocalAStocksInput, IScreenLoca
       concentration90Max: { type: 'number' },
       concentration90Min: { type: 'number' },
       concentration70Max: { type: 'number' },
+      concentration70Min: { type: 'number' },
       profitRatioMin: { type: 'number' },
+      chipLookbackDays: { type: 'number' },
+      chipMatchMode: { type: 'string', enum: ['latest', 'all', 'any'] },
       limit: { type: 'number' },
       sortBy: { type: 'string', enum: ['changePercent', 'concentration90', 'amount', 'turnoverRate'] },
       sortOrder: { type: 'string', enum: ['asc', 'desc'] },
@@ -250,14 +359,11 @@ export const screenLocalAStocks: AgentTool<IScreenLocalAStocksInput, IScreenLoca
         const concentration90Percent = ratioPercent(latest?.concentration90);
         const concentration70Percent = ratioPercent(latest?.concentration70);
         const profitRatioPercent = ratioPercent(latest?.profitRatio);
-        if (concentration90Percent === undefined && (options.concentration90Max !== undefined || options.concentration90Min !== undefined)) {
-          missingChipConcentrationCount += 1;
-          return undefined;
-        }
+        if (hasChipRangeCondition(options) && !chipWindowPasses(chipRecord.data, options)) return undefined;
         if (!passesNumberRange(row.changePercent, options.changePercentMin, options.changePercentMax)) return undefined;
-        if (!passesNumberRange(concentration90Percent, options.concentration90Min, options.concentration90Max)) return undefined;
-        if (!passesNumberRange(concentration70Percent, undefined, options.concentration70Max)) return undefined;
         if (!passesNumberRange(profitRatioPercent, options.profitRatioMin, undefined)) return undefined;
+        const recentConcentration90Percent = windowPercents(chipRecord.data, 'concentration90', options);
+        const recentConcentration70Percent = windowPercents(chipRecord.data, 'concentration70', options);
         return {
           code: row.code,
           name: row.name,
@@ -270,6 +376,10 @@ export const screenLocalAStocks: AgentTool<IScreenLocalAStocksInput, IScreenLoca
           concentration70Percent,
           profitRatioPercent,
           chipDate: latest?.date,
+          chipLookbackDays: options.chipLookbackDays,
+          chipMatchedDays: countChipMatches(chipRecord.data, options),
+          recentConcentration90Percent,
+          recentConcentration70Percent,
         };
       })
       .filter((item): item is IScreenLocalAStockRow => item !== undefined)
@@ -430,24 +540,47 @@ export const queryLocalSurgeDuckDB: AgentTool<Record<string, unknown>, ILocalQue
       keepDays: { type: 'number' },
       offset: { type: 'number' },
       limit: { type: 'number' },
+      side: { type: 'string', enum: ['buy', 'sell', 'all'] },
+      minHands: { type: 'number' },
     },
   },
   async run(input) {
     const record = asRecord(input);
     const code = optionalText(record, 'code');
     const date = optionalText(record, 'date');
+    const orderFilter = buildSurgeOrderFilter(record);
     const warnings: string[] = [];
     try {
       if (code) {
         const tradeDates = stringArray(record, 'tradeDates');
-        const rows = tradeDates.length
+        const allRows = tradeDates.length
           ? await listStockSurgeEventsByTradeDates(code, tradeDates)
           : await listRecentStockSurgeEvents(code, Math.max(1, Math.min(60, Math.floor(num(record, 'keepDays', 7)))));
-        return localRows('duckdb:surge', 'stock_surge_events', rows.slice(0, limit(record, 100, 1000)), rows.length ? warnings : ['本地 surge DuckDB 未查到该股票异动历史']);
+        const rows = filterSurgeOrders(allRows, orderFilter).slice(0, limit(record, 100, 1000));
+        const emptyWarnings = allRows.length
+          ? ['本地 surge DuckDB 未查到符合手数/方向条件的该股票异动历史']
+          : ['本地 surge DuckDB 未查到该股票异动历史'];
+        return localRows('duckdb:surge', 'stock_surge_events', rows, rows.length ? warnings : emptyWarnings);
       }
       if (date) {
-        const rows = await listSurgeHistory(date, num(record, 'offset', 0), limit(record, 100, 1000));
-        return localRows('duckdb:surge', 'stock_surge_events', rows, rows.length ? warnings : ['本地 surge DuckDB 未查到该日期异动历史']);
+        const allRows = await listSurgeHistory(date, num(record, 'offset', 0), limit(record, 100, 1000));
+        const rows = filterSurgeOrders(allRows, orderFilter);
+        const emptyWarnings = allRows.length
+          ? ['本地 surge DuckDB 未查到符合手数/方向条件的该日期异动历史']
+          : ['本地 surge DuckDB 未查到该日期异动历史'];
+        return localRows('duckdb:surge', 'stock_surge_events', rows, rows.length ? warnings : emptyWarnings);
+      }
+      if (isSurgeOrderFilterActive(orderFilter)) {
+        const keepDays = Math.max(1, Math.min(30, Math.floor(num(record, 'keepDays', 7))));
+        const dates = await listSurgeDates(keepDays);
+        const allRows = (
+          await Promise.all(dates.map((tradeDate) => listSurgeHistory(tradeDate, 0, 1000)))
+        ).flat();
+        const rows = filterSurgeOrders(allRows, orderFilter).slice(0, limit(record, 100, 1000));
+        const emptyWarnings = dates.length
+          ? ['本地 surge DuckDB 近期异动历史未查到符合手数/方向条件的样本']
+          : ['本地 surge DuckDB 暂无异动历史日期'];
+        return localRows('duckdb:surge', 'stock_surge_events', rows, rows.length ? warnings : emptyWarnings);
       }
       const dates = await listSurgeDates(limit(record, 7, 30));
       return { source: 'duckdb:surge', storage: 'local', dataset: 'stock_surge_events', dates, warnings: dates.length ? warnings : ['本地 surge DuckDB 暂无异动历史日期'], isEmpty: dates.length === 0 };

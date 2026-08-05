@@ -117,6 +117,7 @@ describe('监控大单工具', () => {
     expect(isLargeOrderItem({ id: '2', title: '大笔卖出', description: '10000手' })).toBe(true);
     expect(isLargeOrderItem({ id: '3', title: '大笔买入', amount: '9999手' })).toBe(false);
     expect(isLargeOrderItem({ id: '4', title: '普通异动', amount: '2万手' })).toBe(false);
+    expect(isLargeOrderItem({ id: '5', title: '鸿仕达 920125', tag: '特大单买入', amount: '买入183手' })).toBe(false);
   });
 
   it('仅将买入侧大单识别为近期大额买入事件', () => {

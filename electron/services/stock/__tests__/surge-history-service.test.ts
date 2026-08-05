@@ -48,8 +48,37 @@ describe('异动历史服务', () => {
     mockedIsSurgeHistoryClearMarkerActive.mockReturnValue(false);
     mockedListSurgeHistory.mockResolvedValue(cached);
 
-    await expect(listSurgeHistoryWithBackfill('2026-07-31', 0, 20)).resolves.toBe(cached);
+    await expect(listSurgeHistoryWithBackfill('2026-07-31', 0, 20)).resolves.toEqual(cached);
     expect(mockedListSurgeHistory).toHaveBeenCalledWith('2026-07-31', 0, 20);
     expect(mockedListEastmoneySurgeByDate).not.toHaveBeenCalled();
+  });
+
+  it('返回本地缓存前过滤一万手以下的特大单', async () => {
+    const cached = [
+      { id: 'cached-invalid', title: '鸿仕达 920125', code: '920125', name: '鸿仕达', time: '11:28', price: '137.00', changePercent: '+11.98%', turnover: undefined, amount: '买入183手', description: '特大单买入', tag: '特大单买入', type: 'surge' as const },
+      { id: 'cached-valid', title: '中嘉博创 000889', code: '000889', name: '中嘉博创', time: '11:28', price: '3.93', changePercent: '-0.26%', turnover: undefined, amount: '买入1.02万手', description: '特大单买入', tag: '特大单买入', type: 'surge' as const },
+    ];
+    mockedIsRemoteTradingDay.mockResolvedValue(true);
+    mockedIsSurgeHistoryClearMarkerActive.mockReturnValue(false);
+    mockedListSurgeHistory.mockResolvedValue(cached);
+
+    await expect(listSurgeHistoryWithBackfill('2026-08-05', 0, 20)).resolves.toEqual([cached[1]]);
+    expect(mockedListEastmoneySurgeByDate).not.toHaveBeenCalled();
+  });
+
+  it('远端回填只保存并返回一万手以上的特大单', async () => {
+    const remote = [
+      { id: 'remote-invalid', title: '鸿仕达 920125', code: '920125', name: '鸿仕达', time: '11:28', price: '137.00', changePercent: '+11.98%', turnover: undefined, amount: '买入183手', description: '特大单买入', tag: '特大单买入', type: 'surge' as const },
+      { id: 'remote-valid', title: '中嘉博创 000889', code: '000889', name: '中嘉博创', time: '11:28', price: '3.93', changePercent: '-0.26%', turnover: undefined, amount: '买入1.02万手', description: '特大单买入', tag: '特大单买入', type: 'surge' as const },
+      { id: 'remote-normal', title: '快速涨幅', code: '300476', name: '胜宏科技', time: '11:27', price: '217.53', changePercent: '+7.79%', turnover: undefined, amount: undefined, description: '快速涨幅', tag: '快速涨幅', type: 'surge' as const },
+    ];
+    mockedIsRemoteTradingDay.mockResolvedValue(true);
+    mockedIsSurgeHistoryClearMarkerActive.mockReturnValue(false);
+    mockedListSurgeHistory.mockResolvedValue([]);
+    mockedListEastmoneySurgeByDate.mockResolvedValue(remote);
+    mockedSaveSurgeSnapshot.mockResolvedValue(undefined);
+
+    await expect(listSurgeHistoryWithBackfill('2026-08-05', 0, 20)).resolves.toEqual([remote[1], remote[2]]);
+    expect(mockedSaveSurgeSnapshot).toHaveBeenCalledWith([remote[1], remote[2]], expect.any(Date), '2026-08-05');
   });
 });

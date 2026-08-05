@@ -1,6 +1,7 @@
-import type { IStockFundFlowSnapshot } from '../../../src/shared/types.js';
+import type { IAgentDataGap, IStockFundFlowSnapshot } from '../../../src/shared/types.js';
 import { generateReport } from '../llm/index.js';
 import { isLlmRequestError } from '../llm/openai-compatible-client.js';
+import { formatDataGapsForPrompt, formatPlanRevisionsForPrompt } from './agent-reflection.js';
 import type { StockAnalysisInput, StockAnalysisResult } from './stock-analysis-agents.js';
 
 export async function runStockAnalysisOverview(
@@ -22,17 +23,18 @@ export async function runStockAnalysisOverview(
 4. 标题使用：### 🎯 关键价位、### 💰 资金流向、### 🧭 观察框架、### 🚨 风险警示、### 🧩 各维度一句话总结。若输入中有 fundFlow 或资金流 evidence，必须输出”### 💰 资金流向”小节和超大单/大单/主力合计/中单/小单表格。资金流向正数用 <span class=”cn-up”>+X</span> 包裹，负数用 <span class=”cn-down”>-X</span> 包裹。
 5. 禁止输出建议买入、建议卖出、立即加仓、清仓、满仓、必涨、稳赚等直接投资建议。
 6. 禁止使用 🚀🔥💎🌙🤑🎉。
-7. 必须输出最终评级：🟢 偏利好 / 🟡 中性 / 🔴 偏利空。
-8. 必须提示仅供研究参考，不构成投资建议。`,
+7. 必须输出：### 🧭 分析计划回顾、### ⚠️ 数据缺口与影响、### 🚨 风险排除。若 dataGaps 覆盖某维度，该维度不得输出确定性评分或方向判断，需写明不可判断或置信度降低。
+8. 必须输出最终评级：🟢 偏利好 / 🟡 中性 / 🔴 偏利空。
+9. 必须提示仅供研究参考，不构成投资建议。`,
         },
         {
           role: 'user',
-          content: `股票：${input.stockLabel}（${input.symbol}）\n用户问题：${input.query}\n\n资金流数据：\n${JSON.stringify(input.fundFlow ?? null, null, 2)}\n\n结构化 findings/evidence：\n${JSON.stringify(toOverviewInput(results), null, 2)}`,
+          content: `股票：${input.stockLabel}（${input.symbol}）\n用户问题：${input.query}\n\n分析计划：\n${JSON.stringify(input.plan ?? null, null, 2)}\n\n数据缺口：\n${formatDataGapsForPrompt(input.dataGaps)}\n\n计划调整：\n${formatPlanRevisionsForPrompt(input.planRevisions)}\n\n资金流数据：\n${JSON.stringify(input.fundFlow ?? null, null, 2)}\n\n结构化 findings/evidence：\n${JSON.stringify(toOverviewInput(results), null, 2)}`,
         },
       ],
       onToken,
     );
-    return ensureFundFlowSection(ensureScoredOverview(report, input, results), input);
+    return ensureRequiredOverviewSections(ensureFundFlowSection(ensureScoredOverview(report, input, results), input), input);
   } catch (error) {
     if (isLlmRequestError(error)) throw error;
     return fallbackOverview(input, results);
@@ -53,6 +55,23 @@ function toOverviewInput(results: StockAnalysisResult[]) {
       timestamp: item.timestamp,
     })),
   }));
+}
+
+function ensureRequiredOverviewSections(report: string, input: StockAnalysisInput) {
+  let next = report;
+  if (!/###\s*🧭\s*分析计划回顾/.test(next)) {
+    const planText = input.plan?.items.length
+      ? input.plan.items.map((item) => `- ${item.title}：${item.status}`).join('\n')
+      : '- 本轮未生成详细计划项。';
+    next = `${next.trim()}\n\n### 🧭 分析计划回顾\n${planText}`;
+  }
+  if (!/###\s*⚠️\s*数据缺口与影响/.test(next)) {
+    next = `${next.trim()}\n\n### ⚠️ 数据缺口与影响\n${formatDataGapsForPrompt(input.dataGaps)}`;
+  }
+  if (!/###\s*🚨\s*风险排除/.test(next)) {
+    next = `${next.trim()}\n\n### 🚨 风险排除\n- 新闻、公告、资金流或筹码存在缺口时，不能视为相关风险已排除。`;
+  }
+  return next;
 }
 
 function ensureFundFlowSection(report: string, input: StockAnalysisInput) {
@@ -122,11 +141,12 @@ const overviewWeights: Record<string, number> = {
 
 function fallbackOverview(input: StockAnalysisInput, results: StockAnalysisResult[]) {
   const findings = results.flatMap((result) => result.output.findings);
-  const weighted = results.reduce((sum, result) => {
+  const scoredResults = results.filter((result) => !gapAffectsResult(input.dataGaps, result.name));
+  const weighted = scoredResults.reduce((sum, result) => {
     const score = result.output.findings[0]?.score ?? 50;
     return sum + score * (overviewWeights[result.name] ?? 0);
   }, 0);
-  const totalWeight = results.reduce((sum, result) => sum + (overviewWeights[result.name] ?? 0), 0);
+  const totalWeight = scoredResults.reduce((sum, result) => sum + (overviewWeights[result.name] ?? 0), 0);
   const avg = findings.length && totalWeight ? weighted / totalWeight : undefined;
   const conclusion = avg === undefined ? '🟡 中性' : avg >= 65 ? '🟢 偏利好' : avg <= 45 ? '🔴 偏利空' : '🟡 中性';
   const evidence = results
@@ -140,10 +160,11 @@ function fallbackOverview(input: StockAnalysisInput, results: StockAnalysisResul
   lines.push('|---|---:|---:|---:|---|');
   for (const result of results) {
     const finding = result.output.findings[0];
-    const score = finding?.score;
+    const hasGap = gapAffectsResult(input.dataGaps, result.name);
+    const score = hasGap ? undefined : finding?.score;
     const weight = overviewWeights[result.name] ?? 0;
     lines.push(
-      `| ${result.label} | ${formatWeight(weight)} | ${formatScore(score)} | ${formatScore(score === undefined ? undefined : score * weight)} | ${summaryForResult(result)} |`,
+      `| ${result.label} | ${formatWeight(weight)} | ${formatScore(score)} | ${formatScore(score === undefined ? undefined : score * weight)} | ${hasGap ? '存在数据缺口，暂不硬评分。' : summaryForResult(result)} |`,
     );
   }
   lines.push(`| **总分** | **100%** | **${formatScore(avg)}** | **--** | ${conclusion} |`);
@@ -154,8 +175,12 @@ function fallbackOverview(input: StockAnalysisInput, results: StockAnalysisResul
           .slice(0, 8)
           .map((item) => `- ${item.title}：${item.summary ?? item.value ?? '已纳入分析。'}`)
           .join('\n')
-      : '- 数据不足，当前仅保留 fallback evidence。',
+      : '- 数据缺口已记录，当前仅基于可用真实证据，不使用缺失数据外推。',
   );
+  lines.push('', '### 🧭 分析计划回顾');
+  lines.push(input.plan?.items.length ? input.plan.items.map((item) => `- ${item.title}：${item.status}`).join('\n') : '- 本轮未生成详细计划项。');
+  lines.push('', '### ⚠️ 数据缺口与影响');
+  lines.push(formatDataGapsForPrompt(input.dataGaps));
   lines.push('', '### 🎯 关键价位');
   lines.push('当前数据不足以精确判断支撑位/压力位，可结合右侧 K 线近期高低点观察。');
   if (input.fundFlow) lines.push('', fundFlowSection(input.fundFlow));
@@ -163,6 +188,8 @@ function fallbackOverview(input: StockAnalysisInput, results: StockAnalysisResul
   lines.push('- 偏强确认条件：价格、成交额与关键证据继续共振。');
   lines.push('- 转弱风险条件：放量下跌、新闻/公告出现负面变化或特大单流出占比升高。');
   lines.push('- 需要继续跟踪的数据：K线、成交额、公告、新闻与特大单流向。');
+  lines.push('', '### 🚨 风险排除');
+  lines.push('- 新闻、公告、资金流或筹码存在缺口时，不能视为相关风险已排除。');
   lines.push('', '### 🚨 风险警示');
   lines.push('- 资金流、特大单和财报细项数据可能不完整，判断置信度有限。');
   lines.push('- 短期行情波动可能放大技术信号误判。');
@@ -173,6 +200,18 @@ function fallbackOverview(input: StockAnalysisInput, results: StockAnalysisResul
     `### 🎯 综合结论：${conclusion}\n以上内容基于当前可用公开数据自动生成，仅供研究参考，不构成投资建议。`,
   );
   return lines.join('\n');
+}
+
+function gapAffectsResult(gaps: IAgentDataGap[] = [], resultName: string) {
+  const namesByResult: Record<string, string[]> = {
+    technical: ['K线', '技术指标'],
+    fundamental: ['行情'],
+    capital: ['资金流', '热点/特大单'],
+    sentiment: ['新闻', '公告'],
+    chip: ['筹码集中度'],
+  };
+  const names = namesByResult[resultName] ?? [];
+  return gaps.some((gap) => names.some((name) => gap.dataName.includes(name) || name.includes(gap.dataName)));
 }
 
 function formatWeight(weight: number) {

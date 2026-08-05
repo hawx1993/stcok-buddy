@@ -93,8 +93,8 @@ export function isPossibleStockOnlyQuery(query: string): boolean {
 }
 
 /**
- * 非 slash 命令且与股票 / A 股相关的问题，统一路由到 a-stock-data 智能体（a-stock-data-agent），
- * 保证所有股票问题都可见「调用 a-stock-data 模型分析中...」的进度；portfolio（个人持仓记忆）与
+ * 非 slash 命令且与股票 / A 股相关的问题，统一路由到自由提问投研智能体（a-stock-data-agent），
+ * 该智能体按「DuckDB 本地 → stock-sdk → a-stock-data」取真实数据；portfolio（个人持仓记忆）与
  * slash 命令除外。
  */
 export function applyStockAgentRouting(intent: TAgentIntent, query: string, isCommand: boolean): TAgentIntent {

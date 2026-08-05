@@ -24,6 +24,7 @@ var api = {
   createConversation: () => import_electron.ipcRenderer.invoke("conversation:create"),
   deleteConversation: (id) => import_electron.ipcRenderer.invoke("conversation:delete", id),
   renameConversation: (id, title) => import_electron.ipcRenderer.invoke("conversation:rename", id, title),
+  searchConversations: (query) => import_electron.ipcRenderer.invoke("conversation:search", query),
   listMessages: (conversationId) => import_electron.ipcRenderer.invoke("message:list", conversationId),
   saveMessage: (conversationId, message) => import_electron.ipcRenderer.invoke("message:save", conversationId, message),
   sendChat: (request) => import_electron.ipcRenderer.invoke("chat:send", request),

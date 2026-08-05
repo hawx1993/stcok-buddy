@@ -1,6 +1,7 @@
 import { isRemoteTradingDay } from '../market-data/providers.js';
 import type { HotFocusItem } from '../../../src/shared/types.js';
 import { listEastmoneySurgeByDate } from './stock-client.js';
+import { shouldKeepSurgeItem } from './surge-large-order.js';
 import { isSurgeHistoryClearMarkerActive, listSurgeHistory, saveSurgeSnapshot } from './surge-history-store.js';
 
 export async function listSurgeHistoryWithBackfill(date: string, offset = 0, limit = 20): Promise<HotFocusItem[]> {
@@ -11,10 +12,10 @@ export async function listSurgeHistoryWithBackfill(date: string, offset = 0, lim
   // remote backfill so historical dates stay empty and the DB file is not
   // recreated just to serve an empty result.
   if (isSurgeHistoryClearMarkerActive()) return [];
-  const local = await listSurgeHistory(date, offset, limit);
+  const local = (await listSurgeHistory(date, offset, limit)).filter(shouldKeepSurgeItem);
   if (local.length || offset > 0) return local;
 
-  const remote = await listEastmoneySurgeByDate(date);
+  const remote = (await listEastmoneySurgeByDate(date)).filter(shouldKeepSurgeItem);
   if (remote.length) void saveSurgeSnapshot(remote, new Date(`${date}T15:00:00+08:00`), date).catch(console.error);
   return remote.slice(0, limit);
 }

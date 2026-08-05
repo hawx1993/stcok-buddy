@@ -114,6 +114,9 @@ export function RunEventTrace({ events }: { events: AgentRunEvent[] }) {
 
 const EVENT_LABELS: Record<string, string> = {
   plan_created: '计划',
+  plan_updated: '计划更新',
+  reflection_completed: '自检',
+  data_gap_detected: '数据缺口',
   command_detected: 'Command',
   intent_detected: '意图',
   tool_started: '工具开始',

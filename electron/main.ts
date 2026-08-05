@@ -12,7 +12,11 @@ import { shutdownSurgeHistoryScheduler, stopSurgeHistoryScheduler, waitForSurgeH
 import { stopDiscoveryRefreshLoop } from './services/stock/discovery-service.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryInstance, closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
-import { stopMonitorHistoryScheduler, waitForMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
+import {
+  startMonitorHistoryScheduler,
+  stopMonitorHistoryScheduler,
+  waitForMonitorHistoryScheduler,
+} from './services/stock/monitor-history-scheduler.js';
 import { closeMonitorHistoryInstance, closeMonitorHistoryStore } from './services/stock/monitor-history-store.js';
 import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
 import { checkAppUpdate, setInstallUpdateHandler } from './services/update-service.js';
@@ -173,6 +177,7 @@ app.whenReady().then(() => {
   void ensureMarketDataRuntime().catch((error) => {
     console.warn('[market-data] runtime initialization failed', error);
   });
+  startMonitorHistoryScheduler();
   registerIpcHandlers();
   createWindow();
   const updateCheckTimer = setTimeout(() => {

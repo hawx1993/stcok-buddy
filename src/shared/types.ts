@@ -177,6 +177,18 @@ export interface ConversationSummary {
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
+export interface IConversationSearchResult {
+  kind: 'conversation' | 'message';
+  conversationId: string;
+  title: string;
+  preview: string;
+  updatedAt: string;
+  snippet: string;
+  messageId?: string;
+  role?: MessageRole;
+  createdAt?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -211,8 +223,87 @@ export interface AgentStep {
   endedAt?: string;
 }
 
+export type TAgentPlanIntent =
+  | 'quote'
+  | 'technical'
+  | 'analysis'
+  | 'news-announcements'
+  | 'theme-attribution'
+  | 'daily-lhb'
+  | 'market-review'
+  | 'board'
+  | 'portfolio'
+  | 'shareholder-chip'
+  | 'hot-concepts'
+  | 'industry-ranking'
+  | 'a-stock-data-agent'
+  | 'chat';
+
+export type TPlanItemStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'blocked' | 'failed';
+export type TPlanDataStatus = 'required' | 'optional' | 'available' | 'empty' | 'failed' | 'stale' | 'partial' | 'skipped';
+
+export interface IAgentPlanItem {
+  id: string;
+  title: string;
+  reason: string;
+  dataNeeds: string[];
+  dependsOn?: string[];
+  optional?: boolean;
+  fallbackStrategy?: string;
+  status: TPlanItemStatus;
+  relatedNodeIds: string[];
+}
+
+export interface IAgentDataGap {
+  id: string;
+  dataName: string;
+  status: Exclude<TPlanDataStatus, 'required' | 'optional' | 'available'>;
+  reason: string;
+  affectedPlanItemIds: string[];
+  impact: 'low' | 'medium' | 'high';
+  userMessage: string;
+}
+
+export interface IAgentPlanRevision {
+  id: string;
+  reason: string;
+  changes: string[];
+  createdAt: string;
+}
+
+export interface IAgentPlan {
+  id: string;
+  intent: TAgentPlanIntent;
+  target?: string;
+  summary: string;
+  items: IAgentPlanItem[];
+  assumptions: string[];
+  dataGaps: IAgentDataGap[];
+  revisions: IAgentPlanRevision[];
+}
+
+export interface IAgentDataStatus {
+  id: string;
+  toolName: string;
+  dataName: string;
+  status: Exclude<TPlanDataStatus, 'required' | 'optional'>;
+  reason: string;
+  relatedPlanItemIds: string[];
+  recordId?: string;
+}
+
+export interface IAgentReflectionResult {
+  passed: boolean;
+  issues: string[];
+  dataGaps: IAgentDataGap[];
+  revisions: IAgentPlanRevision[];
+}
+
 export type AgentRunEventType =
   | 'plan_created'
+  | 'plan_updated'
+  | 'reflection_completed'
+  | 'data_gap_detected'
   | 'command_detected'
   | 'intent_detected'
   | 'step_started'
@@ -270,6 +361,10 @@ export interface AgentRunEvent {
   };
   plan?: {
     agents: Array<{ id: string; agent: string; description: string }>;
+    items?: IAgentPlanItem[];
+    dataGaps?: IAgentDataGap[];
+    revisions?: IAgentPlanRevision[];
+    summary?: string;
   };
   intermediateResult?: {
     agentName: string;
@@ -281,6 +376,8 @@ export interface AgentRunEvent {
     name: string;
     status: 'pending' | 'loading' | 'done' | 'error';
   };
+  dataGap?: IAgentDataGap;
+  reflection?: IAgentReflectionResult;
   evidence?: EvidenceItem[];
   findings?: StructuredAgentFinding[];
   marketReview?: TMarketReviewReport;
@@ -694,6 +791,7 @@ export interface MarketBoardRow {
 }
 
 export type MarketSearchResult = (MarketQuoteRow & { kind?: 'stock' }) | (MarketBoardRow & { kind: 'board' });
+export type TGlobalSearchResult = MarketSearchResult | IConversationSearchResult;
 
 export interface MarketMinutePoint {
   time: string;
@@ -996,6 +1094,7 @@ export interface StocksenseApi {
   createConversation(): Promise<ConversationSummary>;
   deleteConversation(id: string): Promise<ConversationSummary[]>;
   renameConversation(id: string, title: string): Promise<ConversationSummary[]>;
+  searchConversations(query: string): Promise<IConversationSearchResult[]>;
   listMessages(conversationId: string): Promise<ChatMessage[]>;
   saveMessage(conversationId: string, message: ChatMessage): Promise<void>;
   sendChat(request: ChatRequest): Promise<ChatResponse>;

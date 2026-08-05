@@ -151,9 +151,10 @@
 
 .step-item {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 3px;
   font-size: 10px;
+  min-width: 0;
 
   &.completed {
     color: var(--success);
@@ -163,6 +164,9 @@
   }
   &.pending {
     color: var(--muted);
+  }
+  &.skipped {
+    color: var(--success);
   }
   &.error {
     color: var(--danger);
@@ -176,7 +180,8 @@
 }
 
 .step-label {
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 // ── Agent Collaboration (full-width rows) ──

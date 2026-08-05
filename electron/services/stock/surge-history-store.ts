@@ -1,6 +1,7 @@
 import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection } from '@duckdb/node-api';
 import path from 'node:path';
+import { shouldKeepSurgeItem } from './surge-large-order.js';
 import type { HotFocusItem, StockSurgeEvent } from '../../../src/shared/types.js';
 
 interface SurgeRow {
@@ -108,7 +109,7 @@ function dedupeStockSurgeEvents(events: StockSurgeEvent[]) {
 }
 
 export function saveSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
-  const uniqueItems = dedupeHotFocusItems(items);
+  const uniqueItems = dedupeHotFocusItems(items.filter(shouldKeepSurgeItem));
   if (!uniqueItems.length) return Promise.resolve();
   // ponytail: drop writes while the clear marker is active so the DB file is
   // not recreated immediately after a clear.
@@ -141,8 +142,9 @@ export function saveSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date()
 }
 
 export function enqueueSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
-  if (!items.length || isSurgeHistoryClearMarkerActive()) return;
-  for (const item of items) {
+  const filteredItems = items.filter(shouldKeepSurgeItem);
+  if (!filteredItems.length || isSurgeHistoryClearMarkerActive()) return;
+  for (const item of filteredItems) {
     surgeSnapshotQueue.set(`${tradeDate}|${item.id}`, { item, capturedAt, tradeDate });
   }
 }
@@ -208,23 +210,12 @@ export function listSurgeHistory(date: string, offset = 0, limit = 20) {
       `SELECT trade_date, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type
        FROM stock_surge_events
        WHERE trade_date = ${sqlValue(date)}
-       ORDER BY COALESCE(time, '') DESC, id DESC
-       LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+       ORDER BY COALESCE(time, '') DESC, id DESC`,
     );
-    return rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      code: row.code,
-      name: row.name,
-      time: row.time,
-      price: row.price,
-      changePercent: row.change_percent,
-      turnover: row.turnover,
-      amount: row.amount,
-      description: row.description,
-      tag: row.tag,
-      type: row.type,
-    } satisfies HotFocusItem));
+    return rows
+      .map(mapSurgeRowToHotFocusItem)
+      .filter(shouldKeepSurgeItem)
+      .slice(safeOffset, safeOffset + safeLimit);
   });
 }
 
@@ -273,10 +264,9 @@ export function listRecentStockSurgeEvents(code: string, keepDays = 7) {
   });
 }
 
-function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
-  const events = rows.map((row) => ({
+function mapSurgeRowToHotFocusItem(row: SurgeRow): HotFocusItem {
+  return {
     id: row.id,
-    tradeDate: row.trade_date,
     title: row.title,
     code: row.code,
     name: row.name,
@@ -288,7 +278,16 @@ function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
     description: row.description,
     tag: row.tag,
     type: row.type,
-  } satisfies StockSurgeEvent));
+  };
+}
+
+function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
+  const events = rows
+    .map((row) => ({
+      ...mapSurgeRowToHotFocusItem(row),
+      tradeDate: row.trade_date,
+    } satisfies StockSurgeEvent))
+    .filter(shouldKeepSurgeItem);
   // De-duplicate anomalies that come from both the hot-list snapshot and
   // the per-stock individual history (they share the same time/tag/price).
   const seen = new Set<string>();
@@ -301,7 +300,7 @@ function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
 }
 
 export function saveIndividualSurgeHistory(events: StockSurgeEvent[]) {
-  const uniqueEvents = dedupeStockSurgeEvents(events);
+  const uniqueEvents = dedupeStockSurgeEvents(events.filter(shouldKeepSurgeItem));
   if (!uniqueEvents.length) return Promise.resolve();
   // ponytail: drop writes while the clear marker is active.
   if (isSurgeHistoryClearMarkerActive()) return Promise.resolve();

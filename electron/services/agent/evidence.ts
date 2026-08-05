@@ -74,7 +74,9 @@ export function evidenceFromKline(symbol: string, kline?: KlinePoint[]): Evidenc
 export function evidenceFromHistoricalBars(symbol: string, result: HistoricalBarsResult): EvidenceItem[] {
   const first = result.data[0];
   const latest = result.data.at(-1);
-  if (!latest) return [fallbackEvidence(`local-kline:${symbol}`, '本地历史行情数据不足')];
+  if (!latest || result.meta.source === 'fallback' || result.meta.freshness === 'fallback') {
+    return [fallbackEvidence(`local-kline:${symbol}`, '本地历史行情数据不足')];
+  }
   return [
     {
       id: `${result.meta.storage === 'local' ? 'local' : 'mixed'}-kline:${symbol}:${first?.time ?? 'unknown'}:${latest.time}`,
