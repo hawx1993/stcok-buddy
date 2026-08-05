@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isAiMonitorFeedCacheFresh, shouldLoadAiMonitorFeedOnActiveTransition } from '../ai-monitor-panel';
+import { isAiMonitorFeedCacheFresh, shouldLoadAiMonitorFeedOnActiveTransition } from '../ai-monitor-panel-utils';
 
 describe('AI 监控面板缓存', () => {
   it('超过短期有效期后不复用全部 tab 的旧监控列表', () => {

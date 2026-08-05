@@ -1,7 +1,12 @@
 import { app } from '../electron-runtime.js';
 import Database from 'better-sqlite3';
 import path from 'node:path';
-import type { ChatMessage, ConversationSummary, IConversationSearchResult } from '../../src/shared/types.js';
+import type {
+  ChatMessage,
+  ConversationSummary,
+  IConversationMessagesOptions,
+  IConversationSearchResult,
+} from '../../src/shared/types.js';
 
 let db: Database.Database | undefined;
 
@@ -117,12 +122,72 @@ export function renameConversation(id: string, title: string): ConversationSumma
   return listConversations();
 }
 
-export function listMessages(conversationId: string): ChatMessage[] {
-  return (
-    getDb()
-      .prepare('SELECT payload FROM messages WHERE conversation_id = ? ORDER BY created_at ASC')
-      .all(conversationId) as MessageRow[]
-  ).map((row) => JSON.parse(row.payload) as ChatMessage);
+export function listMessages(conversationId: string, options: IConversationMessagesOptions = {}): ChatMessage[] {
+  const limit = normalizeMessageLimit(options.limit);
+  const rows = options.beforeCreatedAt
+    ? listMessagesBeforeCursor(conversationId, options.beforeCreatedAt, options.beforeId ?? '', limit)
+    : listLatestMessages(conversationId, limit);
+  return rows.map((row) => JSON.parse(row.payload) as ChatMessage);
+}
+
+function listLatestMessages(conversationId: string, limit: number | undefined): MessageRow[] {
+  if (!limit) {
+    return getDb()
+      .prepare('SELECT payload FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC')
+      .all(conversationId) as MessageRow[];
+  }
+  return getDb()
+    .prepare(
+      `
+        SELECT payload
+        FROM (
+          SELECT id, payload, created_at
+          FROM messages
+          WHERE conversation_id = @conversationId
+          ORDER BY created_at DESC, id DESC
+          LIMIT @limit
+        )
+        ORDER BY created_at ASC, id ASC
+      `,
+    )
+    .all({ conversationId, limit }) as MessageRow[];
+}
+
+function listMessagesBeforeCursor(
+  conversationId: string,
+  beforeCreatedAt: string,
+  beforeId: string,
+  limit: number | undefined,
+): MessageRow[] {
+  if (!limit) {
+    return getDb()
+      .prepare(
+        `
+          SELECT payload
+          FROM messages
+          WHERE conversation_id = @conversationId
+            AND (created_at < @beforeCreatedAt OR (created_at = @beforeCreatedAt AND id < @beforeId))
+          ORDER BY created_at ASC, id ASC
+        `,
+      )
+      .all({ conversationId, beforeCreatedAt, beforeId }) as MessageRow[];
+  }
+  return getDb()
+    .prepare(
+      `
+        SELECT payload
+        FROM (
+          SELECT id, payload, created_at
+          FROM messages
+          WHERE conversation_id = @conversationId
+            AND (created_at < @beforeCreatedAt OR (created_at = @beforeCreatedAt AND id < @beforeId))
+          ORDER BY created_at DESC, id DESC
+          LIMIT @limit
+        )
+        ORDER BY created_at ASC, id ASC
+      `,
+    )
+    .all({ conversationId, beforeCreatedAt, beforeId, limit }) as MessageRow[];
 }
 
 export function searchConversations(query: string): IConversationSearchResult[] {
@@ -212,6 +277,11 @@ export function saveUserMessage(conversationId: string, content: string) {
 
 export function saveAssistantMessage(conversationId: string, message: ChatMessage) {
   saveMessage(conversationId, message);
+}
+
+function normalizeMessageLimit(limit: number | undefined) {
+  if (limit === undefined || !Number.isFinite(limit)) return undefined;
+  return Math.max(1, Math.min(50, Math.trunc(limit)));
 }
 
 function escapeLikeKeyword(keyword: string) {

@@ -61,6 +61,7 @@ interface IAppDataState {
   setFavoriteStocks(favoriteStocks: FavoriteStock[]): void;
   rememberStockKline(code: string, data?: NonNullable<AgentResultCard['chart']>['data']): void;
   setMessages(messages: ChatMessage[]): void;
+  prependMessages(conversationId: string, messages: ChatMessage[]): void;
   replaceLastAssistant(message: ChatMessage, conversationId?: string): void;
   stopLastAssistant(conversationId?: string): void;
   finalizeLastAssistant(message: ChatMessage, conversationId?: string): void;
@@ -119,18 +120,15 @@ export const useAppDataStore = create<IAppDataState>((set, get) => ({
     set((state) => {
       if (state.activeConversationId === id) return { activeConversationId: id };
       const messageDrafts = { ...state.messageDrafts };
-      const shouldKeepCurrentDraft =
-        state.activeConversationId &&
-        state.activeConversationId !== id &&
-        (state.respondingConversationId === state.activeConversationId || state.messages.some((message) => message.thinking));
+      const shouldKeepCurrentDraft = shouldKeepCurrentConversationDraft(state, id);
       if (shouldKeepCurrentDraft && state.activeConversationId) messageDrafts[state.activeConversationId] = state.messages;
       const draft = id ? messageDrafts[id] : undefined;
       const cachedMessages = id ? state.conversationMessages[id] : undefined;
-      const messages = draft ?? cachedMessages ?? [];
-      const shouldLoadMessages = shouldLoadConversationMessages(state.conversations, id, draft ?? cachedMessages, messages);
+      const readyMessages = draft ?? cachedMessages;
+      const shouldLoadMessages = shouldLoadConversationMessages(state.conversations, id, readyMessages, readyMessages ?? []);
       return {
         activeConversationId: id,
-        messages,
+        messages: readyMessages ?? [],
         messageDrafts,
         isMessagesLoading: shouldLoadMessages,
         messagesLoadingConversationId: shouldLoadMessages ? id : undefined,
@@ -141,10 +139,7 @@ export const useAppDataStore = create<IAppDataState>((set, get) => ({
     useAppUiStore.getState().setMainView('chat');
     set((state) => {
       const messageDrafts = { ...state.messageDrafts };
-      const shouldKeepCurrentDraft =
-        state.activeConversationId &&
-        state.activeConversationId !== id &&
-        (state.respondingConversationId === state.activeConversationId || state.messages.some((message) => message.thinking));
+      const shouldKeepCurrentDraft = shouldKeepCurrentConversationDraft(state, id);
       if (shouldKeepCurrentDraft && state.activeConversationId) messageDrafts[state.activeConversationId] = state.messages;
       return {
         activeConversationId: id,
@@ -160,14 +155,11 @@ export const useAppDataStore = create<IAppDataState>((set, get) => ({
   setMessagesLoading: (conversationId, loading) =>
     set((state) => {
       if (state.activeConversationId !== conversationId) return state;
+      const readyMessages = state.messageDrafts[conversationId] ?? state.conversationMessages[conversationId];
       const shouldLoadMessages =
         loading &&
-        shouldLoadConversationMessages(
-          state.conversations,
-          conversationId,
-          state.messageDrafts[conversationId] ?? state.conversationMessages[conversationId],
-          state.messages,
-        );
+        (state.messagesLoadingConversationId === conversationId ||
+          shouldLoadConversationMessages(state.conversations, conversationId, readyMessages, readyMessages ?? state.messages));
       return {
         isMessagesLoading: shouldLoadMessages,
         messagesLoadingConversationId: shouldLoadMessages ? conversationId : undefined,
@@ -189,6 +181,17 @@ export const useAppDataStore = create<IAppDataState>((set, get) => ({
         isMessagesLoading: false,
         messagesLoadingConversationId: undefined,
         stockKlines: { ...state.stockKlines, ...collectStockKlines(messages) },
+      };
+    }),
+  prependMessages: (conversationId, olderMessages) =>
+    set((state) => {
+      if (!olderMessages.length || state.activeConversationId !== conversationId) return state;
+      const existingIds = new Set(state.messages.map((message) => message.id));
+      const messages = [...olderMessages.filter((message) => !existingIds.has(message.id)), ...state.messages];
+      return {
+        messages,
+        conversationMessages: { ...state.conversationMessages, [conversationId]: messages },
+        stockKlines: { ...state.stockKlines, ...collectStockKlines(olderMessages) },
       };
     }),
   addMessage: (message) =>
@@ -358,6 +361,13 @@ function shouldLoadConversationMessages(
 ) {
   if (!conversationId || draft?.length || messages.length) return false;
   return (conversations.find((conversation) => conversation.id === conversationId)?.count ?? 0) > 0;
+}
+
+function shouldKeepCurrentConversationDraft(state: IAppDataState, nextConversationId: string | undefined) {
+  if (!state.activeConversationId || state.activeConversationId === nextConversationId) return false;
+  if (state.respondingConversationId === state.activeConversationId) return true;
+  const lastAssistantIndex = findLastAssistantIndex(state.messages);
+  return lastAssistantIndex >= 0 && Boolean(state.messages[lastAssistantIndex].thinking);
 }
 
 function updateConversationMessages(

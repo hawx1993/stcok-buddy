@@ -2,41 +2,12 @@ import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
 import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import type { StockDetail } from '../../../shared/types';
+import { getOpportunityRadarMetaText, hasOpportunityRadarItems } from './opportunity-radar-utils';
+import type { IOpportunityRadarData, IOpportunityRadarStockItem } from './opportunity-radar-utils';
 import styles from '../index.module.scss';
-
-export interface IOpportunityRadarBoardItem {
-  code: string;
-  name: string;
-  ratio: number;
-  changePercent: number;
-  mainNetInflow: number;
-}
-
-export interface IOpportunityRadarStockItem {
-  code: string;
-  name: string;
-  reason: string;
-  price?: number | null;
-  changePercent?: number | null;
-  amount?: number | null;
-  score: number;
-}
-
-export interface IOpportunityRadarData {
-  boards: IOpportunityRadarBoardItem[];
-  stocks: IOpportunityRadarStockItem[];
-}
 
 interface IOpportunityRadarProps {
   data?: IOpportunityRadarData;
-}
-
-function hasStockRadarItems(data?: IOpportunityRadarData) {
-  return Boolean(data?.stocks.length);
-}
-
-export function hasOpportunityRadarItems(data?: IOpportunityRadarData) {
-  return hasStockRadarItems(data);
 }
 
 function formatChange(value?: number | null) {
@@ -47,15 +18,6 @@ function formatChange(value?: number | null) {
 function formatMoneyYi(value?: number | null) {
   if (value === undefined || value === null || !Number.isFinite(value)) return '--';
   return `${value >= 0 ? '+' : ''}${(value / 100_000_000).toFixed(2)}亿`;
-}
-
-function formatPrice(value?: number | null) {
-  if (value === undefined || value === null || !Number.isFinite(value)) return '--';
-  return value.toFixed(2);
-}
-
-export function getOpportunityRadarMetaText(item: IOpportunityRadarStockItem) {
-  return `${item.code} · 现价 ${formatPrice(item.price)}`;
 }
 
 function toneClass(value?: number | null) {

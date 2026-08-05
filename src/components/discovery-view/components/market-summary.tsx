@@ -2,6 +2,7 @@ import { BarChart3 } from 'lucide-react';
 import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { BoardDetail, StockDetail } from '../../../shared/types';
+import { getSentimentMarkerPosition } from './market-summary-utils';
 import styles from '../index.module.scss';
 
 interface ISectorSummary {
@@ -95,10 +96,6 @@ function sectorCellBg(changePercent: number) {
 function sectorCellBorder(changePercent: number) {
   const abs = Math.min(Math.abs(changePercent) / 5, 1);
   return `color-mix(in srgb, ${sectorTone(changePercent)} ${28 + abs * 18}%, var(--border) 100%)`;
-}
-
-export function getSentimentMarkerPosition(value: number): number {
-  return Math.min(Math.max(value, 0), 100);
 }
 
 function SentimentBar({ value, up, down }: { value: number; up: number; down: number }) {

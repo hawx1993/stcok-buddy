@@ -6,7 +6,7 @@ import {
   getGlobalSearchResultKey,
   getSearchChangeTone,
   isConversationSearchResult,
-} from '../index';
+} from '../utils';
 import { getGlobalSearchShortcutLabel, isGlobalSearchShortcut, isMacPlatform } from '../shortcut';
 
 function keyEvent(key: string, metaKey = false, ctrlKey = false): Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey'> {

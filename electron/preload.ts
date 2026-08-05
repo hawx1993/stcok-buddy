@@ -42,7 +42,7 @@ const api: StocksenseApi = {
   createConversation: () => ipcRenderer.invoke('conversation:create'),
   deleteConversation: (id: string) => ipcRenderer.invoke('conversation:delete', id),
   renameConversation: (id: string, title: string) => ipcRenderer.invoke('conversation:rename', id, title),
-  listMessages: (conversationId: string) => ipcRenderer.invoke('message:list', conversationId),
+  listMessages: (conversationId: string, options) => ipcRenderer.invoke('message:list', conversationId, options),
   saveMessage: (conversationId: string, message: ChatMessage) =>
     ipcRenderer.invoke('message:save', conversationId, message),
   sendChat: (request: ChatRequest) => ipcRenderer.invoke('chat:send', request),

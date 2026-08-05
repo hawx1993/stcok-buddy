@@ -1,4 +1,5 @@
 .chat-wrap {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;
@@ -7,14 +8,69 @@
   margin-top: 40px;
 }
 .chat-messages {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding: 16px 28px 8px;
 }
+.chat-loading-earlier {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  width: fit-content;
+  margin: 0 auto 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--glass-bg) 92%, transparent);
+  color: var(--fg-secondary);
+  font-size: 12px;
+  pointer-events: none;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.chat-loading-overlay {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--glass-bg) 92%, transparent);
+  color: var(--fg-secondary);
+  font-size: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  pointer-events: none;
+  transform: translateX(-50%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.chat-loading-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: chat-loading-pulse 0.9s ease-in-out infinite;
+}
+@keyframes chat-loading-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
 .msg {
   width: min(980px, 100%);
-  margin: 0 auto 18px;
+  margin: 0 auto;
   display: flex;
   gap: 10px;
   user-select: text;
@@ -197,6 +253,7 @@
   .whale.busy,
   .whale.busy .whale-logo,
   .whale.busy .whale-splash span,
+  .chat-loading-dot,
   :global(.chat-search-hit) {
     animation: none;
   }

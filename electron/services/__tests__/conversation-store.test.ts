@@ -82,12 +82,27 @@ function runAll(sql: string, params?: unknown) {
   if (sql.includes('FROM conversations') && sql.includes('ORDER BY updated_at DESC') && !sql.includes('WHERE')) {
     return [...dbState.conversations].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
-  if (sql.includes('SELECT payload FROM messages WHERE conversation_id')) {
+  if (sql.includes('SELECT payload FROM messages WHERE conversation_id = ?')) {
     const conversationId = String(params);
     return dbState.messages
       .filter((row) => row.conversationId === conversationId)
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
       .map((row) => ({ payload: row.payload }));
+  }
+  if (sql.includes('FROM messages') && sql.includes('conversation_id = @conversationId') && !sql.includes('JOIN conversations')) {
+    const input = params as { conversationId: string; beforeCreatedAt?: string; beforeId?: string; limit?: number };
+    const rows = dbState.messages
+      .filter((row) => row.conversationId === input.conversationId)
+      .filter(
+        (row) =>
+          !input.beforeCreatedAt ||
+          row.createdAt < input.beforeCreatedAt ||
+          (row.createdAt === input.beforeCreatedAt && row.id < (input.beforeId ?? '')),
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id));
+    const limitedRows = input.limit ? rows.slice(0, input.limit) : rows;
+    limitedRows.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+    return limitedRows.map((row) => ({ payload: row.payload }));
   }
   if (sql.includes('FROM conversations') && sql.includes('WHERE title LIKE')) {
     const input = params as { like: string; limit: number };
@@ -175,6 +190,36 @@ function runStatement(sql: string, params: unknown[]) {
     );
   }
 }
+
+describe('会话消息分页', () => {
+  it('默认按创建时间正序返回全部消息', async () => {
+    await loadStore();
+    const conversation = store!.createConversation();
+    store!.saveMessage(conversation.id, message('msg-1', 'user', '第一条'));
+    store!.saveMessage(conversation.id, message('msg-2', 'assistant', '第二条'));
+    store!.saveMessage(conversation.id, message('msg-3', 'user', '第三条'));
+
+    expect(store!.listMessages(conversation.id).map((item) => item.id)).toEqual(['msg-1', 'msg-2', 'msg-3']);
+  });
+
+  it('支持只返回最新 N 条并用首条消息向上分页', async () => {
+    await loadStore();
+    const conversation = store!.createConversation();
+    for (let index = 1; index <= 7; index += 1) {
+      store!.saveMessage(conversation.id, message(`msg-${index}`, index % 2 ? 'user' : 'assistant', `第 ${index} 条`));
+    }
+
+    const latest = store!.listMessages(conversation.id, { limit: 5 });
+    const earlier = store!.listMessages(conversation.id, {
+      limit: 5,
+      beforeCreatedAt: latest[0].createdAt,
+      beforeId: latest[0].id,
+    });
+
+    expect(latest.map((item) => item.id)).toEqual(['msg-3', 'msg-4', 'msg-5', 'msg-6', 'msg-7']);
+    expect(earlier.map((item) => item.id)).toEqual(['msg-1', 'msg-2']);
+  });
+});
 
 describe('会话内容搜索', () => {
   it('支持搜索会话标题和预览', async () => {

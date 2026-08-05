@@ -185,20 +185,31 @@ describe('数据状态', () => {
     expect(useAppUiStore.getState().mainView).toBe('chat');
   });
 
-  it('切换到已有消息的会话时应标记消息加载中', () => {
+  it('切换到未缓存的已有消息会话时应清空中间栏并标记加载中', () => {
+    const currentMessage = createAssistantMessage('assistant-current', '当前会话内容');
+    const loadedMessage = createAssistantMessage('assistant-loaded', '加载后的会话内容');
     useAppDataStore.getState().setConversations([
-      { id: 'c-1', title: '空会话', preview: '', date: '2026-08-03', updatedAt: '2026-08-03', tab: 'stock', count: 0 },
+      { id: 'c-1', title: '当前会话', preview: '预览', date: '2026-08-03', updatedAt: '2026-08-03', tab: 'stock', count: 1 },
       { id: 'c-2', title: '已有会话', preview: '预览', date: '2026-08-04', updatedAt: '2026-08-04', tab: 'market', count: 2 },
     ]);
+    useAppDataStore.getState().setActiveConversationWithMessages('c-1', [currentMessage]);
 
     useAppDataStore.getState().setActiveConversation('c-2');
+
+    expect(useAppDataStore.getState().activeConversationId).toBe('c-2');
+    expect(useAppDataStore.getState().messages).toEqual([]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(true);
+    expect(useAppDataStore.getState().messagesLoadingConversationId).toBe('c-2');
+
+    useAppDataStore.getState().setMessagesLoading('c-2', true);
 
     expect(useAppDataStore.getState().messages).toEqual([]);
     expect(useAppDataStore.getState().isMessagesLoading).toBe(true);
     expect(useAppDataStore.getState().messagesLoadingConversationId).toBe('c-2');
 
-    useAppDataStore.getState().setMessages([createAssistantMessage('assistant-1')]);
+    useAppDataStore.getState().setMessages([loadedMessage]);
 
+    expect(useAppDataStore.getState().messages).toEqual([loadedMessage]);
     expect(useAppDataStore.getState().isMessagesLoading).toBe(false);
     expect(useAppDataStore.getState().messagesLoadingConversationId).toBeUndefined();
   });
@@ -230,6 +241,17 @@ describe('数据状态', () => {
 
     expect(useAppDataStore.getState().messages).toEqual([firstMessage]);
     expect(useAppDataStore.getState().isMessagesLoading).toBe(false);
+  });
+
+  it('向上加载更早消息时应去重并追加到当前会话缓存前方', () => {
+    const oldMessage = createAssistantMessage('assistant-old', '更早消息');
+    const currentMessage = createAssistantMessage('assistant-current', '当前消息');
+    useAppDataStore.getState().setActiveConversationWithMessages('c-1', [currentMessage]);
+
+    useAppDataStore.getState().prependMessages('c-1', [oldMessage, currentMessage]);
+
+    expect(useAppDataStore.getState().messages).toEqual([oldMessage, currentMessage]);
+    expect(useAppDataStore.getState().conversationMessages['c-1']).toEqual([oldMessage, currentMessage]);
   });
 
   it('切换到空白会话时不应标记消息加载中', () => {

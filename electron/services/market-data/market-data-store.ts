@@ -2,6 +2,8 @@ import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { isMainThread } from 'node:worker_threads';
+import { probeMarketDatabaseCorruption } from './market-data-integrity.js';
 import type {
   IBoardDashboardSnapshot,
   TBoardDashboardRange,
@@ -33,10 +35,20 @@ const dbPath = process.env.STOCKSENSE_MARKET_DB_PATH || path.join(
 // instance and create a fresh one after the database file is deleted by
 // the storage manager. A const here would leave the app permanently
 // pointing at a closed instance after "清空本地行情数据库".
-let dbReady = DuckDBInstance.fromCache(dbPath);
+//
+// Lazily created so the first access happens inside the integrity probe gate
+// (ensureReady) — the probe child process needs the file exclusively, and an
+// eager open here would lock it out.
+let dbReady: Promise<DuckDBInstance> | undefined;
+function getDbReady() {
+  dbReady ??= DuckDBInstance.fromCache(dbPath);
+  return dbReady;
+}
 let ready: Promise<void> | undefined;
-let writeQueue = Promise.resolve();
+let operationQueue = Promise.resolve();
 let isClosing = false;
+
+const DUCKDB_SINGLE_THREAD_SQL = 'SET threads TO 1';
 let activeConnections = 0;
 let closeResolve: (() => void) | undefined;
 
@@ -1087,7 +1099,7 @@ export function getMarketDataStats(): Promise<MarketDataStats> {
 
 export async function closeMarketDataStore(timeoutMs?: number) {
   isClosing = true;
-  await writeQueue.catch((error) => console.warn('[market-data] close wait failed', error));
+  await operationQueue.catch((error) => console.warn('[market-data] close wait failed', error));
   if (activeConnections > 0)
     await new Promise<void>((resolve) => {
       closeResolve = resolve;
@@ -1105,7 +1117,7 @@ export async function closeMarketDataInstance() {
       console.warn(`[market-data] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`);
       return;
     }
-    const instance = await dbReady;
+    const instance = await getDbReady();
     instance.closeSync();
   } catch (error) {
     console.warn('[market-data] failed to close DuckDB instance', error);
@@ -1114,7 +1126,7 @@ export async function closeMarketDataInstance() {
 
 /**
  * ponytail: After closeMarketDataStore() + file deletion, the module is in a
- * permanently broken state — isClosing is true, ready/writeQueue reference
+ * permanently broken state — isClosing is true, ready/operationQueue reference
  * the old instance, and dbReady points at a closed DuckDB instance. This
  * function resets all module-level state and creates a brand-new DuckDB
  * instance so the store can be used again without an app restart.
@@ -1131,7 +1143,7 @@ export async function resetMarketDataStore() {
   // opens a brand-new inode).
   if (activeConnections === 0) {
     try {
-      const oldInstance = await dbReady;
+      const oldInstance = await getDbReady();
       oldInstance.closeSync();
     } catch (error) {
       console.warn('[market-data] failed to close old DuckDB instance during reset', error);
@@ -1145,41 +1157,109 @@ export async function resetMarketDataStore() {
   dbReady = DuckDBInstance.create(dbPath);
   // Reset all module-level state so read()/write() work again
   ready = undefined;
-  writeQueue = Promise.resolve();
+  integrityReady = undefined;
+  operationQueue = Promise.resolve();
   isClosing = false;
   activeConnections = 0;
   closeResolve = undefined;
 }
 
 function ensureReady() {
-  ready ??= withConnection((connection) => connection.run(schemaSql).then(() => undefined));
+  ready ??= ensureDatabaseIntegrity().then(() =>
+    withConnection((connection) => connection.run(schemaSql).then(() => undefined)),
+  );
   return ready;
 }
 
-async function read<T>(work: (connection: DuckDBConnection) => Promise<T>) {
-  if (isClosing) throw new Error('market data store is closing');
-  await ensureReady();
-  return withConnection(work);
+let integrityReady: Promise<void> | undefined;
+
+/**
+ * Probes the market DuckDB from a child process before the store is first used.
+ * A corrupted table (a native DuckDB SIGSEGV cannot be caught in-process) is
+ * dropped here; the schema is re-applied right after, so the sync can rebuild
+ * it from real data. Runs once per store lifetime.
+ *
+ * Only the main process runs the probe: the sync worker loads this module in a
+ * separate thread/isolate with its own DuckDB instance, and a second probe there
+ * would either be redundant or fail on the file lock held by the main process.
+ */
+async function ensureDatabaseIntegrity() {
+  if (!isMainThread) return;
+  integrityReady ??= (async () => {
+    try {
+      const corruptTables = await probeMarketDatabaseCorruption(dbPath);
+      if (!corruptTables.length) return;
+      await withConnection(async (connection) => {
+        for (const table of corruptTables) {
+          if (!/^[a-z_][a-z0-9_]*$/.test(table)) continue;
+          await connection.run(`DROP TABLE IF EXISTS "${table}"`);
+          console.warn(`[market-data] dropped corrupt table ${table}; it will be recreated and re-synced`);
+        }
+        // Invalidate the sync bookkeeping: the scheduler otherwise believes the
+        // dropped table's data is still up to date and would never re-sync it.
+        await connection.run('DELETE FROM sync_jobs');
+      });
+    } catch (error) {
+      console.warn('[market-data] integrity probe failed', error);
+    }
+  })();
+  return integrityReady;
+}
+
+function read<T>(work: (connection: DuckDBConnection) => Promise<T>) {
+  if (isClosing) return Promise.reject(new Error('market data store is closing'));
+  return enqueueOperation(work);
 }
 
 function write<T>(work: (connection: DuckDBConnection) => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('market data store is closing'));
-  const next = writeQueue.then(async () => {
-    await ensureReady();
-    return withConnection(work);
+  return enqueueOperation(work);
+}
+
+function enqueueOperation<T>(work: (connection: DuckDBConnection) => Promise<T>) {
+  const next = operationQueue.then(async () => {
+    if (isClosing) throw new Error('market data store is closing');
+    try {
+      await ensureReady();
+      return await withConnection(work);
+    } catch (error) {
+      if (!isDuckDbFatalInvalidation(error)) throw error;
+      await recoverMarketDataStoreAfterFatal(error);
+      await ensureReady();
+      return withConnection(work);
+    }
   });
-  writeQueue = next.then(
+  operationQueue = next.then(
     () => undefined,
     () => undefined,
   );
   return next;
 }
 
+function isDuckDbFatalInvalidation(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('database has been invalidated') ||
+    message.includes('The database must be restarted prior to being used again') ||
+    message.includes('Invalid bitpacking mode')
+  );
+}
+
+async function recoverMarketDataStoreAfterFatal(error: unknown) {
+  console.warn('[market-data] resetting DuckDB instance after fatal invalidation', error);
+  // DuckDB has already marked this native instance invalid. Closing an invalidated
+  // instance during active Electron runtime can crash the process, so reopen a
+  // fresh instance and let process teardown reclaim the poisoned one.
+  dbReady = DuckDBInstance.create(dbPath);
+  ready = undefined;
+}
+
 async function withConnection<T>(work: (connection: DuckDBConnection) => Promise<T>) {
   if (isClosing) throw new Error('market data store is closing');
-  const connection = await (await dbReady).connect();
+  const connection = await (await getDbReady()).connect();
   activeConnections += 1;
   try {
+    await connection.run(DUCKDB_SINGLE_THREAD_SQL);
     return await work(connection);
   } finally {
     connection.closeSync();

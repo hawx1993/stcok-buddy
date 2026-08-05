@@ -18,6 +18,7 @@ import { getGlobalSearchShortcutLabel, isGlobalSearchShortcut, isMacPlatform } f
 import { ErrorBoundary } from './components/error-boundary';
 import { getStocksenseApi } from './shared/stocksense-api';
 import { track, trackButtonClick, trackPageView } from './shared/analytics';
+import { CHAT_MESSAGE_PAGE_SIZE } from './shared/chat-message-pagination';
 import { useSyncProgressPump } from './hooks/use-sync-progress-pump';
 import styles from './styles/app.module.scss';
 import cx from './shared/cx';
@@ -56,9 +57,14 @@ export function App() {
 
   useEffect(() => {
     if (!activeConversationId) return;
+    const cachedMessages = useAppDataStore.getState().conversationMessages[activeConversationId];
+    if (cachedMessages?.length) {
+      setMessagesLoading(activeConversationId, false);
+      return;
+    }
     setMessagesLoading(activeConversationId, true);
     getStocksenseApi()
-      .listMessages(activeConversationId)
+      .listMessages(activeConversationId, { limit: CHAT_MESSAGE_PAGE_SIZE })
       .then((items) => {
         const state = useAppDataStore.getState();
         if (state.activeConversationId !== activeConversationId) return;

@@ -22,6 +22,7 @@ import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { IMonitorEvent, TMonitorCategory, TMonitorMode, StockDetail } from '../../../shared/types';
 import type { LucideIcon } from 'lucide-react';
 import { MarketPhasePill } from '../../market-phase-pill';
+import { isAiMonitorFeedCacheFresh, shouldLoadAiMonitorFeedOnActiveTransition } from './ai-monitor-panel-utils';
 
 type TVisibleMonitorCategory = Exclude<TMonitorCategory, 'dragon-tiger'>;
 type TVisibleMonitorEvent = IMonitorEvent & { category: TVisibleMonitorCategory };
@@ -111,8 +112,6 @@ function matchesMonitorQuery(event: TVisibleMonitorEvent, normalizedQuery: strin
 }
 
 const PAGE_SIZE = 20;
-const MONITOR_FEED_CACHE_TTL_MS = 15_000;
-
 interface IAiMonitorFeedCache {
   activeTab: TVisibleMonitorCategory | 'all';
   cachedAt: number;
@@ -127,30 +126,6 @@ interface IAiMonitorFeedCache {
 }
 
 let aiMonitorFeedCache: IAiMonitorFeedCache | undefined;
-
-export function isAiMonitorFeedCacheFresh(cache: { cachedAt: number } | undefined, now = Date.now()) {
-  return cache !== undefined && now - cache.cachedAt <= MONITOR_FEED_CACHE_TTL_MS;
-}
-
-export function shouldLoadAiMonitorFeedOnActiveTransition({
-  currentFeedKey,
-  didRestore,
-  hasEvents,
-  isActive,
-  nextFeedKey,
-  wasActive,
-}: {
-  currentFeedKey: string;
-  didRestore: boolean;
-  hasEvents: boolean;
-  isActive: boolean;
-  nextFeedKey: string;
-  wasActive: boolean;
-}) {
-  if (!isActive || wasActive) return false;
-  if (didRestore) return true;
-  return !hasEvents || currentFeedKey !== nextFeedKey;
-}
 
 function makeMonitorFeedKey(
   monitorMode: TMonitorMode,

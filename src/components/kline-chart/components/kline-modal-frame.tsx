@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import type { KlinePoint, StockDetail } from '../../../shared/types';
-import type { TimeframeId } from '../index';
+import type { TimeframeId } from '../constants';
 import styles from '../index.module.scss';
 
 type KlineStock = Pick<StockDetail, 'code' | 'name' | 'pe' | 'price'>;

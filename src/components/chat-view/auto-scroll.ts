@@ -21,9 +21,14 @@ export function shouldAutoScrollChat({
   reason: TChatAutoScrollReason;
   userScrolledAway: boolean;
 }): boolean {
-  if (reason === 'conversation-loaded' || reason === 'response-finished') return true;
+  if (reason === 'conversation-loaded') return false;
+  if (reason === 'response-finished') return true;
   if (isResponding && userScrolledAway) return false;
   return true;
+}
+
+export function getChatLastMessageIndex(messageCount: number): number | undefined {
+  return messageCount > 0 ? messageCount - 1 : undefined;
 }
 
 export function getChatAutoScrollBehavior({
@@ -36,5 +41,5 @@ export function getChatAutoScrollBehavior({
   userScrolledAway: boolean;
 }): ScrollBehavior | undefined {
   if (!shouldAutoScrollChat({ isResponding, reason, userScrolledAway })) return undefined;
-  return reason === 'conversation-loaded' ? 'auto' : 'smooth';
+  return 'smooth';
 }

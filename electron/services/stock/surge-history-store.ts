@@ -30,6 +30,8 @@ let ready: Promise<void> | undefined;
 let queue = Promise.resolve();
 let isClosing = false;
 let activeConnections = 0;
+
+const DUCKDB_SINGLE_THREAD_SQL = 'SET threads TO 1';
 let closeResolve: (() => void) | undefined;
 
 // ponytail: marker set when the user explicitly clears surge history. While
@@ -403,18 +405,15 @@ export async function resetSurgeHistoryStore() {
 
 function readDb<T>(work: () => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('surge history store is closing'));
-  return ensureReady()
-    .then(work)
-    .catch(async (error) => {
-      if (!isDuckDbFatalInvalidation(error)) throw error;
-      await recoverSurgeHistoryStoreAfterFatal(error);
-      await ensureReady();
-      return work();
-    });
+  return enqueueDbOperation(work);
 }
 
 function withDb<T>(work: () => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('surge history store is closing'));
+  return enqueueDbOperation(work);
+}
+
+function enqueueDbOperation<T>(work: () => Promise<T>) {
   const next = queue.then(async () => {
     if (isClosing) throw new Error('surge history store is closing');
     try {
@@ -478,6 +477,7 @@ async function withConnection<T>(work: (connection: DuckDBConnection) => Promise
   const connection = await (await getDbReady()).connect();
   activeConnections += 1;
   try {
+    await connection.run(DUCKDB_SINGLE_THREAD_SQL);
     return await work(connection);
   } finally {
     connection.closeSync();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getChatAutoScrollBehavior, isNearChatBottom, shouldAutoScrollChat } from '../auto-scroll';
+import { getChatAutoScrollBehavior, getChatLastMessageIndex, isNearChatBottom, shouldAutoScrollChat } from '../auto-scroll';
 
 describe('isNearChatBottom', () => {
   it('接近底部时返回 true', () => {
@@ -12,15 +12,26 @@ describe('isNearChatBottom', () => {
   });
 });
 
+describe('getChatLastMessageIndex', () => {
+  it('空会话没有可滚动的目标消息', () => {
+    expect(getChatLastMessageIndex(0)).toBeUndefined();
+  });
+
+  it('返回虚拟列表最后一条消息的索引', () => {
+    expect(getChatLastMessageIndex(1)).toBe(0);
+    expect(getChatLastMessageIndex(8)).toBe(7);
+  });
+});
+
 describe('getChatAutoScrollBehavior', () => {
-  it('会话消息加载后直接定位到底部，不使用平滑滚动', () => {
+  it('切换会话加载历史消息时不自动滚动到底部', () => {
     expect(
       getChatAutoScrollBehavior({
         isResponding: false,
         reason: 'conversation-loaded',
         userScrolledAway: true,
       }),
-    ).toBe('auto');
+    ).toBeUndefined();
   });
 
   it('新增消息仍使用平滑滚动', () => {
@@ -35,6 +46,16 @@ describe('getChatAutoScrollBehavior', () => {
 });
 
 describe('shouldAutoScrollChat', () => {
+  it('切换会话加载历史消息时不自动滚动', () => {
+    expect(
+      shouldAutoScrollChat({
+        isResponding: false,
+        reason: 'conversation-loaded',
+        userScrolledAway: false,
+      }),
+    ).toBe(false);
+  });
+
   it('AI 响应中且用户已上滑时不自动滚动', () => {
     expect(
       shouldAutoScrollChat({

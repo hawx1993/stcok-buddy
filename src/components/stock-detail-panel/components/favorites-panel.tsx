@@ -9,6 +9,7 @@ import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { MarketPhasePill } from '../../market-phase-pill';
 import { Empty } from '../../empty';
 import { FavoriteTimelineBg } from './favorite-timeline-bg';
+import { readFavoriteTimelineSwitchCache, writeFavoriteTimelineSwitchCache } from './favorite-timeline-switch-cache';
 import styles from '../index.module.scss';
 
 interface IFavoritesPanelProps {
@@ -17,17 +18,6 @@ interface IFavoritesPanelProps {
 
 const FAVORITE_QUOTE_REFRESH_INTERVAL_MS = 15_000;
 const FAVORITE_TIMELINE_REFRESH_INTERVAL_MS = 60_000;
-const FAVORITE_TIMELINE_SWITCH_STORAGE_KEY = 'stocksense-favorite-timeline-visible';
-
-export function readFavoriteTimelineSwitchCache() {
-  if (typeof localStorage === 'undefined') return false;
-  return localStorage.getItem(FAVORITE_TIMELINE_SWITCH_STORAGE_KEY) === 'true';
-}
-
-export function writeFavoriteTimelineSwitchCache(visible: boolean) {
-  localStorage.setItem(FAVORITE_TIMELINE_SWITCH_STORAGE_KEY, String(visible));
-}
-
 export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver>();

@@ -209,6 +209,12 @@ export interface ChatMessage {
   compliance?: ComplianceReview;
 }
 
+export interface IConversationMessagesOptions {
+  limit?: number;
+  beforeCreatedAt?: string;
+  beforeId?: string;
+}
+
 export interface AgentStep {
   id: string;
   agent: string;
@@ -1095,7 +1101,7 @@ export interface StocksenseApi {
   deleteConversation(id: string): Promise<ConversationSummary[]>;
   renameConversation(id: string, title: string): Promise<ConversationSummary[]>;
   searchConversations(query: string): Promise<IConversationSearchResult[]>;
-  listMessages(conversationId: string): Promise<ChatMessage[]>;
+  listMessages(conversationId: string, options?: IConversationMessagesOptions): Promise<ChatMessage[]>;
   saveMessage(conversationId: string, message: ChatMessage): Promise<void>;
   sendChat(request: ChatRequest): Promise<ChatResponse>;
   onChatToken?(handler: (event: ChatStreamEvent) => void): () => void;

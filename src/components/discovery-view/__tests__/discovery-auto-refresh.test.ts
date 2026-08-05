@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shouldAutoRefreshDiscoverySnapshot, shouldRefreshActiveDiscoverySections } from '../index';
+import { shouldAutoRefreshDiscoverySnapshot, shouldRefreshActiveDiscoverySections } from '../auto-refresh';
 
 describe('探索页自动刷新条件', () => {
   it('数据尚未加载完成时允许刷新默认快照', () => {

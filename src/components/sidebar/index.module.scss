@@ -155,6 +155,13 @@
   flex: 1;
   overflow-y: auto;
   padding: 0 8px 6px;
+  contain: layout style;
+}
+.conversation-virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 }
 .conversation-group + .conversation-group {
   margin-top: 14px;

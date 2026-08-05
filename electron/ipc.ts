@@ -185,7 +185,9 @@ export function registerIpcHandlers() {
   ipcMain.handle('conversation:delete', (_event, id: string) => deleteConversation(id));
   ipcMain.handle('conversation:rename', (_event, id: string, title: string) => renameConversation(id, title));
   ipcMain.handle('conversation:search', (_event, query: string) => searchConversations(query));
-  ipcMain.handle('message:list', (_event, conversationId: string) => listMessages(conversationId));
+  ipcMain.handle('message:list', (_event, conversationId: string, options?: Parameters<typeof listMessages>[1]) =>
+    listMessages(conversationId, options),
+  );
   ipcMain.handle('message:save', (_event, conversationId: string, message: ChatMessage) =>
     saveMessage(conversationId, message),
   );

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { StockKlineChart } from '../../kline-chart';
-import type { TimeframeId, TLoadOlderKline } from '../../kline-chart';
+import type { TimeframeId, TLoadOlderKline } from '../../kline-chart/constants';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { MarketIndexPeriod, MarketIndexSnapshot } from '../../../shared/types';
 import cx from '../../../shared/cx';

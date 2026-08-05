@@ -17,6 +17,7 @@ import type {
   IHotStockHintSource,
   IAppUpdateState,
   IStockNewsPreferences,
+  IConversationMessagesOptions,
   IConversationSearchResult,
 } from './types.js';
 import StockSDK from 'stock-sdk';
@@ -208,6 +209,27 @@ function writeStockNewsPreferences(preferences: IStockNewsPreferences): IStockNe
 function readMessages(conversationId: string): ChatMessage[] {
   const saved = localStorage.getItem(`stocksense-messages:${conversationId}`);
   return saved ? JSON.parse(saved) : [];
+}
+
+function normalizeMessageLimit(limit: number | undefined) {
+  if (limit === undefined || !Number.isFinite(limit)) return undefined;
+  return Math.max(1, Math.min(50, Math.trunc(limit)));
+}
+
+function listLocalMessages(conversationId: string, options: IConversationMessagesOptions = {}): ChatMessage[] {
+  const messages = [...readMessages(conversationId)].sort(
+    (left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+  );
+  const beforeIndex = options.beforeCreatedAt
+    ? messages.findIndex(
+        (message) =>
+          message.createdAt > options.beforeCreatedAt! ||
+          (message.createdAt === options.beforeCreatedAt && Boolean(options.beforeId) && message.id >= options.beforeId!),
+      )
+    : messages.length;
+  const end = beforeIndex >= 0 ? beforeIndex : messages.length;
+  const limit = normalizeMessageLimit(options.limit);
+  return messages.slice(limit ? Math.max(0, end - limit) : 0, end);
 }
 
 function saveLocalMessage(conversationId: string, message: ChatMessage) {
@@ -478,8 +500,8 @@ const webFallbackApi: StocksenseApi = {
   async searchConversations(query: string) {
     return searchLocalConversations(query);
   },
-  async listMessages(conversationId: string) {
-    return readMessages(conversationId);
+  async listMessages(conversationId: string, options?: IConversationMessagesOptions) {
+    return listLocalMessages(conversationId, options);
   },
   async saveMessage(conversationId: string, message: ChatMessage) {
     saveLocalMessage(conversationId, message);
