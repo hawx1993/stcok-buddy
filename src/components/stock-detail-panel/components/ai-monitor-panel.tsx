@@ -132,6 +132,26 @@ export function isAiMonitorFeedCacheFresh(cache: { cachedAt: number } | undefine
   return cache !== undefined && now - cache.cachedAt <= MONITOR_FEED_CACHE_TTL_MS;
 }
 
+export function shouldLoadAiMonitorFeedOnActiveTransition({
+  currentFeedKey,
+  didRestore,
+  hasEvents,
+  isActive,
+  nextFeedKey,
+  wasActive,
+}: {
+  currentFeedKey: string;
+  didRestore: boolean;
+  hasEvents: boolean;
+  isActive: boolean;
+  nextFeedKey: string;
+  wasActive: boolean;
+}) {
+  if (!isActive || wasActive) return false;
+  if (didRestore) return true;
+  return !hasEvents || currentFeedKey !== nextFeedKey;
+}
+
 function makeMonitorFeedKey(
   monitorMode: TMonitorMode,
   monitorDate: string,
@@ -274,6 +294,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   const eventsLengthRef = useRef(events.length);
   const restoreStateRef = useRef(restoreState);
   const didRestoreRef = useRef(false);
+  const wasActiveRef = useRef(false);
   const feedRequestSeqRef = useRef(0);
   const feedRef = useRef<HTMLDivElement>(null);
 
@@ -352,17 +373,30 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   }, [restoreState]);
 
   useEffect(() => {
-    if (!isActive || didRestoreRef.current) return;
-    didRestoreRef.current = true;
-    const restoreState = restoreStateRef.current;
+    const wasActive = wasActiveRef.current;
+    wasActiveRef.current = isActive;
+    if (!isActive) return;
+    const didRestore = didRestoreRef.current;
+    const restoreState = didRestore ? undefined : restoreStateRef.current;
     const nextPage = restoreState?.currentPage ?? currentPage;
     const nextMode = restoreState?.mode ?? mode;
     const nextDate = restoreState?.selectedDate ?? selectedDateRef.current;
     const nextTab = restoreState?.activeTab ?? activeTab;
-    setActiveTab(nextTab);
-    setCurrentPage(nextPage);
     const nextFeedKey = makeMonitorFeedKey(nextMode, nextDate, nextPage, nextTab);
-    if (eventsLengthRef.current && currentFeedKeyRef.current === nextFeedKey) return;
+    const shouldLoad = shouldLoadAiMonitorFeedOnActiveTransition({
+      currentFeedKey: currentFeedKeyRef.current,
+      didRestore,
+      hasEvents: eventsLengthRef.current > 0,
+      isActive,
+      nextFeedKey,
+      wasActive,
+    });
+    if (!didRestore) {
+      didRestoreRef.current = true;
+      setActiveTab(nextTab);
+      setCurrentPage(nextPage);
+    }
+    if (!shouldLoad) return;
     setLoading(true);
     void loadFeed(nextMode, nextDate, nextPage, nextTab);
   }, [activeTab, currentPage, isActive, loadFeed, mode]);

@@ -185,6 +185,66 @@ describe('数据状态', () => {
     expect(useAppUiStore.getState().mainView).toBe('chat');
   });
 
+  it('切换到已有消息的会话时应标记消息加载中', () => {
+    useAppDataStore.getState().setConversations([
+      { id: 'c-1', title: '空会话', preview: '', date: '2026-08-03', updatedAt: '2026-08-03', tab: 'stock', count: 0 },
+      { id: 'c-2', title: '已有会话', preview: '预览', date: '2026-08-04', updatedAt: '2026-08-04', tab: 'market', count: 2 },
+    ]);
+
+    useAppDataStore.getState().setActiveConversation('c-2');
+
+    expect(useAppDataStore.getState().messages).toEqual([]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(true);
+    expect(useAppDataStore.getState().messagesLoadingConversationId).toBe('c-2');
+
+    useAppDataStore.getState().setMessages([createAssistantMessage('assistant-1')]);
+
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(false);
+    expect(useAppDataStore.getState().messagesLoadingConversationId).toBeUndefined();
+  });
+
+  it('带消息切换会话时应原子写入消息并缓存会话内容', () => {
+    const message = createAssistantMessage('assistant-1', '已有本地消息');
+    useAppUiStore.getState().setMainView('discovery');
+
+    useAppDataStore.getState().setActiveConversationWithMessages('c-2', [message]);
+
+    expect(useAppDataStore.getState().activeConversationId).toBe('c-2');
+    expect(useAppDataStore.getState().messages).toEqual([message]);
+    expect(useAppDataStore.getState().conversationMessages['c-2']).toEqual([message]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(false);
+    expect(useAppUiStore.getState().mainView).toBe('chat');
+  });
+
+  it('切换到已有缓存的会话时应直接显示缓存内容', () => {
+    const firstMessage = createAssistantMessage('assistant-1', '第一个会话');
+    const secondMessage = createAssistantMessage('assistant-2', '第二个会话');
+    useAppDataStore.getState().setConversations([
+      { id: 'c-1', title: '会话 1', preview: '预览', date: '2026-08-03', updatedAt: '2026-08-03', tab: 'stock', count: 1 },
+      { id: 'c-2', title: '会话 2', preview: '预览', date: '2026-08-04', updatedAt: '2026-08-04', tab: 'market', count: 1 },
+    ]);
+    useAppDataStore.getState().setActiveConversationWithMessages('c-1', [firstMessage]);
+    useAppDataStore.getState().setActiveConversationWithMessages('c-2', [secondMessage]);
+
+    useAppDataStore.getState().setActiveConversation('c-1');
+
+    expect(useAppDataStore.getState().messages).toEqual([firstMessage]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(false);
+  });
+
+  it('切换到空白会话时不应标记消息加载中', () => {
+    useAppDataStore.getState().setConversations([
+      { id: 'c-1', title: '空会话', preview: '', date: '2026-08-03', updatedAt: '2026-08-03', tab: 'stock', count: 0 },
+    ]);
+
+    useAppDataStore.getState().setActiveConversation('c-1');
+    useAppDataStore.getState().setMessagesLoading('c-1', true);
+
+    expect(useAppDataStore.getState().messages).toEqual([]);
+    expect(useAppDataStore.getState().isMessagesLoading).toBe(false);
+    expect(useAppDataStore.getState().messagesLoadingConversationId).toBeUndefined();
+  });
+
   it('AI 回答中的流式消息应按会话隔离，不覆盖切换后的当前会话', () => {
     const thinkingMessage: ChatMessage = {
       ...createAssistantMessage('assistant-thinking', '初始回答'),

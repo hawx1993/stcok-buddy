@@ -71,6 +71,7 @@ function groupConversations(conversations: ConversationSummary[], now = new Date
 
 export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const searchRef = useRef<HTMLInputElement>(null);
+  const selectConversationRequestRef = useRef(0);
   const [conversationMenuId, setConversationMenuId] = useState<string>();
   const [editingConversationId, setEditingConversationId] = useState<string>();
   const [editingTitle, setEditingTitle] = useState('');
@@ -82,6 +83,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const isLeftSidebarCollapsed = useAppUiStore((state) => state.isLeftSidebarCollapsed);
   const setSearch = useAppUiStore((state) => state.setSearch);
   const setActiveConversation = useAppDataStore((state) => state.setActiveConversation);
+  const setActiveConversationWithMessages = useAppDataStore((state) => state.setActiveConversationWithMessages);
   const setConversations = useAppDataStore((state) => state.setConversations);
   const clearMessages = useAppDataStore((state) => state.clearMessages);
   const setSettingsOpen = useAppUiStore((state) => state.setSettingsOpen);
@@ -93,6 +95,28 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const createConversation = createChatConversation;
   const isMac = isMacPlatform();
   const settingsShortcut = isMac ? '⌘,' : 'Ctrl,';
+
+  const selectConversation = async (item: ConversationSummary) => {
+    trackButtonClick('select_conversation');
+    setConversationMenuId(undefined);
+    if (activeConversationId === item.id) return;
+    const dataState = useAppDataStore.getState();
+    const localMessages = dataState.messageDrafts[item.id] ?? dataState.conversationMessages[item.id];
+    if (item.count === 0 || localMessages?.length) {
+      setActiveConversation(item.id);
+      return;
+    }
+    const requestId = selectConversationRequestRef.current + 1;
+    selectConversationRequestRef.current = requestId;
+    try {
+      const messages = await getStocksenseApi().listMessages(item.id);
+      if (selectConversationRequestRef.current !== requestId) return;
+      setActiveConversationWithMessages(item.id, messages);
+    } catch (error) {
+      if (selectConversationRequestRef.current !== requestId) return;
+      antdMessage.error(error instanceof Error ? error.message : '加载会话失败');
+    }
+  };
 
   const deleteConversation = async (id: string) => {
     trackButtonClick('delete_conversation');
@@ -309,9 +333,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
                       <button
                         className={styles['source-item']}
                         onClick={() => {
-                          trackButtonClick('select_conversation');
-                          setConversationMenuId(undefined);
-                          setActiveConversation(item.id);
+                          void selectConversation(item);
                         }}
                         type='button'
                       >

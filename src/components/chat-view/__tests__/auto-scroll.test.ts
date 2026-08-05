@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isNearChatBottom, shouldAutoScrollChat } from '../auto-scroll';
+import { getChatAutoScrollBehavior, isNearChatBottom, shouldAutoScrollChat } from '../auto-scroll';
 
 describe('isNearChatBottom', () => {
   it('接近底部时返回 true', () => {
@@ -9,6 +9,28 @@ describe('isNearChatBottom', () => {
 
   it('明显离开底部时返回 false', () => {
     expect(isNearChatBottom({ scrollTop: 700, clientHeight: 500, scrollHeight: 1500 })).toBe(false);
+  });
+});
+
+describe('getChatAutoScrollBehavior', () => {
+  it('会话消息加载后直接定位到底部，不使用平滑滚动', () => {
+    expect(
+      getChatAutoScrollBehavior({
+        isResponding: false,
+        reason: 'conversation-loaded',
+        userScrolledAway: true,
+      }),
+    ).toBe('auto');
+  });
+
+  it('新增消息仍使用平滑滚动', () => {
+    expect(
+      getChatAutoScrollBehavior({
+        isResponding: false,
+        reason: 'message-added',
+        userScrolledAway: false,
+      }),
+    ).toBe('smooth');
   });
 });
 

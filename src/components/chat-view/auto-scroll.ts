@@ -4,7 +4,7 @@ export interface IScrollMetrics {
   scrollHeight: number;
 }
 
-export type TChatAutoScrollReason = 'message-added' | 'response-finished';
+export type TChatAutoScrollReason = 'conversation-loaded' | 'message-added' | 'response-finished';
 
 const DEFAULT_BOTTOM_THRESHOLD = 48;
 
@@ -21,7 +21,20 @@ export function shouldAutoScrollChat({
   reason: TChatAutoScrollReason;
   userScrolledAway: boolean;
 }): boolean {
-  if (reason === 'response-finished') return true;
+  if (reason === 'conversation-loaded' || reason === 'response-finished') return true;
   if (isResponding && userScrolledAway) return false;
   return true;
+}
+
+export function getChatAutoScrollBehavior({
+  isResponding,
+  reason,
+  userScrolledAway,
+}: {
+  isResponding: boolean;
+  reason: TChatAutoScrollReason;
+  userScrolledAway: boolean;
+}): ScrollBehavior | undefined {
+  if (!shouldAutoScrollChat({ isResponding, reason, userScrolledAway })) return undefined;
+  return reason === 'conversation-loaded' ? 'auto' : 'smooth';
 }

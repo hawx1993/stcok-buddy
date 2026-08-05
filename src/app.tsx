@@ -34,6 +34,7 @@ export function App() {
   const respondingConversationId = useAppDataStore((state) => state.respondingConversationId);
   const mainView = useAppUiStore((state) => state.mainView);
   const setMessages = useAppDataStore((state) => state.setMessages);
+  const setMessagesLoading = useAppDataStore((state) => state.setMessagesLoading);
   const isLeftSidebarCollapsed = useAppUiStore((state) => state.isLeftSidebarCollapsed);
   const isRightPanelCollapsed = useAppUiStore((state) => state.isRightPanelCollapsed);
   const toggleLeftSidebar = useAppUiStore((state) => state.toggleLeftSidebar);
@@ -55,6 +56,7 @@ export function App() {
 
   useEffect(() => {
     if (!activeConversationId) return;
+    setMessagesLoading(activeConversationId, true);
     getStocksenseApi()
       .listMessages(activeConversationId)
       .then((items) => {
@@ -63,12 +65,17 @@ export function App() {
         if (
           items.length < state.messages.length &&
           (state.respondingConversationId === activeConversationId || state.isSending || hasLocalAssistantDraft(state.messages))
-        )
+        ) {
+          setMessagesLoading(activeConversationId, false);
           return;
+        }
         setMessages(items);
       })
-      .catch(console.error);
-  }, [activeConversationId, respondingConversationId, setMessages]);
+      .catch((error) => {
+        console.error(error);
+        setMessagesLoading(activeConversationId, false);
+      });
+  }, [activeConversationId, respondingConversationId, setMessages, setMessagesLoading]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = config?.theme ?? 'dark';

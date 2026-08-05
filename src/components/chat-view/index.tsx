@@ -18,7 +18,7 @@ import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import { track, trackButtonClick } from '../../shared/analytics';
 import styles from './index.module.scss';
 import cx from '../../shared/cx';
-import { isNearChatBottom, shouldAutoScrollChat, type TChatAutoScrollReason } from './auto-scroll';
+import { getChatAutoScrollBehavior, isNearChatBottom, type TChatAutoScrollReason } from './auto-scroll';
 
 const builtInSlashItems = [
   {
@@ -130,10 +130,12 @@ export function ChatView() {
   const activeRequestRef = useRef<string>();
   const activeRequestConversationRef = useRef<string>();
   const userScrolledAwayRef = useRef(false);
+  const shouldJumpToConversationBottomRef = useRef(false);
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [installedStoreItems, setInstalledStoreItems] = useState<string[]>([]);
   const [appliedSearchHighlight, setAppliedSearchHighlight] = useState<TAppliedSearchHighlight>();
   const messages = useAppDataStore((state) => state.messages);
+  const isMessagesLoading = useAppDataStore((state) => state.isMessagesLoading);
   const [now, setNow] = useState(Date.now());
   const activeConversationId = useAppDataStore((state) => state.activeConversationId);
   const isSending = useAppDataStore((state) => state.isSending);
@@ -213,13 +215,29 @@ export function ChatView() {
   }, []);
 
   useLayoutEffect(() => {
+    shouldJumpToConversationBottomRef.current = true;
+    userScrolledAwayRef.current = false;
+  }, [activeConversationId]);
+
+  useLayoutEffect(() => {
     const responseFinished = previousIsSendingRef.current && !isSending;
     previousIsSendingRef.current = isSending;
-    const reason: TChatAutoScrollReason = responseFinished ? 'response-finished' : 'message-added';
-    if (!shouldAutoScrollChat({ isResponding: isSending, reason, userScrolledAway: userScrolledAwayRef.current })) return;
-    scrollToBottom();
+    const shouldJumpToConversationBottom = shouldJumpToConversationBottomRef.current;
+    const reason: TChatAutoScrollReason = shouldJumpToConversationBottom
+      ? 'conversation-loaded'
+      : responseFinished
+        ? 'response-finished'
+        : 'message-added';
+    const behavior = getChatAutoScrollBehavior({
+      isResponding: isSending,
+      reason,
+      userScrolledAway: userScrolledAwayRef.current,
+    });
+    if (!behavior) return;
+    scrollToBottom(behavior);
+    if (shouldJumpToConversationBottom && messages.length > 0) shouldJumpToConversationBottomRef.current = false;
     if (responseFinished) userScrolledAwayRef.current = false;
-  }, [isSending, messages.length, scrollToBottom]);
+  }, [activeConversationId, isSending, messages.length, scrollToBottom]);
 
   useLayoutEffect(() => {
     if (!chatSearchHighlight || chatSearchHighlight.conversationId !== activeConversationId) return;
@@ -455,7 +473,7 @@ export function ChatView() {
   return (
     <div className={styles['chat-wrap']} ref={rootRef}>
       <div className={styles['chat-messages']} ref={listRef} onScroll={handleMessagesScroll}>
-        {messages.length === 0 ? (
+        {messages.length === 0 && !isMessagesLoading ? (
           <QuickEntry conversationId={activeConversationId} onSubmit={send} slashItems={slashItems} />
         ) : (
           messages.map((message) => {

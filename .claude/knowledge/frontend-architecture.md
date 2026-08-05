@@ -54,6 +54,7 @@ preload + IPC + electron services
 - 切换会话时，如果当前会话仍在响应或含 thinking，会把消息草稿保存在 `messageDrafts`。
 - `finalizeLastAssistant()` 会合并 runEvents、清除 thinking 并计算处理耗时。
 - `applyRunEventToLastAssistant()` 会把 Agent runEvents、steps、toolCalls 合并到最后一条 assistant 消息。
+- Agent runEvents 可能包含计划、数据缺口、反思、工具事件和最终结论；UI 层应展示真实状态，不要把缺口补成假结果。
 - `setSelectedStock()` 会把缓存的 K 线补回 stock。
 
 ## Web Worker
@@ -73,13 +74,13 @@ preload + IPC + electron services
 
 | 目录 | 职责 | 数据来源 |
 | --- | --- | --- |
-| `src/components/chat-view/` | AI 对话、slash command、runEvents、结果卡片、市场复盘卡片。 | `getStocksenseApi().sendChat()`、store、push token。 |
+| `src/components/chat-view/` | AI 对话、slash command、runEvents、计划/反思/数据缺口、结果卡片、市场复盘卡片。 | `getStocksenseApi().sendChat()`、`onChatToken()`、store。 |
 | `src/components/market-view/` | 行情页：指数卡片、A 股 tab 表格、龙虎榜、指数 K 线弹层。 | `getMarketPageSnapshot()`、`onMarketPageSnapshotUpdated()`、`getKline()`。 |
 | `src/components/discovery-view/` | 探索页：市场摘要、情绪、机会雷达、龙虎榜、热点轮动、涨停复盘、明日关注、监控。 | `getDiscoverySnapshot()`、`getMonitorFeed()`、`getTradingAdvice()`。 |
 | `src/components/stock-detail-panel/` | 右侧栏：收藏、个股详情、板块详情、新闻、异动、AI 监控。 | selected stock/board + stocksense API。 |
 | `src/components/kline-chart/` | K 线、分时、筹码 overlay、加载更早数据。 | `getKline()`、worker、真实 K 线序列。 |
 | `src/components/global-stock-search/` | 全局股票搜索。 | `searchStocks()`。 |
-| `src/components/data-sync-modal/` | 数据同步任务启动与进度展示。 | `dataSync:*` IPC、`onDataSyncProgress()`。 |
+| `src/components/data-sync-modal/` | 数据同步任务启动与进度展示。 | `syncKlines()`、`syncSurgeHistory()`、`syncStockDetails()`、`syncMarketSnapshot()`、`onDataSyncProgress()`、`onMarketDataProgress()`。 |
 | `src/components/storage-manager-modal/` | 本地存储统计和清理。 | `storage:*` IPC。 |
 | `src/components/settings-modal/` | 设置、模型配置、更新状态。 | config/update IPC。 |
 | `src/components/news-reader/` | 新闻阅读覆盖视图。 | `news:getDetail` / store 中的 newsReader。 |
@@ -94,6 +95,12 @@ preload + IPC + electron services
 - `selectTradeDate()` 会切换代际、清空请求 id、重置 section，只加载 hero 和 trade-date-nav。
 - stale 请求通过 generation/requestId 丢弃，避免旧响应覆盖新状态。
 
+## 数据同步 UI
+
+- K 线同步入口是 `syncKlines()`，返回 `MarketDataSyncStatus`，进度主要来自 `onMarketDataProgress()` 的 `marketData:progress`。
+- 异动、个股详情、行情页快照等手动任务入口来自 `dataSync:*`，进度来自 `onDataSyncProgress()` 的 `dataSync:taskProgress`。
+- UI 应区分 market-data 同步状态和手动任务进度，不能把某个任务失败解释为所有数据不可用。
+
 ## 修改注意事项
 
 - React 组件文件原则上一个主组件；超 400 行应考虑拆分，超 500 行必须拆分。
@@ -101,3 +108,4 @@ preload + IPC + electron services
 - Hook 依赖要完整，不要为消除警告删除依赖。
 - 图表必须有真实序列才渲染；无数据展示“暂无图表数据”等空态。
 - 修改 store 类型时同步测试和调用方，尤其是 chat 响应中 runEvents / thinking / selectedStock。
+- 新增 renderer API 时先改 Electron service/IPC/preload/shared types，再在组件中通过 `getStocksenseApi()` 调用。

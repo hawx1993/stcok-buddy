@@ -61,6 +61,12 @@ electron/services/**
 6. React hook/component
 7. 相关测试或 selfcheck
 
+当前 IPC 需要特别区分：
+
+- `marketData:*`：DuckDB 市场数据运行时、状态、同步、取消、失败重试和统计。
+- `dataSync:*`：renderer 手动触发的数据任务，包括 K 线、异动历史、个股详情和行情页快照。
+- push listener 必须在 `preload.cjs` 返回取消订阅函数，并在 React effect 中清理。
+
 ### 新增或修改股票数据服务
 
 优先查：
@@ -78,4 +84,20 @@ electron/services/**
 - `.claude/knowledge/agent-services.md`
 - `.claude/knowledge/agent-tools.md`
 
-需要沿 `orchestrator → intent-routing → agent-workflows/DAG → tool-registry/service → evidence/compliance` 检查影响。
+需要沿以下链路检查影响：
+
+```text
+orchestrator
+  ↓ runStoreCommand / intent-routing / symbol resolving
+agent-planning
+  ↓ 初始计划、计划项和 fallbackStrategy
+agent-workflows + dag-executor
+  ↓ 数据节点、分析节点、报告节点
+runContextTool + tool-registry/service
+  ↓ ToolCallRecord、dataStatuses、evidence
+data gap / reflection
+  ↓ plan_updated、data_gap_detected、reflection_completed
+compliance + final answer
+```
+
+新增工具或数据节点时，工具输出应提供 `source`、`warnings`、`freshness`、`isComplete` 和证据字段，便于 Agent 正确识别 `available`、`empty`、`failed`、`partial`、`stale`、`skipped` 状态。
