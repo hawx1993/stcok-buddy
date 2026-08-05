@@ -194,7 +194,8 @@ describe('市场数据 DuckDB fatal invalidation recovery', () => {
 
     expect(duckDbMock.state.fromCacheCalls).toBe(1);
     expect(duckDbMock.state.createCalls).toBe(1);
-    expect(duckDbMock.state.instanceCloseCalls).toBe(0);
+    // ponytail: recovery now closes the old corrupted instance before recreating
+    expect(duckDbMock.state.instanceCloseCalls).toBe(1);
     expect(duckDbMock.state.statementRunCalls).toBe(1);
     expect(duckDbMock.state.runSql.filter((sql: string) => sql === 'BEGIN TRANSACTION')).toHaveLength(2);
     expect(duckDbMock.state.runSql).toContain('ROLLBACK');

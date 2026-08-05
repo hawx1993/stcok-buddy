@@ -1,6 +1,6 @@
 import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { isMainThread } from 'node:worker_threads';
 import { probeMarketDatabaseCorruption } from './market-data-integrity.js';
@@ -1241,17 +1241,38 @@ function isDuckDbFatalInvalidation(error: unknown) {
   return (
     message.includes('database has been invalidated') ||
     message.includes('The database must be restarted prior to being used again') ||
-    message.includes('Invalid bitpacking mode')
+    message.includes('Invalid bitpacking mode') ||
+    // ponytail: DuckDB INTERNAL errors during COMMIT/checkpoint (e.g.
+    // ART::TransformToDeprecated) mean the on-disk index structure is
+    // corrupted. Reopening the same file won't help — delete and recreate.
+    message.includes('INTERNAL Error')
   );
 }
 
 async function recoverMarketDataStoreAfterFatal(error: unknown) {
-  console.warn('[market-data] resetting DuckDB instance after fatal invalidation', error);
-  // DuckDB has already marked this native instance invalid. Closing an invalidated
-  // instance during active Electron runtime can crash the process, so reopen a
-  // fresh instance and let process teardown reclaim the poisoned one.
+  console.warn('[market-data] recovering DuckDB after fatal error, deleting corrupted database', error);
+  // Close the old instance. It may already be invalidated — swallow errors.
+  try {
+    const oldInstance = await getDbReady();
+    oldInstance.closeSync();
+  } catch (closeError) {
+    console.warn('[market-data] failed to close old DuckDB instance during recovery', closeError);
+  }
+  // Delete the corrupted database file and its WAL so DuckDB creates a
+  // fresh empty database. The sync scheduler will rebuild data from real
+  // sources on the next cycle.
+  try {
+    if (existsSync(dbPath)) unlinkSync(dbPath);
+    const walPath = dbPath + '.wal';
+    if (existsSync(walPath)) unlinkSync(walPath);
+    console.warn('[market-data] deleted corrupted database, recreating from scratch');
+  } catch (deleteError) {
+    console.warn('[market-data] failed to delete corrupted database file', deleteError);
+  }
+  // Create a fresh instance and reset module state
   dbReady = DuckDBInstance.create(dbPath);
   ready = undefined;
+  integrityReady = undefined;
 }
 
 async function withConnection<T>(work: (connection: DuckDBConnection) => Promise<T>) {

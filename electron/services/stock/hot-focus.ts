@@ -19,7 +19,7 @@ import { shouldKeepSurgeItem } from './surge-large-order.js';
 import type { DailyDragonTigerItem } from './dragon-tiger.js';
 import {
   isSurgeHistoryClearMarkerActive,
-  listStockSurgeEventsByTradeDates,
+  listRecentStockSurgeEvents,
   listSurgeHistory,
   enqueueSurgeSnapshot,
   saveIndividualSurgeHistory,
@@ -207,13 +207,12 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
   if (isSurgeHistoryClearMarkerActive()) return [];
 
   // Local-first: if we already have cached events, render them immediately and
-  // refresh from the network in the background. This avoids keeping the
-  // skeleton spinner for several seconds when offline or on a slow connection.
-  const tradeDate = formatIsoDate(new Date());
-  const tradeDates = await resolveLatestTradeDates(tradeDate, 6);
+  // refresh from the network in the background. listRecentStockSurgeEvents is a
+  // pure DuckDB read with no calendar network round-trips, so the skeleton is
+  // not blocked on sequential remote date resolution.
   let localEvents: StockSurgeEvent[] = [];
   try {
-    localEvents = await listStockSurgeEventsByTradeDates(symbol, tradeDates);
+    localEvents = await listRecentStockSurgeEvents(symbol, 7);
   } catch (error) {
     console.warn('[surge] local read failed', symbol, error);
   }
@@ -222,9 +221,11 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     return localEvents;
   }
 
+  // No local cache yet: resolve the trading dates, then fetch from remote.
+  const tradeDate = formatIsoDate(new Date());
+  const tradeDates = await resolveLatestTradeDates(tradeDate, 6);
   if (!tradeDates.includes(tradeDate)) return [];
 
-  // No local cache yet: fetch from remote, persist, and return.
   const [historyResult, currentResult] = await Promise.allSettled([
     withTimeoutReject(
       sdk.marketEvent.individualChangesHistory(symbol, { days: 6 }),
@@ -253,7 +254,17 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
   return mergedEvents.filter((item) => tradeDates.includes(item.tradeDate));
 }
 
+// ponytail: the trading calendar is stable within a day; cache the resolved
+// dates so the cold path (no cached events yet) pays the sequential calendar
+// network calls at most once per trade date instead of once per stock open.
+let resolvedTradeDatesCache: { key: string; dates: string[]; updatedAt: number } | undefined;
+const RESOLVED_TRADE_DATES_TTL_MS = 6 * 60 * 60 * 1000;
+
 async function resolveLatestTradeDates(tradeDate: string, count: number) {
+  const cached = resolvedTradeDatesCache;
+  if (cached?.key === tradeDate && Date.now() - cached.updatedAt < RESOLVED_TRADE_DATES_TTL_MS) {
+    return cached.dates;
+  }
   const dates: string[] = [];
   let cursor = tradeDate;
   while (dates.length < count) {
@@ -262,6 +273,7 @@ async function resolveLatestTradeDates(tradeDate: string, count: number) {
     if (dates.length >= count) break;
     cursor = await previousRemoteTradingDay(cursor).catch(() => previousWeekdayDate(cursor));
   }
+  resolvedTradeDatesCache = { key: tradeDate, dates, updatedAt: Date.now() };
   return dates;
 }
 
