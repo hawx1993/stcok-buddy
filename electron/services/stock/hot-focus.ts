@@ -8,7 +8,7 @@ import type {
   StockSurgeEvent,
 } from '../../../src/shared/types.js';
 import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/market-time.js';
-import { isRemoteTradingDay, previousRemoteTradingDay } from '../market-data/providers.js';
+import { isRemoteTradingDay } from '../market-data/providers.js';
 import { listBoardConstituents, listLatestMarketRows, listMarketBoards } from '../market-data/market-data-store.js';
 import type { MarketBoardRecord } from '../market-data/types.js';
 import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from './format.js';
@@ -221,60 +221,29 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     return localEvents;
   }
 
-  // No local cache yet: resolve the trading dates, then fetch from remote.
-  const tradeDate = formatIsoDate(new Date());
-  const tradeDates = await resolveLatestTradeDates(tradeDate, 6);
-  if (!tradeDates.includes(tradeDate)) return [];
-
-  const [historyResult, currentResult] = await Promise.allSettled([
-    withTimeoutReject(
-      sdk.marketEvent.individualChangesHistory(symbol, { days: 6 }),
-      6_000,
-      'individual changes timeout',
-    ),
-    withTimeoutReject(listSurgeHot(), 6_000, 'surge hot timeout'),
-  ]);
-  if (historyResult.status === 'rejected' && currentResult.status === 'rejected') {
-    return [];
-  }
-
-  const historyEvents =
-    historyResult.status === 'fulfilled' ? toIndividualHistoryEvents(historyResult.value, symbol) : [];
+  // No local cache yet: ask stock-sdk for the per-stock recent history directly.
+  // Do not block the detail panel on trading-calendar resolution or whole-market
+  // hot-list queries; those are only used as a final same-day supplement.
+  const historyResult = await withTimeoutReject(
+    sdk.marketEvent.individualChangesHistory(symbol, { days: 6 }),
+    6_000,
+    'individual changes timeout',
+  ).catch((error: unknown) => {
+    console.warn('[surge] individual history fetch failed', symbol, error);
+    return undefined;
+  });
+  const historyEvents = historyResult ? toIndividualHistoryEvents(historyResult, symbol) : [];
   if (historyEvents.length) {
     saveIndividualSurgeHistory(historyEvents).catch((err) =>
       console.warn('[hot-focus] save individual surge history failed', err),
     );
+    return historyEvents.sort(
+      (a, b) => b.tradeDate.localeCompare(a.tradeDate) || surgeTimeValue(b.time) - surgeTimeValue(a.time),
+    );
   }
 
-  const mergedEvents = mergeSurgeEvents(
-    symbol,
-    historyEvents,
-    currentResult.status === 'fulfilled' ? currentResult.value : [],
-  );
-  return mergedEvents.filter((item) => tradeDates.includes(item.tradeDate));
-}
-
-// ponytail: the trading calendar is stable within a day; cache the resolved
-// dates so the cold path (no cached events yet) pays the sequential calendar
-// network calls at most once per trade date instead of once per stock open.
-let resolvedTradeDatesCache: { key: string; dates: string[]; updatedAt: number } | undefined;
-const RESOLVED_TRADE_DATES_TTL_MS = 6 * 60 * 60 * 1000;
-
-async function resolveLatestTradeDates(tradeDate: string, count: number) {
-  const cached = resolvedTradeDatesCache;
-  if (cached?.key === tradeDate && Date.now() - cached.updatedAt < RESOLVED_TRADE_DATES_TTL_MS) {
-    return cached.dates;
-  }
-  const dates: string[] = [];
-  let cursor = tradeDate;
-  while (dates.length < count) {
-    const isTrading = await isRemoteTradingDay(cursor).catch(() => !isWeekendDate(cursor));
-    if (isTrading) dates.push(cursor);
-    if (dates.length >= count) break;
-    cursor = await previousRemoteTradingDay(cursor).catch(() => previousWeekdayDate(cursor));
-  }
-  resolvedTradeDatesCache = { key: tradeDate, dates, updatedAt: Date.now() };
-  return dates;
+  const currentItems = await withTimeoutReject(listSurgeHot(), 3_000, 'surge hot timeout').catch(() => []);
+  return mergeSurgeEvents(symbol, [], currentItems);
 }
 
 function refreshStockSurgeEventsFromRemote(symbol: string) {
@@ -297,20 +266,6 @@ function refreshStockSurgeEventsFromRemote(symbol: string) {
       // current events are already queued by listSurgeHot for batched persistence.
     })
     .catch(() => {});
-}
-
-function isWeekendDate(date: string) {
-  const parsed = new Date(`${date}T00:00:00+08:00`);
-  const day = parsed.getDay();
-  return day === 0 || day === 6;
-}
-
-function previousWeekdayDate(date: string) {
-  const parsed = new Date(`${date}T00:00:00+08:00`);
-  do {
-    parsed.setDate(parsed.getDate() - 1);
-  } while (parsed.getDay() === 0 || parsed.getDay() === 6);
-  return formatIsoDate(parsed);
 }
 
 function mergeSurgeEvents(
@@ -509,7 +464,7 @@ function toEastmoneyPoolItem(
   const industry = pickString(row, ['hybk']);
   const firstSeal = formatEastmoneyPoolTime(pickNumber(row, ['fbt', 'yfbt']));
   const lastSeal = formatEastmoneyPoolTime(pickNumber(row, ['lbt']));
-  const eventTime = kind === 'dt' ? '15:00' : firstSeal || lastSeal;
+  const eventTime = firstSeal || lastSeal;
   const details = [
     industry,
     limitDays ? `${limitDays}连板` : '',

@@ -58,6 +58,7 @@ const electronRuntime = vi.hoisted(() => {
 
   return {
     app: {
+      getPath: vi.fn((name: string) => `/tmp/stockbuddy-test-${name}`),
       getVersion: vi.fn(() => '0.0.0-test'),
       isPackaged: false,
       on: vi.fn(),

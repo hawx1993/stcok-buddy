@@ -113,6 +113,17 @@
 .msg-text p {
   margin: 0 0 6px;
 }
+.msg-text blockquote {
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 5px 5px 0;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card-bg));
+  color: var(--fg-secondary);
+}
+.msg-text blockquote p {
+  margin: 0;
+}
 .msg-text hr {
   border: 0;
   border-top: 0.5px solid var(--border);

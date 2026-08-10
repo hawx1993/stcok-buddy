@@ -169,210 +169,291 @@ const agents: StockAnalysisAgentDef[] = [
     dimension: 'chip',
     label: '🧩 筹码分析',
     prompt:
-      '你是一名拥有20年经验的A股主力行为分析师和筹码分析专家。只输出“🧩 筹码分析”，不要生成综合投研报告。请根据 chip 筹码数据、quote 行情和 kline 走势，分析个股当前的筹码结构、主力控盘情况以及未来走势。输出 Markdown，并固定使用这些小节标题：## 🎯 筹码集中度、## ⛰️ 筹码峰结构、## 📍 平均成本、## 💰 获利盘、## 🐳 主力控盘、## ⚠️ 套牢压力、## 🧭 走势推演、## 🚨 风险提示、## 🎯 综合结论。\n\n在“## 🎯 筹码集中度”下必须用 Markdown 表格输出，不要合并成一句话，不要用小数；并且必须分别分析70%和90%筹码集中度，不能只分析70%：\n# 筹码集中度变化\n\n| 周期 | 70%筹码集中度 | 90%筹码集中度 |\n|---|---:|---:|\n| 5日 | x.x% | x.x% |\n| 10日 | x.x% | x.x% |\n| 20日 | x.x% | x.x% |\n\n在“综合评分”处必须换行显示，每项独占一行：\n筹码集中度评分：xx\n主力控盘评分：xx\n上涨潜力评分：xx\n风险评分：xx\n\n分析要求：1）当前筹码结构特征：单峰密集、双峰密集、多峰发散、高位密集、低位密集；2）筹码集中度趋势：比较最近5日、10日、20日的70%/90%筹码集中度变化，判断筹码持续集中还是发散，主力是在吸筹、锁仓或派发；3）主力控盘：控盘等级弱/中/强、持仓稳定性、是否高度控盘；4）获利盘与套牢盘：获利盘健康度、上方套牢压力、下方支撑力度；5）未来5个交易日和20个交易日走势推演；6）风险提示：筹码松动、高位派发、套牢盘抛压；7）最后给出总体结论：【强烈看多】/【偏多】/【中性】/【偏空】/【强烈看空】并说明核心理由。缺失数据必须说明不可判断，不得编造。',
+      '你是一名A股筹码结构与主力行为分析师。只输出“🧩 筹码雷达”，不要生成综合投研报告。必须基于真实 chip 筹码分布、quote 行情和 kline 走势输出 Markdown；缺失数据必须明确写“不可判断”，不得编造筹码峰、成本区、获利盘、支撑压力或评分。\n\n固定使用“🧩 筹码雷达”及以下七个编号小节，并与本地 generateChipAnalysis 确定性输出保持一致：1. 筹码画像、2. 筹码结构、3. 多空博弈、4. 主力行为推测、5. 关键价位、6. 短线策略、7. AI评分。\n\n“1. 筹码画像”必须列出：标的、日期、平均成本、当前价格、90%/70%筹码集中度、获利比例、筹码状态、近期峰值筹码价位、套牢盘密集区、底部锁定筹码估算；如有 warnings/sourceTrace 必须输出数据源提示。\n\n“2. 筹码结构”必须说明筹码峰形态、低位核心成本和当前交易密集区。“3. 多空博弈”必须分别列出多方和空方信号。“4. 主力行为推测”必须明确无法从筹码数据直接确认主力身份，并给出当前阶段判断。“5. 关键价位”必须区分两类 Fibonacci：上涨过程中的回调支撑使用 23.6%、38.2%、50%、61.8% 回调位，公式为 H - (H-L) × 比例；上涨突破后的目标压力使用 1.0、1.272、1.414、1.618 扩展位，公式为 L + (H-L) × 比例，并输出近期最低价 L、近期最高价 H、当前价格 C、前高压力和扩展目标；若真实筹码密集区与扩展位重叠，才可输出多指标共振压力，否则必须写不可确认。缺少有效高低点时写“不可判断”。“6. 短线策略”必须列出突破和跌破条件。\n\n“7. AI评分”必须逐行输出筹码健康、短线机会和风险评分。所有数值必须来自输入数据或明确写“不可判断”，不得填充示例数值。',
     fallback: (input) => chipFallback(input),
   },
 ];
 
-function chipFallback(input: StockAnalysisInput) {
-  const chip = input.chip as
-    | {
-        latest?: {
-          profitRatio?: number;
-          avgCost?: number;
-          cost70?: string;
-          cost90?: string;
-          concentration70?: number;
-          concentration90?: number;
-        };
-        trend?: Array<{ days: number; concentration70?: number; concentration90?: number }>;
-      }
-    | undefined;
-  const latest = chip?.latest;
-  if (!latest) return `🧩 筹码分析：当前未检索到 ${input.stockLabel} 的筹码分布数据，无法判断筹码结构和主力控盘情况。`;
-  const trend =
-    chip?.trend
-      ?.map(
-        (item) =>
-          `${item.days}日70%集中度=${formatRatio(item.concentration70)}，90%集中度=${formatRatio(item.concentration90)}`,
-      )
-      .join('；') || '集中度趋势样本不足';
-  const trendText = chipTrendSummary(input.chip);
-  return `🧩 筹码分析\n\n## 🎯 筹码集中度\n${trend}\n${trendText ? `\n${trendText}` : ''}\n\n## ⛰️ 筹码峰结构\n70%成本区间 ${latest.cost70 ?? '--'}，90%成本区间 ${latest.cost90 ?? '--'}。\n\n## 📍 平均成本\n当前平均成本 ${formatMaybeNumber(latest.avgCost)}。\n\n## 💰 获利盘\n当前获利盘 ${formatRatio(latest.profitRatio)}。\n\n## 🐳 主力控盘\n需结合价格是否站稳平均成本、筹码集中度是否收敛判断控盘强弱。\n\n## ⚠️ 套牢压力\n重点观察上方90%成本区间高位附近抛压。`;
+export function createChipUnavailableReport(input: Pick<StockAnalysisInput, 'stockLabel' | 'symbol'>): string {
+  const date = new Date().toISOString().slice(0, 10);
+  return `🧩 筹码雷达
+
+## 1. 筹码画像
+-------------
+- 标的：${input.stockLabel}（${input.symbol}）
+- 日期：${date}
+- 平均成本：--
+- 当前价格：--
+- 筹码集中度(90%)：--
+- 筹码集中度(70%)：--
+- 获利比例：--
+- 筹码状态：不可判断
+- 近期峰值筹码价位：--
+- 套牢盘密集区：--
+- 底部锁定筹码估算：--
+
+## 2. 筹码结构
+-------------
+不可判断：真实筹码分布数据暂不可用。
+
+## 3. 多空博弈
+-------------
+> 多方：
+✓ 暂无可验证的成本集中或下方筹码锁定信号
+
+> 空方：
+× 暂无可验证的获利盘或上方压力数据
+
+## 4. 主力行为推测
+-------------
+无法确认主力行为
+
+当前更符合：
+数据不足，暂不判断
+
+## 5. 关键价位
+-------------
+> 强支撑：--
+
+> 生命线：--
+
+> 强压力：--
+
+> 📐 Fibonacci关键价位
+
+波段：
+-- → --
+
+当前价格：
+--
+
+🟢 回撤防守位
+
+- 斐波那契回调23.6%   --
+- 斐波那契回调38.2%   --
+- 斐波那契回调50%     --
+- 斐波那契回调61.8%   --
+
+🔴 上涨目标位
+
+- 前高突破   --
+- 1.272目标  --
+- 1.414目标  --
+- 1.618目标  --
+
+📊 压力共振
+
+不可确认
+
+突破条件：
+成交量放大确认
+
+## 6. 短线策略
+-------------
+> 突破：--
+
+无法判断看多增强条件
+
+> 跌破：--
+
+风险触发条件暂不可判断
+
+## 7. AI评分
+-------------
+> 筹码健康：--
+
+> 短线机会：--
+
+> 风险：--
+
+⚠️ 数据源暂不可用，以上内容不构成买卖推荐；待真实筹码数据恢复后再评估。`;
 }
 
-/** 基于本地筹码分布数据直接生成分析结论，绕过 LLM，5s 内完成 */
+function chipFallback(input: StockAnalysisInput): string {
+  return createChipUnavailableReport(input);
+}
+
+/** 基于本地或远程真实筹码分布直接生成结构化分析，绕过 LLM，避免编造量化字段。 */
 function generateChipAnalysis(input: StockAnalysisInput, evidence: EvidenceItem[]): StructuredAgentOutput | undefined {
-  const chip = input.chip as IChipDistributionResult | undefined;
+  const chip = input.chip as (IChipDistributionResult & { sourceTrace?: string[] }) | undefined;
   const latest = chip?.latest;
   if (!latest) return undefined;
 
-  const quote = input.quote;
-  const close = Number(quote?.price) ?? (input.kline?.length ? input.kline[input.kline.length - 1].close : undefined);
-  const avgCost = Number(latest.avgCost);
-  const profitRatio = Number(latest.profitRatio);
-  const cost70 = parseCostRange(latest.cost70);
-  const cost90 = parseCostRange(latest.cost90);
-  const trend = chip?.trend ?? [];
+  const points = latest.points.filter(
+    (point) => Number.isFinite(point.price) && Number.isFinite(point.weight) && point.weight > 0,
+  );
+  const totalWeight = points.reduce((sum, point) => sum + point.weight, 0);
+  if (!points.length || totalWeight <= 0) return undefined;
+
+  const currentPrice = finiteNumber(input.quote?.price) ?? input.kline?.at(-1)?.close;
+  const avgCost = finiteNumber(latest.avgCost);
+  const profitRatio = finiteNumber(latest.profitRatio);
+  const trend = chip.trend ?? [];
   const byDays = new Map(trend.map((item) => [Number(item.days), item]));
-  const c5 = byDays.get(5);
-  const c20 = byDays.get(20);
-  const conc70_5 = Number(c5?.concentration70);
-  const conc70_20 = Number(c20?.concentration70);
-  const conc90_5 = Number(c5?.concentration90);
-  const conc90_20 = Number(c20?.concentration90);
-
-  // 集中度趋势：数值越小代表筹码越集中
-  const conc70Delta = Number.isFinite(conc70_5) && Number.isFinite(conc70_20) ? conc70_20 - conc70_5 : undefined;
-  const conc90Delta = Number.isFinite(conc90_5) && Number.isFinite(conc90_20) ? conc90_20 - conc90_5 : undefined;
+  const trend5 = byDays.get(5);
+  const trend20 = byDays.get(20);
+  const concentration70Delta = ratioDelta(trend5?.concentration70, trend20?.concentration70);
+  const concentration90Delta = ratioDelta(trend5?.concentration90, trend20?.concentration90);
   const isConcentrating =
-    conc70Delta !== undefined && conc90Delta !== undefined ? conc70Delta < -0.01 && conc90Delta < -0.02 : undefined;
+    concentration70Delta !== undefined &&
+    concentration90Delta !== undefined &&
+    concentration70Delta < -0.005 &&
+    concentration90Delta < -0.005;
   const isDispersing =
-    conc70Delta !== undefined && conc90Delta !== undefined ? conc70Delta > 0.01 && conc90Delta > 0.02 : undefined;
-
-  // 价格相对平均成本
+    concentration70Delta !== undefined &&
+    concentration90Delta !== undefined &&
+    concentration70Delta > 0.005 &&
+    concentration90Delta > 0.005;
   const priceVsAvg =
-    Number.isFinite(close) && Number.isFinite(avgCost) ? ((close - avgCost) / avgCost) * 100 : undefined;
-  const aboveAvg = priceVsAvg !== undefined ? priceVsAvg > 1 : undefined;
-  const belowAvg = priceVsAvg !== undefined ? priceVsAvg < -1 : undefined;
+    currentPrice !== undefined && avgCost !== undefined && avgCost > 0
+      ? ((currentPrice - avgCost) / avgCost) * 100
+      : undefined;
+  const aboveAvg = priceVsAvg !== undefined && priceVsAvg > 1;
+  const belowAvg = priceVsAvg !== undefined && priceVsAvg < -1;
+  const healthyProfit = profitRatio !== undefined && profitRatio > 0.3 && profitRatio < 0.85;
+  const highProfit = profitRatio !== undefined && profitRatio >= 0.85;
+  const peak = points.reduce((best, point) => (point.weight > best.weight ? point : best));
+  const shape = classifyChipShape(points, totalWeight, currentPrice);
+  const supports =
+    currentPrice === undefined
+      ? []
+      : points.filter((point) => point.price < currentPrice).sort((a, b) => b.price - a.price);
+  const pressures =
+    currentPrice === undefined
+      ? []
+      : points.filter((point) => point.price > currentPrice).sort((a, b) => a.price - b.price);
+  const firstSupport = supports[0];
+  const strongSupport = maxWeightedPoint(supports);
+  const firstPressure = pressures[0];
+  const strongPressure = maxWeightedPoint(pressures);
+  const trappedRange = currentPrice === undefined ? undefined : denseRange(pressures, totalWeight);
+  const bottomLocked =
+    avgCost === undefined
+      ? undefined
+      : weightedShare(
+          points.filter((point) => point.price < avgCost),
+          totalWeight,
+        );
+  const stage = inferChipStage({ isConcentrating, isDispersing, aboveAvg, belowAvg, healthyProfit, highProfit });
+  const controlLevel = isConcentrating && aboveAvg ? '强' : isDispersing || belowAvg ? '弱' : '中';
+  const chipGap =
+    input.dataGaps?.some((gap) => gap.dataName.includes('筹码') || gap.userMessage.includes('筹码')) ?? false;
+  const stance: StructuredAgentFinding['stance'] = chipGap
+    ? 'unknown'
+    : isConcentrating && aboveAvg && healthyProfit
+      ? 'bullish'
+      : isDispersing && (belowAvg || highProfit)
+        ? 'bearish'
+        : 'neutral';
+  const score = stance === 'bullish' ? 72 : stance === 'bearish' ? 35 : 50;
+  const warnings = [...(chip.warnings ?? []), ...(chip.sourceTrace ?? [])];
+  const analysisDate = new Date().toISOString().slice(0, 10);
+  const risks = buildChipRisks({ isDispersing, highProfit, belowAvg, trappedRange, warnings, chipGap });
+  const fibonacci = buildFibonacciLevels(input.kline, points, currentPrice);
 
-  // 获利盘健康度
-  const profitHealthy = Number.isFinite(profitRatio) ? profitRatio > 0.3 && profitRatio < 0.85 : undefined;
-  const highProfit = Number.isFinite(profitRatio) ? profitRatio >= 0.85 : undefined;
-  const lowProfit = Number.isFinite(profitRatio) ? profitRatio <= 0.2 : undefined;
+  const markdown = `🧩 筹码雷达
 
-  // 峰型与控盘
-  const peakType = inferChipPeakType(cost70, cost90, isConcentrating);
-  const controlLevel = inferControlLevel(isConcentrating, isDispersing, profitRatio, aboveAvg, belowAvg);
+## 1. 筹码画像
+-------------
+- 标的：${input.stockLabel}（${input.symbol}）
+- 日期：${analysisDate}
+- 平均成本：${formatPrice(avgCost)}
+- 当前价格：${formatPrice(currentPrice)}
+- 筹码集中度(90%)：${formatRatio(latest.concentration90)}
+- 筹码集中度(70%)：${formatRatio(latest.concentration70)}
+- 获利比例：${formatRatio(profitRatio)}
+- 筹码状态：${shape.label}
+- 近期峰值筹码价位：${formatPrice(peak.price)}（占比 ${formatRatio(weightedShare([peak], totalWeight))}）
+- 套牢盘密集区：${formatDenseRange(trappedRange)}
+- 底部锁定筹码估算：${bottomLocked === undefined ? '--（直方图数据不足）' : `约 ${formatRatio(bottomLocked)} 位于平均成本下方`}
+${warnings.length ? `- 数据源提示：${warnings.join('；')}` : ''}
 
-  // 综合立场
-  let stance: StructuredAgentFinding['stance'] = 'neutral';
-  let score = 50;
-  if (isConcentrating && aboveAvg && profitHealthy) {
-    stance = 'bullish';
-    score = 72;
-  } else if (isConcentrating && aboveAvg && lowProfit) {
-    stance = 'bullish';
-    score = 65;
-  } else if (isDispersing && belowAvg) {
-    stance = 'bearish';
-    score = 32;
-  } else if (isDispersing && highProfit) {
-    stance = 'bearish';
-    score = 38;
-  } else if (isConcentrating) {
-    stance = 'bullish';
-    score = 58;
-  } else if (isDispersing) {
-    stance = 'bearish';
-    score = 42;
-  }
+## 2. 筹码结构
+-------------
+${shape.label}
 
-  const latestDate = latest.date ? `（${latest.date}）` : '';
-  const trendRows = [5, 10, 20]
-    .map((days) => {
-      const item = byDays.get(days);
-      return `| ${days}日 | ${formatRatio(item?.concentration70)} | ${formatRatio(item?.concentration90)} |`;
-    })
-    .join('\n');
+> 低位核心成本：
 
-  const trendText =
-    conc70Delta !== undefined
-      ? `70%筹码集中度变化：5日 ${formatRatio(c5?.concentration70)} → 20日 ${formatRatio(c20?.concentration70)}。\n90%筹码集中度变化：5日 ${formatRatio(c5?.concentration90)} → 20日 ${formatRatio(c20?.concentration90)}。`
-      : '集中度趋势样本不足，仅展示最新筹码结构。';
+${strongSupport ? formatPrice(strongSupport.price) : '--（数据不足）'}
 
-  const supportText =
-    cost70?.low !== undefined
-      ? `70%成本区间下沿 ${cost70.low.toFixed(2)} 元附近构成短期支撑，90%成本区间下沿 ${cost90?.low?.toFixed(2) ?? '--'} 元附近构成中期支撑。`
-      : '成本区间数据不足，支撑判断受限。';
+> 当前交易密集区：
 
-  const pressureText =
-    cost90?.high !== undefined && Number.isFinite(close)
-      ? `上方 ${cost90.high.toFixed(2)} 元附近为 90% 筹码套牢压力区，当前收盘价 ${close.toFixed(2)} 元 ${close > cost90.high * 0.98 ? '已接近或突破该压力区，需关注解套抛压' : '距离该压力区仍有空间'}。`
-      : '套牢压力数据不足。';
+${latest.cost70 ?? formatDenseRange(trappedRange)}
 
-  const outlook5 =
-    stance === 'bullish'
-      ? '筹码趋于集中且价格站稳平均成本，短期若量能配合有望延续反弹，上方关注 90% 成本区间上沿压力。'
-      : stance === 'bearish'
-        ? '筹码趋于发散或价格低于平均成本，短期套牢盘与获利兑现压力并存，易冲高回落或维持震荡偏弱。'
-        : '筹码结构变化不显著，短期大概率围绕平均成本震荡，等待方向选择。';
+## 3. 多空博弈
+-------------
+> 多方：
 
-  const outlook20 =
-    stance === 'bullish'
-      ? '中期筹码若持续集中且获利盘保持合理水平，主力锁仓意愿较强，股价有望沿成本中枢上行。'
-      : stance === 'bearish'
-        ? '中期若集中度持续发散且高位套牢盘未能消化，股价可能重回成本区间下沿甚至继续探底。'
-        : '中期维持区间震荡概率较大，需结合基本面与资金面确认突破方向。';
+${isConcentrating ? '✓ 成本集中提升' : '× 成本集中提升未确认'}
+${bottomLocked !== undefined && bottomLocked > 0 ? '✓ 下方筹码锁定' : '× 下方筹码锁定不可判断'}
 
-  const risks: string[] = [];
-  if (isDispersing) risks.push('筹码趋于发散，可能存在派发迹象。');
-  if (highProfit) risks.push('获利盘比例过高，存在获利回吐抛压。');
-  if (belowAvg) risks.push('价格低于平均成本，套牢盘解套前上行阻力较大。');
-  if (controlLevel === '弱') risks.push('主力控盘度低，股价易受大盘情绪影响。');
-  if (risks.length === 0) risks.push('筹码结构总体平稳，但仍需关注突发消息与大盘波动。');
+> 空方：
 
-  const conclusionText =
-    stance === 'bullish'
-      ? '【偏多】筹码集中度向好，主力控盘迹象明显，价格站稳平均成本，短期具备上攻基础。'
-      : stance === 'bearish'
-        ? '【偏空】筹码趋于发散或价格低于平均成本，套牢压力与派发风险并存。'
-        : '【中性】筹码结构尚未出现明确方向信号，建议继续观察量能与集中度变化。';
+${highProfit ? '× 获利盘过高' : profitRatio === undefined ? '× 获利盘数据不足' : '✓ 获利盘未见高位信号'}
+${trappedRange ? '× 上方压力存在' : strongPressure ? '× 上方存在可识别压力' : '× 上方压力不可判断'}
 
-  const markdown = `## 🎯 筹码集中度
-# 筹码集中度变化
+## 4. 主力行为推测
+-------------
+当前更符合：
+${stage}阶段
 
-| 周期 | 70%筹码集中度 | 90%筹码集中度 |
-|---|---:|---:|
-${trendRows}
+## 5. 关键价位
+-------------
+> 强支撑：
 
-${trendText}
+${strongSupport ? formatPrice(strongSupport.price) : '--'}
 
-## ⛰️ 筹码峰结构
-${peakType}。70%成本区间 ${latest.cost70 ?? '--'}，90%成本区间 ${latest.cost90 ?? '--'}。
+> 生命线：
 
-## 📍 平均成本
-最新平均成本 ${formatMaybeNumber(latest.avgCost)} 元${latestDate}。当前收盘价 ${close !== undefined ? close.toFixed(2) : '--'} 元，${priceVsAvg !== undefined ? `较平均成本 ${priceVsAvg >= 0 ? '+' : ''}${priceVsAvg.toFixed(2)}%` : '相对位置待确认'}。
+${avgCost !== undefined ? formatPrice(avgCost) : '--'}
 
-## 💰 获利盘
-当前获利盘 ${formatRatio(latest.profitRatio)}。${profitHealthy ? '获利盘处于相对健康区间，抛压可控。' : highProfit ? '获利盘比例偏高，需警惕短线兑现。' : lowProfit ? '获利盘比例偏低，套牢盘占主导。' : '获利盘状态需结合价格位置综合判断。'}
+> 强压力：
 
-## 🐳 主力控盘
-控盘等级：${controlLevel}。${isConcentrating ? '近 20 日筹码持续集中，显示主力锁仓或吸筹迹象。' : isDispersing ? '近 20 日筹码趋于发散，需警惕派发。' : '近期筹码集中度变化不显著，控盘状态中性。'}
+${strongPressure ? formatPrice(strongPressure.price) : '--'}
 
-## ⚠️ 套牢压力
-${pressureText} ${supportText}
+${formatFibonacciLevels(fibonacci, trappedRange)}
 
-## 🧭 走势推演
-**未来 5 个交易日**：${outlook5}
+## 6. 短线策略
+-------------
+> 突破：
 
-**未来 20 个交易日**：${outlook20}
+${strongPressure ? `${formatPrice(strongPressure.price)} + 放量` : '--'}
 
-## 🚨 风险提示
-${risks.map((r) => `- ${r}`).join('\n')}
+看多增强
 
-## 🎯 综合结论
-${conclusionText}
+> 跌破：
 
-筹码集中度评分：${score.toFixed(0)}
-主力控盘评分：${controlLevel === '强' ? 75 : controlLevel === '中' ? 55 : 35}
-上涨潜力评分：${stance === 'bullish' ? 70 : stance === 'bearish' ? 30 : 50}
-风险评分：${risks.length > 2 ? 65 : risks.length > 0 ? 45 : 30}`;
+${strongSupport ? formatPrice(strongSupport.price) : '--'}
+
+风险增加
+
+## 7. AI评分
+-------------
+> 筹码健康：
+
+${score}
+
+> 短线机会：
+
+${stance === 'bullish' ? 70 : stance === 'bearish' ? 30 : 50}
+
+> 风险：
+
+${Math.min(90, 30 + risks.length * 15)}
+
+风险提示：${risks.join('；')}`;
 
   const fallbackId = evidence[0]?.id ?? fallbackEvidence(`chip:${input.symbol}`, '筹码分布数据不足').id;
   const finding: StructuredAgentFinding = {
     id: 'chip-1',
     dimension: 'chip',
     stance,
-    score,
-    confidence: 0.72,
-    summary:
-      oneLineSummary(markdown) ??
-      `${input.stockLabel} 筹码${isConcentrating ? '趋于集中' : isDispersing ? '趋于发散' : '结构平稳'}，平均成本 ${formatMaybeNumber(latest.avgCost)}，获利盘 ${formatRatio(latest.profitRatio)}。`,
+    score: chipGap ? undefined : score,
+    confidence: chipGap ? 0.3 : warnings.length ? 0.55 : 0.75,
+    summary: oneLineSummary(markdown) ?? `${input.stockLabel} 筹码${shape.label}，平均成本 ${formatPrice(avgCost)}。`,
     evidenceIds: [fallbackId],
     risks,
   };
-
   return {
     agentName: 'chip',
     label: '🧩 筹码分析',
@@ -382,59 +463,260 @@ ${conclusionText}
   };
 }
 
-function parseCostRange(range?: string) {
-  if (!range) return undefined;
-  const match = range.match(/([\d.]+)\s*[-~～]\s*([\d.]+)/);
-  if (!match) return undefined;
-  const low = Number(match[1]);
-  const high = Number(match[2]);
-  if (!Number.isFinite(low) || !Number.isFinite(high)) return undefined;
-  return { low, high, width: high - low };
+function finiteNumber(value: unknown): number | undefined {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }
 
-function inferChipPeakType(
-  cost70: ReturnType<typeof parseCostRange>,
-  cost90: ReturnType<typeof parseCostRange>,
-  isConcentrating: boolean | undefined,
-) {
-  if (!cost70 || !cost90) return '成本区间数据不足，无法精确判断筹码峰型';
-  const ratio = cost90.width / Math.max(cost70.width, 0.001);
-  if (ratio < 1.6) {
-    return `筹码呈单峰密集形态，${isConcentrating === true ? '且集中度持续收敛，主力吸筹或锁仓概率较高' : isConcentrating === false ? '但集中度在发散，需警惕派发' : '峰型集中但趋势尚不明确'}`;
-  }
-  if (ratio < 2.4) {
-    return '筹码呈双峰形态，可能存在套牢峰与获利峰对峙，方向选择取决于量能突破';
-  }
-  return '筹码呈多峰发散形态，持仓成本分散，短期难以形成统一方向';
+function ratioDelta(current: unknown, older: unknown): number | undefined {
+  const currentNumber = finiteNumber(current);
+  const olderNumber = finiteNumber(older);
+  return currentNumber === undefined || olderNumber === undefined ? undefined : currentNumber - olderNumber;
 }
 
-function inferControlLevel(
-  isConcentrating: boolean | undefined,
-  isDispersing: boolean | undefined,
-  profitRatio: number,
-  aboveAvg: boolean | undefined,
-  belowAvg: boolean | undefined,
-) {
-  if (isConcentrating === true && aboveAvg && profitRatio > 0.3 && profitRatio < 0.85) return '强';
-  if (isConcentrating === true && (aboveAvg || belowAvg) && profitRatio <= 0.85) return '中';
-  if (isDispersing === true || profitRatio >= 0.9 || belowAvg) return '弱';
-  return '中';
+type TChipShape = { label: '单峰密集' | '双峰填谷' | '多峰发散' | '筹码真空'; reason: string };
+
+function classifyChipShape(points: ChipDistribution['points'], totalWeight: number, currentPrice?: number): TChipShape {
+  const peak = points.reduce((best, point) => (point.weight > best.weight ? point : best));
+  if (currentPrice !== undefined) {
+    const nearby = weightedShare(
+      points.filter((point) => Math.abs(point.price - currentPrice) / Math.max(currentPrice, 0.01) <= 0.05),
+      totalWeight,
+    );
+    if (nearby < 0.05)
+      return {
+        label: '筹码真空',
+        reason: `当前价±5%范围内筹码权重仅 ${formatRatio(nearby)}，价格附近缺少有效换手承接。`,
+      };
+  }
+  const localPeaks = points.filter((point, index) => {
+    const previous = points[index - 1]?.weight ?? 0;
+    const next = points[index + 1]?.weight ?? 0;
+    return point.weight >= previous && point.weight >= next && point.weight >= peak.weight * 0.35;
+  });
+  if (localPeaks.length >= 3)
+    return { label: '多峰发散', reason: `识别到 ${localPeaks.length} 个相对高权重点，成本分布在多个价格带。` };
+  if (localPeaks.length === 2)
+    return { label: '双峰填谷', reason: '存在两个相对高权重筹码峰，中间价格带权重低于两侧，形成填谷结构。' };
+  return {
+    label: '单峰密集',
+    reason: `最大筹码峰位于 ${formatPrice(peak.price)}，占比 ${formatRatio(weightedShare([peak], totalWeight))}，主要成本集中在单一价格带。`,
+  };
+}
+
+function weightedShare(points: ChipDistribution['points'], totalWeight: number): number {
+  return points.reduce((sum, point) => sum + point.weight, 0) / totalWeight;
+}
+
+function maxWeightedPoint(points: ChipDistribution['points']): ChipDistribution['points'][number] | undefined {
+  return points.length ? points.reduce((best, point) => (point.weight > best.weight ? point : best)) : undefined;
+}
+
+function denseRange(
+  points: ChipDistribution['points'],
+  totalWeight: number,
+): { low: number; high: number; share: number } | undefined {
+  if (!points.length) return undefined;
+  const weights = points.map((point) => point.weight).sort((a, b) => a - b);
+  const threshold = weights[Math.max(0, Math.floor(weights.length * 0.75) - 1)] ?? 0;
+  const dense = points.filter((point) => point.weight >= threshold && point.weight > 0);
+  if (!dense.length) return undefined;
+  return {
+    low: Math.min(...dense.map((point) => point.price)),
+    high: Math.max(...dense.map((point) => point.price)),
+    share: weightedShare(dense, totalWeight),
+  };
+}
+
+const FIBONACCI_RETRACEMENT_RATIOS = [0.236, 0.382, 0.5, 0.618];
+const FIBONACCI_EXTENSION_RATIOS = [1, 1.272, 1.414, 1.618];
+
+type TFibonacciLevels = {
+  low: number;
+  high: number;
+  current?: number;
+  retracement: number[];
+  extension: number[];
+};
+
+function buildFibonacciLevels(
+  kline: KlinePoint[] | undefined,
+  points: ChipDistribution['points'],
+  current?: number,
+): TFibonacciLevels | undefined {
+  const klineHighs = (kline ?? []).map((point) => point.high).filter(Number.isFinite);
+  const klineLows = (kline ?? []).map((point) => point.low).filter(Number.isFinite);
+  const pointPrices = points.map((point) => point.price).filter(Number.isFinite);
+  const high = klineHighs.length ? Math.max(...klineHighs) : pointPrices.length ? Math.max(...pointPrices) : undefined;
+  const low = klineLows.length ? Math.min(...klineLows) : pointPrices.length ? Math.min(...pointPrices) : undefined;
+  if (high === undefined || low === undefined || high <= low) return undefined;
+
+  const range = high - low;
+  return {
+    low,
+    high,
+    current,
+    retracement: FIBONACCI_RETRACEMENT_RATIOS.map((ratio) => high - range * ratio),
+    extension: FIBONACCI_EXTENSION_RATIOS.map((ratio) => low + range * ratio),
+  };
+}
+
+function formatFibonacciLevels(levels?: TFibonacciLevels, trappedRange?: { low: number; high: number }): string {
+  if (!levels)
+    return [
+      '> 📐 Fibonacci关键价位',
+      '',
+      '波段：',
+      '-- → --',
+      '',
+      '当前价格：',
+      '--',
+      '',
+      '🟢 回撤防守位',
+      '',
+      '- 斐波那契回调23.6%   --',
+      '- 斐波那契回调38.2%   --',
+      '- 斐波那契回调50%     --',
+      '- 斐波那契回调61.8%   --',
+      '',
+      '🔴 上涨目标位',
+      '',
+      '- 前高突破   --',
+      '- 1.272目标  --',
+      '- 1.414目标  --',
+      '- 1.618目标  --',
+      '',
+      '📊 压力共振',
+      '',
+      '不可确认',
+      '',
+      '突破条件：',
+      '成交量放大确认',
+    ].join('\n');
+
+  const retracement = FIBONACCI_RETRACEMENT_RATIOS.map((ratio, index) => {
+    const label = formatFibonacciRetracementRatio(ratio).padEnd(8, ' ');
+    return `- 斐波那契回调${label}${formatFibonacciValue(levels.retracement[index])}`;
+  });
+  const extensionLabels = ['前高突破   ', '1.272目标  ', '1.414目标  ', '1.618目标  '];
+  const extension = FIBONACCI_EXTENSION_RATIOS.map(
+    (_, index) => `- ${extensionLabels[index]}${formatFibonacciValue(levels.extension[index])}`,
+  );
+  const pressureRadar = formatFibonacciPressureRadar(levels, trappedRange);
+
+  return [
+    '> 📐 Fibonacci关键价位',
+    '',
+    '波段：',
+    `${formatFibonacciValue(levels.low)} → ${formatFibonacciValue(levels.high)}`,
+    '',
+    '当前价格：',
+    formatFibonacciValue(levels.current),
+    '',
+    '🟢 回撤防守位',
+    '',
+    ...retracement,
+    '',
+    '🔴 上涨目标位',
+    '',
+    ...extension,
+    '',
+    pressureRadar,
+  ].join('\n');
+}
+
+function formatFibonacciPressureRadar(levels: TFibonacciLevels, trappedRange?: { low: number; high: number }): string {
+  const resonance = trappedRange
+    ? levels.extension.find((price) => price >= trappedRange.low && price <= trappedRange.high)
+    : undefined;
+  if (!resonance || !trappedRange)
+    return [
+      '📊 压力共振',
+      '',
+      '不可确认',
+      '',
+      '突破条件：',
+      '成交量放大确认',
+    ].join('\n');
+  return [
+    '📊 压力共振',
+    '',
+    `${trappedRange.low.toFixed(2)}-${trappedRange.high.toFixed(2)}`,
+    '',
+    '来源：',
+    '✓ 前高压力',
+    '✓ 筹码密集区',
+    '',
+    '突破条件：',
+    '成交量放大确认',
+  ].join('\n');
+}
+
+function formatFibonacciRetracementRatio(ratio: number): string {
+  return `${(ratio * 100).toFixed(ratio === 0.5 ? 0 : 1)}%`;
+}
+
+function formatFibonacciValue(value?: number): string {
+  return value === undefined ? '--' : value.toFixed(2);
+}
+
+function formatPrice(value?: number): string {
+  return value === undefined ? '--' : `${value.toFixed(2)}元`;
+}
+
+function formatSignedRatio(value?: number): string {
+  return value === undefined ? '--' : `${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}%`;
+}
+
+function formatLevel(point: ChipDistribution['points'][number] | undefined, totalWeight: number): string {
+  return point
+    ? `${formatPrice(point.price)}附近（筹码占比 ${formatRatio(weightedShare([point], totalWeight))}）`
+    : '--（数据不足）';
+}
+
+function formatDenseRange(range?: { low: number; high: number; share: number }): string {
+  return range
+    ? `${range.low.toFixed(2)}-${range.high.toFixed(2)}元（密集点权重 ${formatRatio(range.share)}）`
+    : '--（当前价格上方无可识别密集筹码）';
+}
+
+function inferChipStage(input: {
+  isConcentrating: boolean;
+  isDispersing: boolean;
+  aboveAvg: boolean;
+  belowAvg: boolean;
+  healthyProfit: boolean;
+  highProfit: boolean;
+}): string {
+  if (input.isDispersing && (input.aboveAvg || input.highProfit)) return '出货';
+  if (input.isConcentrating && input.aboveAvg && input.healthyProfit) return '拉升';
+  if (input.isConcentrating && input.belowAvg) return '吸筹';
+  return '洗盘';
+}
+
+function buildChipRisks(input: {
+  isDispersing: boolean;
+  highProfit: boolean;
+  belowAvg: boolean;
+  trappedRange?: { low: number; high: number; share: number };
+  warnings: string[];
+  chipGap: boolean;
+}): string[] {
+  const risks: string[] = [];
+  if (input.isDispersing) risks.push('90%与70%集中度同步上升，存在筹码发散或高位派发信号。');
+  if (input.highProfit) risks.push('获利比例达到高位，若价格跌破第一支撑，兑现压力可能增加。');
+  if (input.belowAvg) risks.push('当前价格低于平均成本，反弹可能受到套牢盘解套压力。');
+  if (input.trappedRange && input.trappedRange.share >= 0.2)
+    risks.push(`当前价格上方密集筹码权重约 ${formatRatio(input.trappedRange.share)}，存在明显套牢压力。`);
+  if (input.warnings.length) risks.push(`数据源存在提示：${input.warnings.join('；')}`);
+  if (input.chipGap) risks.push('筹码数据状态为不完整或过期降级，结论置信度已降低。');
+  return risks.length ? risks : ['未发现上述筹码异常信号，但筹码分布不能替代公告、资金和风险承受能力评估。'];
 }
 
 function formatRatio(value: unknown) {
   const num = Number(value);
   if (!Number.isFinite(num)) return '--';
   return `${(num * 100).toFixed(1)}%`;
-}
-
-function formatPercentNumber(value: unknown) {
-  const num = Number(value);
-  return Number.isFinite(num) ? (num * 100).toFixed(1) : '--';
-}
-
-function formatMaybeNumber(value: unknown) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num.toFixed(2) : '--';
 }
 
 function capitalFallback(input: StockAnalysisInput) {
@@ -656,8 +938,12 @@ function sanitizeFinding(
     dimension: sanitizeDimension(record.dimension, agent.dimension),
     stance: hasGap ? 'unknown' : sanitizeStance(record.stance),
     score: hasGap ? undefined : clamp(Number(record.score ?? 50), 0, 100),
-    confidence: hasGap ? Math.min(0.4, clamp(Number(record.confidence ?? 0.35), 0, 1)) : clamp(Number(record.confidence ?? 0.5), 0, 1),
-    summary: hasGap ? `数据缺口覆盖本维度，${String(record.summary ?? '暂不形成强结论。')}` : String(record.summary ?? '数据不足，暂不形成强结论。'),
+    confidence: hasGap
+      ? Math.min(0.4, clamp(Number(record.confidence ?? 0.35), 0, 1))
+      : clamp(Number(record.confidence ?? 0.5), 0, 1),
+    summary: hasGap
+      ? `数据缺口覆盖本维度，${String(record.summary ?? '暂不形成强结论。')}`
+      : String(record.summary ?? '数据不足，暂不形成强结论。'),
     evidenceIds: evidenceIds.length ? evidenceIds : [fallbackId],
     risks: [...risks, ...gapRisks].filter(Boolean),
   };
@@ -749,56 +1035,11 @@ async function streamMarkdown(markdown: string, onToken?: (token: string) => voi
   }
 }
 
-function normalizeChipMarkdown(markdown: string, input: StockAnalysisInput) {
-  const block = chipTrendBlock(input.chip);
-  let text = markdown;
-  if (block) {
-    text = /##\s*🎯\s*筹码集中度/.test(text)
-      ? text.replace(/(##\s*🎯\s*筹码集中度\s*)[\s\S]*?(?=\n##\s*(?:⛰️|📍|💰|🐳|⚠️|🧭|🚨|🎯)|$)/, `$1\n${block}\n`)
-      : /#\s*筹码集中度变化[\s\S]*?(?=\n##\s*(?:⛰️|📍|💰|🐳|⚠️|🧭|🚨|🎯)|$)/.test(text)
-        ? text.replace(/#\s*筹码集中度变化[\s\S]*?(?=\n##\s*(?:⛰️|📍|💰|🐳|⚠️|🧭|🚨|🎯)|$)/, block)
-        : `${block}\n\n${text}`;
-  }
-  return text
+function normalizeChipMarkdown(markdown: string, _input: StockAnalysisInput) {
+  return markdown
     .replace(/(筹码集中度评分[:：]\s*\d+(?:\.\d+)?)(\s+)(主力控盘评分[:：])/g, '$1\n$3')
     .replace(/(主力控盘评分[:：]\s*\d+(?:\.\d+)?)(\s+)(上涨潜力评分[:：])/g, '$1\n$3')
     .replace(/(上涨潜力评分[:：]\s*\d+(?:\.\d+)?)(\s+)(风险评分[:：])/g, '$1\n$3');
-}
-
-function chipTrendBlock(chip: unknown) {
-  const trend =
-    chip && typeof chip === 'object'
-      ? (chip as { trend?: Array<{ days?: number; concentration70?: unknown; concentration90?: unknown }> }).trend
-      : undefined;
-  if (!trend?.length) return '';
-  const byDays = new Map(trend.map((item) => [Number(item.days), item]));
-  return `${[
-    '# 筹码集中度变化',
-    '',
-    '| 周期 | 70%筹码集中度 | 90%筹码集中度 |',
-    '|---|---:|---:|',
-    ...[5, 10, 20].map((days) => {
-      const item = byDays.get(days);
-      return `| ${days}日 | ${formatRatio(item?.concentration70)} | ${formatRatio(item?.concentration90)} |`;
-    }),
-  ]
-    .join('\n')
-    .trim()}\n\n${chipTrendSummary(chip)}`;
-}
-
-function chipTrendSummary(chip: unknown) {
-  const trend =
-    chip && typeof chip === 'object'
-      ? (chip as { trend?: Array<{ days?: number; concentration70?: unknown; concentration90?: unknown }> }).trend
-      : undefined;
-  if (!trend?.length) return '';
-  const byDays = new Map(trend.map((item) => [Number(item.days), item]));
-  const five = byDays.get(5);
-  const twenty = byDays.get(20);
-  return [
-    `70%筹码集中度变化：5日 ${formatRatio(five?.concentration70)} → 20日 ${formatRatio(twenty?.concentration70)}。`,
-    `90%筹码集中度变化：5日 ${formatRatio(five?.concentration90)} → 20日 ${formatRatio(twenty?.concentration90)}。`,
-  ].join('\n');
 }
 
 function formatChipInput(chip: unknown) {

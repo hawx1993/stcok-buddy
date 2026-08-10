@@ -338,6 +338,7 @@ export function resetDiscoveryFundFlowCachesForTest(): void {
   sectorFlowRankCache.clear();
   boardAmountCache.clear();
   boardMainNetInflowCache.clear();
+  localBoardCatalogCache = undefined;
 }
 
 function mapMetricToFactor(m: IMarketReviewMetric): { label: string; value: string | number } {
@@ -1833,6 +1834,13 @@ async function fetchNorthFundFlow(tradeDate?: string): Promise<number | null> {
   }
 }
 
+// ponytail: last-known-good board catalog. When the market-data sync worker
+// (separate DuckDB instance on the same file) holds the write lock, a
+// listMarketBoards() read can fail transiently. Returning the last real local
+// catalog instead of an empty one keeps the 板块强弱 fallback populated;
+// there is no TTL because the catalog is refreshed on every successful read.
+let localBoardCatalogCache: TLocalBoardCatalog | undefined;
+
 async function fetchLocalBoardCatalog(): Promise<TLocalBoardCatalog> {
   try {
     const rows = await listMarketBoards();
@@ -1846,9 +1854,11 @@ async function fetchLocalBoardCatalog(): Promise<TLocalBoardCatalog> {
         amount: row.amount,
       }))
       .filter((row) => row.code && row.name);
-    return buildLocalBoardCatalog(summaries);
+    const catalog = buildLocalBoardCatalog(summaries);
+    if (catalog.rows.length) localBoardCatalogCache = catalog;
+    return catalog;
   } catch {
-    return buildLocalBoardCatalog([]);
+    return localBoardCatalogCache ?? buildLocalBoardCatalog([]);
   }
 }
 

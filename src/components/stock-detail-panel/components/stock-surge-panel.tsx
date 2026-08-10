@@ -38,6 +38,8 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   const listRef = useRef<HTMLDivElement>(null);
   const loadIdRef = useRef(0);
   const pagingRef = useRef(false);
+  const itemsRef = useRef<HotFocusItem[]>([]);
+  const loadedDateRef = useRef<string>();
   const [dateOptions] = useState(() => makeSurgeDateOptions());
   const [selectedDate, setSelectedDate] = useState(() => makeSurgeDateOptions()[0]);
   const [items, setItems] = useState<HotFocusItem[]>([]);
@@ -65,6 +67,10 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   });
 
   useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
     if (!isActive) {
       loadIdRef.current += 1;
       setLoading(false);
@@ -74,7 +80,11 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     }
     let alive = true;
     const loadId = ++loadIdRef.current;
-    setItems([]);
+    const shouldKeepItems = loadedDateRef.current === selectedDate && itemsRef.current.length > 0;
+    if (!shouldKeepItems) {
+      itemsRef.current = [];
+      setItems([]);
+    }
     setError(undefined);
     setHasMore(true);
     setPaging(false);
@@ -84,6 +94,8 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     load
       .then((rows) => {
         if (!alive || loadId !== loadIdRef.current) return;
+        loadedDateRef.current = selectedDate;
+        itemsRef.current = rows;
         setItems(rows);
         setHasMore(rows.length === SURGE_PAGE_SIZE);
       })
@@ -111,10 +123,13 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   }, [isActive, isMonitoring, selectedDate, today]);
 
   // ponytail: when the user clears surge history from the storage manager,
-  // reload the current date so historical lists drop their stale in-memory
-  // items (today's list is live remote data and is unaffected by the clear).
+  // drop the in-memory list before reloading so stale rows do not linger.
   useEffect(() => {
     const onCleared = () => {
+      itemsRef.current = [];
+      loadedDateRef.current = undefined;
+      setItems([]);
+      setError(undefined);
       setRefreshMode('manual');
       setRefresh((value) => value + 1);
     };
@@ -141,7 +156,11 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
       .listSurgeHistory(selectedDate, items.length, SURGE_PAGE_SIZE)
       .then((rows) => {
         if (loadId !== loadIdRef.current) return;
-        setItems((current) => [...current, ...rows]);
+        setItems((current) => {
+          const next = [...current, ...rows];
+          itemsRef.current = next;
+          return next;
+        });
         setHasMore(rows.length === SURGE_PAGE_SIZE);
       })
       .catch((error: unknown) => {

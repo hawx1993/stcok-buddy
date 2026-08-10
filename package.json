@@ -1,6 +1,6 @@
 {
-  "name": "stockbuddy-desktop",
-  "version": "0.7.5",
+  "name": "StockBuddy",
+  "version": "0.7.6",
   "description": "StockBuddy - 对话式 A 股投研助手 Electron 跨端桌面应用",
   "type": "module",
   "main": "dist-electron/electron/main.js",
@@ -47,8 +47,7 @@
     "selfcheck:cpu": "tsc -p tsconfig.node.json && electron scripts/profile-cpu.selfcheck.cjs"
   },
   "keywords": [
-    "electron",
-    "stock",
+    "stock AI agent",
     "ai-agent",
     "a share",
     "a stock agent",

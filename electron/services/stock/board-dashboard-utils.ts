@@ -153,12 +153,20 @@ export function rankBoardMetrics(inputs: IBoardDashboardInput[]): IBoardDashboar
       return { ...metric, heatRank: rank, heatScore };
     })
     .sort((left, right) => (left.heatRank ?? Infinity) - (right.heatRank ?? Infinity));
+  // ponytail: relative risk thresholds instead of absolute (70/60) so lists
+  // aren't empty on broadly-down market days when all sectors have outflows.
+  const riskValues = metrics
+    .map((m) => m.riskScore)
+    .filter((s): s is number => s !== null)
+    .sort((a, b) => a - b);
+  const riskMedian = riskValues.length >= 2 ? riskValues[Math.floor(riskValues.length / 2)] : 100;
+  const riskLowerThird = riskValues.length >= 3 ? riskValues[Math.floor(riskValues.length / 3)] : 100;
   const hot = [...metrics]
-    .filter((metric) => metric.rawScore !== null && metric.riskScore !== null && metric.riskScore < 70)
+    .filter((metric) => metric.rawScore !== null && metric.riskScore !== null && metric.riskScore <= riskMedian)
     .sort((left, right) => (right.rawScore ?? -Infinity) - (left.rawScore ?? -Infinity))
     .slice(0, 10);
   const potential = [...metrics]
-    .filter((metric) => metric.fundScore !== null && metric.riskScore !== null && metric.riskScore < 60)
+    .filter((metric) => metric.fundScore !== null && metric.riskScore !== null && metric.riskScore <= riskLowerThird)
     .sort(
       (left, right) =>
         (right.fundScore ?? -Infinity) - (left.fundScore ?? -Infinity) ||
@@ -201,7 +209,7 @@ function pickDistinctSummaryMetrics(
   const result: Record<string, IBoardDashboardMetric | undefined> = {};
   for (const { key, candidates } of categories) {
     const metric = candidates.find((item) => !usedCodes.has(item.boardCode));
-    result[key] = metric ?? candidates[0];
+    result[key] = metric;
     if (metric) usedCodes.add(metric.boardCode);
   }
   return result;

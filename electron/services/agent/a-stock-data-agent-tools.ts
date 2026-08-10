@@ -47,7 +47,7 @@ export const A_STOCK_DATA_TOOLBOX: IToolSpec[] = [
     name: 'queryLocalSurgeDuckDB',
     description: '查询本地 stocksense-surge DuckDB 的异动历史 stock_surge_events，输入 {date?, code?, tradeDates?, keepDays?, offset?, limit?, side?, minHands?}；全市场按买入/卖出手数筛选时传 side 和 minHands。',
   },
-  { name: 'getStockChipDistributionLocalFirst', description: '获取单股筹码分布，按 DuckDB → stock-sdk → a-stock-data 获取真实数据，返回90%/70%筹码集中度，输入 {symbol, days?}。' },
+  { name: 'getStockChipDistributionLocalFirst', description: '获取单股筹码分布，先读 DuckDB；缓存缺失或 fetchedAt 超过 5 天时调用 stock-sdk；stock-sdk 失败再用 a-stock-data 百度日K计算。返回 source/storage/freshness、90%/70%筹码集中度和成本区间，输入 {symbol, days?}。' },
   { name: 'getStockChipDistribution', description: '获取个股筹码分布（获利比例、成本集中度，本地 DuckDB 优先），输入 {symbol}。' },
   {
     name: 'getStockSurgeEventsLocalFirst',

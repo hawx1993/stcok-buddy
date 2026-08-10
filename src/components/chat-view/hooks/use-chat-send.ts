@@ -169,7 +169,12 @@ export function useChatSend({ stickToBottom }: IUseChatSendOptions) {
       if (!trimmed || isSending) return;
       stickToBottom({ animation: 'instant' });
 
-      const conversationId = activeConversationId ?? 'conv-1';
+      const api = getStocksenseApi();
+      const conversationId = activeConversationId ?? (await api.createConversation()).id;
+      if (!activeConversationId) {
+        const conversations = await api.listConversations();
+        useAppDataStore.getState().setConversations(conversations);
+      }
       const command = trimmed.startsWith('/') ? trimmed.split(/\s+/, 1)[0] : undefined;
       trackButtonClick('send_chat', { command, message_length: trimmed.length, has_stock_code: /\d{6}/.test(trimmed) });
       track('stock_query_entered', {
@@ -195,7 +200,6 @@ export function useChatSend({ stickToBottom }: IUseChatSendOptions) {
           createdAt: new Date().toISOString(),
         };
         addMessage(assistantMessage);
-        const api = getStocksenseApi();
         await api.saveMessage(conversationId, userMessage);
         await api.saveMessage(conversationId, assistantMessage);
         api.listConversations().then(useAppDataStore.getState().setConversations).catch(console.error);
@@ -212,7 +216,6 @@ export function useChatSend({ stickToBottom }: IUseChatSendOptions) {
       });
 
       const requestId = `chat-${Date.now()}`;
-      const api = getStocksenseApi();
       try {
         activeRequestRef.current = requestId;
         activeRequestConversationRef.current = conversationId;

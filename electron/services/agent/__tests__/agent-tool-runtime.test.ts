@@ -106,6 +106,24 @@ describe('agent-tool-runtime 数据状态记录', () => {
     expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '筹码集中度', status: 'available' }));
   });
 
+  it('筹码数据源切换追踪不会把可用真实结果标记为 partial', () => {
+    const statuses = createDataStatuses(
+      createContext(),
+      'getStockChipDistributionLocalFirst',
+      'tool-4',
+      {
+        latest: { concentration90: 0.18, concentration70: 0.12 },
+        recent: [{ date: '2026-08-05' }],
+        source: 'a-stock-data',
+        freshness: 'current',
+        sourceTrace: ['本地缓存不存在', 'stock-sdk 失败，已切换 a-stock-data'],
+        warnings: [],
+      },
+    );
+
+    expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '筹码集中度', status: 'available' }));
+  });
+
   it('市值筛选工具会映射到 A 股市值筛选数据状态', () => {
     const statuses = createDataStatuses(
       createContext(),

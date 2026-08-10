@@ -282,20 +282,25 @@ export function upsertStockChip(symbol: string, data: unknown) {
   });
 }
 
+export async function getStockChipCacheRecord(symbol: string): Promise<StockChipCacheRecord | undefined> {
+  await ensureReady();
+  return read(async (connection) => {
+    const reader = await connection.runAndReadAll(
+      `SELECT data_json, fetched_at::VARCHAR AS fetched_at FROM stock_chips WHERE symbol = $symbol`,
+      { symbol },
+    );
+    const rows = reader.getRowObjectsJS() as Array<{ data_json: string; fetched_at: string }>;
+    if (!rows.length) return undefined;
+    return {
+      symbol,
+      data: JSON.parse(rows[0].data_json),
+      fetchedAt: String(rows[0].fetched_at),
+    };
+  });
+}
+
 export async function getStockChip(symbol: string): Promise<unknown | undefined> {
-  try {
-    await ensureReady();
-    return read(async (connection) => {
-      const reader = await connection.runAndReadAll(
-        `SELECT data_json FROM stock_chips WHERE symbol = $symbol`,
-        { symbol },
-      );
-      const rows = reader.getRowObjectsJS() as Array<{ data_json: string }>;
-      return rows.length ? JSON.parse(rows[0].data_json) : undefined;
-    });
-  } catch {
-    return undefined;
-  }
+  return (await getStockChipCacheRecord(symbol))?.data;
 }
 
 export async function listStockChips(limit = 5000): Promise<StockChipCacheRecord[]> {
