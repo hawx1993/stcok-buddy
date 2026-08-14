@@ -55,6 +55,26 @@ function summarizeToolResult(value: unknown): string {
   return (text ?? '').slice(0, 4000) || '（空结果）';
 }
 
+/**
+ * 全市场大单筛选结果的行数可能达到几十上百条，JSON 全文会在 4000 字符处被
+ * 截断，模型只能看到一部分股票。改为紧凑的“日期 代码 名称 时间 手数 涨幅”
+ * 逐行输出并放宽截断上限，确保模型能看到全部符合手数/方向条件的样本。
+ */
+function summarizeSurgeRowsForMarketWide(value: unknown): string {
+  const rows = readRows(value);
+  if (!rows.length) return summarizeToolResult(value);
+  const lines = rows.map((row) => {
+    const date = readTextField(row, 'tradeDate') ?? readTextField(row, 'date') ?? '';
+    const code = readStockCode(row) ?? '--';
+    const name = readTextField(row, 'name') ?? '';
+    const time = readTextField(row, 'time') ?? '';
+    const amount = readTextField(row, 'amount') ?? '';
+    const changePercent = readTextField(row, 'changePercent') ?? '';
+    return [date, code, name, time, amount, changePercent].filter(Boolean).join(' ');
+  });
+  return `共 ${rows.length} 条符合大单买入（不低于10000手）的同源异动样本（每行：日期 代码 名称 时间 手数 涨幅）：\n${lines.join('\n')}`.slice(0, 20_000);
+}
+
 function buildLocalPrecheckMessage(result: unknown): string {
   const empty = isNoDataToolResult(result);
   return empty
@@ -296,9 +316,9 @@ export async function agenticAStockDataAnswer(ctx: IAgentContext): Promise<strin
     );
     messages.push({
       role: 'user',
-      content: `用户问题命中全市场订单/手数/个股异动筛选场景，已强制调用右侧栏同源 ${MARKET_SURGE_TOOL_NAME}，筛选日期：${tradeDate}，筛选方向：${side === 'buy' ? '买入' : '卖出'}，阈值：不低于10000手。工具返回结果：\n${summarizeToolResult(
+      content: `用户问题命中全市场订单/手数/个股异动筛选场景，已强制调用右侧栏同源 ${MARKET_SURGE_TOOL_NAME}，筛选日期：${tradeDate}，筛选方向：${side === 'buy' ? '买入' : '卖出'}，阈值：不低于10000手。工具返回结果：\n${summarizeSurgeRowsForMarketWide(
         marketSurgeResult,
-      )}\n\n后续回答必须基于该真实全市场个股异动结果；如果 rows 有多条，必须完整覆盖返回样本中的所有符合条件股票，不得只列部分结果；如果 rows 为空，明确说明暂无符合条件的同源异动样本，不得编造订单和手数。`,
+      )}\n\n后续回答必须基于该真实全市场个股异动结果，按涨幅（changePercent）筛选用户要求的价格条件；如果 rows 有多条，必须完整覆盖返回样本中的所有符合条件股票，不得只列部分结果；如果 rows 为空，明确说明暂无符合条件的同源异动样本，不得编造订单和手数。`,
     });
   }
 

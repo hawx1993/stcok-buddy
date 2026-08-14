@@ -78,6 +78,44 @@ function createContext(): IAgentContext {
 }
 
 describe('agent workflow market-data', () => {
+  it('筹码分析使用五天 freshness 的本地优先筹码工具', async () => {
+    mockedCallTool.mockImplementation(async (toolName, input) => {
+      if (toolName === 'getStockChipDistributionLocalFirst') {
+        return {
+          ...record(toolName, {
+            latest: { date: '2026-08-10', avgCost: 10, profitRatio: 0.6, points: [{ price: 10, weight: 1 }] },
+            distributions: [],
+            trend: [{ days: 5, concentration70: 0.1, concentration90: 0.2 }],
+            source: 'stock-sdk',
+            freshness: 'current',
+            sourceTrace: ['stock-sdk 返回真实数据'],
+            warnings: [],
+            isEmpty: false,
+          }),
+          input,
+        };
+      }
+      if (toolName === 'getHistoricalDailyBars') return record(toolName, { data: [], meta: { warnings: [] } });
+      if (toolName === 'getStockNewsAnnouncements') return record(toolName, { news: [], announcements: [] });
+      if (toolName === 'getTechnicalIndicators') return record(toolName, undefined);
+      if (toolName === 'getStockFundFlowSnapshot') return record(toolName, undefined);
+      if (toolName === 'getHotFocus') return record(toolName, []);
+      if (toolName === 'getStockSurgeEventsLocalFirst') return record(toolName, { rows: [] });
+      return record(toolName, undefined);
+    });
+
+    const context = createContext();
+    context.query = '分析 600519 筹码';
+    context.plan = createInitialAgentPlan(context);
+    const marketDataNode = buildAgentWorkflow(context).find((node) => node.id === 'market-data');
+    if (!marketDataNode) throw new Error('market-data node missing');
+
+    await marketDataNode.run(context);
+
+    expect(mockedCallTool).toHaveBeenCalledWith('getStockChipDistributionLocalFirst', { symbol: '600519', days: 20 });
+    expect(context.plan?.items.find((item) => item.id === 'chip-structure')?.status).not.toBe('skipped');
+  });
+
   it('资金面需要特大单时会调用个股异动本地优先工具并合并到 largeOrders', async () => {
     const localLargeOrder: HotFocusItem = {
       id: 'local-surge-1',

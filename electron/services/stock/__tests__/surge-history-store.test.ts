@@ -78,6 +78,34 @@ describe('异动历史 DuckDB 存储', () => {
     ]);
   });
 
+  it('空库 freshness 返回零记录且没有更新时间', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('surge history store not loaded');
+
+    await expect(currentStore.getSurgeHistoryFreshness()).resolves.toEqual({ recordCount: 0 });
+  });
+
+  it('freshness 返回最新实际采集时间', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('surge history store not loaded');
+
+    await currentStore.saveSurgeSnapshot(
+      [createItem({ id: 'old' })],
+      new Date('2026-07-24T02:30:00.000Z'),
+      '2026-07-24',
+    );
+    await currentStore.saveIndividualSurgeHistory([
+      { ...createItem({ id: 'new' }), tradeDate: '2026-07-25' },
+    ]);
+
+    await expect(currentStore.getSurgeHistoryFreshness()).resolves.toMatchObject({
+      recordCount: 2,
+      latestCapturedAt: expect.any(String),
+    });
+    const freshness = await currentStore.getSurgeHistoryFreshness();
+    expect(freshness.latestCapturedAt).toBeTruthy();
+  });
+
   it('可以按日期和 ID 更新快照并支持排序分页', async () => {
     const currentStore = store;
     if (!currentStore) throw new Error('surge history store not loaded');
@@ -183,6 +211,28 @@ describe('异动历史 DuckDB 存储', () => {
     ]);
   });
 
+  it('listSurgeHistoryAll 返回整日全部去重行，listSurgeHistory 仍按 100 条分页', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('surge history store not loaded');
+
+    const items = Array.from({ length: 150 }, (_, index) =>
+      createItem({
+        id: `many-${index}`,
+        title: `批量股 ${600000 + index}`,
+        code: String(600000 + index),
+        name: `批量股${index}`,
+        time: '14:00',
+        amount: '买入1万手',
+      }),
+    );
+    await currentStore.saveSurgeSnapshot(items, new Date('2026-07-24T02:30:00.000Z'), '2026-07-24');
+
+    expect(await currentStore.listSurgeHistoryAll('2026-07-24')).toHaveLength(150);
+    expect(await currentStore.listSurgeHistory('2026-07-24', 0, 100)).toHaveLength(100);
+    expect(await currentStore.listSurgeHistory('2026-07-24', 100, 100)).toHaveLength(50);
+    expect(await currentStore.listSurgeHistory('2026-07-24', 0, 1000)).toHaveLength(100);
+  });
+
   it('队列和个股历史写入时过滤一万手以下的特大单', async () => {
     const currentStore = store;
     if (!currentStore) throw new Error('surge history store not loaded');
@@ -244,5 +294,72 @@ describe('异动历史 DuckDB 存储', () => {
     expect(await currentStore.listSurgeHistory('2026-07-24', 0, 10)).toEqual([
       expect.objectContaining({ id: 'after-reset' }),
     ]);
+  });
+
+  it('listSurgeHistory 对完全一致的内容去重（同内容不同 id）', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('surge history store not loaded');
+
+    const base = createItem({
+      code: '002400',
+      name: '省广集团',
+      title: '省广集团 002400',
+      time: '09:31:27',
+      tag: '特大单卖出',
+      description: '特大单卖出',
+      price: '7.42',
+      changePercent: '-6.42%',
+      amount: '卖出2.54万手',
+    });
+    await currentStore.saveSurgeSnapshot(
+      [
+        { ...base, id: 'surge-large_sell-09:31:27-002400-1' },
+        { ...base, id: 'surge-large_sell-09:31:27-002400-2' },
+        { ...base, id: 'surge-large_sell-09:31:27-002400-3' },
+        { ...base, id: 'surge-large_sell-09:31:28-002400-4', time: '09:31:28' },
+      ],
+      new Date('2026-07-24T02:30:00.000Z'),
+      '2026-07-24',
+    );
+
+    const rows = await currentStore.listSurgeHistory('2026-07-24', 0, 10);
+    expect(rows.map((item) => item.id)).toEqual([
+      'surge-large_sell-09:31:28-002400-4',
+      'surge-large_sell-09:31:27-002400-3',
+    ]);
+  });
+
+  it('启动去重清理删除历史遗留的完全重复行', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('surge history store not loaded');
+
+    const base = createItem({
+      code: '002400',
+      name: '省广集团',
+      title: '省广集团 002400',
+      time: '09:31:27',
+      tag: '特大单卖出',
+      description: '特大单卖出',
+      amount: '卖出2.54万手',
+    });
+    await currentStore.saveSurgeSnapshot(
+      [
+        { ...base, id: 'dup-1' },
+        { ...base, id: 'dup-2' },
+        { ...base, id: 'dup-3' },
+        { ...base, id: 'dup-4', time: '09:31:28' },
+      ],
+      new Date('2026-07-24T02:30:00.000Z'),
+      '2026-07-24',
+    );
+    expect(await currentStore.listSurgeHistory('2026-07-24', 0, 10)).toHaveLength(2);
+
+    // 模拟 app 重启：重置模块状态后，下一次数据库访问会重新执行
+    // schema 初始化，其中包含按内容去重的幂等清理。
+    await currentStore.resetSurgeHistoryStore();
+    await currentStore.listSurgeHistory('2026-07-24', 0, 10);
+
+    const remaining = await currentStore.listSurgeHistory('2026-07-24', 0, 10);
+    expect(remaining.map((item) => item.id).sort()).toEqual(['dup-1', 'dup-4']);
   });
 });

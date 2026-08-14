@@ -20,6 +20,11 @@ interface SurgeRow {
   type?: HotFocusItem['type'];
 }
 
+export interface ISurgeHistoryFreshness {
+  recordCount: number;
+  latestCapturedAt?: string;
+}
+
 const dbPath = process.env.STOCKSENSE_SURGE_DB_PATH ?? path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb');
 // ponytail: dbReady is undefined after a storage clear so the database file is
 // NOT recreated until the next actual read/write — otherwise resetSurgeHistoryStore
@@ -27,12 +32,42 @@ const dbPath = process.env.STOCKSENSE_SURGE_DB_PATH ?? path.join(app.getPath('us
 // manager would show "12KB" right after clearing, looking like it never worked.
 let dbReady: Promise<DuckDBInstance> | undefined = DuckDBInstance.fromCache(dbPath);
 let ready: Promise<void> | undefined;
-let queue = Promise.resolve();
+interface IDbOperation<T> {
+  work: () => Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+  priority: boolean;
+}
+
+const operationQueue: Array<IDbOperation<unknown>> = [];
+let isOperationRunning = false;
+let idlePromise: Promise<void> | undefined;
+let resolveIdle: (() => void) | undefined;
 let isClosing = false;
 let activeConnections = 0;
 
 const DUCKDB_SINGLE_THREAD_SQL = 'SET threads TO 1';
 let closeResolve: (() => void) | undefined;
+
+// Deletes exact-duplicate rows: same trade_date + same displayed content
+// (title/code/time/tag/price/change_percent/amount/description), keeping the
+// first captured row. Mirrors the content key used by surgeItemContentKey.
+const SURGE_DEDUPE_SQL = `
+  DELETE FROM stock_surge_events
+  WHERE (trade_date, captured_at, id) IN (
+    SELECT trade_date, captured_at, id
+    FROM (
+      SELECT trade_date, captured_at, id,
+             ROW_NUMBER() OVER (
+               PARTITION BY trade_date, COALESCE(title,''), COALESCE(code,''), COALESCE(time,''),
+                             COALESCE(tag,''), COALESCE(price,''), COALESCE(change_percent,''),
+                             COALESCE(amount,''), COALESCE(description,'')
+               ORDER BY captured_at ASC, id ASC
+             ) AS rn
+      FROM stock_surge_events
+    )
+    WHERE rn > 1
+  )`;
 
 // ponytail: marker set when the user explicitly clears surge history. While
 // active, all reads return empty and all writes are dropped, so switching to
@@ -94,7 +129,20 @@ function ensureReady() {
       type TEXT
     );
     DROP INDEX IF EXISTS idx_stock_surge_events_date_id;
-  `);
+  `).then(async () => {
+    // One-time cleanup: identical events were historically persisted under
+    // unstable (per-capture index) ids, so the exact same content could be
+    // inserted dozens of times. Keep the first row per content key and drop
+    // the rest. Idempotent — after the first run no duplicates remain, so
+    // later app starts scan only the unique rows.
+    try {
+      await exec(SURGE_DEDUPE_SQL);
+    } catch (error) {
+      // Non-fatal: the read path (listSurgeHistory) also dedupes by content,
+      // so the panel never shows duplicates even if this cleanup fails.
+      console.warn('[surge-history] startup duplicate cleanup failed', error);
+    }
+  });
   return ready;
 }
 
@@ -200,25 +248,55 @@ export function listSurgeDates(limit = 7) {
   });
 }
 
-export function listSurgeHistory(date: string, offset = 0, limit = 20) {
-  // ponytail: while the clear marker is active, pretend the DB is empty. This
-  // avoids recreating the DuckDB file just to run an empty query.
-  if (isSurgeHistoryClearMarkerActive()) return Promise.resolve([]);
+export function getSurgeHistoryFreshness() {
+  return readDb(async (): Promise<ISurgeHistoryFreshness> => {
+    const [row] = await all<{ record_count: number; latest_captured_at?: string }>(
+      `SELECT COUNT(*) AS record_count, MAX(captured_at) AS latest_captured_at FROM stock_surge_events`,
+    );
+    const recordCount = Number(row?.record_count ?? 0);
+    const latestCapturedAt = typeof row?.latest_captured_at === 'string' && row.latest_captured_at.length > 0
+      ? row.latest_captured_at
+      : undefined;
+    return { recordCount, latestCapturedAt };
+  });
+}
+
+function readSurgeHistoryRows(date: string) {
   return readDb(async () => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
-    const safeOffset = Math.max(0, Math.floor(offset));
-    const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
     const rows = await all<SurgeRow>(
       `SELECT trade_date, id, code, name, title, time, price, change_percent, turnover, amount, description, tag, type
        FROM stock_surge_events
        WHERE trade_date = ${sqlValue(date)}
        ORDER BY COALESCE(time, '') DESC, id DESC`,
     );
-    return rows
-      .map(mapSurgeRowToHotFocusItem)
-      .filter(shouldKeepSurgeItem)
-      .slice(safeOffset, safeOffset + safeLimit);
+    // The same event was historically stored under unstable ids, so exact
+    // duplicates can exist in the DB. Dedupe by displayed content before
+    // slicing so pagination stays consistent and the panel shows each event
+    // only once.
+    return dedupeSurgeHistoryRows(rows);
   });
+}
+
+export function listSurgeHistory(date: string, offset = 0, limit = 20) {
+  // ponytail: while the clear marker is active, pretend the DB is empty. This
+  // avoids recreating the DuckDB file just to run an empty query.
+  if (isSurgeHistoryClearMarkerActive()) return Promise.resolve([]);
+  const safeOffset = Math.max(0, Math.floor(offset));
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+  return readSurgeHistoryRows(date).then((rows) => rows.slice(safeOffset, safeOffset + safeLimit));
+}
+
+/**
+ * 读取某交易日的全部异动行（不去重截断，仍按内容去重），供全市场手数/方向
+ * 筛选等需要扫描整日样本的场景使用。listSurgeHistory 每页最多返回 100 条，
+ * 若调用方只取第一页会漏掉早盘发生的大单异动。
+ */
+export function listSurgeHistoryAll(date: string) {
+  // ponytail: while the clear marker is active, pretend the DB is empty. This
+  // avoids recreating the DuckDB file just to run an empty query.
+  if (isSurgeHistoryClearMarkerActive()) return Promise.resolve([]);
+  return readSurgeHistoryRows(date);
 }
 
 export function listStockSurgeEvents(code: string, tradeDate = toTradeDate(new Date())) {
@@ -263,7 +341,7 @@ export function listRecentStockSurgeEvents(code: string, keepDays = 7) {
        ORDER BY trade_date DESC, COALESCE(time, '') DESC, id DESC`,
     );
     return dedupeStockSurgeEventRows(rows);
-  });
+  }, true);
 }
 
 function mapSurgeRowToHotFocusItem(row: SurgeRow): HotFocusItem {
@@ -281,6 +359,35 @@ function mapSurgeRowToHotFocusItem(row: SurgeRow): HotFocusItem {
     tag: row.tag,
     type: row.type,
   };
+}
+
+function surgeItemContentKey(item: HotFocusItem): string {
+  return [
+    item.title,
+    item.code,
+    item.time,
+    item.tag,
+    item.price,
+    item.changePercent,
+    item.amount,
+    item.description,
+  ]
+    .map((value) => value ?? '')
+    .join('|');
+}
+
+function dedupeSurgeHistoryRows(rows: SurgeRow[]): HotFocusItem[] {
+  const seen = new Set<string>();
+  const items: HotFocusItem[] = [];
+  for (const row of rows) {
+    const item = mapSurgeRowToHotFocusItem(row);
+    if (!shouldKeepSurgeItem(item)) continue;
+    const key = surgeItemContentKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(item);
+  }
+  return items;
 }
 
 function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
@@ -353,7 +460,7 @@ export function pruneSurgeHistory(keepDays = 7) {
 export async function closeSurgeHistoryStore(timeoutMs?: number) {
   isClosing = true;
   try {
-    await queue;
+    await waitForDbOperations();
     if (activeConnections > 0)
       await new Promise<void>((resolve) => {
         closeResolve = resolve;
@@ -396,38 +503,79 @@ export async function resetSurgeHistoryStore() {
   // 0 instead of a phantom ~12KB empty DuckDB file.
   dbReady = undefined;
   ready = undefined;
-  queue = Promise.resolve();
+  operationQueue.length = 0;
+  isOperationRunning = false;
+  const pendingOperations = operationQueue.splice(0);
+  for (const operation of pendingOperations) operation.reject(new Error('surge history store reset'));
+  idlePromise = undefined;
+  resolveIdle = undefined;
   surgeSnapshotQueue.clear();
   isClosing = false;
   activeConnections = 0;
   closeResolve = undefined;
 }
 
-function readDb<T>(work: () => Promise<T>) {
+function readDb<T>(work: () => Promise<T>, priority = false) {
   if (isClosing) return Promise.reject(new Error('surge history store is closing'));
-  return enqueueDbOperation(work);
+  return enqueueDbOperation(work, priority);
 }
 
 function withDb<T>(work: () => Promise<T>) {
   if (isClosing) return Promise.reject(new Error('surge history store is closing'));
-  return enqueueDbOperation(work);
+  return enqueueDbOperation(work, false);
 }
 
-function enqueueDbOperation<T>(work: () => Promise<T>) {
-  const next = queue.then(async () => {
+function enqueueDbOperation<T>(work: () => Promise<T>, priority: boolean) {
+  const operation = new Promise<T>((resolve, reject) => {
+    const entry: IDbOperation<T> = { work, resolve, reject, priority };
+    if (priority) {
+      const firstWrite = operationQueue.findIndex((queued) => !queued.priority);
+      if (firstWrite >= 0) operationQueue.splice(firstWrite, 0, entry as IDbOperation<unknown>);
+      else operationQueue.unshift(entry as IDbOperation<unknown>);
+    } else {
+      operationQueue.push(entry as IDbOperation<unknown>);
+    }
+    void processNextDbOperation();
+  });
+  return operation;
+}
+
+async function processNextDbOperation(): Promise<void> {
+  if (isOperationRunning) return;
+  const operation = operationQueue.shift();
+  if (!operation) {
+    const resolve = resolveIdle;
+    resolveIdle = undefined;
+    idlePromise = undefined;
+    resolve?.();
+    return;
+  }
+  isOperationRunning = true;
+  try {
     if (isClosing) throw new Error('surge history store is closing');
     try {
       await ensureReady();
-      return await work();
+      operation.resolve(await operation.work());
     } catch (error) {
       if (!isDuckDbFatalInvalidation(error)) throw error;
       await recoverSurgeHistoryStoreAfterFatal(error);
       await ensureReady();
-      return work();
+      operation.resolve(await operation.work());
     }
+  } catch (error) {
+    operation.reject(error);
+  } finally {
+    isOperationRunning = false;
+    void processNextDbOperation();
+  }
+}
+
+function waitForDbOperations() {
+  if (!isOperationRunning && operationQueue.length === 0) return Promise.resolve();
+  idlePromise ??= new Promise<void>((resolve) => {
+    resolveIdle = resolve;
   });
-  queue = next.then(() => undefined, () => undefined);
-  return next;
+  return idlePromise;
 }
 
 function isDuckDbFatalInvalidation(error: unknown) {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getChipDistribution: vi.fn(),
-  getStockChip: vi.fn(),
+  getStockChipCacheRecord: vi.fn(),
   listStockSurgeEvents: vi.fn(),
   runAStockDataFn: vi.fn(),
 }));
@@ -18,7 +18,7 @@ vi.mock('../../market-data/market-data-query.js', () => ({
 
 vi.mock('../../market-data/market-data-store.js', () => ({
   getLatestDailyBar: vi.fn(),
-  getStockChip: mocks.getStockChip,
+  getStockChipCacheRecord: mocks.getStockChipCacheRecord,
   listDailyBars: vi.fn(),
   listLatestMarketRows: vi.fn(),
 }));
@@ -73,26 +73,47 @@ describe('getStockChipDistributionLocalFirst 个股筹码本地优先工具', ()
     vi.clearAllMocks();
   });
 
-  it('本地 DuckDB 有筹码缓存时直接返回最近筹码集中度', async () => {
-    mocks.getStockChip.mockResolvedValueOnce(createChipResult('stock-sdk'));
+  it('本地 DuckDB 有且未超过 5 天的筹码缓存时直接返回', async () => {
+    mocks.getStockChipCacheRecord.mockResolvedValueOnce({
+      symbol: '600519',
+      data: createChipResult('stock-sdk'),
+      fetchedAt: new Date().toISOString(),
+    });
 
     const result = await getStockChipDistributionLocalFirst.run({ symbol: '600519', days: 2 });
 
-    expect(result).toMatchObject({ source: 'duckdb:market', storage: 'local', symbol: '600519', isEmpty: false });
+    expect(result).toMatchObject({ source: 'duckdb:market', storage: 'local', freshness: 'current', symbol: '600519', isEmpty: false });
     expect(result.latest?.concentration90).toBe(0.18);
     expect(result.latest?.concentration70).toBe(0.12);
     expect(result.recent.map((item) => item.date)).toEqual(['2026-08-04', '2026-08-05']);
     expect(mocks.getChipDistribution).not.toHaveBeenCalled();
   });
 
-  it('本地 DuckDB 无筹码缓存时调用 stock-sdk / a-stock-data 链路补齐', async () => {
-    mocks.getStockChip.mockResolvedValueOnce(undefined);
+  it('本地 DuckDB 超过 5 天时刷新远程真实数据', async () => {
+    mocks.getStockChipCacheRecord.mockResolvedValueOnce({
+      symbol: '600519',
+      data: createChipResult('stock-sdk'),
+      fetchedAt: '2026-07-01T00:00:00.000Z',
+    });
     mocks.getChipDistribution.mockResolvedValueOnce(createChipResult('a-stock-data'));
 
     const result = await getStockChipDistributionLocalFirst.run({ symbol: '600519', days: 5 });
 
-    expect(result).toMatchObject({ source: 'a-stock-data', storage: 'remote', symbol: '600519', isEmpty: false });
-    expect(result.warnings[0]).toContain('本地 DuckDB 暂无该股票筹码缓存');
+    expect(result).toMatchObject({ source: 'a-stock-data', storage: 'remote', freshness: 'current', symbol: '600519', isEmpty: false });
+    expect(result.sourceTrace[0]).toContain('已超过 5 天');
+    expect(result.warnings).toEqual([]);
+    expect(mocks.getChipDistribution).toHaveBeenCalledWith('600519');
+  });
+
+  it('本地 DuckDB 无筹码缓存时调用 stock-sdk / a-stock-data 链路补齐', async () => {
+    mocks.getStockChipCacheRecord.mockResolvedValueOnce(undefined);
+    mocks.getChipDistribution.mockResolvedValueOnce(createChipResult('a-stock-data'));
+
+    const result = await getStockChipDistributionLocalFirst.run({ symbol: '600519', days: 5 });
+
+    expect(result).toMatchObject({ source: 'a-stock-data', storage: 'remote', freshness: 'current', symbol: '600519', isEmpty: false });
+    expect(result.sourceTrace[0]).toContain('本地 DuckDB 暂无该股票筹码缓存');
+    expect(result.warnings).toEqual([]);
     expect(result.recent).toHaveLength(3);
     expect(mocks.getChipDistribution).toHaveBeenCalledWith('600519');
   });

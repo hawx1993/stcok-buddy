@@ -26,6 +26,7 @@ import {
   parseSlashCommand,
 } from './intent-routing.js';
 import type { IAgentContext, TOnToken } from './orchestrator-types.js';
+import { createChipUnavailableReport } from './stock-analysis-agents.js';
 import { buildAgentWorkflow } from './agent-workflows.js';
 import {
   attachPlanNodeCoverage,
@@ -135,8 +136,9 @@ export async function runOrchestrator(
       : context.marketReview
         ? (context.analysisOverview ?? '')
         : (context.themeAttribution ?? context.analysisOverview ?? context.board?.narrative ?? '');
+  const safeDraft = draft.trim() ? draft : createMissingDraft(context);
   const review = reviewComplianceStructured({
-    text: draft,
+    text: safeDraft,
     evidence: context.evidence,
     findings: context.findings,
     dataGaps: context.plan?.dataGaps ?? context.finalReflection?.dataGaps ?? [],
@@ -354,6 +356,16 @@ function readSymbol(output: unknown): string | undefined {
 
 function readStockName(output: unknown): string | undefined {
   return isResolvedSymbol(output) ? output.name : undefined;
+}
+
+function createMissingDraft(context: IAgentContext): string {
+  if (context.singleAgent === 'chip') {
+    return createChipUnavailableReport({
+      stockLabel: context.quote?.name ?? context.symbol ?? '目标标的',
+      symbol: context.symbol ?? '--',
+    });
+  }
+  return '本轮未返回可用的分析正文，相关数据源可能暂不可用，请稍后重试。';
 }
 
 function isResolvedSymbol(value: unknown): value is { symbol?: string; name?: string } {

@@ -12,6 +12,7 @@ type TConversationListRow =
 
 interface IConversationListProps {
   conversationGroups: IConversationGroup[];
+  emptyText?: string;
   activeConversationId?: string;
   respondingConversationId?: string;
   conversationMenuId?: string;
@@ -77,7 +78,7 @@ export function ConversationList(props: IConversationListProps) {
           })}
         </div>
       ) : (
-        <div className={styles['empty-list']}>无匹配对话</div>
+        <div className={styles['empty-list']}>{props.emptyText ?? '暂无会话'}</div>
       )}
     </div>
   );

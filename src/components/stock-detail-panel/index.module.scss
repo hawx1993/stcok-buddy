@@ -1604,6 +1604,16 @@
   color: var(--muted);
   font-size: 11px;
 }
+.surge-load-button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.surge-load-button:disabled {
+  cursor: default;
+}
 .surge-skeleton {
   padding-top: 8px;
 }

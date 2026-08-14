@@ -30,12 +30,18 @@ export function StockDetailPanel() {
   const setSelectedStock = useAppDataStore((state) => state.setSelectedStock);
   const setStockReturnContext = useAppDataStore((state) => state.setStockReturnContext);
 
-  const openSurgeStock = async (stock: StockDetail) => {
-    setRightPanelTab('stock');
-    setStockReturnContext({ tab: 'surge', code: stock.code });
+  const openSurgeStock = async (stock: StockDetail, surgeId?: string) => {
+    setStockReturnContext({ tab: 'surge', code: stock.code, id: surgeId });
     setSelectedStock(stock);
+    setRightPanelTab('stock');
     try {
-      setSelectedStock(await getStocksenseApi().getStockDetail(stock.code));
+      const detail = await getStocksenseApi().getStockDetail(stock.code);
+      setSelectedStock({
+        ...stock,
+        ...detail,
+        name: detail.name === detail.code ? stock.name : detail.name,
+        industry: detail.industry ?? stock.industry,
+      });
     } catch (error: unknown) {
       console.error(error);
     }
@@ -77,7 +83,8 @@ export function StockDetailPanel() {
         <StockSurgePanel
           isActive={!isRightPanelCollapsed}
           returnCode={stockReturnContext?.tab === 'surge' ? stockReturnContext.code : undefined}
-          onOpenStock={(stock) => void openSurgeStock(stock)}
+          returnId={stockReturnContext?.tab === 'surge' ? stockReturnContext.id : undefined}
+          onOpenStock={(stock, surgeId) => void openSurgeStock(stock, surgeId)}
           onClearReturnCode={() => setStockReturnContext(undefined)}
         />
       ) : null}

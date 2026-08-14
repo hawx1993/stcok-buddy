@@ -1,7 +1,7 @@
 import type { ChipDistribution, IChipDistributionResult, IStockFundFlowSnapshot, KlinePoint, StockDetail, StockSurgeEvent } from '../../../src/shared/types.js';
 import { getMarketDataSyncStatus } from '../market-data/market-data-sync.js';
 import { queryHistoricalBars, queryLatestQuote } from '../market-data/market-data-query.js';
-import { getLatestDailyBar, getStockChip, listDailyBars, listLatestMarketRows } from '../market-data/market-data-store.js';
+import { getLatestDailyBar, getStockChipCacheRecord, listDailyBars, listLatestMarketRows } from '../market-data/market-data-store.js';
 import { remoteMarketStatus } from '../market-data/providers.js';
 import { getChipDistribution, getStockFundFlowSnapshot, listStockSurgeEvents } from '../stock/stock-client.js';
 import type { IBaiduKline, ITdxTransactionRow, ITencentQuote } from '../stock/a-stock-data-runner.js';
@@ -201,9 +201,12 @@ interface IChipDistributionSummary {
   concentration90?: number;
 }
 
-interface IStockChipDistributionLocalFirstOutput {
+export interface IStockChipDistributionLocalFirstOutput {
   source: 'duckdb:market' | 'stock-sdk' | 'a-stock-data';
   storage: 'local' | 'remote';
+  freshness: 'current' | 'fallback';
+  fetchedAt?: string;
+  sourceTrace: string[];
   symbol: string;
   latest?: ChipDistribution;
   recent: IChipDistributionSummary[];
@@ -245,37 +248,64 @@ export const getStockChipDistributionLocalFirst: AgentTool<
     const record = asRecord(input);
     const symbol = text(record, 'symbol').trim();
     const days = safePositiveInt(num(record, 'days', 5), 5, 120);
-    const warnings: string[] = [];
-    const localChip = await getStockChip(symbol);
-    if (isChipDistributionResult(localChip)) {
-      const recent = localChip.distributions.slice(-days).map(summarizeChipDistribution);
-      return {
-        source: 'duckdb:market',
-        storage: 'local',
-        symbol,
-        latest: localChip.latest,
-        recent,
-        trend: localChip.trend,
-        warnings: localChip.warnings ?? [],
-        isEmpty: !localChip.latest && recent.length === 0,
-      };
+    const sourceTrace: string[] = [];
+    const now = Date.now();
+
+    try {
+      const cacheRecord = await getStockChipCacheRecord(symbol);
+      if (cacheRecord && isChipCacheFresh(cacheRecord.fetchedAt, now)) {
+        const localChip = cacheRecord.data;
+        if (isChipDistributionResult(localChip)) {
+          const recent = localChip.distributions.slice(-days).map(summarizeChipDistribution);
+          const isEmpty = !localChip.latest && recent.length === 0;
+          return {
+            source: 'duckdb:market',
+            storage: 'local',
+            freshness: 'current',
+            fetchedAt: cacheRecord.fetchedAt,
+            sourceTrace: localChip.warnings ?? [],
+            symbol,
+            latest: localChip.latest,
+            recent,
+            trend: localChip.trend,
+            warnings: isEmpty ? ['本地 DuckDB 筹码缓存没有有效分布数据'] : [],
+            isEmpty,
+          };
+        }
+        sourceTrace.push('本地 DuckDB 筹码缓存格式无效，已尝试远程真实数据源');
+      } else if (cacheRecord) {
+        sourceTrace.push(`本地 DuckDB 筹码缓存已超过 5 天（${cacheRecord.fetchedAt}），已刷新远程真实数据源`);
+      } else {
+        sourceTrace.push('本地 DuckDB 暂无该股票筹码缓存，已尝试远程真实数据源');
+      }
+    } catch (error) {
+      sourceTrace.push(`本地 DuckDB 筹码读取失败：${formatError(error)}`);
     }
-    warnings.push('本地 DuckDB 暂无该股票筹码缓存，已尝试 stock-sdk / a-stock-data 真实数据源');
 
     const remoteChip = await getChipDistribution(symbol);
     const recent = remoteChip.distributions.slice(-days).map(summarizeChipDistribution);
+    const isEmpty = !remoteChip.latest && recent.length === 0;
     return {
       source: remoteChip.source,
       storage: 'remote',
+      freshness: 'current',
+      fetchedAt: new Date().toISOString(),
+      sourceTrace: [...sourceTrace, ...(remoteChip.warnings ?? [])],
       symbol,
       latest: remoteChip.latest,
       recent,
       trend: remoteChip.trend,
-      warnings: [...warnings, ...(remoteChip.warnings ?? [])],
-      isEmpty: !remoteChip.latest && recent.length === 0,
+      warnings: isEmpty ? ['远程筹码数据源未返回有效分布数据'] : [],
+      isEmpty,
     };
   },
 };
+
+function isChipCacheFresh(fetchedAt: string, now: number): boolean {
+  const fetchedAtMs = Date.parse(fetchedAt);
+  const age = now - fetchedAtMs;
+  return Number.isFinite(fetchedAtMs) && age >= 0 && age < 5 * 24 * 60 * 60_000;
+}
 
 interface IStockSurgeEventsLocalFirstInput {
   symbol: string;

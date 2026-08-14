@@ -4,6 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { renderMarkdownContent } from '../markdown';
 
 describe('renderMarkdownContent', () => {
+  it('renders blockquote syntax as a blockquote element', () => {
+    const html = renderMarkdownContent('> 引用内容', { disclaimer: false });
+
+    expect(html).toContain('<blockquote>');
+    expect(html).toContain('<p>引用内容</p>');
+  });
+
   it('links stock names in markdown tables with stock metadata', () => {
     const html = renderMarkdownContent('| 名称 | 涨跌幅 |\n| --- | --- |\n| 宁德时代 | +2.35% |', {
       disclaimer: false,

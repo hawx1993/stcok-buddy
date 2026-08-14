@@ -326,6 +326,12 @@ describe('数据状态', () => {
     expect(useAppDataStore.getState().stockKlines['600000']).toEqual(KLINE_2026_08_03);
   });
 
+  it('异动返回上下文应保存具体异动项 id', () => {
+    useAppDataStore.getState().setStockReturnContext({ tab: 'surge', code: '600000', id: 'surge-2' });
+
+    expect(useAppDataStore.getState().stockReturnContext).toEqual({ tab: 'surge', code: '600000', id: 'surge-2' });
+  });
+
   it('选择板块时应清空个股选择和返回上下文', () => {
     useAppDataStore.getState().setSelectedStock({ code: '600000', name: '浦发银行' });
     useAppDataStore.getState().setStockReturnContext({ tab: 'stock', code: '600000' });

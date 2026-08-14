@@ -8,7 +8,7 @@ import type {
   StockSurgeEvent,
 } from '../../../src/shared/types.js';
 import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/market-time.js';
-import { isRemoteTradingDay, previousRemoteTradingDay } from '../market-data/providers.js';
+import { isRemoteTradingDay } from '../market-data/providers.js';
 import { listBoardConstituents, listLatestMarketRows, listMarketBoards } from '../market-data/market-data-store.js';
 import type { MarketBoardRecord } from '../market-data/types.js';
 import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from './format.js';
@@ -221,60 +221,52 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     return localEvents;
   }
 
-  // No local cache yet: resolve the trading dates, then fetch from remote.
-  const tradeDate = formatIsoDate(new Date());
-  const tradeDates = await resolveLatestTradeDates(tradeDate, 6);
-  if (!tradeDates.includes(tradeDate)) return [];
+  return firstAvailableSurgeEvents(symbol);
+}
 
-  const [historyResult, currentResult] = await Promise.allSettled([
-    withTimeoutReject(
-      sdk.marketEvent.individualChangesHistory(symbol, { days: 6 }),
-      6_000,
-      'individual changes timeout',
-    ),
-    withTimeoutReject(listSurgeHot(), 6_000, 'surge hot timeout'),
+type TSurgeEventSource = 'history' | 'current';
+
+async function firstAvailableSurgeEvents(symbol: string): Promise<StockSurgeEvent[]> {
+  const historyPromise = withTimeoutReject(
+    sdk.marketEvent.individualChangesHistory(symbol, { days: 6 }),
+    6_000,
+    'individual changes timeout',
+  )
+    .then((history) => toIndividualHistoryEvents(history, symbol))
+    .catch((error: unknown) => {
+      console.warn('[surge] individual history fetch failed', symbol, error);
+      return [];
+    });
+  void historyPromise.then((events) => {
+    if (events.length) {
+      void saveIndividualSurgeHistory(events).catch((error: unknown) =>
+        console.warn('[hot-focus] save individual surge history failed', error),
+      );
+    }
+  });
+
+  const pending = new Map<TSurgeEventSource, Promise<StockSurgeEvent[]>>([
+    ['history', historyPromise],
+    [
+      'current',
+      withTimeoutReject(listSurgeHot(), 3_000, 'surge hot timeout')
+        .then((items) => mergeSurgeEvents(symbol, [], items))
+        .catch(() => []),
+    ],
   ]);
-  if (historyResult.status === 'rejected' && currentResult.status === 'rejected') {
-    return [];
-  }
 
-  const historyEvents =
-    historyResult.status === 'fulfilled' ? toIndividualHistoryEvents(historyResult.value, symbol) : [];
-  if (historyEvents.length) {
-    saveIndividualSurgeHistory(historyEvents).catch((err) =>
-      console.warn('[hot-focus] save individual surge history failed', err),
+  while (pending.size) {
+    const result = await Promise.race(
+      Array.from(pending, ([source, promise]) => promise.then((events) => ({ source, events }))),
+    );
+    pending.delete(result.source);
+    if (!result.events.length) continue;
+    return result.events.sort(
+      (a, b) => b.tradeDate.localeCompare(a.tradeDate) || surgeTimeValue(b.time) - surgeTimeValue(a.time),
     );
   }
 
-  const mergedEvents = mergeSurgeEvents(
-    symbol,
-    historyEvents,
-    currentResult.status === 'fulfilled' ? currentResult.value : [],
-  );
-  return mergedEvents.filter((item) => tradeDates.includes(item.tradeDate));
-}
-
-// ponytail: the trading calendar is stable within a day; cache the resolved
-// dates so the cold path (no cached events yet) pays the sequential calendar
-// network calls at most once per trade date instead of once per stock open.
-let resolvedTradeDatesCache: { key: string; dates: string[]; updatedAt: number } | undefined;
-const RESOLVED_TRADE_DATES_TTL_MS = 6 * 60 * 60 * 1000;
-
-async function resolveLatestTradeDates(tradeDate: string, count: number) {
-  const cached = resolvedTradeDatesCache;
-  if (cached?.key === tradeDate && Date.now() - cached.updatedAt < RESOLVED_TRADE_DATES_TTL_MS) {
-    return cached.dates;
-  }
-  const dates: string[] = [];
-  let cursor = tradeDate;
-  while (dates.length < count) {
-    const isTrading = await isRemoteTradingDay(cursor).catch(() => !isWeekendDate(cursor));
-    if (isTrading) dates.push(cursor);
-    if (dates.length >= count) break;
-    cursor = await previousRemoteTradingDay(cursor).catch(() => previousWeekdayDate(cursor));
-  }
-  resolvedTradeDatesCache = { key: tradeDate, dates, updatedAt: Date.now() };
-  return dates;
+  return [];
 }
 
 function refreshStockSurgeEventsFromRemote(symbol: string) {
@@ -297,20 +289,6 @@ function refreshStockSurgeEventsFromRemote(symbol: string) {
       // current events are already queued by listSurgeHot for batched persistence.
     })
     .catch(() => {});
-}
-
-function isWeekendDate(date: string) {
-  const parsed = new Date(`${date}T00:00:00+08:00`);
-  const day = parsed.getDay();
-  return day === 0 || day === 6;
-}
-
-function previousWeekdayDate(date: string) {
-  const parsed = new Date(`${date}T00:00:00+08:00`);
-  do {
-    parsed.setDate(parsed.getDate() - 1);
-  } while (parsed.getDay() === 0 || parsed.getDay() === 6);
-  return formatIsoDate(parsed);
 }
 
 function mergeSurgeEvents(
@@ -382,11 +360,22 @@ type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
 
 function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEvent.stockChanges>>): HotFocusItem[] {
   return changes
-    .map((item, index) => {
+    .map((item) => {
       const parsed = parseStockChangeInfo(item.changeType, item.info);
       const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType);
       return {
-        id: `surge-${item.changeType}-${item.time}-${item.code}-${index}`,
+        // ponytail: the id must be stable for the same event across captures.
+        // The old `-${index}` suffix changed every poll, so the same event was
+        // stored as dozens of near-identical DuckDB rows. Derive the suffix
+        // from the parsed content instead — identical events then share the
+        // same id and the batched snapshot upsert replaces instead of
+        // accumulating duplicates.
+        id: `surge-${item.changeType}-${item.time}-${item.code}-${stableSurgeIdSuffix([
+          parsed.hands,
+          parsed.price,
+          parsed.pct,
+          parsed.amount,
+        ])}`,
         title: `${item.name} ${item.code}`,
         code: item.code,
         name: item.name,
@@ -400,6 +389,12 @@ function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEven
       } satisfies HotFocusItem;
     })
     .filter(shouldKeepSurgeItem);
+}
+
+function stableSurgeIdSuffix(parts: Array<number | string | undefined>): string {
+  const raw = parts.map((part) => part ?? '').join('-');
+  const sanitized = raw.replace(/[^0-9a-zA-Z.\-]/g, '_');
+  return sanitized || 'x';
 }
 
 function parseStockChangeInfo(type: string | undefined, info: string) {
@@ -509,7 +504,7 @@ function toEastmoneyPoolItem(
   const industry = pickString(row, ['hybk']);
   const firstSeal = formatEastmoneyPoolTime(pickNumber(row, ['fbt', 'yfbt']));
   const lastSeal = formatEastmoneyPoolTime(pickNumber(row, ['lbt']));
-  const eventTime = kind === 'dt' ? '15:00' : firstSeal || lastSeal;
+  const eventTime = firstSeal || lastSeal;
   const details = [
     industry,
     limitDays ? `${limitDays}连板` : '',

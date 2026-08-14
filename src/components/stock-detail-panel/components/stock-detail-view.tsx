@@ -11,7 +11,10 @@ import { Empty } from '../../empty';
 import { KlineModal, StockKlineChart } from '../../kline-chart';
 import { MarketPhasePill } from '../../market-phase-pill';
 import { StockQuickNews } from './stock-quick-news';
+import { createStockSurgePoller } from './stock-surge-refresh';
 import styles from '../index.module.scss';
+
+const STOCK_SURGE_SKELETON_BUDGET_MS = 1_000;
 
 interface IStockDetailViewProps {
   returnToSurge: boolean;
@@ -30,10 +33,13 @@ export function StockDetailView({
   const quoteTimerRef = useRef<number>();
   const stockSurgeSectionRef = useRef<HTMLDivElement>(null);
   const stockSurgeRequestedCodeRef = useRef<string>();
+  const stockSurgeSkeletonTimerRef = useRef<number>();
+  const stockSurgePollerRef = useRef<{ stop(): void }>();
   const [isKlineModalOpen, setKlineModalOpen] = useState(false);
   const [chipsOpen, setChipsOpen] = useState(true);
   const [stockSurgeEvents, setStockSurgeEvents] = useState<StockSurgeEvent[]>([]);
   const [stockSurgeLoading, setStockSurgeLoading] = useState(false);
+  const [stockSurgeSkeletonExpired, setStockSurgeSkeletonExpired] = useState(false);
   const [stockSurgeError, setStockSurgeError] = useState<string>();
   const [stockSurgeVisibleCode, setStockSurgeVisibleCode] = useState<string>();
   const [stockSurgeReloadKey, setStockSurgeReloadKey] = useState(0);
@@ -82,9 +88,11 @@ export function StockDetailView({
   }, [selectedStock?.code, selectedKlineLength]);
 
   useEffect(() => {
+    window.clearTimeout(stockSurgeSkeletonTimerRef.current);
     stockSurgeRequestedCodeRef.current = undefined;
     setStockSurgeEvents([]);
     setStockSurgeLoading(false);
+    setStockSurgeSkeletonExpired(false);
     setStockSurgeError(undefined);
     setStockSurgeVisibleCode(undefined);
     setStockSurgeReloadKey(0);
@@ -115,9 +123,14 @@ export function StockDetailView({
     if (stockSurgeRequestedCodeRef.current === stockCode && stockSurgeReloadKey === 0) return;
     stockSurgeRequestedCodeRef.current = stockCode;
     let alive = true;
+    window.clearTimeout(stockSurgeSkeletonTimerRef.current);
     setStockSurgeEvents([]);
     setStockSurgeLoading(true);
+    setStockSurgeSkeletonExpired(false);
     setStockSurgeError(undefined);
+    stockSurgeSkeletonTimerRef.current = window.setTimeout(() => {
+      if (alive) setStockSurgeSkeletonExpired(true);
+    }, STOCK_SURGE_SKELETON_BUDGET_MS);
     getStocksenseApi()
       .listStockSurgeEvents(stockCode)
       .then((items) => {
@@ -128,12 +141,41 @@ export function StockDetailView({
         setStockSurgeError(error instanceof Error ? error.message : '异动记录加载失败');
       })
       .finally(() => {
+        window.clearTimeout(stockSurgeSkeletonTimerRef.current);
         if (alive) setStockSurgeLoading(false);
       });
     return () => {
       alive = false;
+      window.clearTimeout(stockSurgeSkeletonTimerRef.current);
     };
   }, [selectedStock?.code, stockSurgeReloadKey, stockSurgeVisibleCode]);
+
+  useEffect(() => {
+    stockSurgePollerRef.current?.stop();
+    stockSurgePollerRef.current = undefined;
+    if (!selectedStock?.code || stockSurgeVisibleCode !== selectedStock.code) return;
+
+    const stockCode = selectedStock.code;
+    stockSurgePollerRef.current = createStockSurgePoller({
+      load: () => getStocksenseApi().listStockSurgeEvents(stockCode),
+      onItems: (items) => {
+        const current = useAppDataStore.getState().selectedStock;
+        if (current?.code !== stockCode) return;
+        setStockSurgeEvents(items);
+        setStockSurgeError(undefined);
+      },
+      onError: (error: unknown) => {
+        const current = useAppDataStore.getState().selectedStock;
+        if (current?.code !== stockCode) return;
+        setStockSurgeError(error instanceof Error ? error.message : '异动记录加载失败');
+      },
+    });
+
+    return () => {
+      stockSurgePollerRef.current?.stop();
+      stockSurgePollerRef.current = undefined;
+    };
+  }, [selectedStock?.code, stockSurgeVisibleCode]);
 
   // ponytail: when the user clears surge history from the storage manager,
   // clear local state immediately. If the section has already been viewed,
@@ -176,6 +218,7 @@ export function StockDetailView({
             marketCap: quote.marketCap ?? current.marketCap,
             pe: quote.pe ?? current.pe,
             pb: quote.pb ?? current.pb,
+            industry: quote.industry ?? current.industry,
           });
         })
         .catch((error: unknown) => console.error(error));
@@ -341,6 +384,7 @@ export function StockDetailView({
             <StockSurgeEvents
               events={stockSurgeEvents}
               loading={stockSurgeLoading}
+              skeletonExpired={stockSurgeSkeletonExpired}
               error={stockSurgeError}
               requested={stockSurgeRequested}
             />
@@ -371,12 +415,14 @@ interface IStockSurgeEventsProps {
   events: StockSurgeEvent[];
   loading: boolean;
   requested: boolean;
+  skeletonExpired: boolean;
   error?: string;
 }
 
-function StockSurgeEvents({ events, loading, requested, error }: IStockSurgeEventsProps) {
+function StockSurgeEvents({ events, loading, requested, skeletonExpired, error }: IStockSurgeEventsProps) {
   if (!requested) return <div className={styles['stock-surge-error']}>滚动到此处后加载最近一周异动</div>;
-  if (loading) return <StockSurgeSkeleton />;
+  if (loading && !skeletonExpired) return <StockSurgeSkeleton />;
+  if (loading) return <div className={styles['stock-surge-error']}>正在从真实数据源加载最近一周异动…</div>;
   if (error) return <div className={styles['stock-surge-error']}>{error}</div>;
   if (!events.length) return <Empty text='最近一周暂无异动记录' />;
   const today = new Date().toLocaleDateString('en-CA');

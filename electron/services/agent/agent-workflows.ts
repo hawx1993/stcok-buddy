@@ -521,7 +521,7 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
                 )
               : Promise.resolve(undefined),
             needsChip
-              ? runContextTool<unknown>(ctx, 'getStockChipDistribution', { symbol: ctx.symbol! }, () => undefined)
+              ? runContextTool<unknown>(ctx, 'getStockChipDistributionLocalFirst', { symbol: ctx.symbol!, days: 20 }, () => undefined)
               : Promise.resolve(undefined),
             needsFundFlow
               ? runContextTool<IStockFundFlowSnapshot | undefined>(

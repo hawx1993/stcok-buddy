@@ -20,7 +20,7 @@ import {
 } from '../market-data/market-data-store.js';
 import { countMonitorHistory, countMonitorHistoryByCategory, listMonitorDates, listMonitorHistory } from '../stock/monitor-history-store.js';
 import { largeOrderHands } from '../stock/surge-large-order.js';
-import { listRecentStockSurgeEvents, listStockSurgeEventsByTradeDates, listSurgeDates, listSurgeHistory } from '../stock/surge-history-store.js';
+import { listRecentStockSurgeEvents, listStockSurgeEventsByTradeDates, listSurgeDates, listSurgeHistory, listSurgeHistoryAll } from '../stock/surge-history-store.js';
 import type { AgentTool } from '../tools/types.js';
 
 type TSortBy = 'changePercent' | 'concentration90' | 'amount' | 'turnoverRate';
@@ -195,6 +195,55 @@ function filterSurgeOrders<T extends TSurgeOrderFields>(rows: T[], filter: ISurg
   return rows.filter((item) => {
     if (!matchesSurgeOrderSide(item, filter.side)) return false;
     return filter.minHands === undefined || largeOrderHands(item) >= filter.minHands;
+  });
+}
+
+/** 给每行补上所属交易日，避免多日筛选时模型无法区分样本日期。 */
+function withTradeDate<T>(rows: T[], tradeDate: string): Array<T & { tradeDate: string }> {
+  return rows.map((row) => ({ ...row, tradeDate }));
+}
+
+function surgeOrderTimeValue(time?: string): number {
+  const [hour, minute, second = '0'] = String(time ?? '').split(':');
+  return (Number(hour) || 0) * 3600 + (Number(minute) || 0) * 60 + (Number(second) || 0);
+}
+
+function isBetterSurgeOrderRow(
+  candidate: { id?: string; time?: string; changePercent?: string },
+  current: { id?: string; time?: string; changePercent?: string },
+): boolean {
+  // 优先保留带涨幅的样本（涨幅是后续筛选条件，缺失样本无法判断），
+  // 其次保留时间最新（更接近当前行情）的样本。
+  const candidateHasPct = Boolean(candidate.changePercent?.trim());
+  const currentHasPct = Boolean(current.changePercent?.trim());
+  if (candidateHasPct !== currentHasPct) return candidateHasPct;
+  const candidateTime = surgeOrderTimeValue(candidate.time);
+  const currentTime = surgeOrderTimeValue(current.time);
+  if (candidateTime !== currentTime) return candidateTime > currentTime;
+  return String(candidate.id ?? '').localeCompare(String(current.id ?? '')) > 0;
+}
+
+/**
+ * 全市场按股票聚合大单异动：同一只股票的多次捕获（同一笔大单在不同轮询
+ * 时刻被重复入库，或盘中多次触发）只保留一条最有效的样本，避免模型把同一
+ * 股票当成多只股票输出。
+ */
+function dedupeSurgeOrdersByStock<T extends { code?: string; id?: string; time?: string; changePercent?: string; tradeDate?: string }>(rows: T[]): T[] {
+  const best = new Map<string, T>();
+  for (const row of rows) {
+    if (!row.code) {
+      best.set(`__no-code-${best.size}`, row);
+      continue;
+    }
+    const current = best.get(row.code);
+    if (!current || isBetterSurgeOrderRow(row, current)) best.set(row.code, row);
+  }
+  return Array.from(best.values()).sort((a, b) => {
+    const dateCmp = String(b.tradeDate ?? '').localeCompare(String(a.tradeDate ?? ''));
+    if (dateCmp !== 0) return dateCmp;
+    const timeCmp = surgeOrderTimeValue(b.time) - surgeOrderTimeValue(a.time);
+    if (timeCmp !== 0) return timeCmp;
+    return String(b.id ?? '').localeCompare(String(a.id ?? ''));
   });
 }
 
@@ -549,6 +598,8 @@ export const queryLocalSurgeDuckDB: AgentTool<Record<string, unknown>, ILocalQue
     const code = optionalText(record, 'code');
     const date = optionalText(record, 'date');
     const orderFilter = buildSurgeOrderFilter(record);
+    // 全市场（未指定个股）按手数/方向筛选时，同一股票的多条捕获只保留一条。
+    const aggregateByStock = isSurgeOrderFilterActive(orderFilter) && !code;
     const warnings: string[] = [];
     try {
       if (code) {
@@ -563,8 +614,13 @@ export const queryLocalSurgeDuckDB: AgentTool<Record<string, unknown>, ILocalQue
         return localRows('duckdb:surge', 'stock_surge_events', rows, rows.length ? warnings : emptyWarnings);
       }
       if (date) {
-        const allRows = await listSurgeHistory(date, num(record, 'offset', 0), limit(record, 100, 1000));
-        const rows = filterSurgeOrders(allRows, orderFilter);
+        // 全市场订单/手数筛选必须整日扫描：listSurgeHistory 单页最多返回 100 条
+        // （按时间倒序），当天异动行数超过 100 时只取第一页会漏掉早盘大单。
+        const allRows = isSurgeOrderFilterActive(orderFilter)
+          ? await listSurgeHistoryAll(date)
+          : await listSurgeHistory(date, num(record, 'offset', 0), limit(record, 100, 1000));
+        const dated = withTradeDate(filterSurgeOrders(allRows, orderFilter), date);
+        const rows = (aggregateByStock ? dedupeSurgeOrdersByStock(dated) : dated).slice(0, limit(record, 100, 1000));
         const emptyWarnings = allRows.length
           ? ['本地 surge DuckDB 未查到符合手数/方向条件的该日期异动历史']
           : ['本地 surge DuckDB 未查到该日期异动历史'];
@@ -574,9 +630,11 @@ export const queryLocalSurgeDuckDB: AgentTool<Record<string, unknown>, ILocalQue
         const keepDays = Math.max(1, Math.min(30, Math.floor(num(record, 'keepDays', 7))));
         const dates = await listSurgeDates(keepDays);
         const allRows = (
-          await Promise.all(dates.map((tradeDate) => listSurgeHistory(tradeDate, 0, 1000)))
+          await Promise.all(
+            dates.map(async (tradeDate) => withTradeDate(await listSurgeHistoryAll(tradeDate), tradeDate)),
+          )
         ).flat();
-        const rows = filterSurgeOrders(allRows, orderFilter).slice(0, limit(record, 100, 1000));
+        const rows = dedupeSurgeOrdersByStock(filterSurgeOrders(allRows, orderFilter)).slice(0, limit(record, 100, 1000));
         const emptyWarnings = dates.length
           ? ['本地 surge DuckDB 近期异动历史未查到符合手数/方向条件的样本']
           : ['本地 surge DuckDB 暂无异动历史日期'];

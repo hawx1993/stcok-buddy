@@ -21,6 +21,7 @@ interface IGlobalStockSearchProps {
 
 export function GlobalStockSearch({ open, onOpenChange }: IGlobalStockSearchProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchRequestRef = useRef(0);
   const [searchText, setSearchText] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [marketResults, setMarketResults] = useState<MarketSearchResult[]>([]);
@@ -52,11 +53,12 @@ export function GlobalStockSearch({ open, onOpenChange }: IGlobalStockSearchProp
   }, [open]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(open ? searchText.trim() : ''), 250);
+    const timer = window.setTimeout(() => setDebouncedSearch(open ? searchText.trim() : ''), 300);
     return () => window.clearTimeout(timer);
   }, [open, searchText]);
 
   useEffect(() => {
+    const requestId = ++searchRequestRef.current;
     let alive = true;
     if (!debouncedSearch) {
       setMarketResults([]);
@@ -72,7 +74,8 @@ export function GlobalStockSearch({ open, onOpenChange }: IGlobalStockSearchProp
     const api = getStocksenseApi();
     Promise.allSettled([api.searchStocks(debouncedSearch), api.searchConversations(debouncedSearch)])
       .then(([marketSearch, conversationSearch]) => {
-        if (!alive) return;
+        // 丢弃过期请求的响应：用户快速连续输入时，只采纳最后一次输入的结果
+        if (!alive || requestId !== searchRequestRef.current) return;
         const markets = marketSearch.status === 'fulfilled' ? marketSearch.value : [];
         const conversations = conversationSearch.status === 'fulfilled' ? conversationSearch.value : [];
         setMarketResults(markets);
@@ -83,7 +86,7 @@ export function GlobalStockSearch({ open, onOpenChange }: IGlobalStockSearchProp
         }
       })
       .finally(() => {
-        if (alive) setSearching(false);
+        if (alive && requestId === searchRequestRef.current) setSearching(false);
       });
     return () => {
       alive = false;

@@ -311,4 +311,57 @@ describe('本地 DuckDB Agent 工具', () => {
       expect.objectContaining({ code: '000001' }),
     ]));
   });
+
+  it('全市场按买入手数筛选时整日扫描，不因当日行数超过100条而漏掉早盘特大单', async () => {
+    if (!surgeStore || !tools) throw new Error('modules not loaded');
+
+    // 当日下午 14:30 的 120 条噪声异动会占满单页 100 条上限（按时间倒序），
+    // 早盘 09:35 的特大单买入必须通过整日扫描被找到。
+    const items: HotFocusItem[] = Array.from({ length: 120 }, (_, index) =>
+      createSurgeItem({
+        id: `noise-${index}`,
+        title: `噪声股 ${600000 + index}`,
+        code: String(600000 + index),
+        name: `噪声股${index}`,
+        time: '14:30',
+        amount: '买入5000手',
+        tag: '快速涨幅',
+        description: '快速涨幅',
+      }),
+    );
+    items.push(createSurgeItem({
+      id: 'early-large-buy-000889',
+      title: '中嘉博创 000889',
+      code: '000889',
+      name: '中嘉博创',
+      time: '09:35',
+      amount: '买入1.02万手',
+    }));
+    await surgeStore.saveSurgeSnapshot(items, new Date('2026-08-05T03:31:00.000Z'), '2026-08-05');
+
+    const result = await tools.queryLocalSurgeDuckDB.run({ date: '2026-08-05', side: 'buy', minHands: 10000, limit: 100 });
+
+    expect(result).toMatchObject({ source: 'duckdb:surge', dataset: 'stock_surge_events', isEmpty: false });
+    expect(result.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: '000889', name: '中嘉博创', amount: '买入1.02万手', tradeDate: '2026-08-05' }),
+    ]));
+  });
+
+  it('全市场按买入手数筛选时按股票聚合，同一股票多次特大单只保留最新一条', async () => {
+    if (!surgeStore || !tools) throw new Error('modules not loaded');
+
+    await surgeStore.saveSurgeSnapshot([
+      createSurgeItem({ id: 'buy-1', title: '嘉麟杰 002486', code: '002486', name: '嘉麟杰', time: '10:36:30', amount: '买入1.40万手', changePercent: '+1.66%' }),
+      createSurgeItem({ id: 'buy-2', title: '嘉麟杰 002486', code: '002486', name: '嘉麟杰', time: '10:37:09', amount: '买入1.89万手', changePercent: '+3.32%' }),
+      createSurgeItem({ id: 'buy-3', title: '成都路桥 002628', code: '002628', name: '成都路桥', time: '10:39:57', amount: '买入1.03万手', changePercent: '-0.20%' }),
+    ], new Date('2026-08-05T03:31:00.000Z'), '2026-08-05');
+
+    const result = await tools.queryLocalSurgeDuckDB.run({ date: '2026-08-05', side: 'buy', minHands: 10000, limit: 100 });
+
+    expect(result).toMatchObject({ source: 'duckdb:surge', dataset: 'stock_surge_events', isEmpty: false });
+    expect(result.rows).toHaveLength(2);
+    const jialin = (result.rows ?? []).filter((row) => (row as { code?: string }).code === '002486');
+    expect(jialin).toHaveLength(1);
+    expect(jialin[0]).toMatchObject({ time: '10:37:09', changePercent: '+3.32%', tradeDate: '2026-08-05' });
+  });
 });

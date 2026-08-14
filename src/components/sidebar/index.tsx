@@ -193,7 +193,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
     [checkUpdate, setAboutOpen, setDataSyncOpen, setSettingsOpen, setStorageManagerOpen],
   );
 
-  const query = deferredSearch.toLowerCase();
+  const query = searchOpen ? deferredSearch.trim().toLowerCase() : '';
   const conversationGroups = useMemo(() => {
     const filtered = conversations.filter((item) => {
       const searchText = `${item.title ?? ''}${item.preview ?? ''}`.toLowerCase();
@@ -278,6 +278,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
 
       <ConversationList
         conversationGroups={conversationGroups}
+        emptyText={query ? '无匹配对话' : '暂无会话'}
         activeConversationId={activeConversationId}
         respondingConversationId={respondingConversationId}
         conversationMenuId={conversationMenuId}

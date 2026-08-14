@@ -165,7 +165,13 @@ export function FavoritesPanel({ isActive }: IFavoritesPanelProps) {
     setStockReturnContext({ tab: 'favorites', code: stock.code });
     setSelectedStock(stock);
     try {
-      setSelectedStock(await getStocksenseApi().getStockDetail(stock.code));
+      const detail = await getStocksenseApi().getStockDetail(stock.code);
+      setSelectedStock({
+        ...stock,
+        ...detail,
+        name: detail.name === detail.code ? stock.name : detail.name,
+        industry: detail.industry ?? stock.industry,
+      });
     } catch (error: unknown) {
       console.error(error);
     }

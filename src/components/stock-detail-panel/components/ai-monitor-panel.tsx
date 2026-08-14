@@ -437,7 +437,12 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
     setSelectedStock(snapshot);
     try {
       const detail = await getStocksenseApi().getStockDetail(code);
-      setSelectedStock({ ...snapshot, ...detail, name: detail.name === detail.code ? name : detail.name });
+      setSelectedStock({
+        ...snapshot,
+        ...detail,
+        name: detail.name === detail.code ? name : detail.name,
+        industry: detail.industry ?? snapshot.industry,
+      });
     } catch {
       setSelectedStock(snapshot);
     }

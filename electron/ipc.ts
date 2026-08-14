@@ -184,7 +184,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('conversation:create', () => createConversation());
   ipcMain.handle('conversation:delete', (_event, id: string) => deleteConversation(id));
   ipcMain.handle('conversation:rename', (_event, id: string, title: string) => renameConversation(id, title));
-  ipcMain.handle('conversation:search', (_event, query: string) => searchConversations(query));
+  ipcMain.handle('conversation:search', async (_event, query: string) => searchConversations(query));
   ipcMain.handle('message:list', (_event, conversationId: string, options?: Parameters<typeof listMessages>[1]) =>
     listMessages(conversationId, options),
   );
@@ -242,8 +242,11 @@ export function registerIpcHandlers() {
     return listSurgeDates();
   });
   ipcMain.handle('hot:history', (_event, date: string, offset?: number, limit?: number) => {
+    // Enqueue the local read before starting the scheduler's initial flush so
+    // a pending batch write cannot delay the panel's local-first response.
+    const result = listSurgeHistoryWithBackfill(date, offset, limit, { deferBackfill: true });
     ensureSurgeHistoryCapture();
-    return listSurgeHistoryWithBackfill(date, offset, limit);
+    return result;
   });
   ipcMain.handle('stock:surgeEvents', (_event, code: string) => {
     ensureSurgeHistoryCapture();

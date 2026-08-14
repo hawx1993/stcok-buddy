@@ -1,7 +1,13 @@
 import { BrowserWindow } from '../../electron-runtime.js';
+import { ensureMarketDataRuntime } from './market-data-scheduler.js';
+import { startMarketDataSync } from './market-data-sync.js';
 import { listSecurities } from './market-data-store.js';
 import { ensureSurgeHistoryCapture, isSurgeHistorySchedulerRunning } from '../stock/surge-history-scheduler.js';
-import { clearSurgeHistoryClearMarker } from '../stock/surge-history-store.js';
+import {
+  clearSurgeHistoryClearMarker,
+  getSurgeHistoryFreshness,
+  type ISurgeHistoryFreshness,
+} from '../stock/surge-history-store.js';
 import StockSDK from 'stock-sdk';
 
 const sdk = new StockSDK({
@@ -10,6 +16,9 @@ const sdk = new StockSDK({
 });
 
 const INDIVIDUAL_CONCURRENCY = 2;
+const INDIVIDUAL_HISTORY_BATCH_SIZE = 500;
+const SURGE_HISTORY_STALE_MS = 7 * 24 * 60 * 60 * 1000;
+let surgeHistorySyncInFlight: Promise<void> | undefined;
 
 interface ITaskProgress {
   taskType: string;
@@ -28,7 +37,31 @@ function emitProgress(progress: ITaskProgress) {
   }
 }
 
-export async function syncSurgeHistory() {
+export function syncSurgeHistory() {
+  if (surgeHistorySyncInFlight) return surgeHistorySyncInFlight;
+  const task = runSurgeHistorySync().finally(() => {
+    if (surgeHistorySyncInFlight === task) surgeHistorySyncInFlight = undefined;
+  });
+  surgeHistorySyncInFlight = task;
+  return task;
+}
+
+export async function syncSurgeHistoryIfNeeded(now = new Date()) {
+  ensureSurgeHistoryCapture();
+  const freshness = await getSurgeHistoryFreshness();
+  if (!shouldSyncSurgeHistory(freshness, now)) return false;
+  await syncSurgeHistory();
+  return true;
+}
+
+export function shouldSyncSurgeHistory(freshness: ISurgeHistoryFreshness, now = new Date()) {
+  if (freshness.recordCount <= 0 || !freshness.latestCapturedAt) return true;
+  const latestCapturedAt = new Date(freshness.latestCapturedAt);
+  if (Number.isNaN(latestCapturedAt.getTime())) return true;
+  return now.getTime() - latestCapturedAt.getTime() > SURGE_HISTORY_STALE_MS;
+}
+
+async function runSurgeHistorySync() {
   // ponytail: clearing the marker is required before a resync. The storage
   // manager sets this marker when the user clears surge history so that reads
   // return empty and writes are dropped for 30 minutes; without clearing it,
@@ -48,7 +81,9 @@ export async function syncSurgeHistory() {
   try {
     // Dynamic import to avoid circular deps
     const { listHotFocus, toIndividualHistoryEvents } = await import('../stock/hot-focus.js');
-    const { saveSurgeSnapshot, saveIndividualSurgeHistory } = await import('../stock/surge-history-store.js');
+    const { pruneSurgeHistory, saveSurgeSnapshot, saveIndividualSurgeHistory } = await import('../stock/surge-history-store.js');
+
+    await ensureMarketDataRuntime();
 
     // Phase 1: sync today's general surge snapshot (existing behavior)
     const now = new Date();
@@ -58,43 +93,65 @@ export async function syncSurgeHistory() {
       await saveSurgeSnapshot(items, now);
     }
 
-    // Phase 2: sync individual stock surge history for the past week
-    const codes = [...new Set(items.map((item) => item.code).filter((c): c is string => Boolean(c)))];
+    // Phase 2: sync individual stock surge history for every listed stock.
+    let securities = await listSecurities();
+    if (!securities.length) {
+      await startMarketDataSync(false);
+      securities = await listSecurities();
+    }
+    if (!securities.length) {
+      throw new Error('本地证券列表为空，无法同步个股异动历史');
+    }
+
+    const codes = securities.map((security) => security.symbol);
+    const individualSdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
+    const pendingEvents: Awaited<ReturnType<typeof toIndividualHistoryEvents>> = [];
     let individualTotal = 0;
+    let done = 0;
+    let failed = 0;
 
-    if (codes.length > 0) {
-      let done = 0;
-      const individualSdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
+    const flushIndividualHistory = async (flushAll = false) => {
+      while (pendingEvents.length >= INDIVIDUAL_HISTORY_BATCH_SIZE || (flushAll && pendingEvents.length > 0)) {
+        const batch = pendingEvents.splice(0, flushAll ? pendingEvents.length : INDIVIDUAL_HISTORY_BATCH_SIZE);
+        await saveIndividualSurgeHistory(batch);
+        individualTotal += batch.length;
+      }
+    };
 
-      await runPool(codes, INDIVIDUAL_CONCURRENCY, async (code) => {
+    await runPool(codes, INDIVIDUAL_CONCURRENCY, async (code) => {
+      try {
+        let events: Awaited<ReturnType<typeof toIndividualHistoryEvents>>;
         try {
           const history = await individualSdk.marketEvent.individualChangesHistory(code, { days: 7 });
-          const events = toIndividualHistoryEvents(history, code);
-          if (events.length > 0) {
-            await saveIndividualSurgeHistory(events);
-            individualTotal += events.length;
-          }
+          events = toIndividualHistoryEvents(history, code);
         } catch (error) {
+          failed += 1;
           console.warn(`[data-sync] individual surge history failed for ${code}`, error instanceof Error ? error.message : String(error));
-        } finally {
-          done += 1;
-          emitProgress({
-            taskType: 'surge',
-            status: 'running',
-            processed: 1 + done / codes.length,
-            total: totalPhases,
-            message: `正在同步个股异动历史（${done}/${codes.length}）`,
-          });
+          return;
         }
-      });
-    }
+        pendingEvents.push(...events);
+        await flushIndividualHistory();
+      } finally {
+        done += 1;
+        emitProgress({
+          taskType: 'surge',
+          status: 'running',
+          processed: 1 + done / codes.length,
+          total: totalPhases,
+          message: `正在同步全部个股异动历史（${done}/${codes.length}，失败 ${failed}）`,
+        });
+      }
+    });
+
+    await flushIndividualHistory(true);
+    await pruneSurgeHistory(7);
 
     emitProgress({
       taskType: 'surge',
       status: 'completed',
       processed: totalPhases,
       total: totalPhases,
-      message: `已同步 ${items.length} 条异动记录${individualTotal > 0 ? ` + ${individualTotal} 条个股异动历史` : ''}`,
+      message: `已同步 ${items.length} 条异动记录 + ${individualTotal} 条个股异动历史${failed > 0 ? `（${failed} 只股票失败）` : ''}`,
     });
   } catch (error) {
     emitProgress({

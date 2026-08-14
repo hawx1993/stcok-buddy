@@ -281,7 +281,9 @@ describe('市场数据 DuckDB 存储', () => {
       expect.objectContaining({ tradeDate: '2026-07-09', mainNetInflow: -300 }),
     ]);
     expect(await currentStore.getStockChip('600519')).toEqual(chip);
+    expect(await currentStore.getStockChipCacheRecord('600519')).toMatchObject({ symbol: '600519', data: chip, fetchedAt: expect.any(String) });
     expect(await currentStore.getStockChip('000001')).toBeUndefined();
+    expect(await currentStore.getStockChipCacheRecord('000001')).toBeUndefined();
     expect(await currentStore.listStockChips()).toEqual([
       expect.objectContaining({ symbol: '600519', data: chip, fetchedAt: expect.any(String) }),
     ]);

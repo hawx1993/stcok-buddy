@@ -288,6 +288,17 @@ export function ChatView() {
     }
   };
 
+  const submitComposerInput = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || isSending) return;
+      setInput('');
+      setSelectedSlashIndex(0);
+      void send(trimmed);
+    },
+    [isSending, send],
+  );
+
   // ── scroll handler ───────────────────────────────────────────────────
   const handleMessagesScroll = useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
@@ -391,7 +402,7 @@ export function ChatView() {
                         setInput('');
                         return;
                       }
-                      if (event.key === 'Enter') void send(input);
+                      if (event.key === 'Enter') submitComposerInput(input);
                     }}
                     placeholder={activeCommand.argPlaceholder}
                     autoFocus
@@ -417,7 +428,7 @@ export function ChatView() {
                       setSelectedSlashIndex((value) => Math.max(value - 1, 0));
                       return;
                     }
-                    if (event.key === 'Enter') void send(input);
+                    if (event.key === 'Enter') submitComposerInput(input);
                   }}
                   placeholder='输入 / 打开命令，或直接输入A股股票名称/代码'
                 />
@@ -441,7 +452,7 @@ export function ChatView() {
                 </button>
                 <button
                   className={cx(styles['send-btn'], isSending && styles.sending)}
-                  onClick={isSending ? stopThinking : () => void send(input)}
+                  onClick={isSending ? stopThinking : () => submitComposerInput(input)}
                   type='button'
                   aria-label={isSending ? '暂停思考' : '发送'}
                   title={isSending ? '暂停思考' : '发送'}
