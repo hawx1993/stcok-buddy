@@ -380,4 +380,82 @@ describe('本地 DuckDB Agent 工具', () => {
     expect(jialin).toHaveLength(1);
     expect(jialin[0]).toMatchObject({ time: '10:37:09', changePercent: '+3.32%', tradeDate: '2026-08-05' });
   });
+
+  it('无筹码条件时不再剔除缺少筹码缓存的股票', async () => {
+    if (!marketStore || !tools) throw new Error('modules not loaded');
+
+    await marketStore.upsertSecurities([
+      createSecurity({ symbol: '600519', name: '贵州茅台' }),
+      createSecurity({ symbol: '000001', name: '平安银行', exchange: 'SZ', industry: '银行' }),
+    ]);
+    await marketStore.upsertStockSnapshots([
+      { symbol: '600519', name: '贵州茅台', price: 10.8, changePercent: 6.2, amount: 30_000_000, turnoverRate: 12.3 },
+      { symbol: '000001', name: '平安银行', price: 12.3, changePercent: 6.5, amount: 50_000_000, turnoverRate: 2.1 },
+    ]);
+    // 只有 600519 有筹码缓存，000001 没有 —— 纯换手率/涨幅筛选不应剔除 000001
+    await marketStore.upsertStockChip('600519', createChip(0.145));
+
+    const result = await tools.screenLocalAStocks.run({
+      turnoverRateMin: 10,
+      sortBy: 'turnoverRate',
+      sortOrder: 'desc',
+      limit: 10,
+    });
+
+    expect(result).toMatchObject({ source: 'duckdb:market', storage: 'local', matchedCount: 1, returnedCount: 1, isEmpty: false });
+    expect(result.rows).toEqual([expect.objectContaining({ code: '600519', name: '贵州茅台', turnoverRate: 12.3 })]);
+    expect(result.rows[0].concentration90Percent).toBeCloseTo(14.5);
+  });
+
+  it('按换手率区间筛选本地股票（含无筹码缓存股票）', async () => {
+    if (!marketStore || !tools) throw new Error('modules not loaded');
+
+    await marketStore.upsertSecurities([
+      createSecurity({ symbol: '600519', name: '贵州茅台' }),
+      createSecurity({ symbol: '000001', name: '平安银行', exchange: 'SZ', industry: '银行' }),
+      createSecurity({ symbol: '002001', name: '新和成', exchange: 'SZ', industry: '化工' }),
+    ]);
+    await marketStore.upsertStockSnapshots([
+      { symbol: '600519', name: '贵州茅台', price: 10.8, changePercent: 1.2, amount: 30_000_000, turnoverRate: 3.2 },
+      { symbol: '000001', name: '平安银行', price: 12.3, changePercent: 1.5, amount: 50_000_000, turnoverRate: 15.5 },
+      { symbol: '002001', name: '新和成', price: 18.2, changePercent: 1.1, amount: 20_000_000, turnoverRate: 25.1 },
+    ]);
+
+    const result = await tools.screenLocalAStocks.run({
+      turnoverRateMin: 10,
+      turnoverRateMax: 20,
+      sortBy: 'turnoverRate',
+      sortOrder: 'desc',
+      limit: 10,
+    });
+
+    expect(result).toMatchObject({ matchedCount: 1, returnedCount: 1, isEmpty: false });
+    expect(result.rows).toEqual([expect.objectContaining({ code: '000001', name: '平安银行', turnoverRate: 15.5 })]);
+  });
+
+  it('查询 stock_snapshot 数据集返回含市值与换手率的快照', async () => {
+    if (!marketStore || !tools) throw new Error('modules not loaded');
+
+    await marketStore.upsertStockSnapshots([
+      { symbol: '600519', name: '贵州茅台', price: 10.8, changePercent: 1.2, amount: 30_000_000, turnoverRate: 3.2, totalMarketCap: 20_000_000_000, circulatingMarketCap: 20_000_000_000 },
+      { symbol: '000001', name: '平安银行', price: 12.3, changePercent: 1.5, amount: 50_000_000, turnoverRate: 15.5, totalMarketCap: 30_000_000_000, circulatingMarketCap: 25_000_000_000 },
+    ]);
+
+    const result = await tools.queryLocalMarketDuckDB.run({ dataset: 'stock_snapshot', limit: 100 });
+
+    expect(result).toMatchObject({ source: 'duckdb:market', dataset: 'stock_snapshot', isEmpty: false });
+    expect(result.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: '600519', name: '贵州茅台', turnoverRate: 3.2, marketCapYi: 200 }),
+      expect.objectContaining({ code: '000001', name: '平安银行', turnoverRate: 15.5, marketCapYi: 300 }),
+    ]));
+  });
+
+  it('未知数据集返回告警而不是静默降级', async () => {
+    if (!tools) throw new Error('modules not loaded');
+
+    const result = await tools.queryLocalMarketDuckDB.run({ dataset: 'not_a_real_dataset', limit: 100 });
+
+    expect(result).toMatchObject({ dataset: 'not_a_real_dataset', isEmpty: true });
+    expect(result.warnings.join('；')).toContain('不在白名单内');
+  });
 });

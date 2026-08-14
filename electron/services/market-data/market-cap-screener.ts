@@ -18,6 +18,8 @@ export type TMarketCapDataSource = 'duckdb' | 'stock-sdk' | 'a-stock-data';
 export interface IMarketCapScreenInput {
   minMarketCap?: number;
   maxMarketCap?: number;
+  turnoverRateMin?: number;
+  turnoverRateMax?: number;
   unit?: TMarketCapUnit;
   marketCapField?: TMarketCapField;
   limit?: number;
@@ -49,6 +51,8 @@ export interface IMarketCapScreenResult {
   marketCapField: TMarketCapField;
   minMarketCap?: number;
   maxMarketCap?: number;
+  turnoverRateMin?: number;
+  turnoverRateMax?: number;
   unit: 'yuan';
   rows: IMarketCapScreenRow[];
   matchedCount: number;
@@ -179,6 +183,7 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
 
   const matched = [...resolved.values()]
     .filter((row) => passesRange(row.marketCap, options.minMarketCap, options.maxMarketCap))
+    .filter((row) => passesTurnoverRange(row.turnoverRate, options.turnoverRateMin, options.turnoverRateMax))
     .sort((left, right) => options.sortOrder === 'asc' ? left.marketCap - right.marketCap : right.marketCap - left.marketCap);
 
   const rows = matched.slice(0, options.limit);
@@ -191,7 +196,7 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
 
   if (!totalCandidates) warnings.push('未获取到全市场 A 股候选列表，无法完成 5000+ 股票市值筛选');
   if (sourceStats.missingMarketCap > 0) warnings.push(`${sourceStats.missingMarketCap} 只 A 股缺少可用${marketCapFieldLabel(options.marketCapField)}，未纳入市值筛选`);
-  if (!matched.length) warnings.push('未找到符合市值区间的 A 股');
+  if (!matched.length) warnings.push('未找到同时符合市值区间与换手率条件的 A 股');
 
   return {
     source: 'duckdb+stock-sdk+a-stock-data',
@@ -199,6 +204,8 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
     marketCapField: options.marketCapField,
     minMarketCap: options.minMarketCap,
     maxMarketCap: options.maxMarketCap,
+    turnoverRateMin: options.turnoverRateMin,
+    turnoverRateMax: options.turnoverRateMax,
     unit: 'yuan',
     rows,
     matchedCount: matched.length,
@@ -210,18 +217,25 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
   };
 }
 
-function normalizeInput(input: IMarketCapScreenInput): Required<Pick<IMarketCapScreenInput, 'marketCapField' | 'limit' | 'includeST' | 'sortOrder'>> & Pick<IMarketCapScreenInput, 'minMarketCap' | 'maxMarketCap'> {
+function normalizeInput(input: IMarketCapScreenInput): Required<Pick<IMarketCapScreenInput, 'marketCapField' | 'limit' | 'includeST' | 'sortOrder'>> & Pick<IMarketCapScreenInput, 'minMarketCap' | 'maxMarketCap' | 'turnoverRateMin' | 'turnoverRateMax'> {
   const unit = input.unit ?? 'yi';
   const minMarketCap = normalizeBound(input.minMarketCap, unit);
   const maxMarketCap = normalizeBound(input.maxMarketCap, unit);
   return {
     minMarketCap,
     maxMarketCap,
+    turnoverRateMin: normalizeTurnoverBound(input.turnoverRateMin),
+    turnoverRateMax: normalizeTurnoverBound(input.turnoverRateMax),
     marketCapField: input.marketCapField === 'circulating' ? 'circulating' : 'total',
     limit: Math.max(1, Math.min(MAX_LIMIT, Math.floor(input.limit ?? DEFAULT_LIMIT))),
     includeST: input.includeST === true,
     sortOrder: input.sortOrder === 'desc' ? 'desc' : 'asc',
   };
+}
+
+function normalizeTurnoverBound(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return undefined;
+  return Math.max(0, value);
 }
 
 function normalizeBound(value: number | undefined, unit: TMarketCapUnit) {
@@ -373,6 +387,12 @@ function selectMarketCap(
 function passesRange(value: number, min?: number, max?: number) {
   if (min !== undefined && value < min) return false;
   if (max !== undefined && value > max) return false;
+  return true;
+}
+
+function passesTurnoverRange(value: number | undefined, min?: number, max?: number) {
+  if (min !== undefined && (value === undefined || value < min)) return false;
+  if (max !== undefined && (value === undefined || value > max)) return false;
   return true;
 }
 

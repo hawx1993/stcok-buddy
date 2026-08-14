@@ -55,6 +55,14 @@ function summarizeToolResult(value: unknown): string {
   return (text ?? '').slice(0, 4000) || '（空结果）';
 }
 
+/** 选股类工具结果使用逐行紧凑汇总，避免 4000 字符截断导致模型只看到部分股票。 */
+function summarizeToolResultForScreening(toolName: string, value: unknown): string {
+  if (toolName === 'screenASharesByMarketCap' || toolName === 'screenLocalAStocks') {
+    return summarizeScreeningRows(value);
+  }
+  return summarizeToolResult(value);
+}
+
 /**
  * 全市场大单筛选结果的行数可能达到几十上百条，JSON 全文会在 4000 字符处被
  * 截断，模型只能看到一部分股票。改为紧凑的“日期 代码 名称 时间 手数 涨幅”
@@ -73,6 +81,31 @@ function summarizeSurgeRowsForMarketWide(value: unknown): string {
     return [date, code, name, time, amount, changePercent].filter(Boolean).join(' ');
   });
   return `共 ${rows.length} 条符合大单买入（不低于10000手）的同源异动样本（每行：日期 代码 名称 时间 手数 涨幅）：\n${lines.join('\n')}`.slice(0, 20_000);
+}
+
+/**
+ * 全市场选股（市值/换手率/筹码/涨跌幅）结果可能上百行，JSON 会在 4000 字符处
+ * 被截断导致模型只能看到前几十行。改为紧凑的“代码 名称 市值 换手率 涨幅”逐行
+ * 输出，并先给出 matchedCount/returnedCount 与警告，确保模型能看到全部命中样本。
+ */
+function summarizeScreeningRows(value: unknown): string {
+  const record = asRecord(value);
+  const rows = readRows(value);
+  if (!rows.length) return summarizeToolResult(value);
+  const matchedCount = readNumberField(value, 'matchedCount');
+  const returnedCount = readNumberField(value, 'returnedCount');
+  const warnings = Array.isArray(record?.warnings) ? (record.warnings as unknown[]).map(String) : [];
+  const header = `共 ${matchedCount ?? rows.length} 只股票符合条件，本次返回 ${returnedCount ?? rows.length} 只（每行：代码 名称 市值 换手率 涨幅）：`;
+  const lines = rows.map((row) => {
+    const code = readStockCode(row) ?? '--';
+    const name = readTextField(row, 'name') ?? '';
+    const marketCapText = readTextField(row, 'marketCapText') ?? '';
+    const turnoverRate = readNumberField(row, 'turnoverRate');
+    const changePercent = readNumberField(row, 'changePercent');
+    return [code, name, marketCapText, turnoverRate !== undefined ? `换手${turnoverRate}%` : '', changePercent !== undefined ? `涨跌${changePercent}%` : ''].filter(Boolean).join(' ');
+  });
+  const warningText = warnings.length ? `\n注意：${warnings.join('；')}` : '';
+  return `${header}${warningText}\n${lines.join('\n')}`.slice(0, 20_000);
 }
 
 function buildLocalPrecheckMessage(result: unknown): string {
@@ -363,7 +396,7 @@ export async function agenticAStockDataAnswer(ctx: IAgentContext): Promise<strin
     messages.push({ role: 'assistant', content: response });
     messages.push({
       role: 'user',
-      content: `工具 ${call.tool} 返回结果：\n${summarizeToolResult(result)}`,
+      content: `工具 ${call.tool} 返回结果：\n${summarizeToolResultForScreening(call.tool, result)}`,
     });
   }
 

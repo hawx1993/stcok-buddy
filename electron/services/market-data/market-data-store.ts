@@ -525,6 +525,59 @@ export async function listLatestMarketRows() {
   });
 }
 
+export async function listStockSnapshots(limit = 5000) {
+  return read(async (connection) => {
+    const safeLimit = Math.max(1, Math.min(10000, Math.floor(limit)));
+    const rows = await all<Record<string, unknown>>(
+      connection,
+      `
+      SELECT
+        symbol,
+        name,
+        price,
+        change,
+        change_percent,
+        open,
+        high,
+        low,
+        prev_close,
+        volume,
+        amount,
+        turnover_rate,
+        pe,
+        pb,
+        total_market_cap,
+        circulating_market_cap,
+        amplitude,
+        fetched_at::VARCHAR AS fetched_at
+      FROM stock_snapshots
+      ORDER BY symbol
+      LIMIT ${safeLimit}
+      `,
+    );
+    return rows.map((row) => ({
+      symbol: String(row.symbol),
+      name: String(row.name),
+      price: optionalNumber(row.price),
+      change: optionalNumber(row.change),
+      changePercent: optionalNumber(row.change_percent),
+      open: optionalNumber(row.open),
+      high: optionalNumber(row.high),
+      low: optionalNumber(row.low),
+      prevClose: optionalNumber(row.prev_close),
+      volume: optionalNumber(row.volume),
+      amount: optionalNumber(row.amount),
+      turnoverRate: optionalNumber(row.turnover_rate),
+      pe: optionalNumber(row.pe),
+      pb: optionalNumber(row.pb),
+      totalMarketCap: optionalNumber(row.total_market_cap),
+      circulatingMarketCap: optionalNumber(row.circulating_market_cap),
+      amplitude: optionalNumber(row.amplitude),
+      fetchedAt: optionalString(row.fetched_at),
+    }));
+  });
+}
+
 export async function listDailyBars(
   symbol: string,
   options: { startDate?: string; endDate?: string; limit?: number; adjustType: AdjustType },

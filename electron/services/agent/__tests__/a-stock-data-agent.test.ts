@@ -139,6 +139,15 @@ describe('A_STOCK_DATA_TOOLBOX', () => {
     expect(screen?.description).toContain('a-stock-data');
   });
 
+  it('市值筛选与本地筛选工具描述支持换手率过滤', () => {
+    const marketCap = A_STOCK_DATA_TOOLBOX.find((tool) => tool.name === 'screenASharesByMarketCap');
+    const local = A_STOCK_DATA_TOOLBOX.find((tool) => tool.name === 'screenLocalAStocks');
+    expect(marketCap?.description).toContain('turnoverRateMin');
+    expect(marketCap?.description).toContain('换手率大于10%');
+    expect(local?.description).toContain('turnoverRateMin');
+    expect(local?.description).toContain('换手率大于10%');
+  });
+
   it('个股异动工具描述覆盖订单和手数场景', () => {
     const surge = A_STOCK_DATA_TOOLBOX.find((tool) => tool.name === 'getStockSurgeEventsLocalFirst');
     expect(surge?.description).toContain('订单');
@@ -343,5 +352,49 @@ describe('agenticAStockDataAnswer 复合选股预取', () => {
     expect(mockedGenerateReport).toHaveBeenCalledTimes(2);
     const rewriteMessages = mockedGenerateReport.mock.calls.at(-1)?.[0] ?? [];
     expect(JSON.stringify(rewriteMessages)).toContain('不能把内部约束当作数据缺口原因');
+  });
+
+  it('市值筛选工具结果以紧凑逐行汇总呈现，不截断全部命中样本', async () => {
+    const context: IAgentContext = {
+      query: '帮我选出市值在100亿到500亿且换手率大于10%的个股',
+      intent: 'a-stock-data-agent',
+      urls: [],
+      evidence: [],
+      toolCalls: [],
+      findings: [],
+      emitEvent: vi.fn(),
+    };
+
+    const longNames = Array.from({ length: 100 }, (_, index) => `测试股${String(index).padStart(3, '0')}`);
+    mockedCallTool.mockImplementation(async (toolName, input) => {
+      if (toolName === 'queryLocalDuckDBData') return record(toolName, { rows: [], isEmpty: true }, input);
+      if (toolName === 'screenASharesByMarketCap') {
+        return record(toolName, {
+          rows: longNames.map((name, index) => ({
+            code: String(600000 + index),
+            name,
+            marketCapYi: 100 + index,
+            marketCapText: `${100 + index}亿`,
+            turnoverRate: 10 + (index % 5),
+          })),
+          matchedCount: 100,
+          returnedCount: 100,
+          isEmpty: false,
+        }, input);
+      }
+      return record(toolName, { rows: [], isEmpty: true }, input);
+    });
+    mockedGenerateReport
+      .mockResolvedValueOnce('{"tool":"screenASharesByMarketCap","input":{"minMarketCap":100,"maxMarketCap":500,"unit":"yi","marketCapField":"total","turnoverRateMin":10}}')
+      .mockResolvedValueOnce('最终回答');
+
+    await agenticAStockDataAnswer(context);
+
+    const secondCallMessages = mockedGenerateReport.mock.calls[1]?.[0] ?? [];
+    const serialized = JSON.stringify(secondCallMessages);
+    // 紧凑逐行汇总必须包含全部 100 只样本与命中计数，而不是被 4000 字符截断
+    expect(serialized).toContain('共 100 只股票符合条件');
+    expect(serialized).toContain('600099 测试股099');
+    expect(serialized).toContain('换手');
   });
 });

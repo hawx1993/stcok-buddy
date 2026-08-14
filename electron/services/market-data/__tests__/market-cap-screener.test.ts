@@ -163,4 +163,39 @@ describe('A股市值筛选服务', () => {
     expect(result.warnings.join('；')).toContain('stock-sdk 未返回市值');
     expect(result.warnings.join('；')).toContain('a-stock-data 未返回市值');
   });
+
+  it('支持换手率区间二次过滤', async () => {
+    setMarketCapScreenerDependenciesForTest({
+      listLocalRows: vi.fn().mockResolvedValue([
+        row({ symbol: '600001', name: '高换手', totalMarketCap: 20_000_000_000, turnoverRate: 12.5 }),
+        row({ symbol: '600002', name: '低换手', totalMarketCap: 20_000_000_000, turnoverRate: 3.2 }),
+        row({ symbol: '600003', name: '无换手', totalMarketCap: 20_000_000_000 }),
+      ]),
+      listRemoteSecurities: vi.fn().mockResolvedValue(emptyRemoteSecurities),
+      upsertSnapshots: vi.fn(),
+    });
+
+    const result = await screenASharesByMarketCap({ minMarketCap: 100, maxMarketCap: 500, unit: 'yi', turnoverRateMin: 10 });
+
+    expect(result.rows.map((item) => item.code)).toEqual(['600001']);
+    expect(result.matchedCount).toBe(1);
+    expect(result.turnoverRateMin).toBe(10);
+  });
+
+  it('换手率上限过滤与下限同用时按区间取交集', async () => {
+    setMarketCapScreenerDependenciesForTest({
+      listLocalRows: vi.fn().mockResolvedValue([
+        row({ symbol: '600001', name: '换手15', totalMarketCap: 20_000_000_000, turnoverRate: 15 }),
+        row({ symbol: '600002', name: '换手25', totalMarketCap: 20_000_000_000, turnoverRate: 25 }),
+        row({ symbol: '600003', name: '换手35', totalMarketCap: 20_000_000_000, turnoverRate: 35 }),
+      ]),
+      listRemoteSecurities: vi.fn().mockResolvedValue(emptyRemoteSecurities),
+      upsertSnapshots: vi.fn(),
+    });
+
+    const result = await screenASharesByMarketCap({ minMarketCap: 100, maxMarketCap: 500, unit: 'yi', turnoverRateMin: 10, turnoverRateMax: 30 });
+
+    expect(result.rows.map((item) => item.code)).toEqual(['600001', '600002']);
+    expect(result.matchedCount).toBe(2);
+  });
 });

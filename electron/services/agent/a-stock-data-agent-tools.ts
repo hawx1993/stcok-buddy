@@ -29,11 +29,11 @@ export const A_STOCK_DATA_TOOLBOX: IToolSpec[] = [
   },
   {
     name: 'screenLocalAStocks',
-    description: '全市场本地筛选 A 股，优先用于选股/条件筛选/筹码+涨幅组合筛选，输入 {changePercentMin?, concentration90Max?, concentration70Max?, chipLookbackDays?, chipMatchMode?, limit?, sortBy?, sortOrder?}。例如最近5天90%筹码集中度均<20%：{chipLookbackDays:5, chipMatchMode:"all", concentration90Max:20}。',
+    description: '全市场本地筛选 A 股，优先用于选股/条件筛选/筹码+涨幅组合筛选，支持换手率区间过滤，输入 {changePercentMin?, changePercentMax?, turnoverRateMin?, turnoverRateMax?, concentration90Max?, concentration70Max?, chipLookbackDays?, chipMatchMode?, limit?, sortBy?, sortOrder?}。例如最近5天90%筹码集中度均<20%：{chipLookbackDays:5, chipMatchMode:"all", concentration90Max:20}；换手率大于10%：{turnoverRateMin:10}。',
   },
   {
     name: 'screenASharesByMarketCap',
-    description: '按市值区间全市场筛选 5000+ A 股，使用 DuckDB → stock-sdk → a-stock-data 获取真实总市值/流通市值，输入 {minMarketCap?, maxMarketCap?, unit?, marketCapField?, limit?, includeST?, sortOrder?}。例如市值在30亿到100亿：{minMarketCap:30,maxMarketCap:100,unit:"yi",marketCapField:"total"}；流通市值50亿以下：{maxMarketCap:50,unit:"yi",marketCapField:"circulating"}。',
+    description: '按市值区间全市场筛选 5000+ A 股，使用 DuckDB → stock-sdk → a-stock-data 获取真实总市值/流通市值，支持换手率区间过滤，输入 {minMarketCap?, maxMarketCap?, turnoverRateMin?, turnoverRateMax?, unit?, marketCapField?, limit?, includeST?, sortOrder?}。全市场筛选请传大 limit（如 500）避免只返回部分结果。例如市值在30亿到100亿：{minMarketCap:30,maxMarketCap:100,unit:"yi",marketCapField:"total",limit:500}；市值100亿到500亿且换手率大于10%：{minMarketCap:100,maxMarketCap:500,unit:"yi",marketCapField:"total",turnoverRateMin:10,limit:500}；流通市值50亿以下：{maxMarketCap:50,unit:"yi",marketCapField:"circulating",limit:500}。',
   },
   {
     name: 'queryLocalMarketDuckDB',
