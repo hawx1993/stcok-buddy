@@ -8,7 +8,12 @@ import { registerIpcHandlers } from './ipc.js';
 import { closeMarketDataInstance, closeMarketDataStore } from './services/market-data/market-data-store.js';
 import { ensureMarketDataRuntime, shutdownMarketDataScheduler, stopMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
-import { shutdownSurgeHistoryScheduler, stopSurgeHistoryScheduler, waitForSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
+import {
+  ensureSurgeHistoryCapture,
+  shutdownSurgeHistoryScheduler,
+  stopSurgeHistoryScheduler,
+  waitForSurgeHistoryScheduler,
+} from './services/stock/surge-history-scheduler.js';
 import { stopDiscoveryRefreshLoop } from './services/stock/discovery-service.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
 import { closeSurgeHistoryInstance, closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
@@ -18,6 +23,7 @@ import {
   waitForMonitorHistoryScheduler,
 } from './services/stock/monitor-history-scheduler.js';
 import { closeMonitorHistoryInstance, closeMonitorHistoryStore } from './services/stock/monitor-history-store.js';
+import { syncSurgeHistoryIfNeeded } from './services/market-data/data-sync-handlers.js';
 import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
 import { checkAppUpdate, setInstallUpdateHandler } from './services/update-service.js';
 import { app, BrowserWindow, shell } from './electron-runtime.js';
@@ -178,8 +184,16 @@ app.whenReady().then(() => {
     console.warn('[market-data] runtime initialization failed', error);
   });
   startMonitorHistoryScheduler();
+  // ponytail: keep the 个股异动 (stock surge) feed captured in the background
+  // for as long as the app is open, regardless of whether the right-panel tab
+  // is open — so reopening the panel later shows the whole session's history
+  // from DuckDB instead of only events captured after the panel opened.
+  ensureSurgeHistoryCapture();
   registerIpcHandlers();
   createWindow();
+  void syncSurgeHistoryIfNeeded().catch((error: unknown) => {
+    console.warn('[surge-history] startup sync check failed', error);
+  });
   const updateCheckTimer = setTimeout(() => {
     void checkAppUpdate({ silent: true });
   }, 5000);

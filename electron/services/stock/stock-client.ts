@@ -41,6 +41,7 @@ import {
   onMarketPageSnapshotUpdated,
   refreshQuoteCache,
   getAllMarketQuoteRows,
+  resolveStockIndustry,
 } from './market-page.js';
 
 export { getBoardDetail, getMarketPageSnapshot, getAllMarketQuoteRows, onMarketPageSnapshotUpdated };
@@ -795,16 +796,17 @@ async function searchEastmoneyStocks(query: string): Promise<MarketQuoteRow[]> {
 }
 
 export async function getStockDetail(symbolInput: string): Promise<StockDetail> {
+  const code = normalizeASymbol(symbolInput);
   const local = await getLocalStockDetail(symbolInput).catch(() => undefined);
   if (local) {
     void refreshQuoteCache();
-    if (!hasLimitedRating(local.rating)) return local;
+    if (!hasLimitedRating(local.rating)) return enrichStockDetailIndustry(local, code);
     const enriched = await getRemoteStockDetail(symbolInput).catch(() => undefined);
-    return enriched ? { ...enriched, kline: local.kline?.length ? local.kline : enriched.kline } : local;
+    const detail = enriched ? { ...enriched, kline: local.kline?.length ? local.kline : enriched.kline } : local;
+    return enrichStockDetailIndustry(detail, code);
   }
 
   const remote: StockDetail = await getRemoteStockDetail(symbolInput).catch((error: unknown): StockDetail => {
-    const code = normalizeASymbol(symbolInput);
     return {
       code,
       name: code,
@@ -818,13 +820,23 @@ export async function getStockDetail(symbolInput: string): Promise<StockDetail> 
   // 本地没有时由渲染层 K 线组件自行走「本地优先 + 远程回写」链路加载
   if (!remote.kline?.length) {
     try {
-      const localBars = await listDailyBars(normalizeASymbol(symbolInput), { limit: 140, adjustType: 'qfq' });
+      const localBars = await listDailyBars(code, { limit: 140, adjustType: 'qfq' });
       if (localBars.length) remote.kline = localBars.map(dailyBarToKline);
     } catch {
       /* keep existing */
     }
   }
-  return remote;
+  return enrichStockDetailIndustry(remote, code);
+}
+
+async function enrichStockDetailIndustry(detail: StockDetail, code: string): Promise<StockDetail> {
+  try {
+    const industry = await resolveStockIndustry(code, detail.industry);
+    return industry && industry !== detail.industry ? { ...detail, industry } : detail;
+  } catch (error) {
+    console.warn('[stock] resolve stock industry failed', code, error);
+    return detail;
+  }
 }
 
 async function getRemoteStockDetail(symbolInput: string): Promise<StockDetail> {

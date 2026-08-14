@@ -111,22 +111,21 @@ function runAll(sql: string, params?: unknown) {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, input.limit);
   }
-  if (sql.includes('FROM messages m') && sql.includes('JOIN conversations')) {
+  if (sql.includes('FROM messages_fts')) {
     const input = params as { like: string; limit: number };
     return dbState.messages
       .filter((row) => matchesLike(row.payload, input.like))
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))
       .slice(0, input.limit)
-      .flatMap((messageRow) => {
-        const conversation = dbState.conversations.find((item) => item.id === messageRow.conversationId);
-        return conversation
-          ? [{
-              ...conversation,
-              messageId: messageRow.id,
-              messageCreatedAt: messageRow.createdAt,
-              payload: messageRow.payload,
-            }]
-          : [];
+      .map((messageRow) => {
+        const message = JSON.parse(messageRow.payload) as ChatMessage;
+        return {
+          conversationId: messageRow.conversationId,
+          messageCreatedAt: messageRow.createdAt,
+          messageId: messageRow.id,
+          role: message.role,
+          content: message.content,
+        };
       });
   }
   return [];
@@ -228,7 +227,7 @@ describe('会话内容搜索', () => {
     store!.renameConversation(conversation.id, '贵州茅台复盘');
     store!.saveMessage(conversation.id, message('msg-1', 'user', '分析白酒板块资金变化'));
 
-    const results = store!.searchConversations('茅台');
+    const results = await store!.searchConversations('茅台');
 
     expect(results[0]).toEqual(expect.objectContaining({
       kind: 'conversation',
@@ -243,7 +242,7 @@ describe('会话内容搜索', () => {
     store!.saveMessage(conversation.id, message('msg-1', 'user', '帮我分析低空经济题材'));
     store!.saveMessage(conversation.id, message('msg-2', 'assistant', 'AI 结论：低空经济需要结合资金流验证'));
 
-    const results = store!.searchConversations('低空经济');
+    const results = await store!.searchConversations('低空经济');
 
     expect(results).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'message', role: 'user', messageId: 'msg-1' }),
@@ -259,8 +258,8 @@ describe('会话内容搜索', () => {
       toolCalls: [{ id: 'tool-1', toolName: 'secretTool', input: {}, startedAt: '2026-08-05T00:00:00.000Z' }],
     });
 
-    expect(store!.searchConversations('')).toEqual([]);
-    const [result] = store!.searchConversations('正文关键词');
+    expect(await store!.searchConversations('')).toEqual([]);
+    const [result] = await store!.searchConversations('正文关键词');
 
     expect(result.snippet).toContain('正文关键词');
     expect(result.snippet).not.toContain('secretTool');

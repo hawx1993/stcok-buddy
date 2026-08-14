@@ -74,10 +74,16 @@ vi.mock('../monitor-service.js', () => ({
   getMonitorFeed: vi.fn(),
 }));
 
+vi.mock('../shared.js', async () => {
+  const actual = await vi.importActual<typeof import('../shared.js')>('../shared.js');
+  return { ...actual, getCachedMarketBoardRows: vi.fn() };
+});
+
 import { isRemoteTradingDay, listRemoteTradingCalendar } from '../../market-data/providers.js';
 import { getConfig } from '../../config-store.js';
 import { chatWithOpenAICompatible } from '../../llm/openai-compatible-client.js';
 import { listMarketBoards, writeDiscoverySnapshot } from '../../market-data/market-data-store.js';
+import { getCachedMarketBoardRows } from '../shared.js';
 import { getMarketReview, scoreSentiment } from '../market-review-service.js';
 import { listEastmoneySurgeByDate } from '../stock-client.js';
 import { listSurgeDates, listSurgeHistory } from '../surge-history-store.js';
@@ -91,6 +97,8 @@ import {
   buildDiscoveryHistoryLoadingSnapshotForTest,
   buildDiscoveryOpportunityRadarForTest,
   buildHistoricalOpportunityStockRadarForTest,
+  patchMarketSummaryWithRealtimeBoardQuotesForTest,
+  patchOpportunityRadarStocksWithRealtimeQuotesForTest,
   buildHistoricalSectorsFromPoolsForTest,
   buildMarketSummaryForTest,
   buildOpportunityStockRadarForTest,
@@ -127,6 +135,7 @@ const mockedListRemoteTradingCalendar = vi.mocked(listRemoteTradingCalendar);
 const mockedGetConfig = vi.mocked(getConfig);
 const mockedChatWithOpenAICompatible = vi.mocked(chatWithOpenAICompatible);
 const mockedListMarketBoards = vi.mocked(listMarketBoards);
+const mockedGetCachedMarketBoardRows = vi.mocked(getCachedMarketBoardRows);
 const mockedWriteDiscoverySnapshot = vi.mocked(writeDiscoverySnapshot);
 const mockedGetMarketReview = vi.mocked(getMarketReview);
 const mockedScoreSentiment = vi.mocked(scoreSentiment);
@@ -175,6 +184,8 @@ beforeEach(() => {
   mockedListEastmoneySurgeByDate.mockResolvedValue([]);
   mockedListMarketBoards.mockReset();
   mockedListMarketBoards.mockResolvedValue([]);
+  mockedGetCachedMarketBoardRows.mockReset();
+  mockedGetCachedMarketBoardRows.mockResolvedValue([]);
   mockedListSurgeDates.mockReset();
   mockedListSurgeDates.mockResolvedValue([]);
   mockedListSurgeHistory.mockReset();
@@ -260,6 +271,27 @@ describe('本地板块匹配工具', () => {
     expect(reconcileSectorsWithLocalBoardsForTest([{ code: 'missing', name: '不存在', changePercent: 1, mainNetInflow: 0 }], catalog)).toEqual([
       { code: 'missing', name: '不存在', changePercent: 1, mainNetInflow: 0 },
     ]);
+  });
+
+  it('使用实时板块报价更新板块雷达涨跌幅并重算资金涨幅比', () => {
+    const result = patchMarketSummaryWithRealtimeBoardQuotesForTest(
+      {
+        indices: [],
+        mainFundFlow: null,
+        northFundFlow: null,
+        limitUp: 0,
+        limitDown: 0,
+        sentimentBar: 50,
+        sectors: [{ code: 'BK0001', name: '机器人板块', changePercent: 8.8, mainNetInflow: 10 }],
+        opportunityRadar: [{ code: 'BK0001', name: '机器人板块', ratio: 1.14, changePercent: 8.8, mainNetInflow: 10 }],
+        monthlyThemes: [],
+        nextWeekSectors: [],
+      },
+      [{ code: 'BK0001', name: '机器人', changePercent: 1.25, minutes: [] }],
+    );
+
+    expect(result.sectors[0]).toMatchObject({ changePercent: 1.25 });
+    expect(result.opportunityRadar[0]).toMatchObject({ changePercent: 1.25, ratio: 8 });
   });
 
   it('调和板块时按本地代码和归一化名称去重', () => {
@@ -1035,11 +1067,15 @@ describe('发现页股票和资金流工具', () => {
         updatedAt: '2026-08-04T10:00:00.000Z',
       },
     ]);
+    mockedGetCachedMarketBoardRows.mockResolvedValue([
+      { code: 'BK0001', name: '低位板块', changePercent: 0.7, minutes: [] },
+      { code: 'BK0002', name: '强势板块', changePercent: 1.4, minutes: [] },
+    ]);
 
     const summary = await buildMarketSummaryForTest(undefined, [], '2026-08-04', true);
 
     expect(summary?.sectors.map((sector) => sector.name)).toEqual(['强势板块', '低位板块']);
-    expect(summary?.sectors[0]).toMatchObject({ code: 'BK0002', changePercent: 2.6, amount: 360_000_000 });
+    expect(summary?.sectors[0]).toMatchObject({ code: 'BK0002', changePercent: 1.4, amount: 360_000_000 });
   });
 
   it('板块涨跌幅超过10%时用真实成分股当日涨跌幅均值校准板块强弱', async () => {
@@ -1166,6 +1202,40 @@ describe('发现页股票和资金流工具', () => {
       expect.objectContaining({ code: '600100', name: '监控股A', price: 10.86, changePercent: 3.2, amount: 180_000_000 }),
     ]);
     expect(radar.some((item) => item.code === '600102')).toBe(false);
+  });
+
+  it('缓存机会雷达个股使用实时行情覆盖历史涨跌幅', () => {
+    const stocks = patchOpportunityRadarStocksWithRealtimeQuotesForTest(
+      [{ code: '002354', name: '天娱数科', reason: '大单买入', price: 8.32, changePercent: 0, amount: 332_083, score: 1 }],
+      new Map([['002354', { code: '002354', name: '天娱数科', price: 8.32, changePercent: '-0.60%' }]]),
+    );
+
+    expect(stocks[0]).toMatchObject({ code: '002354', price: 8.32, changePercent: -0.6 });
+  });
+
+  it('机会雷达优先使用实时行情涨跌幅而不是历史监控事件涨跌幅', () => {
+    const candidates = mergeLargeOrderMonitorCandidatesForTest(
+      [
+        {
+          id: 'mo-large-stale-change',
+          category: 'large-order',
+          timestamp: '2026-08-11T08:00:00.000Z',
+          code: '002354',
+          name: '天娱数科',
+          price: 8.32,
+          changePercent: 0,
+          title: '特大单买入',
+          badge: '大单买入',
+          details: ['历史事件涨跌幅为 0.00%'],
+          aiAnalysis: '测试事件',
+        },
+      ],
+      [{ code: '002354', name: '天娱数科', price: 8.32, changePercent: '-0.60%', amount: 332_083, marketCap: '137亿' }],
+    );
+
+    expect(candidates).toEqual([
+      expect.objectContaining({ code: '002354', changePercent: -0.6, price: 8.32, amount: 332_083 }),
+    ]);
   });
 
   it('机会雷达候选少于10条时不应用90%筹码集中度过滤', () => {

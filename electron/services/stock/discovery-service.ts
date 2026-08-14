@@ -27,6 +27,7 @@ import type { IHotThemeLeader } from './discovery-hot-themes.js';
 import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from './discovery-market-summary.js';
 import { getMonitorFeed } from './monitor-service.js';
 import { getBoardDetail } from './board-detail.js';
+import { getCachedMarketBoardRows } from './shared.js';
 import type {
   HotFocusItem,
   IChipDistributionResult,
@@ -79,6 +80,7 @@ type TStockItem = {
   industry?: string;
 };
 type TRealtimeQuote = Awaited<ReturnType<typeof getBatchQuotes>>[number];
+type TRealtimeBoardQuote = Awaited<ReturnType<typeof getCachedMarketBoardRows>>[number];
 type TDailyDragonTigerGroup = Awaited<ReturnType<typeof listDragonTigerByDate>>;
 type TDailyDragonTigerInstitutionItem = NonNullable<TDailyDragonTigerGroup['institutions']>[number];
 type TDiscoveryDragonTigerItem = { code: string; name: string; changePercent?: number; netBuy: number; reason: string };
@@ -748,8 +750,94 @@ function addQuoteCode(codes: Set<string>, code?: string) {
   if (code && /^\d{6}$/.test(code)) codes.add(code);
 }
 
+function boardQuoteNameKey(name: string) {
+  return normalizeBoardLookupName(name).toLowerCase();
+}
+
+type TRealtimeBoardQuoteMaps = {
+  byCode: Map<string, TRealtimeBoardQuote>;
+  byName: Map<string, TRealtimeBoardQuote>;
+};
+
+function buildRealtimeBoardQuoteMaps(rows: TRealtimeBoardQuote[]): TRealtimeBoardQuoteMaps {
+  const byCode = new Map<string, TRealtimeBoardQuote>();
+  const byName = new Map<string, TRealtimeBoardQuote>();
+  rows.forEach((row) => {
+    if (row.code) byCode.set(row.code, row);
+    if (row.name) byName.set(boardQuoteNameKey(row.name), row);
+  });
+  return { byCode, byName };
+}
+
+function findRealtimeBoardQuote(
+  item: Pick<ISectorSummary, 'code' | 'name'>,
+  maps: TRealtimeBoardQuoteMaps,
+) {
+  return maps.byCode.get(item.code) ?? maps.byName.get(boardQuoteNameKey(item.name));
+}
+
+function patchSectorsWithRealtimeBoardQuotes(
+  sectors: ISectorSummary[],
+  rows: TRealtimeBoardQuote[],
+): ISectorSummary[] {
+  const maps = buildRealtimeBoardQuoteMaps(rows);
+  return sectors.map((sector) => {
+    const changePercent = numericStringValue(findRealtimeBoardQuote(sector, maps)?.changePercent);
+    return changePercent === undefined ? sector : { ...sector, changePercent };
+  });
+}
+
+function patchOpportunityRadarBoardsWithRealtimeQuotes(
+  boards: IOpportunityRadarItem[],
+  rows: TRealtimeBoardQuote[],
+): IOpportunityRadarItem[] {
+  const maps = buildRealtimeBoardQuoteMaps(rows);
+  return boards.map((board) => {
+    const changePercent = numericStringValue(findRealtimeBoardQuote(board, maps)?.changePercent);
+    if (changePercent === undefined) return board;
+    const absChangePercent = Math.abs(changePercent) || 0.01;
+    return {
+      ...board,
+      changePercent,
+      ratio: board.mainNetInflow / absChangePercent,
+    };
+  });
+}
+
+function patchMarketSummaryWithRealtimeBoardQuotes(
+  summary: IMarketSummary,
+  rows: TRealtimeBoardQuote[],
+): IMarketSummary {
+  if (!rows.length) return summary;
+  return {
+    ...summary,
+    sectors: patchSectorsWithRealtimeBoardQuotes(summary.sectors, rows),
+    opportunityRadar: patchOpportunityRadarBoardsWithRealtimeQuotes(summary.opportunityRadar, rows),
+  };
+}
+
+export const patchMarketSummaryWithRealtimeBoardQuotesForTest = patchMarketSummaryWithRealtimeBoardQuotes;
+
+function patchOpportunityRadarStocksWithRealtimeQuotes(
+  stocks: IOpportunityStockRadarItem[],
+  quoteByCode: Map<string, TRealtimeQuote>,
+): IOpportunityStockRadarItem[] {
+  return stocks.map((stock) => {
+    const quote = quoteByCode.get(stock.code);
+    if (!quote) return stock;
+    return {
+      ...stock,
+      price: numericStringValue(quote.price) ?? stock.price,
+      changePercent: parseChgPct(quote.changePercent) ?? stock.changePercent,
+    };
+  });
+}
+
+export const patchOpportunityRadarStocksWithRealtimeQuotesForTest = patchOpportunityRadarStocksWithRealtimeQuotes;
+
 function collectRealtimeQuoteCodes(snapshot: IDiscoverySnapshot): string[] {
   const codes = new Set<string>();
+  snapshot.opportunityRadar?.stocks.forEach((item) => addQuoteCode(codes, item.code));
   snapshot.watchlistQuotes?.forEach((item) => addQuoteCode(codes, item.code));
   snapshot.limitUps?.forEach((item) => addQuoteCode(codes, item.code));
   snapshot.sentimentStocks?.zt.forEach((item) => addQuoteCode(codes, item.code));
@@ -777,19 +865,24 @@ function patchStockItemQuote<
 }
 
 async function withRealtimeQuoteFields(snapshot: IDiscoverySnapshot): Promise<IDiscoverySnapshot> {
-  const [indicesResult, stockQuotesResult] = await Promise.allSettled([
+  const shouldRefreshBoardQuotes = snapshot.tradeDate === formatShanghaiDateKey(new Date());
+  const [indicesResult, stockQuotesResult, boardQuotesResult] = await Promise.allSettled([
     fetchAllIndices(),
     (async () => {
       const codes = collectRealtimeQuoteCodes(snapshot);
       return codes.length ? getBatchQuotes(codes) : [];
     })(),
+    shouldRefreshBoardQuotes ? getCachedMarketBoardRows(true) : Promise.resolve([] as TRealtimeBoardQuote[]),
   ]);
 
   const realtimeIndices = indicesResult.status === 'fulfilled' ? indicesResult.value : undefined;
+  const realtimeBoardQuotes = boardQuotesResult.status === 'fulfilled' ? boardQuotesResult.value : [];
   if (indicesResult.status === 'rejected')
     console.warn('[discovery] failed to refresh cached index quotes', indicesResult.reason);
   if (stockQuotesResult.status === 'rejected')
     console.warn('[discovery] failed to refresh cached stock quotes', stockQuotesResult.reason);
+  if (boardQuotesResult.status === 'rejected')
+    console.warn('[discovery] failed to refresh cached board quotes', boardQuotesResult.reason);
 
   const quoteByCode = new Map(
     (stockQuotesResult.status === 'fulfilled' ? stockQuotesResult.value : []).map((quote) => [quote.code, quote]),
@@ -818,7 +911,25 @@ async function withRealtimeQuoteFields(snapshot: IDiscoverySnapshot): Promise<ID
     }
   }
 
+  if (realtimeBoardQuotes.length) {
+    if (next.marketSummary) {
+      next.marketSummary = patchMarketSummaryWithRealtimeBoardQuotes(next.marketSummary, realtimeBoardQuotes);
+    }
+    if (snapshot.opportunityRadar) {
+      next.opportunityRadar = {
+        ...snapshot.opportunityRadar,
+        boards: patchOpportunityRadarBoardsWithRealtimeQuotes(snapshot.opportunityRadar.boards, realtimeBoardQuotes),
+      };
+    }
+  }
+
   if (quoteByCode.size) {
+    if (next.opportunityRadar) {
+      next.opportunityRadar = {
+        ...next.opportunityRadar,
+        stocks: patchOpportunityRadarStocksWithRealtimeQuotes(next.opportunityRadar.stocks, quoteByCode),
+      };
+    }
     next.watchlistQuotes = snapshot.watchlistQuotes?.map((item) => patchStockItemQuote(item, quoteByCode));
     next.limitUps = snapshot.limitUps?.map((item) => patchStockItemQuote(item, quoteByCode));
     next.sentimentStocks = snapshot.sentimentStocks
@@ -2383,7 +2494,7 @@ function mergeLargeOrderMonitorCandidates(
       name: event.name,
       title: event.title,
       price: quote?.price ?? event.price,
-      changePercent,
+      changePercent: numericStringValue(quote?.changePercent) ?? changePercent,
       amount: numericStringValue(quote?.amount),
       marketCap: marketCap ?? undefined,
     };
@@ -3006,7 +3117,17 @@ async function buildMarketSummary(
     enrichInvalidSectorChangePercents(reconciledSectors, boardCatalog),
     DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
   ) ?? reconciledSectors;
-  const reliableSectors = sectorsWithChangePercents.filter((sector) => isReliableSectorChangePercent(sector.changePercent));
+  const realtimeBoardRows = useCurrentBoardFallback
+    ? await withOptionalTimeout(
+      'current board quotes',
+      getCachedMarketBoardRows(true),
+      DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS,
+    ) ?? []
+    : [];
+  const sectorsWithRealtimeQuotes = realtimeBoardRows.length
+    ? patchSectorsWithRealtimeBoardQuotes(sectorsWithChangePercents, realtimeBoardRows)
+    : sectorsWithChangePercents;
+  const reliableSectors = sectorsWithRealtimeQuotes.filter((sector) => isReliableSectorChangePercent(sector.changePercent));
   const sectorsWithFlows = await withOptionalTimeout(
     'sector main net inflow enrichment',
     enrichMissingSectorMainNetInflows(reliableSectors, boardCatalog),

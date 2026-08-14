@@ -30,6 +30,7 @@ export interface IAiMonitorReturnState {
 export interface IStockReturnContext {
   tab: RightPanelTab;
   code: string;
+  id?: string;
   aiMonitor?: IAiMonitorReturnState;
 }
 

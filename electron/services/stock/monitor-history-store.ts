@@ -337,11 +337,41 @@ function withDb<T>(work: () => Promise<T>) {
 function enqueueDbOperation<T>(work: () => Promise<T>) {
   const next = queue.then(async () => {
     if (isClosing) throw new Error('monitor history store is closing');
-    await ensureReady();
-    return work();
+    try {
+      await ensureReady();
+      return await work();
+    } catch (error) {
+      if (!isDuckDbFatalInvalidation(error)) throw error;
+      await recoverMonitorHistoryStoreAfterFatal(error);
+      await ensureReady();
+      return work();
+    }
   });
   queue = next.then(() => undefined, () => undefined);
   return next;
+}
+
+function isDuckDbFatalInvalidation(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('database has been invalidated')
+    || message.includes('The database must be restarted prior to being used again')
+    || message.includes('Failed to delete all rows from index')
+  );
+}
+
+async function recoverMonitorHistoryStoreAfterFatal(error: unknown) {
+  console.warn('[monitor-history] resetting DuckDB instance after fatal invalidation', error);
+  try {
+    if (dbReady) {
+      const instance = await dbReady;
+      instance.closeSync();
+    }
+  } catch (closeError) {
+    console.warn('[monitor-history] failed to close invalid DuckDB instance', closeError);
+  }
+  ready = undefined;
+  dbReady = DuckDBInstance.create(dbPath);
 }
 
 function exec(sql: string) {

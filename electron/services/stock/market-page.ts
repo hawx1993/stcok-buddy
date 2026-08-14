@@ -175,6 +175,33 @@ async function loadEastmoneyIndustryMapForRows(rows: MarketQuoteRow[]): Promise<
   );
 }
 
+export async function resolveStockIndustry(code: string, currentIndustry?: string): Promise<string | undefined> {
+  const normalizedCurrent = normalizeIndustryName(currentIndustry);
+  if (normalizedCurrent) return normalizedCurrent;
+  const symbol = code.replace(/^(sh|sz|bj)/i, '').replace(/^\D+/, '');
+  if (!/^\d{6}$/.test(symbol)) return undefined;
+
+  const localIndustryMap = await loadSecuritiesIndustryMap().catch(() => new Map<string, string>());
+  const localIndustry = normalizeIndustryName(localIndustryMap.get(symbol));
+  if (localIndustry) return localIndustry;
+
+  const [rowIndustryMap, boardIndustryMap] = await Promise.all([
+    withTimeoutReject(
+      loadEastmoneyIndustryMapForRows([{ code: symbol, name: symbol }]),
+      FAST_INDUSTRY_ENRICH_TIMEOUT_MS,
+      '个股行业映射加载超时',
+    ).catch(() => new Map<string, string>()),
+    withTimeoutReject(loadIndustryMapFromBoardApi(), FAST_INDUSTRY_ENRICH_TIMEOUT_MS, '板块行业映射加载超时').catch(
+      () => new Map<string, string>(),
+    ),
+  ]);
+  const industry = normalizeIndustryName(rowIndustryMap.get(symbol)) ?? normalizeIndustryName(boardIndustryMap.get(symbol));
+  if (industry) {
+    updateSecurityIndustries([{ symbol, industry }]).catch((err) => console.warn('[market] persist stock industry failed', err));
+  }
+  return industry;
+}
+
 async function enrichMarketPageRows(rows: MarketQuoteRow[], tab: MarketTab): Promise<MarketQuoteRow[]> {
   if (!rows.length || rows.every((row) => normalizeIndustryName(row.industry))) return rows;
   const [localIndustryMap, eastmoneyIndustryMap, rowIndustryMap, boardIndustryMap] = await Promise.all([

@@ -221,29 +221,52 @@ export async function listStockSurgeEvents(symbolInput: string): Promise<StockSu
     return localEvents;
   }
 
-  // No local cache yet: ask stock-sdk for the per-stock recent history directly.
-  // Do not block the detail panel on trading-calendar resolution or whole-market
-  // hot-list queries; those are only used as a final same-day supplement.
-  const historyResult = await withTimeoutReject(
+  return firstAvailableSurgeEvents(symbol);
+}
+
+type TSurgeEventSource = 'history' | 'current';
+
+async function firstAvailableSurgeEvents(symbol: string): Promise<StockSurgeEvent[]> {
+  const historyPromise = withTimeoutReject(
     sdk.marketEvent.individualChangesHistory(symbol, { days: 6 }),
     6_000,
     'individual changes timeout',
-  ).catch((error: unknown) => {
-    console.warn('[surge] individual history fetch failed', symbol, error);
-    return undefined;
+  )
+    .then((history) => toIndividualHistoryEvents(history, symbol))
+    .catch((error: unknown) => {
+      console.warn('[surge] individual history fetch failed', symbol, error);
+      return [];
+    });
+  void historyPromise.then((events) => {
+    if (events.length) {
+      void saveIndividualSurgeHistory(events).catch((error: unknown) =>
+        console.warn('[hot-focus] save individual surge history failed', error),
+      );
+    }
   });
-  const historyEvents = historyResult ? toIndividualHistoryEvents(historyResult, symbol) : [];
-  if (historyEvents.length) {
-    saveIndividualSurgeHistory(historyEvents).catch((err) =>
-      console.warn('[hot-focus] save individual surge history failed', err),
+
+  const pending = new Map<TSurgeEventSource, Promise<StockSurgeEvent[]>>([
+    ['history', historyPromise],
+    [
+      'current',
+      withTimeoutReject(listSurgeHot(), 3_000, 'surge hot timeout')
+        .then((items) => mergeSurgeEvents(symbol, [], items))
+        .catch(() => []),
+    ],
+  ]);
+
+  while (pending.size) {
+    const result = await Promise.race(
+      Array.from(pending, ([source, promise]) => promise.then((events) => ({ source, events }))),
     );
-    return historyEvents.sort(
+    pending.delete(result.source);
+    if (!result.events.length) continue;
+    return result.events.sort(
       (a, b) => b.tradeDate.localeCompare(a.tradeDate) || surgeTimeValue(b.time) - surgeTimeValue(a.time),
     );
   }
 
-  const currentItems = await withTimeoutReject(listSurgeHot(), 3_000, 'surge hot timeout').catch(() => []);
-  return mergeSurgeEvents(symbol, [], currentItems);
+  return [];
 }
 
 function refreshStockSurgeEventsFromRemote(symbol: string) {
@@ -337,11 +360,22 @@ type EastmoneyPoolKind = 'zt' | 'zb' | 'dt';
 
 function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEvent.stockChanges>>): HotFocusItem[] {
   return changes
-    .map((item, index) => {
+    .map((item) => {
       const parsed = parseStockChangeInfo(item.changeType, item.info);
       const reason = formatStockChangeReason(item.changeTypeLabel, item.changeType);
       return {
-        id: `surge-${item.changeType}-${item.time}-${item.code}-${index}`,
+        // ponytail: the id must be stable for the same event across captures.
+        // The old `-${index}` suffix changed every poll, so the same event was
+        // stored as dozens of near-identical DuckDB rows. Derive the suffix
+        // from the parsed content instead — identical events then share the
+        // same id and the batched snapshot upsert replaces instead of
+        // accumulating duplicates.
+        id: `surge-${item.changeType}-${item.time}-${item.code}-${stableSurgeIdSuffix([
+          parsed.hands,
+          parsed.price,
+          parsed.pct,
+          parsed.amount,
+        ])}`,
         title: `${item.name} ${item.code}`,
         code: item.code,
         name: item.name,
@@ -355,6 +389,12 @@ function toStockChangeHotItems(changes: Awaited<ReturnType<typeof sdk.marketEven
       } satisfies HotFocusItem;
     })
     .filter(shouldKeepSurgeItem);
+}
+
+function stableSurgeIdSuffix(parts: Array<number | string | undefined>): string {
+  const raw = parts.map((part) => part ?? '').join('-');
+  const sanitized = raw.replace(/[^0-9a-zA-Z.\-]/g, '_');
+  return sanitized || 'x';
 }
 
 function parseStockChangeInfo(type: string | undefined, info: string) {

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import type { HotFocusItem } from '../../../../src/shared/types.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../market-data/providers.js', () => ({
   isRemoteTradingDay: vi.fn(),
@@ -6,6 +7,10 @@ vi.mock('../../market-data/providers.js', () => ({
 
 vi.mock('../stock-client.js', () => ({
   listEastmoneySurgeByDate: vi.fn(),
+}));
+
+vi.mock('../shared.js', () => ({
+  withTimeoutReject: <T>(promise: Promise<T>) => promise,
 }));
 
 vi.mock('../surge-history-store.js', () => ({
@@ -25,32 +30,104 @@ const mockedIsSurgeHistoryClearMarkerActive = vi.mocked(isSurgeHistoryClearMarke
 const mockedListSurgeHistory = vi.mocked(listSurgeHistory);
 const mockedSaveSurgeSnapshot = vi.mocked(saveSurgeSnapshot);
 
+function waitForBackground() {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 describe('异动历史服务', () => {
-  it('非交易日今天不读取本地历史也不回填远端数据', async () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
     mockedIsRemoteTradingDay.mockResolvedValue(false);
     mockedIsSurgeHistoryClearMarkerActive.mockReturnValue(false);
-    mockedListSurgeHistory.mockResolvedValue([
-      { id: 'cached-previous', title: '安记食品 603696', code: '603696', name: undefined, time: '14:50', price: undefined, changePercent: undefined, turnover: undefined, amount: undefined, description: undefined, tag: '封涨停板', type: undefined },
-    ]);
-    mockedListEastmoneySurgeByDate.mockResolvedValue([
-      { id: 'remote-previous', title: '金固股份 002488', code: '002488', name: undefined, time: '14:38', price: undefined, changePercent: undefined, turnover: undefined, amount: undefined, description: undefined, tag: '涨停开板', type: undefined },
-    ]);
-
-    await expect(listSurgeHistoryWithBackfill('2026-08-01', 0, 20)).resolves.toEqual([]);
-    expect(mockedListSurgeHistory).not.toHaveBeenCalled();
-    expect(mockedListEastmoneySurgeByDate).not.toHaveBeenCalled();
-    expect(mockedSaveSurgeSnapshot).not.toHaveBeenCalled();
+    mockedListSurgeHistory.mockResolvedValue([]);
+    mockedListEastmoneySurgeByDate.mockResolvedValue([]);
+    mockedSaveSurgeSnapshot.mockResolvedValue(undefined);
   });
 
-  it('交易日仍优先返回本地缓存', async () => {
+  it('有本地缓存时优先返回且不等待交易日校验', async () => {
     const cached = [{ id: 'cached-today', title: '今日异动', code: '600519', name: undefined, time: '10:01', price: undefined, changePercent: undefined, turnover: undefined, amount: undefined, description: undefined, tag: undefined, type: undefined }];
-    mockedIsRemoteTradingDay.mockResolvedValue(true);
+    mockedIsRemoteTradingDay.mockResolvedValue(false);
     mockedIsSurgeHistoryClearMarkerActive.mockReturnValue(false);
     mockedListSurgeHistory.mockResolvedValue(cached);
 
     await expect(listSurgeHistoryWithBackfill('2026-07-31', 0, 20)).resolves.toEqual(cached);
     expect(mockedListSurgeHistory).toHaveBeenCalledWith('2026-07-31', 0, 20);
+    expect(mockedIsRemoteTradingDay).not.toHaveBeenCalled();
     expect(mockedListEastmoneySurgeByDate).not.toHaveBeenCalled();
+  });
+
+  it('右侧栏 deferred 模式在本地为空时立即返回并后台回填', async () => {
+    let resolveTradingDay: (value: boolean) => void = () => {};
+    const tradingDay = new Promise<boolean>((resolve) => {
+      resolveTradingDay = resolve;
+    });
+    const remote = [
+      { id: 'remote-2026-08-04', title: '贵州茅台 600519', code: '600519', time: '10:02', tag: '快速涨幅', type: 'surge' as const },
+    ];
+    mockedIsRemoteTradingDay.mockReturnValue(tradingDay);
+    mockedIsSurgeHistoryClearMarkerActive.mockReturnValue(false);
+    mockedListSurgeHistory.mockResolvedValue([]);
+    mockedListEastmoneySurgeByDate.mockResolvedValue(remote);
+
+    await expect(listSurgeHistoryWithBackfill('2026-08-04', 0, 20, { deferBackfill: true })).resolves.toEqual([]);
+    expect(mockedIsRemoteTradingDay).toHaveBeenCalledWith('2026-08-04');
+    expect(mockedListEastmoneySurgeByDate).not.toHaveBeenCalled();
+
+    resolveTradingDay(true);
+    await waitForBackground();
+    expect(mockedListEastmoneySurgeByDate).toHaveBeenCalledWith('2026-08-04');
+    expect(mockedSaveSurgeSnapshot).toHaveBeenCalledWith(remote, expect.any(Date), '2026-08-04');
+  });
+
+  it('deferred 回填在非交易日只返回空态且不请求远端', async () => {
+    mockedIsRemoteTradingDay.mockResolvedValue(false);
+    mockedIsSurgeHistoryClearMarkerActive.mockReturnValue(false);
+    mockedListSurgeHistory.mockResolvedValue([]);
+    mockedListEastmoneySurgeByDate.mockResolvedValue([
+      { id: 'remote-previous', title: '金固股份 002488', code: '002488', name: undefined, time: '14:38', price: undefined, changePercent: undefined, turnover: undefined, amount: undefined, description: undefined, tag: '涨停开板', type: undefined },
+    ]);
+
+    await expect(listSurgeHistoryWithBackfill('2026-08-01', 0, 20, { deferBackfill: true })).resolves.toEqual([]);
+    await waitForBackground();
+    expect(mockedListSurgeHistory).toHaveBeenCalledWith('2026-08-01', 0, 20);
+    expect(mockedListEastmoneySurgeByDate).not.toHaveBeenCalled();
+    expect(mockedSaveSurgeSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('deferred 同日期并发请求只启动一次远端回填', async () => {
+    let resolveRemote: (items: HotFocusItem[]) => void = () => {};
+    const remote = new Promise<HotFocusItem[]>((resolve) => {
+      resolveRemote = resolve;
+    });
+    mockedIsRemoteTradingDay.mockResolvedValue(true);
+    mockedIsSurgeHistoryClearMarkerActive.mockReturnValue(false);
+    mockedListSurgeHistory.mockResolvedValue([]);
+    mockedListEastmoneySurgeByDate.mockReturnValue(remote);
+
+    await Promise.all([
+      listSurgeHistoryWithBackfill('2026-08-05', 0, 20, { deferBackfill: true }),
+      listSurgeHistoryWithBackfill('2026-08-05', 0, 20, { deferBackfill: true }),
+    ]);
+    await Promise.resolve();
+    expect(mockedIsRemoteTradingDay).toHaveBeenCalledTimes(1);
+    expect(mockedListEastmoneySurgeByDate).toHaveBeenCalledTimes(1);
+
+    resolveRemote([]);
+    await waitForBackground();
+  });
+
+  it('无本地缓存且非交易日不回填远端数据', async () => {
+    mockedIsRemoteTradingDay.mockResolvedValue(false);
+    mockedIsSurgeHistoryClearMarkerActive.mockReturnValue(false);
+    mockedListSurgeHistory.mockResolvedValue([]);
+    mockedListEastmoneySurgeByDate.mockResolvedValue([
+      { id: 'remote-previous', title: '金固股份 002488', code: '002488', name: undefined, time: '14:38', price: undefined, changePercent: undefined, turnover: undefined, amount: undefined, description: undefined, tag: '涨停开板', type: undefined },
+    ]);
+
+    await expect(listSurgeHistoryWithBackfill('2026-08-01', 0, 20)).resolves.toEqual([]);
+    expect(mockedListSurgeHistory).toHaveBeenCalledWith('2026-08-01', 0, 20);
+    expect(mockedListEastmoneySurgeByDate).not.toHaveBeenCalled();
+    expect(mockedSaveSurgeSnapshot).not.toHaveBeenCalled();
   });
 
   it('返回本地缓存前过滤一万手以下的特大单', async () => {

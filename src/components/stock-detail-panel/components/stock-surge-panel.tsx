@@ -9,9 +9,11 @@ import { Empty } from '../../empty';
 import { MarketPhasePill } from '../../market-phase-pill';
 import cx from '../../../shared/cx';
 import styles from '../index.module.scss';
+import { findSurgeReturnIndex } from './stock-surge-navigation';
 
-const SURGE_PAGE_SIZE = 20;
+const SURGE_PAGE_SIZE = 100;
 const SURGE_ROW_HEIGHT = 70;
+const SURGE_HIGHLIGHT_DURATION_MS = 1_150;
 const surgeFilters = [
   '全部',
   '60日新高',
@@ -30,28 +32,51 @@ type SurgeFilter = (typeof surgeFilters)[number];
 interface IStockSurgePanelProps {
   isActive: boolean;
   returnCode?: string;
-  onOpenStock(stock: StockDetail): void;
+  returnId?: string;
+  onOpenStock(stock: StockDetail, surgeId?: string): void;
   onClearReturnCode(): void;
 }
 
-export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearReturnCode }: IStockSurgePanelProps) {
+interface ISurgePanelCache {
+  filters: SurgeFilter[];
+  hasMore: boolean;
+  items: HotFocusItem[];
+  loadedDate?: string;
+  selectedDate: string;
+}
+
+let surgePanelCache: ISurgePanelCache | undefined;
+
+export function StockSurgePanel({ isActive, returnCode, returnId, onOpenStock, onClearReturnCode }: IStockSurgePanelProps) {
+  const [dateOptions] = useState(() => makeSurgeDateOptions());
+  const cachedSelectedDate = surgePanelCache?.selectedDate;
+  const initialSelectedDate = cachedSelectedDate && dateOptions.includes(cachedSelectedDate) ? cachedSelectedDate : dateOptions[0];
+  const cacheForDate =
+    surgePanelCache?.selectedDate === initialSelectedDate && surgePanelCache.loadedDate === initialSelectedDate
+      ? surgePanelCache
+      : undefined;
+  const cachedItems = cacheForDate?.items ?? [];
   const listRef = useRef<HTMLDivElement>(null);
   const loadIdRef = useRef(0);
   const pagingRef = useRef(false);
-  const itemsRef = useRef<HotFocusItem[]>([]);
-  const loadedDateRef = useRef<string>();
-  const [dateOptions] = useState(() => makeSurgeDateOptions());
-  const [selectedDate, setSelectedDate] = useState(() => makeSurgeDateOptions()[0]);
-  const [items, setItems] = useState<HotFocusItem[]>([]);
+  const highlightTimerRef = useRef<number>();
+  const reuseCacheRef = useRef(Boolean(cacheForDate));
+  const loadPendingRef = useRef(false);
+  const pagingRequestIdRef = useRef(0);
+  const itemsRef = useRef<HotFocusItem[]>(cachedItems);
+  const loadedDateRef = useRef<string | undefined>(cacheForDate?.loadedDate);
+  const [selectedDate, setSelectedDate] = useState(initialSelectedDate);
+  const [items, setItems] = useState<HotFocusItem[]>(cachedItems);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [paging, setPaging] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore] = useState(() => cacheForDate?.hasMore ?? true);
+  const [highlightTarget, setHighlightTarget] = useState<{ id?: string; code: string }>();
   const [refresh, setRefresh] = useState(0);
   const [refreshMode, setRefreshMode] = useState<'manual' | 'poll'>('manual');
   const [isMonitoring, setMonitoring] = useState(() => isChinaMarketOpen());
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filters, setFilters] = useState<SurgeFilter[]>(['全部']);
+  const [filters, setFilters] = useState<SurgeFilter[]>(() => cacheForDate?.filters ?? ['全部']);
 
   const today = dateOptions[0];
   const filteredItems = useMemo(
@@ -59,8 +84,14 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
       filters.includes('全部') ? items : items.filter((item) => filters.includes(surgeReason(item) as SurgeFilter)),
     [filters, items],
   );
+  const isFiltered = !filters.includes('全部');
+  // Today is captured continuously in the background (DuckDB), so the same
+  // pagination rules as historical dates apply: the user can scroll back
+  // through the whole session's surge history instead of only the newest page.
+  const hasLoadMoreRow = hasMore;
+  const shouldRenderList = filteredItems.length > 0 || hasLoadMoreRow;
   const virtualizer = useVirtualizer({
-    count: filteredItems.length + (selectedDate !== today ? 1 : 0),
+    count: filteredItems.length + (hasLoadMoreRow ? 1 : 0),
     getScrollElement: () => listRef.current,
     estimateSize: (index) => (index < filteredItems.length ? SURGE_ROW_HEIGHT : 36),
     overscan: 6,
@@ -70,16 +101,36 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     itemsRef.current = items;
   }, [items]);
 
+  useEffect(() => () => window.clearTimeout(highlightTimerRef.current), []);
+
+  useEffect(() => {
+    surgePanelCache = { filters, hasMore, items, loadedDate: loadedDateRef.current, selectedDate };
+  }, [filters, hasMore, items, selectedDate]);
+
   useEffect(() => {
     if (!isActive) {
       loadIdRef.current += 1;
+      pagingRequestIdRef.current += 1;
+      loadPendingRef.current = false;
+      pagingRef.current = false;
       setLoading(false);
       setPaging(false);
-      pagingRef.current = false;
       return;
     }
     let alive = true;
     const loadId = ++loadIdRef.current;
+    if (reuseCacheRef.current && loadedDateRef.current === selectedDate) {
+      reuseCacheRef.current = false;
+      loadPendingRef.current = false;
+      setLoading(false);
+      // Show the cached list immediately, but refresh in the background so a
+      // reopened panel is not stuck on stale rows until the next 30s poll.
+      setRefresh((value) => value + 1);
+      return () => {
+        alive = false;
+      };
+    }
+    reuseCacheRef.current = false;
     const shouldKeepItems = loadedDateRef.current === selectedDate && itemsRef.current.length > 0;
     if (!shouldKeepItems) {
       itemsRef.current = [];
@@ -87,16 +138,24 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
     }
     setError(undefined);
     setHasMore(true);
+    pagingRequestIdRef.current += 1;
     setPaging(false);
     pagingRef.current = false;
+    loadPendingRef.current = true;
     setLoading(true);
     const load = getStocksenseApi().listSurgeHistory(selectedDate, 0, SURGE_PAGE_SIZE);
     load
       .then((rows) => {
         if (!alive || loadId !== loadIdRef.current) return;
         loadedDateRef.current = selectedDate;
-        itemsRef.current = rows;
-        setItems(rows);
+        // When the panel already holds loaded history (e.g. a 30s poll while
+        // the user scrolled back through today's events), merge the fresh
+        // first page in instead of replacing the list — otherwise every poll
+        // would collapse the view back to the newest page and the earlier
+        // captured events would look "gone" again.
+        const next = shouldKeepItems ? mergeSurgeItems(rows, itemsRef.current) : rows;
+        itemsRef.current = next;
+        setItems(next);
         setHasMore(rows.length === SURGE_PAGE_SIZE);
       })
       .catch((error: unknown) => {
@@ -105,7 +164,10 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
         setError(error instanceof Error ? error.message : '异动数据加载失败，请稍后再试');
       })
       .finally(() => {
-        if (alive && loadId === loadIdRef.current) setLoading(false);
+        if (alive && loadId === loadIdRef.current) {
+          loadPendingRef.current = false;
+          setLoading(false);
+        }
       });
     return () => {
       alive = false;
@@ -126,9 +188,14 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   // drop the in-memory list before reloading so stale rows do not linger.
   useEffect(() => {
     const onCleared = () => {
+      surgePanelCache = undefined;
+      loadIdRef.current += 1;
+      pagingRequestIdRef.current += 1;
+      pagingRef.current = false;
       itemsRef.current = [];
       loadedDateRef.current = undefined;
       setItems([]);
+      setPaging(false);
       setError(undefined);
       setRefreshMode('manual');
       setRefresh((value) => value + 1);
@@ -138,24 +205,49 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   }, []);
 
   useEffect(() => {
-    if (!returnCode || !isActive) return;
-    const frame = window.requestAnimationFrame(() => {
-      const index = filteredItems.findIndex((item) => item.code === returnCode);
-      if (index >= 0) virtualizer.scrollToIndex(index, { align: 'center' });
-      onClearReturnCode();
+    if (!returnCode || !isActive || loadPendingRef.current) return;
+    let scrollFrame = 0;
+    const measureFrame = window.requestAnimationFrame(() => {
+      if (loadPendingRef.current) return;
+      virtualizer.measure();
+      scrollFrame = window.requestAnimationFrame(() => {
+        if (loadPendingRef.current) return;
+        const index = findSurgeReturnIndex(filteredItems, { id: returnId, code: returnCode });
+        if (index < 0) return;
+        virtualizer.scrollToIndex(index, { align: 'center' });
+        setHighlightTarget({ id: returnId, code: returnCode });
+        window.clearTimeout(highlightTimerRef.current);
+        const highlightedId = returnId;
+        const highlightedCode = returnCode;
+        highlightTimerRef.current = window.setTimeout(() => {
+          setHighlightTarget((current) =>
+            current?.id === highlightedId && current?.code === highlightedCode ? undefined : current,
+          );
+        }, SURGE_HIGHLIGHT_DURATION_MS);
+        onClearReturnCode();
+      });
     });
-    return () => window.cancelAnimationFrame(frame);
-  }, [filteredItems, isActive, onClearReturnCode, returnCode, virtualizer]);
+    return () => {
+      window.cancelAnimationFrame(measureFrame);
+      window.cancelAnimationFrame(scrollFrame);
+    };
+  }, [filteredItems, isActive, loading, onClearReturnCode, returnCode, returnId, virtualizer]);
 
   const loadMore = useCallback(() => {
     if (!isActive || pagingRef.current || loading || !hasMore) return;
     const loadId = loadIdRef.current;
+    const requestId = ++pagingRequestIdRef.current;
+    const offset = itemsRef.current.length;
     pagingRef.current = true;
     setPaging(true);
     getStocksenseApi()
-      .listSurgeHistory(selectedDate, items.length, SURGE_PAGE_SIZE)
+      .listSurgeHistory(selectedDate, offset, SURGE_PAGE_SIZE)
       .then((rows) => {
-        if (loadId !== loadIdRef.current) return;
+        if (loadId !== loadIdRef.current || requestId !== pagingRequestIdRef.current) return;
+        if (!rows.length) {
+          setHasMore(false);
+          return;
+        }
         setItems((current) => {
           const next = [...current, ...rows];
           itemsRef.current = next;
@@ -164,23 +256,23 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
         setHasMore(rows.length === SURGE_PAGE_SIZE);
       })
       .catch((error: unknown) => {
-        if (loadId !== loadIdRef.current) return;
+        if (loadId !== loadIdRef.current || requestId !== pagingRequestIdRef.current) return;
         console.error(error);
         setError(error instanceof Error ? error.message : '加载更多异动数据失败，请稍后再试');
       })
       .finally(() => {
-        if (loadId === loadIdRef.current) {
-          pagingRef.current = false;
-          setPaging(false);
-        }
+        if (requestId !== pagingRequestIdRef.current) return;
+        pagingRef.current = false;
+        setPaging(false);
       });
-  }, [hasMore, isActive, items.length, loading, selectedDate]);
+  }, [hasMore, isActive, loading, selectedDate]);
 
   useEffect(() => {
+    if (isFiltered || !hasLoadMoreRow) return;
     const virtualItems = virtualizer.getVirtualItems();
     const last = virtualItems[virtualItems.length - 1];
     if (last?.index === filteredItems.length) loadMore();
-  }, [filteredItems.length, loadMore, virtualizer]);
+  }, [filteredItems.length, hasLoadMoreRow, isFiltered, loadMore, virtualizer]);
 
   const toggleFilter = (filter: SurgeFilter) => {
     setFilters((current) => {
@@ -193,14 +285,17 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
 
   const openStock = (item: HotFocusItem) => {
     if (!item.code) return;
-    onOpenStock({
-      code: item.code,
-      name: item.name ?? item.title,
-      price: item.price,
-      changePercent: item.changePercent,
-      turnover: item.turnover ?? item.amount,
-      summary: item.description,
-    });
+    onOpenStock(
+      {
+        code: item.code,
+        name: item.name ?? item.title,
+        price: item.price,
+        changePercent: item.changePercent,
+        turnover: item.turnover ?? item.amount,
+        summary: item.description,
+      },
+      item.id,
+    );
   };
 
   const toggleMonitor = () => {
@@ -327,7 +422,7 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
           <SurgeSkeleton />
         ) : error ? (
           <div className={styles['empty-list']}>{error}</div>
-        ) : filteredItems.length ? (
+        ) : shouldRenderList ? (
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
             {virtualizer.getVirtualItems().map((row) => {
               const item = filteredItems[row.index];
@@ -345,11 +440,20 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
                   }}
                 >
                   {item ? (
-                    <SurgeItem item={item} onClick={() => openStock(item)} />
+                    <SurgeItem
+                      item={item}
+                      highlight={item.id === highlightTarget?.id || (!highlightTarget?.id && item.code === highlightTarget?.code)}
+                      onClick={() => openStock(item)}
+                    />
                   ) : (
-                    <div className={styles['surge-load-state']}>
-                      {paging ? <span className={styles.spinner} /> : hasMore ? '向下滚动加载更多' : '~到底啦~'}
-                    </div>
+                    <button
+                      className={cx(styles['surge-load-state'], styles['surge-load-button'])}
+                      disabled={paging}
+                      onClick={loadMore}
+                      type='button'
+                    >
+                      {paging ? <span className={styles.spinner} /> : isFiltered ? '加载更多' : '向下滚动加载更多'}
+                    </button>
                   )}
                 </div>
               );
@@ -363,10 +467,10 @@ export function StockSurgePanel({ isActive, returnCode, onOpenStock, onClearRetu
   );
 }
 
-function SurgeItem({ item, onClick }: { item: HotFocusItem; onClick(): void }) {
+function SurgeItem({ item, highlight, onClick }: { item: HotFocusItem; highlight: boolean; onClick(): void }) {
   const isDown = String(item.changePercent).startsWith('-');
   return (
-    <button className={styles['surge-item']} data-surge-code={item.code} onClick={onClick} type='button'>
+    <button className={cx(styles['surge-item'], highlight && styles.highlight)} data-surge-code={item.code} onClick={onClick} type='button'>
       <span className={styles['surge-time']}>{item.time ?? '--'}</span>
       <span className={styles['surge-card']}>
         <span className={styles['surge-main']}>
@@ -416,6 +520,23 @@ function makeSurgeDateOptions() {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   });
 }
+
+function mergeSurgeItems(incoming: HotFocusItem[], existing: HotFocusItem[]): HotFocusItem[] {
+  const byId = new Map<string, HotFocusItem>();
+  for (const item of incoming) byId.set(item.id, item);
+  for (const item of existing) byId.set(item.id, item);
+  // Keep the same ordering as the DuckDB query (time DESC, id DESC) so
+  // pagination offsets stay consistent after a merge.
+  return Array.from(byId.values()).sort(
+    (a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time) || b.id.localeCompare(a.id),
+  );
+}
+
+function surgeTimeValue(time?: string) {
+  const [hour, minute, second = '0'] = String(time ?? '').split(':');
+  return (Number(hour) || 0) * 3600 + (Number(minute) || 0) * 60 + (Number(second) || 0);
+}
+
 function surgeReason(item: HotFocusItem) {
   const reason = item.tag ?? item.description?.split(' · ')[0] ?? '--';
   return ({ 涨停池: '封涨停板', 炸板池: '涨停开板', 跌停池: '封跌停板' } as Record<string, string>)[reason] ?? reason;

@@ -1,8 +1,9 @@
-import type { BoardDetail, KlinePoint, MarketQuoteRow, MarketIndexPeriod } from '../../../src/shared/types.js';
+import type { BoardDetail, KlinePoint, MarketBoardRow, MarketQuoteRow, MarketIndexPeriod } from '../../../src/shared/types.js';
 import {
   listBoardConstituents,
   listDailyBars,
   listLatestMarketRows,
+  listMarketBoards,
   listSecurities,
   readBoardDetail,
   replaceBoardConstituents,
@@ -105,6 +106,19 @@ async function getPersistedBoardDetailForHeat(boardCode: string, boardName?: str
   };
 }
 
+type TBoardQuoteRow = Pick<MarketBoardRow, 'code' | 'name' | 'changePercent'>;
+
+async function findBoardQuote(symbol: string, boardName?: string): Promise<TBoardQuoteRow | undefined> {
+  const boardRows = marketBoardsCache.rows.length
+    ? marketBoardsCache.rows
+    : await getCachedMarketBoardRows(true);
+  const find = (rows: TBoardQuoteRow[]) =>
+    rows.find((item) => item.code === symbol || item.name === boardName);
+  const remoteBoard = find(boardRows);
+  if (remoteBoard) return remoteBoard;
+  return find(await listMarketBoards());
+}
+
 export async function getBoardDetail(symbol: string, forceRefresh = false, boardName?: string): Promise<BoardDetail> {
   const cacheKey = resolveBoardDetailLookupKey(symbol, boardName);
   const requestSymbol = cacheKey || boardName || symbol;
@@ -130,14 +144,19 @@ export async function getBoardDetail(symbol: string, forceRefresh = false, board
     : undefined;
   const cachedName = cached?.detail.name;
   if (cached?.detail.kline?.length || cached?.detail.constituents?.length) {
-    void refreshRemote(cached.detail).catch((error) =>
+    const boardQuote = await findBoardQuote(cacheKey, cachedName ?? boardName);
+    const cachedDetail =
+      boardQuote?.changePercent === undefined
+        ? cached.detail
+        : { ...cached.detail, changePercent: formatPercent(boardQuote.changePercent) };
+    void refreshRemote(cachedDetail).catch((error) =>
       console.warn(
         '[market] board detail background refresh failed',
         symbol,
         error instanceof Error ? error.message : error,
       ),
     );
-    return cached.detail;
+    return cachedDetail;
   }
 
   // ponytail: timeout local scan — scanBoardMembership can run 8s+
@@ -612,9 +631,9 @@ function toBoardConstituent(item: {
 }
 
 async function getLocalBoardDetail(symbol: string, fallbackName?: string): Promise<BoardDetail> {
-  const remoteBoard = marketBoardsCache.rows.find((item) => item.code === symbol);
+  const boardQuote = await findBoardQuote(symbol, fallbackName);
   const searchName = searchBoardNameCache.get(symbol);
-  const board = remoteBoard ?? {
+  const board = boardQuote ?? {
     code: symbol,
     name: fallbackName ?? searchName ?? symbol,
     changePercent: undefined,
@@ -627,7 +646,7 @@ async function getLocalBoardDetail(symbol: string, fallbackName?: string): Promi
   return {
     code: board.code,
     name: board.name,
-    changePercent: formatPercent(board.changePercent ?? 0),
+    changePercent: formatPercent(board.changePercent),
     kline,
     constituents: rows.slice(0, 80).map((item) => ({
       code: item.code,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const lifecycle = vi.hoisted(() => ({
   registerIpcHandlers: vi.fn(),
+  syncSurgeHistoryIfNeeded: vi.fn(() => Promise.resolve(false)),
   initializeQuoteStore: vi.fn(),
   ensureMarketDataRuntime: vi.fn(() => Promise.resolve()),
   stopMarketDataScheduler: vi.fn(),
@@ -10,6 +11,7 @@ const lifecycle = vi.hoisted(() => ({
   shutdownSurgeHistoryScheduler: vi.fn(),
   stopSurgeHistoryScheduler: vi.fn(),
   waitForSurgeHistoryScheduler: vi.fn(() => Promise.resolve()),
+  ensureSurgeHistoryCapture: vi.fn(),
   closeQuoteStore: vi.fn(() => Promise.resolve()),
   closeConversationStore: vi.fn(() => Promise.resolve()),
   closeMarketDataStore: vi.fn(() => Promise.resolve()),
@@ -81,6 +83,7 @@ vi.mock('dotenv', () => ({
 
 vi.mock('../electron-runtime.js', () => electronRuntime);
 vi.mock('../ipc.js', () => ({ registerIpcHandlers: lifecycle.registerIpcHandlers }));
+vi.mock('../services/market-data/data-sync-handlers.js', () => ({ syncSurgeHistoryIfNeeded: lifecycle.syncSurgeHistoryIfNeeded }));
 vi.mock('../services/stock/monitor-history-scheduler.js', () => monitorScheduler);
 vi.mock('../services/market-data/market-data-store.js', () => ({
   closeMarketDataInstance: lifecycle.closeMarketDataInstance,
@@ -95,6 +98,7 @@ vi.mock('../services/conversation-store.js', () => ({
   closeConversationStore: lifecycle.closeConversationStore,
 }));
 vi.mock('../services/stock/surge-history-scheduler.js', () => ({
+  ensureSurgeHistoryCapture: lifecycle.ensureSurgeHistoryCapture,
   shutdownSurgeHistoryScheduler: lifecycle.shutdownSurgeHistoryScheduler,
   stopSurgeHistoryScheduler: lifecycle.stopSurgeHistoryScheduler,
   waitForSurgeHistoryScheduler: lifecycle.waitForSurgeHistoryScheduler,
@@ -136,7 +140,9 @@ describe('Electron 主进程启动', () => {
     await Promise.resolve();
 
     expect(lifecycle.initializeQuoteStore).toHaveBeenCalledTimes(1);
+    expect(lifecycle.syncSurgeHistoryIfNeeded).toHaveBeenCalledTimes(1);
     expect(monitorScheduler.startMonitorHistoryScheduler).toHaveBeenCalledTimes(1);
+    expect(lifecycle.ensureSurgeHistoryCapture).toHaveBeenCalledTimes(1);
     expect(lifecycle.registerIpcHandlers).toHaveBeenCalledTimes(1);
   });
 });
