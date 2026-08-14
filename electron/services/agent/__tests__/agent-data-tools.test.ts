@@ -38,7 +38,8 @@ vi.mock('../../stock/a-stock-data-runner.js', () => ({
 }));
 
 import type { IChipDistributionResult, StockSurgeEvent } from '../../../../src/shared/types.js';
-import { getStockChipDistributionLocalFirst, getStockSurgeEventsLocalFirst } from '../agent-data-tools.js';
+import { getStockChipDistributionLocalFirst } from '../tools/get-stock-chip-distribution-local-first.js';
+import { getStockSurgeEventsLocalFirst } from '../tools/get-stock-surge-events-local-first.js';
 
 const localEvent: StockSurgeEvent = {
   id: 'local-1',

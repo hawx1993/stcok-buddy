@@ -11,7 +11,8 @@ import type {
 import type { HistoricalBarsResult } from '../market-data/types.js';
 import type { IHolderNumberChangeRow } from '../stock/a-stock-data-runner.js';
 import type { DailyDragonTigerItem } from '../stock/stock-client.js';
-import type { IHotConceptsToolOutput, IIndustryRankingToolOutput } from '../tools/a-stock-data-tools.js';
+import type { IHotConceptsToolOutput } from './tools/get-hot-concepts.js';
+import type { IIndustryRankingToolOutput } from './tools/get-industry-ranking.js';
 import type { DagNode } from './dag-executor.js';
 import type { IAgentContext, TOnToken } from './orchestrator-types.js';
 import { buildStockAnalysisInput, createSkippedDataStatus, filterLargeOrders, runContextTool } from './agent-tool-runtime.js';

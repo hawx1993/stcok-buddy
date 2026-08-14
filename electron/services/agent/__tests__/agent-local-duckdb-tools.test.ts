@@ -19,7 +19,12 @@ import type { DailyBarRecord, SecurityRecord } from '../../market-data/types.js'
 type TMarketDataStore = typeof import('../../market-data/market-data-store.js');
 type TMonitorHistoryStore = typeof import('../../stock/monitor-history-store.js');
 type TSurgeHistoryStore = typeof import('../../stock/surge-history-store.js');
-type TLocalDuckDBTools = typeof import('../agent-local-duckdb-tools.js');
+type TLocalDuckDBTools = {
+  screenLocalAStocks: typeof import('../tools/screen-local-a-stocks.js')['screenLocalAStocks'];
+  queryLocalMarketDuckDB: typeof import('../tools/query-local-market-duckdb.js')['queryLocalMarketDuckDB'];
+  queryLocalMonitorDuckDB: typeof import('../tools/query-local-monitor-duckdb.js')['queryLocalMonitorDuckDB'];
+  queryLocalSurgeDuckDB: typeof import('../tools/query-local-surge-duckdb.js')['queryLocalSurgeDuckDB'];
+};
 
 let marketDbPath = '';
 let monitorDbPath = '';
@@ -45,7 +50,18 @@ async function loadModules() {
   marketStore = await import('../../market-data/market-data-store.js');
   monitorStore = await import('../../stock/monitor-history-store.js');
   surgeStore = await import('../../stock/surge-history-store.js');
-  tools = await import('../agent-local-duckdb-tools.js');
+  const [screening, marketQuery, monitorQuery, surgeQuery] = await Promise.all([
+    import('../tools/screen-local-a-stocks.js'),
+    import('../tools/query-local-market-duckdb.js'),
+    import('../tools/query-local-monitor-duckdb.js'),
+    import('../tools/query-local-surge-duckdb.js'),
+  ]);
+  tools = {
+    screenLocalAStocks: screening.screenLocalAStocks,
+    queryLocalMarketDuckDB: marketQuery.queryLocalMarketDuckDB,
+    queryLocalMonitorDuckDB: monitorQuery.queryLocalMonitorDuckDB,
+    queryLocalSurgeDuckDB: surgeQuery.queryLocalSurgeDuckDB,
+  };
   await marketStore.initializeMarketDataStore();
 }
 
