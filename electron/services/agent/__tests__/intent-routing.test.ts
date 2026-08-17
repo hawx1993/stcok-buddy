@@ -27,6 +27,13 @@ describe('普通问题意图识别（classifyIntent）', () => {
     expect(classifyIntent('今天哪些行业比较强')).toBe('board');
   });
 
+  it('自然语言选股请求命中 stock-picker 且不被 board 或 technical 抢走', () => {
+    expect(classifyIntent('帮我找强势股')).toBe('stock-picker');
+    expect(classifyIntent('找主力控盘的票')).toBe('stock-picker');
+    expect(classifyIntent('找能连板的')).toBe('stock-picker');
+    expect(classifyIntent('一进二有哪些机会')).toBe('stock-picker');
+  });
+
   it('既有意图不因新增正则而回归异常', () => {
     expect(classifyIntent('000858 综合投研分析')).toBe('analysis');
     expect(classifyIntent('今天市场怎么样')).toBe('chat');
@@ -94,6 +101,7 @@ describe('applyStockAgentRouting 非 slash 股票问题统一路由', () => {
   it('slash 命令意图不被改写', () => {
     expect(applyStockAgentRouting('analysis', '/综合投研报告 000858', true)).toBe('analysis');
     expect(applyStockAgentRouting('market-review', '/复盘今日行情', true)).toBe('market-review');
+    expect(applyStockAgentRouting('condition-screener', '/条件选股 --换手率>8%', true)).toBe('condition-screener');
   });
 
   it('portfolio 个人持仓记忆保留，不路由到智能体', () => {
@@ -106,6 +114,8 @@ describe('intentLabel', () => {
     expect(intentLabel('shareholder-chip')).toBe('股东户数/筹码');
     expect(intentLabel('hot-concepts')).toBe('热门题材');
     expect(intentLabel('industry-ranking')).toBe('行业涨幅');
+    expect(intentLabel('condition-screener')).toBe('条件选股');
+    expect(intentLabel('stock-picker')).toBe('超短线技术选股');
     expect(intentLabel('a-stock-data-agent')).toBe('A股智能投研');
   });
 });
@@ -115,5 +125,7 @@ describe('parseSlashCommand 回归', () => {
     expect(parseSlashCommand('/复盘今日行情')?.intent).toBe('market-review');
     expect(parseSlashCommand('/题材归因')?.intent).toBe('theme-attribution');
     expect(parseSlashCommand('/综合投研报告 000858')?.args).toBe('000858');
+    expect(parseSlashCommand('/条件选股 --换手率>8%')?.intent).toBe('condition-screener');
+    expect(parseSlashCommand('/超短选股 帮我找强势股')?.intent).toBe('stock-picker');
   });
 });

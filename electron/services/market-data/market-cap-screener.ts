@@ -1,15 +1,19 @@
-import { listRemoteSecurities } from './providers.js';
+import { normalizeMarketCap } from '../stock/format.js';
+import { normalizeASymbol } from '../stock/symbols.js';
 import {
   listAShareMarketCapSnapshotRows,
   upsertSecurities,
   upsertStockSnapshots,
   type IAShareMarketCapSnapshotRow,
 } from './market-data-store.js';
+import {
+  fetchAStockDataMarketSnapshotQuotes,
+  fetchStockSdkMarketSnapshotQuotes,
+  type IMarketSnapshotQuoteFetchResult,
+  type IMarketSnapshotQuoteRecord,
+} from './market-snapshot-provider.js';
+import { listRemoteSecurities } from './providers.js';
 import type { SecurityRecord } from './types.js';
-import { runAStockDataFn, type ITencentQuote } from '../stock/a-stock-data-runner.js';
-import { normalizeMarketCap } from '../stock/format.js';
-import { sdk } from '../stock/shared.js';
-import { normalizeASymbol } from '../stock/symbols.js';
 
 export type TMarketCapField = 'total' | 'circulating';
 export type TMarketCapUnit = 'yuan' | 'yi';
@@ -68,33 +72,8 @@ export interface IMarketCapScreenResult {
   isEmpty: boolean;
 }
 
-interface IMarketCapQuoteRecord {
-  code: string;
-  name: string;
-  exchange?: SecurityRecord['exchange'];
-  industry?: string;
-  price?: number;
-  change?: number;
-  changePercent?: number;
-  open?: number;
-  high?: number;
-  low?: number;
-  prevClose?: number;
-  volume?: number;
-  amount?: number;
-  turnoverRate?: number;
-  pe?: number;
-  pb?: number;
-  totalMarketCap?: number;
-  circulatingMarketCap?: number;
-  amplitude?: number;
-  fetchedAt?: string;
-}
-
-interface IQuoteFetchResult {
-  quotes: IMarketCapQuoteRecord[];
-  warnings: string[];
-}
+type IMarketCapQuoteRecord = IMarketSnapshotQuoteRecord;
+type IQuoteFetchResult = IMarketSnapshotQuoteFetchResult;
 
 interface IMarketCapScreenerDependencies {
   listLocalRows(includeST: boolean): Promise<IAShareMarketCapSnapshotRow[]>;
@@ -106,8 +85,6 @@ interface IMarketCapScreenerDependencies {
 }
 
 const YI_YUAN = 100_000_000;
-const STOCK_SDK_BATCH_SIZE = 80;
-const A_STOCK_DATA_BATCH_SIZE = 100;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
 
@@ -136,8 +113,8 @@ const defaultDependencies: IMarketCapScreenerDependencies = {
       amplitude: record.amplitude,
     })));
   },
-  fetchStockSdkQuotes: fetchStockSdkQuotesDefault,
-  fetchAStockDataQuotes: fetchAStockDataQuotesDefault,
+  fetchStockSdkQuotes: fetchStockSdkMarketSnapshotQuotes,
+  fetchAStockDataQuotes: fetchAStockDataMarketSnapshotQuotes,
 };
 
 let dependencies = defaultDependencies;
@@ -414,104 +391,4 @@ function marketCapFieldLabel(field: TMarketCapField) {
 
 function formatError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
-}
-
-function inferAShareExchange(code: string): SecurityRecord['exchange'] {
-  if (code.startsWith('6')) return 'SH';
-  if (code.startsWith('8') || code.startsWith('4')) return 'BJ';
-  return 'SZ';
-}
-
-async function fetchStockSdkQuotesDefault(codes: string[]): Promise<IQuoteFetchResult> {
-  const quotes: IMarketCapQuoteRecord[] = [];
-  const warnings: string[] = [];
-  const unique = uniqueCodes(codes);
-  for (const batch of chunk(unique, STOCK_SDK_BATCH_SIZE)) {
-    try {
-      const rows = await sdk.batch.byCodes(batch, { batchSize: STOCK_SDK_BATCH_SIZE, concurrency: 1 });
-      quotes.push(...rows.map((row) => ({
-        code: normalizeASymbol(row.code),
-        name: row.name,
-        exchange: inferAShareExchange(normalizeASymbol(row.code)),
-        price: row.price,
-        change: row.change,
-        changePercent: row.changePercent,
-        open: row.open,
-        high: row.high,
-        low: row.low,
-        prevClose: row.prevClose,
-        volume: row.volume,
-        amount: row.amount,
-        turnoverRate: row.turnoverRate ?? undefined,
-        pe: row.pe ?? undefined,
-        pb: row.pb ?? undefined,
-        totalMarketCap: row.totalMarketCap ?? undefined,
-        circulatingMarketCap: row.circulatingMarketCap ?? undefined,
-        amplitude: row.amplitude ?? undefined,
-        fetchedAt: new Date().toISOString(),
-      })));
-    } catch (error) {
-      warnings.push(`stock-sdk 批次 ${batch[0]}-${batch.at(-1)} 市值补齐失败：${formatError(error)}`);
-    }
-  }
-  return { quotes, warnings };
-}
-
-async function fetchAStockDataQuotesDefault(codes: string[]): Promise<IQuoteFetchResult> {
-  const quotes: IMarketCapQuoteRecord[] = [];
-  const warnings: string[] = [];
-  const unique = uniqueCodes(codes);
-  for (const batch of chunk(unique, A_STOCK_DATA_BATCH_SIZE)) {
-    try {
-      const result = await runAStockDataFn<Record<string, ITencentQuote>>('tencent_quote', { codes: batch.join(',') });
-      for (const [rawCode, quote] of Object.entries(result)) {
-        const code = normalizeASymbol(rawCode);
-        const totalMarketCap = normalizeYiMarketCap(quote.mcap_yi);
-        const circulatingMarketCap = normalizeYiMarketCap(quote.float_mcap_yi);
-        if (totalMarketCap === undefined && circulatingMarketCap === undefined) continue;
-        quotes.push({
-          code,
-          name: quote.name,
-          exchange: inferAShareExchange(code),
-          price: finiteNumber(quote.price),
-          change: finiteNumber(quote.change_amt),
-          changePercent: finiteNumber(quote.change_pct),
-          open: finiteNumber(quote.open),
-          high: finiteNumber(quote.high),
-          low: finiteNumber(quote.low),
-          prevClose: finiteNumber(quote.last_close),
-          amount: quote.amount_wan > 0 ? quote.amount_wan * 10_000 : undefined,
-          turnoverRate: finiteNumber(quote.turnover_pct),
-          pe: finiteNumber(quote.pe_ttm),
-          pb: finiteNumber(quote.pb),
-          totalMarketCap,
-          circulatingMarketCap,
-          amplitude: finiteNumber(quote.amplitude_pct),
-          fetchedAt: new Date().toISOString(),
-        });
-      }
-    } catch (error) {
-      warnings.push(`a-stock-data 批次 ${batch[0]}-${batch.at(-1)} 市值补齐失败：${formatError(error)}`);
-    }
-  }
-  return { quotes, warnings };
-}
-
-function normalizeYiMarketCap(value: number | undefined) {
-  if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined;
-  return Math.round(value * YI_YUAN);
-}
-
-function finiteNumber(value: number | undefined) {
-  return value !== undefined && Number.isFinite(value) ? value : undefined;
-}
-
-function uniqueCodes(codes: string[]) {
-  return [...new Set(codes.map((code) => normalizeASymbol(code)).filter(Boolean))];
-}
-
-function chunk<T>(items: T[], size: number) {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
-  return chunks;
 }

@@ -123,7 +123,12 @@ export function createDataStatuses(
 ): IAgentDataStatus[] {
   return dataNamesForTool(toolName).map((dataName, index) => {
     const scopedOutput = outputForDataName(output, dataName);
-    const status = inferToolDataStatus(scopedOutput, error);
+    const inferredStatus = inferToolDataStatus(scopedOutput, error);
+    const isCompleteEmptyConditionScreener =
+      toolName === 'screenASharesByConditions' && isCompleteConditionScreenerEmptyResult(scopedOutput, inferredStatus);
+    const isCompleteEmptyLocalScreening =
+      toolName === 'screenLocalAStocks' && isCompleteLocalScreeningEmptyResult(scopedOutput, inferredStatus);
+    const status = isCompleteEmptyConditionScreener || isCompleteEmptyLocalScreening ? 'available' : inferredStatus;
     return {
       id: `data-status-${recordId}-${index + 1}`,
       toolName,
@@ -142,6 +147,29 @@ export function inferToolDataStatus(output: unknown, error?: string): IAgentData
   if (hasWarnings(output) || hasIncompleteFlag(output)) return 'partial';
   if (isEmptyToolOutput(output)) return 'empty';
   return 'available';
+}
+
+function isCompleteConditionScreenerEmptyResult(output: unknown, status: IAgentDataStatus['status']) {
+  if (status !== 'empty' || !isRecord(output)) return false;
+  return (
+    readBooleanField(output, 'isComplete') === true &&
+    Array.isArray(output.rows) &&
+    output.rows.length === 0 &&
+    output.matchedCount === 0
+  );
+}
+
+function isCompleteLocalScreeningEmptyResult(output: unknown, status: IAgentDataStatus['status']) {
+  if (status !== 'empty' || !isRecord(output)) return false;
+  const warnings = readArrayField(output, 'warnings');
+  return (
+    Array.isArray(output.rows) &&
+    output.rows.length === 0 &&
+    output.matchedCount === 0 &&
+    warnings.length === 0 &&
+    !hasFreshness(output, 'fallback') &&
+    !hasFreshness(output, 'stale')
+  );
 }
 
 export function isEmptyToolOutput(output: unknown): boolean {
@@ -190,6 +218,7 @@ function dataNamesForTool(toolName: string): string[] {
     getStockChipDistribution: ['筹码集中度'],
     getStockChipDistributionLocalFirst: ['筹码集中度'],
     screenLocalAStocks: ['本地选股/筹码筛选'],
+    screenASharesByConditions: ['条件选股'],
     screenASharesByMarketCap: ['A股市值筛选'],
     getHotFocus: ['热点/特大单'],
     queryLocalSurgeDuckDB: ['个股异动历史'],
@@ -199,6 +228,7 @@ function dataNamesForTool(toolName: string): string[] {
     getIndustryRanking: ['行业涨幅/资金流'],
     getHolderNumberChange: ['股东户数'],
     readUrl: ['链接正文'],
+    webSearch: ['联网搜索'],
   };
   return map[toolName] ?? [toolName];
 }

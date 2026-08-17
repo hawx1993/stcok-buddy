@@ -17,6 +17,10 @@ describe('QuickEntry 搜索关键词提取', () => {
     expect(getQuickEntrySearchKeyword('/筹码分析 ')).toBe('');
   });
 
+  it('条件选股参数不会被当作股票搜索词', () => {
+    expect(getQuickEntrySearchKeyword('/条件选股 --换手率>8% --成交额>2亿')).toBe('');
+  });
+
   it('选择搜索建议时保留已选 slash 命令', () => {
     expect(getQuickEntryValueAfterSearchSelection('/筹码分析 600', '600519')).toBe('/筹码分析 600519');
     expect(getQuickEntryValueAfterSearchSelection('600', '600519')).toBe('600519');

@@ -154,6 +154,8 @@ function createPlanItems(context: IAgentContext): IPlanTemplateItem[] {
   if (context.intent === 'technical') return technicalPlanItems();
   if (context.intent === 'news-announcements') return newsAnnouncementPlanItems();
   if (context.intent === 'market-review') return marketReviewPlanItems();
+  if (context.intent === 'condition-screener') return conditionScreenerPlanItems();
+  if (context.intent === 'stock-picker') return stockPickerPlanItems();
   if (context.intent === 'board' || context.intent === 'industry-ranking' || context.intent === 'hot-concepts') {
     return boardPlanItems(context.intent);
   }
@@ -235,6 +237,56 @@ function marketReviewPlanItems(): IPlanTemplateItem[] {
   ];
 }
 
+function conditionScreenerPlanItems(): IPlanTemplateItem[] {
+  return [
+    item(
+      'condition-screener',
+      '执行条件选股',
+      '按 slash command 中的明确参数筛选真实市场、筹码和板块快照。',
+      ['条件选股'],
+      ['condition-screener'],
+      '参数无效或真实数据缺失时明确展示校验错误或数据缺口，不生成替代股票。',
+    ),
+  ];
+}
+
+function stockPickerPlanItems(): IPlanTemplateItem[] {
+  return [
+    item(
+      'intent-decompose',
+      '识别选股意图与条件',
+      '先把用户的自然语言意图映射为趋势强势、筹码控盘、连板潜力或自定义条件。',
+      ['选股意图'],
+      ['stock-picker-agent'],
+      '无法识别固定模板时进入自定义选股拆解，不向用户暴露内部参数。',
+    ),
+    item(
+      'market-wide-screen',
+      '执行全市场宽筛',
+      '用本地市场快照、筹码缓存或市场复盘先得到候选池，避免直接编造候选股。',
+      ['本地选股/筹码筛选', '市场复盘'],
+      ['stock-picker-agent'],
+      '宽筛数据缺失时明确说明数据源暂不可用或条件无命中，不生成替代股票。',
+    ),
+    item(
+      'candidate-refine',
+      '精筛技术、筹码和资金证据',
+      '对候选股继续验证技术指标、筹码集中度、资金流和个股异动历史。',
+      ['技术指标', '筹码集中度', '资金流', '个股异动历史'],
+      ['stock-picker-agent'],
+      '某个精筛维度不可用时降低该维度置信度，不把缺失字段视为满足条件。',
+      true,
+    ),
+    item(
+      'risk-and-gap',
+      '输出风险提示和数据缺口',
+      '最终候选清单必须包含超短线风险、A 股 T+1 和无法验证字段。',
+      ['数据缺口', '风险提示'],
+      ['stock-picker-agent'],
+    ),
+  ];
+}
+
 function boardPlanItems(intent: TAgentIntent): IPlanTemplateItem[] {
   const nodeId = intent === 'industry-ranking' ? 'industry-ranking-data' : intent === 'hot-concepts' ? 'hot-concepts-data' : 'board-data';
   return [
@@ -300,6 +352,7 @@ function createPlanSummary(intent: TAgentIntent, target?: string): string {
   if (intent === 'technical') return `为了做技术面判断，我需要先检查${targetText}的行情、K线和指标证据：`;
   if (intent === 'news-announcements') return `为了解读新闻公告影响，我会先核查${targetText}的真实新闻、公告和风险证据：`;
   if (intent === 'market-review') return '为了完成市场复盘，我会先检查指数、板块、资金和情绪数据：';
+  if (intent === 'condition-screener') return '为了执行条件选股，我会先校验条件并核查可用的真实市场快照：';
   if (intent === 'board' || intent === 'industry-ranking' || intent === 'hot-concepts') return '为了判断板块/题材强度，我会先核查排行、资金、成分扩散和风险：';
   return '本轮将按当前意图检查可用真实数据，并标注数据缺口：';
 }

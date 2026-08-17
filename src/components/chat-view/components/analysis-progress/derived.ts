@@ -94,7 +94,9 @@ function isFreeQuestionProviderFlow(events: AgentRunEvent[]): boolean {
   return events.some(
     (event) =>
       event.step?.id === 'a-stock-data-agent' ||
-      event.plan?.agents.some((agent) => agent.id === 'a-stock-data-agent'),
+      event.plan?.agents.some((agent) => agent.id === 'a-stock-data-agent') ||
+      event.step?.id === 'stock-picker-agent' ||
+      event.plan?.agents.some((agent) => agent.id === 'stock-picker-agent'),
   );
 }
 
@@ -160,7 +162,10 @@ function deriveProviderSteps(events: AgentRunEvent[]): IStep[] | undefined {
   }
 
   const finished = events.some(
-    (event) => event.type === 'final_answer' || (event.type === 'subagent_completed' && event.step?.id === 'a-stock-data-agent'),
+    (event) =>
+      event.type === 'final_answer' ||
+      (event.type === 'subagent_completed' && event.step?.id === 'a-stock-data-agent') ||
+      (event.type === 'subagent_completed' && event.step?.id === 'stock-picker-agent'),
   );
   const duckdbStatus = statusMap.get('duckdb');
   const stockSdkStatus = statusMap.get('stock-sdk');
@@ -332,6 +337,9 @@ export function deriveAgentStatuses(events: AgentRunEvent[]): IAgentStatus[] {
   const providerSummary = providerFlowSummary(events);
   if (providerSummary && statusMap.has('a-stock-data-agent')) {
     progressMessageMap.set('a-stock-data-agent', providerSummary);
+  }
+  if (providerSummary && statusMap.has('stock-picker-agent')) {
+    progressMessageMap.set('stock-picker-agent', providerSummary);
   }
 
   return order.map((id) => ({

@@ -153,3 +153,186 @@ describe('agent workflow market-data', () => {
     expect(context.largeOrders).toEqual([localLargeOrder]);
   });
 });
+
+describe('条件选股工作流', () => {
+  it('使用确定性工具执行 slash 参数，不交由大模型重新解释', async () => {
+    mockedCallTool.mockImplementation(async (toolName, input) => {
+      if (toolName === 'screenASharesByConditions') {
+        return {
+          ...record(toolName, {
+            source: 'duckdb+stock-sdk+a-stock-data',
+            storage: 'local',
+            freshness: 'current',
+            isComplete: true,
+            latestTradeDate: '2026-08-17',
+            rows: [
+              {
+                code: '600001',
+                name: '条件命中股',
+                exchange: 'SH',
+                industry: '新能源',
+                turnoverRate: 9,
+                amountYuan: 300_000_000,
+                totalMarketCapYuan: 5_000_000_000,
+                dataSource: 'stock-sdk',
+              },
+              {
+                code: '600002',
+                name: '成交额最高股',
+                exchange: 'SH',
+                industry: '新能源',
+                turnoverRate: 10,
+                amountYuan: 450_000_000,
+                totalMarketCapYuan: 6_000_000_000,
+                dataSource: 'stock-sdk',
+              },
+              {
+                code: '600003',
+                name: '半导体样本',
+                exchange: 'SH',
+                industry: '半导体',
+                turnoverRate: 11,
+                amountYuan: 250_000_000,
+                totalMarketCapYuan: 7_000_000_000,
+                dataSource: 'stock-sdk',
+              },
+            ],
+            matchedCount: 3,
+            returnedCount: 3,
+            totalCandidates: 100,
+            leadingBoards: [],
+            sourceStats: {
+              duckdbMatched: 0,
+              stockSdkMatched: 3,
+              aStockDataMatched: 0,
+              missingQuoteFields: 0,
+              missingChipData: 0,
+            },
+            warnings: [],
+            isEmpty: false,
+          }),
+          input,
+        };
+      }
+      return record(toolName, undefined);
+    });
+
+    const context = createContext();
+    context.query = '/条件选股 --换手率>8% --成交额>2亿';
+    context.intent = 'condition-screener';
+    context.symbol = undefined;
+    context.plan = createInitialAgentPlan(context);
+    const node = buildAgentWorkflow(context).find((item) => item.id === 'condition-screener');
+    if (!node) throw new Error('condition-screener node missing');
+
+    await node.run(context);
+
+    expect(mockedCallTool).toHaveBeenCalledWith('screenASharesByConditions', {
+      turnoverRateMinExclusive: 8,
+      amountMinYuanExclusive: 200_000_000,
+    });
+    const emitEvent = context.emitEvent;
+    if (!emitEvent) throw new Error('condition screener emitEvent missing');
+    expect(vi.mocked(emitEvent).mock.calls).toContainEqual([
+      expect.objectContaining({
+        type: 'progress_updated',
+        progress: { current: 10, total: 100 },
+        subAgent: expect.objectContaining({ name: 'ConditionScreener', status: 'running' }),
+      }),
+    ]);
+    const analysisOverview = context.analysisOverview;
+    if (!analysisOverview) throw new Error('condition screener analysis overview missing');
+    expect(analysisOverview).toContain('条件命中股');
+    expect(analysisOverview).toContain('换手率 > 8%');
+    expect(analysisOverview).not.toContain('--换手率');
+    expect(analysisOverview).toContain('| 代码 | 名称 | 所属板块 | 涨幅 | 换手率 | 成交额 | 总市值 |');
+    expect(analysisOverview.match(/\| 代码 \| 名称 \| 所属板块 \|/g)).toHaveLength(1);
+    expect(analysisOverview).toContain('所属板块分布：新能源（2只，占展示样本66.7%）、半导体（1只，占展示样本33.3%）。');
+    expect(analysisOverview).toContain('成交额较大个股：成交额最高股（600002，+4.50亿）');
+    expect(analysisOverview).not.toContain('## 📰 核心事件');
+    expect(context.board?.subtitle).toBe('换手率 > 8% · 成交额 > 2 亿');
+    expect(context.board?.rows).toBeUndefined();
+    expect(context.board?.narrative).toBeUndefined();
+  });
+
+  it('完整零命中时说明筛选已执行，不误报数据缺口', async () => {
+    mockedCallTool.mockImplementation(async (toolName, input) => {
+      if (toolName === 'screenASharesByConditions') {
+        return {
+          ...record(toolName, {
+            source: 'duckdb+stock-sdk+a-stock-data',
+            storage: 'local',
+            freshness: 'current',
+            isComplete: true,
+            latestTradeDate: '2026-08-17',
+            rows: [],
+            matchedCount: 0,
+            returnedCount: 0,
+            totalCandidates: 100,
+            leadingBoards: [],
+            sourceStats: {
+              duckdbMatched: 0,
+              stockSdkMatched: 0,
+              aStockDataMatched: 0,
+              missingQuoteFields: 0,
+              missingChipData: 0,
+            },
+            warnings: [],
+            isEmpty: true,
+          }),
+          input,
+        };
+      }
+      return record(toolName, undefined);
+    });
+
+    const context = createContext();
+    context.query = '/条件选股 --换手率>8% --成交额>2亿';
+    context.intent = 'condition-screener';
+    context.symbol = undefined;
+    context.plan = createInitialAgentPlan(context);
+    const node = buildAgentWorkflow(context).find((item) => item.id === 'condition-screener');
+    if (!node) throw new Error('condition-screener node missing');
+
+    await node.run(context);
+
+    expect(context.analysisOverview).toContain('## 🎯 筛选总结');
+    expect(context.analysisOverview).toContain('已完整执行当前真实数据筛选，未发现符合全部条件的股票。');
+    expect(context.analysisOverview).not.toContain('| 代码 | 名称 |');
+    expect(context.analysisOverview).not.toContain('筛选数据存在缺口');
+    expect(context.board?.rows).toBeUndefined();
+    expect(context.dataStatuses?.[0]).toEqual(expect.objectContaining({ status: 'available' }));
+  });
+});
+
+describe('超短线选股工作流', () => {
+  it('stock-picker 意图挂载 stock-picker-agent 节点', () => {
+    const context = createContext();
+    context.query = '帮我找强势股';
+    context.intent = 'stock-picker';
+    context.symbol = undefined;
+    context.plan = createInitialAgentPlan(context);
+
+    const nodes = buildAgentWorkflow(context);
+
+    expect(nodes.map((node) => node.id)).toContain('stock-picker-agent');
+    expect(nodes.find((node) => node.id === 'stock-picker-agent')?.agent).toBe('stock-picker');
+  });
+
+  it('stock-picker 初始计划包含宽筛、精筛和风险缺口项', () => {
+    const context = createContext();
+    context.query = '找主力控盘的票';
+    context.intent = 'stock-picker';
+    context.symbol = undefined;
+
+    const plan = createInitialAgentPlan(context);
+
+    expect(plan.items.map((item) => item.id)).toEqual([
+      'intent-decompose',
+      'market-wide-screen',
+      'candidate-refine',
+      'risk-and-gap',
+    ]);
+    expect(plan.items.find((item) => item.id === 'market-wide-screen')?.relatedNodeIds).toContain('stock-picker-agent');
+  });
+});

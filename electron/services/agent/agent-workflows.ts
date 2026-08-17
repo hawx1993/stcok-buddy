@@ -52,6 +52,8 @@ import {
 } from './evidence.js';
 import { generateReport } from '../llm/index.js';
 import { agenticAStockDataAnswer } from './a-stock-data-agent.js';
+import { agenticStockPickerAnswer } from './stock-picker-agent.js';
+import { runConditionScreenerAgent } from './condition-screener-agent.js';
 import { isStockRelatedQuestion } from './intent-routing.js';
 import { createMarketReviewMessages } from './market-review-prompt.js';
 import { createDirectAnswerMessages, createPlainQuestionMessages } from './plain-question-prompt.js';
@@ -363,6 +365,22 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
     return nodes;
   }
 
+  if (context.intent === 'condition-screener') {
+    const nodes: DagNode<IAgentContext>[] = [
+      ...linkNodes,
+      {
+        id: 'condition-screener',
+        agent: 'ConditionScreener',
+        description: '校验条件并基于真实市场快照执行全市场筛选',
+        run: async (ctx) => {
+          await runConditionScreenerAgent(ctx);
+          emitReflectionEvents(ctx, nodes, 'condition-screener');
+        },
+      },
+    ];
+    return nodes;
+  }
+
   if (context.intent === 'a-stock-data-agent') {
     return [
       ...linkNodes,
@@ -376,6 +394,20 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           const out = resolved?.output;
           if (isSymbolResult(out) && /^\d{6}$/.test(out.symbol ?? '')) ctx.symbol = out.symbol;
           ctx.analysisOverview = await agenticAStockDataAnswer(ctx);
+        },
+      },
+    ];
+  }
+
+  if (context.intent === 'stock-picker') {
+    return [
+      ...linkNodes,
+      {
+        id: 'stock-picker-agent',
+        agent: 'stock-picker',
+        description: '解析超短线技术选股条件，先宽筛后精筛，输出候选清单...',
+        run: async (ctx) => {
+          ctx.analysisOverview = await agenticStockPickerAnswer(ctx);
         },
       },
     ];

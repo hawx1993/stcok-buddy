@@ -27,12 +27,14 @@ export type TAgentIntent =
   | 'theme-attribution'
   | 'daily-lhb'
   | 'market-review'
+  | 'condition-screener'
   | 'board'
   | 'portfolio'
   | 'shareholder-chip'
   | 'hot-concepts'
   | 'industry-ranking'
   | 'a-stock-data-agent'
+  | 'stock-picker'
   | 'chat';
 
 export interface ILinkedPage {

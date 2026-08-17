@@ -25,6 +25,11 @@ const slashCommands: ISlashCommand[] = [
     allowEmptyArgs: true,
   },
   {
+    name: '/条件选股',
+    intent: 'condition-screener',
+    usage: '请先选择条件选股预设，或输入条件，例如：/条件选股 --换手率>8% --成交额>2亿',
+  },
+  {
     name: '/技术面分析',
     intent: 'analysis',
     singleAgent: 'technical',
@@ -60,6 +65,11 @@ const slashCommands: ISlashCommand[] = [
     singleAgent: 'chip',
     usage: '请输入股票代码或股票名称，例如：/筹码分析 000858',
   },
+  {
+    name: '/超短选股',
+    intent: 'stock-picker',
+    usage: '请直接发送你的超短线技术选股需求，例如：/超短选股 找今天涨幅3%-7%、换手率>8%、MACD金叉、90%筹码集中度<15%、非ST、市值30-100亿的票',
+  },
 ];
 
 export function parseSlashCommand(query: string): IParsedSlashCommand | undefined {
@@ -81,6 +91,12 @@ export function classifyIntent(query: string): TAgentIntent {
   if (hasStock(query) && /股东户数|户数|筹码集中|控盘|筹码/.test(query)) return 'shareholder-chip';
   if (/热门|人气榜|在炒|炒作|概念.*炒|归.*概念|题材.*归/.test(query)) return 'hot-concepts';
   if (/行业.*(涨幅|涨跌|领涨|上涨|涨幅最大)/.test(query)) return 'industry-ranking';
+  if (
+    /超短|打板|首板|能连板|连板潜力|(?:找|选|筛|帮我|有没有|哪些).*连板|一进二|二进三|龙头股?|竞价高开|技术选股|帮我选股|筛选股票|选出.*股票|找出.*符合.*股票|全市场.*选股|超短线选股|强势股|强势票|主力控盘|找.*控盘.*票|找.*票/.test(
+      query,
+    )
+  )
+    return 'stock-picker';
   if (/板块|行业|选股|资金流|北向|热点/.test(query)) return 'board';
   if (/MACD|KDJ|K线|均线|技术|走势|金叉|死叉/.test(query)) return 'technical';
   if (/股价|行情|现价|多少|涨跌/.test(query)) return 'quote';
@@ -99,6 +115,7 @@ export function isPossibleStockOnlyQuery(query: string): boolean {
  */
 export function applyStockAgentRouting(intent: TAgentIntent, query: string, isCommand: boolean): TAgentIntent {
   if (isCommand || intent === 'portfolio') return intent;
+  if (intent === 'stock-picker') return 'stock-picker';
   if (intent === 'analysis' && isPossibleStockOnlyQuery(query)) return intent;
   if (isStockRelatedQuestion(query)) return 'a-stock-data-agent';
   return intent;
@@ -131,12 +148,14 @@ export function intentLabel(intent: TAgentIntent): string {
     'theme-attribution': '题材归因',
     'daily-lhb': '全市场龙虎榜',
     'market-review': '今日行情复盘',
+    'condition-screener': '条件选股',
     board: '板块分析',
     portfolio: '持仓管理',
     'shareholder-chip': '股东户数/筹码',
     'hot-concepts': '热门题材',
     'industry-ranking': '行业涨幅',
     'a-stock-data-agent': 'A股智能投研',
+    'stock-picker': '超短线技术选股',
     chat: '普通问答',
   }[intent];
 }

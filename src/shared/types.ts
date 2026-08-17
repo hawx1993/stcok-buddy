@@ -237,12 +237,14 @@ export type TAgentPlanIntent =
   | 'theme-attribution'
   | 'daily-lhb'
   | 'market-review'
+  | 'condition-screener'
   | 'board'
   | 'portfolio'
   | 'shareholder-chip'
   | 'hot-concepts'
   | 'industry-ranking'
   | 'a-stock-data-agent'
+  | 'stock-picker'
   | 'chat';
 
 export type TPlanItemStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'blocked' | 'failed';

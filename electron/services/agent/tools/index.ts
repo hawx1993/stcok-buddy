@@ -26,5 +26,7 @@ export { queryLocalMonitorDuckDB } from './query-local-monitor-duckdb.js';
 export { queryLocalSurgeDuckDB } from './query-local-surge-duckdb.js';
 export { readUrl } from './read-url.js';
 export { resolveStockSymbol } from './resolve-stock-symbol.js';
+export { webSearch } from './web-search.js';
+export { screenASharesByConditions } from './screen-a-shares-by-conditions.js';
 export { screenASharesByMarketCap } from './screen-a-shares-by-market-cap.js';
 export { screenLocalAStocks } from './screen-local-a-stocks.js';

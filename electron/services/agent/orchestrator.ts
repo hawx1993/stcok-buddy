@@ -54,7 +54,9 @@ export async function runOrchestrator(
   };
   const command = parseSlashCommand(request.message);
   const symbolText = command?.args ?? request.message;
-  if (symbolText && (await isUnsupportedStockMarketQuery(symbolText))) return unsupportedMarketResponse();
+  if (command?.intent !== 'condition-screener' && symbolText && (await isUnsupportedStockMarketQuery(symbolText))) {
+    return unsupportedMarketResponse();
+  }
 
   let intent = applyStockAgentRouting(
     command?.intent ?? classifyIntent(request.message),
@@ -209,7 +211,7 @@ function emitIntentEvent({
           command: {
             name: command.name,
             args: command.args,
-            mode: command.singleAgent ? '单 Agent 分析' : '多 Agent 协同分析',
+            mode: commandMode(command, context.intent),
             label: stockName ? `${stockName}（${context.symbol}）` : undefined,
           },
         }
@@ -225,6 +227,11 @@ function emitIntentEvent({
           },
         },
   );
+}
+
+function commandMode(command: NonNullable<ReturnType<typeof parseSlashCommand>>, intent: IAgentContext['intent']) {
+  if (intent === 'condition-screener') return '确定性条件筛选';
+  return command.singleAgent ? '单 Agent 分析' : '多 Agent 协同分析';
 }
 
 function emitPlanEvent(

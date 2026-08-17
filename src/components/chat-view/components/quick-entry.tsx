@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react';
 import type { IHotStockHint } from './hot-stock-hints';
 import { SlashCommandMenu } from './slash-command-menu';
 import { useHotStockHints } from './use-hot-stock-hints';
+import { isConditionScreenerCommand } from '../../../shared/condition-screener';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { MarketSearchResult } from '../../../shared/types';
+import { ConditionScreenerPicker } from './condition-screener-picker';
 import styles from '../index.module.scss';
 
 export type TSlashItem = {
@@ -26,6 +28,7 @@ const commonStockShortcuts: IHotStockHint[] = [
 
 export function getQuickEntrySearchKeyword(input: string) {
   const trimmed = input.trim();
+  if (isConditionScreenerCommand(input)) return '';
   if (!trimmed.startsWith('/')) return trimmed;
   const commandWithArg = /^\/\S+\s+(.+)$/.exec(input);
   return commandWithArg?.[1]?.trim() ?? '';
@@ -55,7 +58,8 @@ export function QuickEntry({
   const slashOpen = value.startsWith('/') && !value.includes(' ');
   const searchKeyword = getQuickEntrySearchKeyword(value);
   const hasSearchInput = Boolean(searchKeyword) && searchKeyword !== selectedSearchValue;
-  const canShowSuggestions = !slashOpen && hasSearchInput;
+  const hasConditionScreenerInput = isConditionScreenerCommand(value);
+  const canShowSuggestions = !slashOpen && hasSearchInput && !hasConditionScreenerInput;
   const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
     if (item) {
       setValue(`${item.command} `);
@@ -71,9 +75,12 @@ export function QuickEntry({
   };
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(slashOpen || !hasSearchInput ? '' : searchKeyword), 250);
+    const timer = window.setTimeout(
+      () => setDebouncedSearch(slashOpen || !hasSearchInput || hasConditionScreenerInput ? '' : searchKeyword),
+      250,
+    );
     return () => window.clearTimeout(timer);
-  }, [hasSearchInput, searchKeyword, slashOpen]);
+  }, [hasConditionScreenerInput, hasSearchInput, searchKeyword, slashOpen]);
 
   useEffect(() => {
     let alive = true;
@@ -156,7 +163,16 @@ export function QuickEntry({
       </div>
       <div className={styles['qe-title']}>开始新的投研分析</div>
       <div className={styles['qe-sub']}>输入A股股票名称或代码，AI 将为你深度解读</div>
-      <div className={styles['qe-search-box']}>
+      <div className={styles['qe-entry-controls']}>
+        <ConditionScreenerPicker
+          onCommandChange={(command) => {
+            setValue(command);
+            setSelectedSearchValue('');
+            setSuggestions([]);
+            setDebouncedSearch('');
+          }}
+        />
+        <div className={styles['qe-search-box']}>
         {slashOpen ? (
           <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} />
         ) : null}
@@ -218,9 +234,10 @@ export function QuickEntry({
           placeholder='例如：/综合投研报告 中公教育、000858……'
           autoFocus
         />
-        <button onClick={() => onSubmit(value)} type='button'>
-          开始分析
-        </button>
+          <button onClick={() => onSubmit(value)} type='button'>
+            开始分析
+          </button>
+        </div>
       </div>
       <HintList
         hints={hints}

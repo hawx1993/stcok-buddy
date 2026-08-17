@@ -124,6 +124,53 @@ describe('agent-tool-runtime 数据状态记录', () => {
     expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '筹码集中度', status: 'available' }));
   });
 
+  it('完整但零命中的条件选股不会被记录为数据缺口', () => {
+    const statuses = createDataStatuses(
+      createContext(),
+      'screenASharesByConditions',
+      'tool-condition-empty',
+      {
+        isComplete: true,
+        rows: [],
+        matchedCount: 0,
+        returnedCount: 0,
+        warnings: [],
+      },
+    );
+
+    expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '条件选股', status: 'available' }));
+  });
+
+  it('完整但零命中的本地选股不会被记录为数据缺口', () => {
+    const statuses = createDataStatuses(
+      createContext(),
+      'screenLocalAStocks',
+      'tool-local-screen-empty',
+      {
+        source: 'duckdb:market',
+        storage: 'local',
+        rows: [],
+        matchedCount: 0,
+        returnedCount: 0,
+        warnings: [],
+        isEmpty: true,
+      },
+    );
+
+    expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '本地选股/筹码筛选', status: 'available' }));
+  });
+
+  it('联网搜索工具会映射到联网搜索数据状态', () => {
+    const statuses = createDataStatuses(
+      createContext(),
+      'webSearch',
+      'tool-web-search',
+      { query: '半导体 催化', results: [{ title: '新闻', url: 'https://example.com', snippet: '摘要' }], warnings: [] },
+    );
+
+    expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '联网搜索', status: 'available' }));
+  });
+
   it('市值筛选工具会映射到 A 股市值筛选数据状态', () => {
     const statuses = createDataStatuses(
       createContext(),

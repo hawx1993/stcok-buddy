@@ -7,6 +7,7 @@ import { trackButtonClick } from '../../shared/analytics';
 import { setBuiltInSlashItems } from './components/thinking-steps';
 import { MessageBubble } from './components/message-bubble';
 import { QuickEntry } from './components/quick-entry';
+import { ConditionScreenerPicker } from './components/condition-screener-picker';
 import { SlashCommandMenu } from './components/slash-command-menu';
 import { findSearchTargetMessageId } from './components/search-highlight';
 import { AppStoreBar } from './components/app-store-bar';
@@ -59,6 +60,22 @@ const builtInSlashItems = [
     command: '/复盘今日行情',
     description: '基于真实全市场数据复盘最近可用交易日行情',
     argPlaceholder: '直接发送即可',
+  },
+  {
+    id: 'condition-screener',
+    section: 'Commands',
+    label: '条件选股',
+    command: '/条件选股',
+    description: '按市值、换手率、成交额、筹码或领涨板块筛选真实 A 股数据',
+    argPlaceholder: '[选择预设或输入 --条件]',
+  },
+  {
+    id: 'stock-picker',
+    section: 'Commands',
+    label: '超短选股',
+    command: '/超短选股',
+    description: '用自然语言描述强势股、主力控盘、连板潜力等意图，Agent 自动拆解真实数据条件',
+    argPlaceholder: '[例如：帮我找强势股 / 找主力控盘的票 / 找能连板的]',
   },
   {
     id: 'technical-agent',
@@ -381,6 +398,12 @@ export function ChatView() {
             <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} />
           ) : null}
           <div className={styles['composer-shell']}>
+            <ConditionScreenerPicker
+              onCommandChange={(command) => {
+                setInput(command);
+                setSelectedSlashIndex(0);
+              }}
+            />
             <div className={styles['input-row']}>
               {activeCommand ? (
                 <div className={styles['command-input-wrap']}>

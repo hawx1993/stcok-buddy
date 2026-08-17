@@ -29,8 +29,10 @@ import {
   queryLocalSurgeDuckDB,
   readUrl,
   resolveStockSymbol,
+  screenASharesByConditions,
   screenASharesByMarketCap,
   screenLocalAStocks,
+  webSearch,
 } from '../agent/tools/index.js';
 
 export const stockToolRegistry = {
@@ -48,6 +50,7 @@ export const stockToolRegistry = {
   getDragonTiger,
   getHotFocus,
   getNorthboundFlow,
+  screenASharesByConditions,
   screenASharesByMarketCap,
   getHolderNumberChange,
   getDividendHistory,
@@ -64,6 +67,7 @@ export const stockToolRegistry = {
   queryLocalMonitorDuckDB,
   queryLocalSurgeDuckDB,
   readUrl,
+  webSearch,
 } satisfies Record<string, AgentTool>;
 
 let nextToolCallId = 0;
