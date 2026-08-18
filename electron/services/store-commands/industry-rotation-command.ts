@@ -1,4 +1,4 @@
-import { getIndustryRanking } from '../agent/tools/get-industry-ranking.js';
+import { getIndustryRanking } from '../agents/tools/get-industry-ranking.js';
 import type { IStoreCommandResult } from './types.js';
 
 export async function runIndustryRotationCommand(): Promise<IStoreCommandResult> {

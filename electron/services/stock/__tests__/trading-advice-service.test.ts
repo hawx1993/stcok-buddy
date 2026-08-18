@@ -14,7 +14,7 @@ vi.mock('../stock-client', () => ({
   listEastmoneySurgeByDate: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock('../../config-store', () => ({
+vi.mock('../../stock-db/config-store', () => ({
   getConfig: vi.fn(() => ({
     model: { provider: 'deepseek', apiKey: '', baseUrl: '', model: 'test', customModel: '' },
   })),

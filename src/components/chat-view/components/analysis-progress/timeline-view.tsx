@@ -1,7 +1,9 @@
+import { Clock3 } from 'lucide-react';
 import { useState } from 'react';
 import { marked } from 'marked';
 import type { ITimelineEntry } from './types';
 import styles from './index.module.scss';
+import { normalizeProgressLabel } from './presentation';
 
 const MAX_VISIBLE = 8;
 
@@ -26,7 +28,10 @@ export function TimelineView({ entries }: { entries: ITimelineEntry[] }) {
 
   return (
     <div className={styles['timeline']}>
-      <div className={styles['section-title']}>⏱ 执行时间轴</div>
+      <div className={styles['section-title']}>
+        <Clock3 aria-hidden='true' size={13} strokeWidth={1.8} />
+        <span>执行时间轴</span>
+      </div>
       {hidden > 0 && !showAll ? (
         <button className={styles['timeline-expand']} onClick={() => setShowAll(true)} type='button'>
           展开前面 {hidden} 条…
@@ -37,7 +42,7 @@ export function TimelineView({ entries }: { entries: ITimelineEntry[] }) {
           <div key={`${entry.time}-${i}`} className={styles['timeline-entry']}>
             <span className={styles['timeline-dot']} style={{ background: entry.color }} />
             <span className={styles['timeline-time']}>{entry.time}</span>
-            <span className={styles['timeline-label']}>{stripMarkdown(entry.label)}</span>
+            <span className={styles['timeline-label']}>{normalizeProgressLabel(stripMarkdown(entry.label))}</span>
           </div>
         ))}
       </div>

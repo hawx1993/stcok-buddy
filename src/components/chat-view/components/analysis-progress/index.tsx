@@ -1,5 +1,7 @@
+import { CheckCircle, ChevronDown, ChevronRight, LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { AgentRunEvent, ToolCallRecord } from '../../../../shared/types';
+import cx from '../../../../shared/cx';
 import { ProgressBar } from './progress-bar';
 import { AgentCollaboration } from './agent-collaboration';
 import { TimelineView } from './timeline-view';
@@ -33,6 +35,8 @@ export function AnalysisProgress({ events, toolCalls }: { events: AgentRunEvent[
   const pending = useMemo(() => hasPendingAgents(events), [events]);
   const remaining = useMemo(() => calcEstimatedRemaining(events), [events]);
   const preparing = !events.length;
+  const inProgress = preparing || pending;
+  const HeaderStatusIcon = inProgress ? LoaderCircle : CheckCircle;
 
   const terminal = steps.filter((s) => s.status === 'completed' || s.status === 'skipped' || s.status === 'error').length;
   const total = steps.length || 1;
@@ -52,13 +56,28 @@ export function AnalysisProgress({ events, toolCalls }: { events: AgentRunEvent[
 
   return (
     <div className={styles['analysis-progress']}>
-      <button className={styles['ap-header']} onClick={() => setOpen(!open)} type='button'>
+      <button aria-expanded={open} className={styles['ap-header']} onClick={() => setOpen(!open)} type='button'>
         <span className={styles['ap-header-left']}>
-          <span className={styles['ap-dot']}>{preparing || pending ? '⏳' : '✅'}</span>
+          <span
+            className={cx(
+              styles['ap-dot'],
+              inProgress ? styles['ap-status-running'] : styles['ap-status-completed'],
+            )}
+          >
+            <HeaderStatusIcon
+              aria-label={inProgress ? '分析进行中' : '分析已完成'}
+              className={inProgress ? styles['icon-spinning'] : undefined}
+              role='img'
+              size={15}
+              strokeWidth={1.8}
+            />
+          </span>
           <span className={styles['ap-title']}>{stockName ? `分析 ${stockName}` : 'AI 分析过程'}</span>
           <span className={styles['ap-summary']}>{progressSummary}</span>
         </span>
-        <span className={styles['ap-caret']}>{open ? '▾' : '▸'}</span>
+        <span aria-hidden='true' className={styles['ap-caret']}>
+          {open ? <ChevronDown size={16} strokeWidth={1.8} /> : <ChevronRight size={16} strokeWidth={1.8} />}
+        </span>
       </button>
 
       {open ? (

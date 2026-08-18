@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { KlinePoint, MarketIndexPeriod, MarketIndexSnapshot } from '../../src/shared/types.js';
-import { closeMarketDataInstance, closeMarketDataStore } from '../services/market-data/market-data-store.js';
+import { closeMarketDataInstance, closeMarketDataStore } from '../services/stock-db/market-data-store.js';
 import { getMarketPageSnapshot } from '../services/stock/market-page.js';
 import { getKline } from '../services/stock/stock-client.js';
 

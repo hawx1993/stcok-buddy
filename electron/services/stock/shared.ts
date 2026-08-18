@@ -6,7 +6,7 @@ import type {
   MarketQuoteRow,
   MarketTab,
 } from '../../../src/shared/types.js';
-import { readBoardSnapshot, upsertMarketBoards, writeBoardSnapshot } from '../market-data/market-data-store.js';
+import { readBoardSnapshot, upsertMarketBoards, writeBoardSnapshot } from '../stock-db/market-data-store.js';
 import { remoteMarketStatus } from '../market-data/providers.js';
 import { normalizeMarketCap, pickNumber, pickString } from './format.js';
 

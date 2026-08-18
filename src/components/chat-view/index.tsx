@@ -138,6 +138,7 @@ type TAppliedSearchHighlight = {
 
 export function ChatView() {
   const rootRef = useRef<HTMLDivElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [storeOpen, setStoreOpen] = useState(false);
@@ -295,6 +296,10 @@ export function ChatView() {
   // ── slash command helpers ────────────────────────────────────────────
   const slashOpen = input.startsWith('/') && !input.includes(' ');
   const activeModelName = config?.model.customModel?.trim() || config?.model.model || '模型设置';
+  const openModelSettings = () => {
+    trackButtonClick('open_model_settings');
+    setSettingsOpen(true);
+  };
   const activeCommand = slashItems.find((item) => input.startsWith(`${item.command} `));
   const commandArg = activeCommand ? input.slice(activeCommand.command.length + 1) : '';
 
@@ -351,7 +356,14 @@ export function ChatView() {
       <div className={styles['chat-messages']} ref={setScrollRef} onScroll={handleMessagesScroll} data-chat-scroll>
         {isLoadingEarlierMessages ? <div className={styles['chat-loading-earlier']}>正在加载更早消息…</div> : null}
         {messages.length === 0 && !isMessagesLoading ? (
-          <QuickEntry conversationId={activeConversationId} onSubmit={send} slashItems={slashItems} />
+          <QuickEntry
+            activeModelName={activeModelName}
+            conversationId={activeConversationId}
+            onOpenStore={() => setStoreOpen(true)}
+            onOpenModelSettings={openModelSettings}
+            onSubmit={send}
+            slashItems={slashItems}
+          />
         ) : (
           <div ref={contentRef} style={{ height: messageVirtualizer.getTotalSize(), position: 'relative' }}>
             {messageVirtualizer.getVirtualItems().map((virtualMessage) => {
@@ -397,91 +409,94 @@ export function ChatView() {
           {slashOpen ? (
             <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} />
           ) : null}
-          <div className={styles['composer-shell']}>
-            <ConditionScreenerPicker
-              onCommandChange={(command) => {
-                setInput(command);
-                setSelectedSlashIndex(0);
-              }}
-            />
-            <div className={styles['input-row']}>
-              {activeCommand ? (
-                <div className={styles['command-input-wrap']}>
-                  <button
-                    className='command-chip'
-                    title={activeCommand.description}
-                    onClick={() => setInput('/')}
-                    type='button'
-                  >
-                    <span className='slash-icon'>/</span>
-                    {activeCommand.command}
-                  </button>
+          <div className={styles['composer-stack']}>
+            <div className={styles['composer-shell']}>
+              <ConditionScreenerPicker
+                value={input}
+                onCommandChange={(command) => {
+                  setInput(command);
+                  setSelectedSlashIndex(0);
+                }}
+                onRequestInputFocus={() => composerInputRef.current?.focus()}
+              />
+              <div className={styles['input-row']}>
+                {activeCommand ? (
+                  <div className={styles['command-input-wrap']}>
+                    <button
+                      className='command-chip'
+                      title={activeCommand.description}
+                      onClick={() => setInput('/')}
+                      type='button'
+                    >
+                      <span className='slash-icon'>/</span>
+                      {activeCommand.command}
+                    </button>
+                    <input
+                      ref={composerInputRef}
+                      value={commandArg}
+                      onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)}
+                      onKeyDown={(event) => {
+                        if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) {
+                          event.preventDefault();
+                          setInput('');
+                          return;
+                        }
+                        if (event.key === 'Enter') submitComposerInput(input);
+                      }}
+                      placeholder={activeCommand.argPlaceholder}
+                      autoFocus
+                    />
+                  </div>
+                ) : (
                   <input
-                    value={commandArg}
-                    onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)}
+                    ref={composerInputRef}
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
                     onKeyDown={(event) => {
-                      if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) {
+                      if (slashOpen && event.key === 'Enter') {
                         event.preventDefault();
-                        setInput('');
+                        selectSlashItem();
+                        return;
+                      }
+                      if (slashOpen && event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1));
+                        return;
+                      }
+                      if (slashOpen && event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        setSelectedSlashIndex((value) => Math.max(value - 1, 0));
                         return;
                       }
                       if (event.key === 'Enter') submitComposerInput(input);
                     }}
-                    placeholder={activeCommand.argPlaceholder}
-                    autoFocus
+                    placeholder='输入 / 打开命令，或直接输入A股股票名称/代码'
                   />
+                )}
+              </div>
+              <div className={styles['composer-toolbar']}>
+                <AppStoreBar onOpen={() => setStoreOpen(true)} />
+                <div className={styles['composer-actions']}>
+                  <button
+                    className={styles['model-pill']}
+                    onClick={openModelSettings}
+                    type='button'
+                    aria-label={`当前模型：${activeModelName}。打开模型设置`}
+                    title={`当前模型：${activeModelName}。点击打开模型设置`}
+                  >
+                    <span className={styles['model-pill-label']}>模型</span>
+                    <span className={styles['model-pill-name']}>{activeModelName}</span>
+                  </button>
+                  <button
+                    className={cx(styles['send-btn'], isSending && styles.sending)}
+                    onClick={isSending ? stopThinking : () => submitComposerInput(input)}
+                    type='button'
+                    aria-label={isSending ? '暂停思考' : '发送'}
+                    title={isSending ? '暂停思考' : '发送'}
+                  >
+                    {isSending ? <span className={styles['pause-icon']} /> : '➤'}
+                  </button>
                 </div>
-              ) : (
-                <input
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (slashOpen && event.key === 'Enter') {
-                      event.preventDefault();
-                      selectSlashItem();
-                      return;
-                    }
-                    if (slashOpen && event.key === 'ArrowDown') {
-                      event.preventDefault();
-                      setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1));
-                      return;
-                    }
-                    if (slashOpen && event.key === 'ArrowUp') {
-                      event.preventDefault();
-                      setSelectedSlashIndex((value) => Math.max(value - 1, 0));
-                      return;
-                    }
-                    if (event.key === 'Enter') submitComposerInput(input);
-                  }}
-                  placeholder='输入 / 打开命令，或直接输入A股股票名称/代码'
-                />
-              )}
-            </div>
-            <div className={styles['composer-toolbar']}>
-              <AppStoreBar onOpen={() => setStoreOpen(true)} />
-              <div className={styles['composer-actions']}>
-                <button
-                  className={styles['model-pill']}
-                  onClick={() => {
-                    trackButtonClick('open_model_settings');
-                    setSettingsOpen(true);
-                  }}
-                  type='button'
-                  aria-label={`当前模型：${activeModelName}。打开模型设置`}
-                  title={`当前模型：${activeModelName}。点击打开模型设置`}
-                >
-                  <span className={styles['model-pill-label']}>模型</span>
-                  <span className={styles['model-pill-name']}>{activeModelName}</span>
-                </button>
-                <button
-                  className={cx(styles['send-btn'], isSending && styles.sending)}
-                  onClick={isSending ? stopThinking : () => submitComposerInput(input)}
-                  type='button'
-                  aria-label={isSending ? '暂停思考' : '发送'}
-                  title={isSending ? '暂停思考' : '发送'}
-                >
-                  {isSending ? <span className={styles['pause-icon']} /> : '➤'}
-                </button>
               </div>
             </div>
           </div>

@@ -8,7 +8,7 @@ import type { IMonitorEvent } from '../../src/shared/types.js';
 const dbPath = path.join(os.tmpdir(), `stocksense-monitor-selfcheck-${process.pid}.duckdb`);
 process.env.STOCKSENSE_MONITOR_DB_PATH = dbPath;
 
-const store = await import('../services/stock/monitor-history-store.js');
+const store = await import('../services/stock-db/monitor-history-store.js');
 
 const baseEvent: IMonitorEvent = {
   id: 'selfcheck-1',

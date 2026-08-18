@@ -57,6 +57,11 @@ var api = {
   getMarketNewsItem: (item) => import_electron.ipcRenderer.invoke("news:getDetail", item),
   listHotFocus: (tab) => import_electron.ipcRenderer.invoke("hot:list", tab),
   getHotStockHintSource: () => import_electron.ipcRenderer.invoke("hot:hintSource"),
+  onHotStockHintSourceUpdated: (handler) => {
+    const listener = (_event, source) => handler(source);
+    import_electron.ipcRenderer.on("hot:hintSourceUpdated", listener);
+    return () => import_electron.ipcRenderer.removeListener("hot:hintSourceUpdated", listener);
+  },
   listSurgeHistoryDates: () => import_electron.ipcRenderer.invoke("hot:historyDates"),
   listSurgeHistory: (date, offset, limit) => import_electron.ipcRenderer.invoke("hot:history", date, offset, limit),
   listStockSurgeEvents: (code) => import_electron.ipcRenderer.invoke("stock:surgeEvents", code),

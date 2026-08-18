@@ -30,7 +30,7 @@ import {
   store,
   toggleFavoriteStockPin,
   upsertFavoriteStock,
-} from './services/config-store.js';
+} from './services/stock-db/config-store.js';
 import {
   closeConversationStore,
   createConversation,
@@ -42,7 +42,7 @@ import {
   saveAssistantMessage,
   saveMessage,
   saveUserMessage,
-} from './services/conversation-store.js';
+} from './services/stock-db/conversation-store.js';
 import {
   getMarketDataStats,
   getMarketDataSyncStatus,
@@ -53,7 +53,7 @@ import {
   waitForMarketDataSync,
 } from './services/market-data/market-data-sync.js';
 import { syncSurgeHistory, syncStockDetails, syncMarketSnapshot } from './services/market-data/data-sync-handlers.js';
-import { runOrchestrator } from './services/agent/orchestrator.js';
+import { runOrchestrator } from './services/agents/orchestrator.js';
 import {
   clearSurgeCache,
   getBatchQuotes,
@@ -73,9 +73,9 @@ import { getDiscoverySnapshot } from './services/stock/discovery-service.js';
 import { getBoardDashboard } from './services/stock/board-dashboard.js';
 import { getMonitorFeed } from './services/stock/monitor-service.js';
 import { getTradingAdvice } from './services/stock/trading-advice-service.js';
-import { listHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
+import { getHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
-import { closeSurgeHistoryInstance, listSurgeDates } from './services/stock/surge-history-store.js';
+import { closeSurgeHistoryInstance, listSurgeDates } from './services/stock-db/surge-history-store.js';
 import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { stopMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
 import {
@@ -91,18 +91,18 @@ import {
   listStoreItems,
   uninstallStoreItem,
 } from './services/store-service.js';
-import { closeSurgeHistoryStore, resetSurgeHistoryStore } from './services/stock/surge-history-store.js';
+import { closeSurgeHistoryStore, resetSurgeHistoryStore } from './services/stock-db/surge-history-store.js';
 import {
   closeMonitorHistoryInstance,
   closeMonitorHistoryStore,
   resetMonitorHistoryStore,
-} from './services/stock/monitor-history-store.js';
+} from './services/stock-db/monitor-history-store.js';
 import {
   closeMarketDataStore,
   getMarketDataDatabasePath,
   initializeMarketDataStore,
   resetMarketDataStore,
-} from './services/market-data/market-data-store.js';
+} from './services/stock-db/market-data-store.js';
 import { ensureMarketDataRuntime } from './services/market-data/market-data-scheduler.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
 import { testModelConnection } from './services/llm/index.js';
@@ -244,7 +244,21 @@ export function registerIpcHandlers() {
     if (tab === 'surge') ensureSurgeHistoryCapture();
     return listHotFocus(tab);
   });
-  ipcMain.handle('hot:hintSource', () => listHotStockHintSource());
+  ipcMain.handle('hot:hintSource', async () => {
+    const { source, refresh } = await getHotStockHintSource();
+    if (refresh) {
+      void refresh
+        .then((updatedSource) => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            window.webContents.send('hot:hintSourceUpdated', updatedSource);
+          }
+        })
+        .catch((error: unknown) => {
+          console.warn('[hot-stock-hints] background refresh failed', error);
+        });
+    }
+    return source;
+  });
   ipcMain.handle('hot:historyDates', () => {
     ensureSurgeHistoryCapture();
     return listSurgeDates();

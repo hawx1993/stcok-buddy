@@ -5,11 +5,11 @@ vi.mock('../../../../src/shared/market-time', () => ({
   toShanghaiMarketTime: vi.fn(),
 }));
 
-vi.mock('../../config-store', () => ({
+vi.mock('../../stock-db/config-store', () => ({
   listFavoriteStocks: vi.fn(),
 }));
 
-vi.mock('../monitor-history-store', () => ({
+vi.mock('../../stock-db/monitor-history-store', () => ({
   cleanupMonitorHistoryNoise: vi.fn(),
   countMonitorHistory: vi.fn(),
   countMonitorHistoryByCategory: vi.fn(),
@@ -20,12 +20,12 @@ vi.mock('../monitor-history-store', () => ({
   pruneMonitorHistory: vi.fn(),
 }));
 
-vi.mock('../surge-history-store', () => ({
+vi.mock('../../stock-db/surge-history-store', () => ({
   listRecentStockSurgeEvents: vi.fn(),
   listStockSurgeEvents: vi.fn(),
 }));
 
-vi.mock('../../market-data/market-data-store', () => ({
+vi.mock('../../stock-db/market-data-store', () => ({
   getStockChip: vi.fn(),
 }));
 
@@ -52,11 +52,11 @@ import {
   parseMarketCapYi,
   ratioPercent,
 } from '../monitor-service.js';
-import { listFavoriteStocks } from '../../config-store.js';
-import { getStockChip } from '../../market-data/market-data-store.js';
+import { listFavoriteStocks } from '../../stock-db/config-store.js';
+import { getStockChip } from '../../stock-db/market-data-store.js';
 import { getAllMarketQuoteRows } from '../market-page.js';
 import { getBatchQuotes, getChipDistribution, listHotFocus } from '../stock-client.js';
-import { listRecentStockSurgeEvents } from '../surge-history-store.js';
+import { listRecentStockSurgeEvents } from '../../stock-db/surge-history-store.js';
 import type { HotFocusItem, IChipDistributionResult, StockSurgeEvent } from '../../../../src/shared/types.js';
 
 beforeEach(() => {

@@ -12,7 +12,7 @@ import {
   listLatestMarketRows,
   listSecurities,
   updateSecurityIndustries,
-} from '../market-data/market-data-store.js';
+} from '../stock-db/market-data-store.js';
 import { pickString } from './format.js';
 import {
   aggregateKlineByMonth,
@@ -29,7 +29,7 @@ import {
   withTimeoutReject,
   sdk,
 } from './shared.js';
-import { getStoredQuoteRows, upsertQuoteRows } from './quote-store.js';
+import { getStoredQuoteRows, upsertQuoteRows } from '../stock-db/quote-store.js';
 import { loadSinaIndustryMap } from './industry-provider.js';
 import { marketIndexCache } from './market-state.js';
 import { getMarketIndices, getCachedMarketIndices, fallbackIndex, fallbackIndices } from './market-indices.js';

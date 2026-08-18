@@ -9,7 +9,7 @@ vi.mock('stock-sdk', () => ({
   },
 }));
 
-vi.mock('../../market-data/market-data-store', () => ({
+vi.mock('../../stock-db/market-data-store', () => ({
   readBoardSnapshot: vi.fn(),
   upsertMarketBoards: vi.fn(),
   writeBoardSnapshot: vi.fn(),

@@ -1,5 +1,5 @@
 import type { IChipDistributionResult, KlinePoint } from '../../../src/shared/types.js';
-import { getStockChipCacheRecord, upsertStockChip } from '../market-data/market-data-store.js';
+import { getStockChipCacheRecord, upsertStockChip } from '../stock-db/market-data-store.js';
 import type { IBaiduKline } from './a-stock-data-runner.js';
 import { runAStockDataFn } from './a-stock-data-runner.js';
 import {

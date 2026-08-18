@@ -28,7 +28,7 @@ vi.mock('../market-data-sync', () => ({
   startMarketDataSync: mocks.startMarketDataSync,
 }));
 
-vi.mock('../market-data-store', () => ({
+vi.mock('../../stock-db/market-data-store', () => ({
   listSecurities: mocks.listSecurities,
 }));
 
@@ -37,7 +37,7 @@ vi.mock('../../stock/surge-history-scheduler', () => ({
   isSurgeHistorySchedulerRunning: mocks.isSurgeHistorySchedulerRunning,
 }));
 
-vi.mock('../../stock/surge-history-store', () => ({
+vi.mock('../../stock-db/surge-history-store', () => ({
   clearSurgeHistoryClearMarker: vi.fn(),
   getSurgeHistoryFreshness: mocks.getSurgeHistoryFreshness,
   pruneSurgeHistory: mocks.pruneSurgeHistory,

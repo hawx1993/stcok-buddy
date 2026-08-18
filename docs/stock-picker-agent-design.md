@@ -76,14 +76,14 @@ finalizePickerAnswer → 输出 Markdown 候选清单
 
 | 文件 | 改动 |
 | --- | --- |
-| `electron/services/agent/stock-picker-agent.ts` | **新增**——核心智能体：system prompt、结果压缩、多轮 ReAct 循环、合规 finalize |
-| `electron/services/agent/stock-picker-agent-tools.ts` | **新增**——选股工具白名单 `STOCK_PICKER_TOOLBOX`（11 个真实工具）+ 复用 `parseToolCall` |
-| `electron/services/agent/tools/web-search.ts` | **新增**——`webSearch` 工具（Tavily / Serper，未配置 Key 优雅降级） |
-| `electron/services/agent/tools/index.ts` | 导出 `webSearch` |
-| `electron/services/tools/tool-registry.ts` | 注册 `webSearch` 到 `stockToolRegistry` 导入与 satisfies 对象 |
-| `electron/services/agent/intent-routing.ts` | 新增 `/超短选股` 斜杠命令；`classifyIntent` 超短正则；`applyStockAgentRouting` 防覆盖；`intentLabel` 标签 |
-| `electron/services/agent/agent-workflows.ts` | 新增 `stock-picker` 意图分支，挂载 `stock-picker-agent` 节点 |
-| `electron/services/agent/orchestrator-types.ts` | `TAgentIntent` 联合类型加入 `'stock-picker'` |
+| `electron/services/agents/stock-picker-agent.ts` | **新增**——核心智能体：system prompt、结果压缩、多轮 ReAct 循环、合规 finalize |
+| `electron/services/agents/stock-picker-agent-tools.ts` | **新增**——选股工具白名单 `STOCK_PICKER_TOOLBOX`（11 个真实工具）+ 复用 `parseToolCall` |
+| `electron/services/agents/tools/web-search.ts` | **新增**——`webSearch` 工具（Tavily / Serper，未配置 Key 优雅降级） |
+| `electron/services/agents/tools/index.ts` | 导出 `webSearch` |
+| `electron/services/agents/tool-registry.ts` | 注册 `webSearch` 到 `stockToolRegistry` 导入与 satisfies 对象 |
+| `electron/services/agents/intent-routing.ts` | 新增 `/超短选股` 斜杠命令；`classifyIntent` 超短正则；`applyStockAgentRouting` 防覆盖；`intentLabel` 标签 |
+| `electron/services/agents/agent-workflows.ts` | 新增 `stock-picker` 意图分支，挂载 `stock-picker-agent` 节点 |
+| `electron/services/agents/orchestrator-types.ts` | `TAgentIntent` 联合类型加入 `'stock-picker'` |
 | `src/shared/types.ts` | `TAgentPlanIntent` 联合类型加入 `'stock-picker'` |
 | `src/components/chat-view/components/analysis-progress/derived.ts` | 4 处 `'a-stock-data-agent'` 判断同时兼容 `'stock-picker-agent'`（UI 进度卡兼容） |
 

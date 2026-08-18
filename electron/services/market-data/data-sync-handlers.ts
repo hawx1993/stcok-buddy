@@ -1,13 +1,13 @@
 import { BrowserWindow } from '../../electron-runtime.js';
 import { ensureMarketDataRuntime } from './market-data-scheduler.js';
 import { startMarketDataSync } from './market-data-sync.js';
-import { listSecurities } from './market-data-store.js';
+import { listSecurities } from '../stock-db/market-data-store.js';
 import { ensureSurgeHistoryCapture, isSurgeHistorySchedulerRunning } from '../stock/surge-history-scheduler.js';
 import {
   clearSurgeHistoryClearMarker,
   getSurgeHistoryFreshness,
   type ISurgeHistoryFreshness,
-} from '../stock/surge-history-store.js';
+} from '../stock-db/surge-history-store.js';
 import StockSDK from 'stock-sdk';
 
 const sdk = new StockSDK({
@@ -82,7 +82,7 @@ async function runSurgeHistorySync() {
     // Dynamic import to avoid circular deps
     const { listHotFocus, toIndividualHistoryEvents } = await import('../stock/hot-focus.js');
     const { pruneSurgeHistory, saveSurgeSnapshot, saveIndividualSurgeHistory } =
-      await import('../stock/surge-history-store.js');
+      await import('../stock-db/surge-history-store.js');
 
     await ensureMarketDataRuntime();
 
@@ -207,7 +207,7 @@ export async function syncStockDetails() {
     message: `正在批量获取 ${total} 只股票行情并落盘（batch size 80）…`,
   });
 
-  const { upsertStockSnapshots } = await import('./market-data-store.js');
+  const { upsertStockSnapshots } = await import('../stock-db/market-data-store.js');
 
   let processed = 0;
   let failed = 0;

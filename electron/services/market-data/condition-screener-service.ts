@@ -41,7 +41,7 @@ import {
   upsertSecurities,
   upsertStockSnapshots,
   type IAShareMarketCapSnapshotRow,
-} from './market-data-store.js';
+} from '../stock-db/market-data-store.js';
 import {
   fetchAStockDataMarketSnapshotQuotes,
   fetchStockSdkAllMarketSnapshotQuotes,

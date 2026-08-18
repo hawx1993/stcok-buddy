@@ -87,7 +87,7 @@ vi.mock('../services/market-data/data-sync-handlers', () => ({
   syncSurgeHistoryIfNeeded: lifecycle.syncSurgeHistoryIfNeeded,
 }));
 vi.mock('../services/stock/monitor-history-scheduler', () => monitorScheduler);
-vi.mock('../services/market-data/market-data-store', () => ({
+vi.mock('../services/stock-db/market-data-store', () => ({
   closeMarketDataInstance: lifecycle.closeMarketDataInstance,
   closeMarketDataStore: lifecycle.closeMarketDataStore,
 }));
@@ -96,7 +96,7 @@ vi.mock('../services/market-data/market-data-scheduler', () => ({
   shutdownMarketDataScheduler: lifecycle.shutdownMarketDataScheduler,
   stopMarketDataScheduler: lifecycle.stopMarketDataScheduler,
 }));
-vi.mock('../services/conversation-store', () => ({
+vi.mock('../services/stock-db/conversation-store', () => ({
   closeConversationStore: lifecycle.closeConversationStore,
 }));
 vi.mock('../services/stock/surge-history-scheduler', () => ({
@@ -108,15 +108,15 @@ vi.mock('../services/stock/surge-history-scheduler', () => ({
 vi.mock('../services/stock/discovery-service', () => ({
   stopDiscoveryRefreshLoop: lifecycle.stopDiscoveryRefreshLoop,
 }));
-vi.mock('../services/stock/quote-store', () => ({
+vi.mock('../services/stock-db/quote-store', () => ({
   closeQuoteStore: lifecycle.closeQuoteStore,
   initializeQuoteStore: lifecycle.initializeQuoteStore,
 }));
-vi.mock('../services/stock/surge-history-store', () => ({
+vi.mock('../services/stock-db/surge-history-store', () => ({
   closeSurgeHistoryInstance: lifecycle.closeSurgeHistoryInstance,
   closeSurgeHistoryStore: lifecycle.closeSurgeHistoryStore,
 }));
-vi.mock('../services/stock/monitor-history-store', () => ({
+vi.mock('../services/stock-db/monitor-history-store', () => ({
   closeMonitorHistoryInstance: lifecycle.closeMonitorHistoryInstance,
   closeMonitorHistoryStore: lifecycle.closeMonitorHistoryStore,
 }));

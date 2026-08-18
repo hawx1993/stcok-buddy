@@ -19,7 +19,7 @@ import {
   upsertDailyBars,
   upsertSecurities,
   upsertTradingCalendar,
-} from './market-data-store.js';
+} from '../stock-db/market-data-store.js';
 import {
   INITIAL_YEARS,
   RECENT_TRADING_DAYS,

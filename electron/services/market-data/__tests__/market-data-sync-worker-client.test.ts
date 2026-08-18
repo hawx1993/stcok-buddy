@@ -53,7 +53,7 @@ vi.mock('../../stock/comlink-node-endpoint', () => ({
   nodeEndpoint: vi.fn(() => ({})),
 }));
 
-vi.mock('../market-data-store', () => ({
+vi.mock('../../stock-db/market-data-store', () => ({
   getMarketDataDatabasePath: () => '/tmp/stocksense-market-worker-test.duckdb',
 }));
 

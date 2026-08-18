@@ -597,9 +597,11 @@ const webFallbackApi: StocksenseApi = {
       return await listHotStockHintSource(new Date(), loaders);
     } catch (error: unknown) {
       console.error('获取热点推荐失败', error);
-      return { items: [], isPreviousTradeDay: false };
+      const message = error instanceof Error ? error.message : '未知错误';
+      throw new Error(`热点数据暂不可用：${message}`);
     }
   },
+  onHotStockHintSourceUpdated: undefined,
   async listSurgeHistoryDates() {
     return [];
   },

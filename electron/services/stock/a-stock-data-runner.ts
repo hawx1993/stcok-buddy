@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { app } from '../../electron-runtime.js';
 
 /**
  * a-stock-data 运行时执行器。
@@ -181,19 +182,26 @@ export interface IEmHotRankItem {
   rank_chg?: number;
 }
 
-const SCRIPT_PATH = join(process.cwd(), 'electron', 'python', 'a-stock-data.py');
+function scriptPath(): string {
+  const resolvedPath = app.isPackaged
+    ? join(process.resourcesPath, 'python', 'a-stock-data.py')
+    : join(app.getAppPath(), 'electron', 'python', 'a-stock-data.py');
+  if (!existsSync(resolvedPath)) throw new Error(`a-stock-data 脚本不存在: ${resolvedPath}`);
+  return resolvedPath;
+}
 
 function pythonExecutable(): string {
-  return existsSync(join(process.cwd(), '.venv/bin/python'))
-    ? join(process.cwd(), '.venv/bin/python')
-    : 'python3';
+  if (app.isPackaged) return process.platform === 'win32' ? 'python' : 'python3';
+  const relativePath = process.platform === 'win32' ? ['.venv', 'Scripts', 'python.exe'] : ['.venv', 'bin', 'python'];
+  const venvPython = join(app.getAppPath(), ...relativePath);
+  return existsSync(venvPython) ? venvPython : process.platform === 'win32' ? 'python' : 'python3';
 }
 
 export async function runAStockDataFn<T>(
   fnName: AStockDataFnName,
   args: Record<string, string | number>,
 ): Promise<T> {
-  const argv = [SCRIPT_PATH, fnName];
+  const argv = [scriptPath(), fnName];
   for (const [key, value] of Object.entries(args)) {
     argv.push(`--${key}`, String(value));
   }

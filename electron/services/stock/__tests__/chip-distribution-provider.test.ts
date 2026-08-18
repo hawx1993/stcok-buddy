@@ -15,7 +15,7 @@ const aStockDataMocks = vi.hoisted(() => ({
   runAStockDataFn: vi.fn(),
 }));
 
-vi.mock('../../market-data/market-data-store.js', () => storeMocks);
+vi.mock('../../stock-db/market-data-store.js', () => storeMocks);
 vi.mock('../chip-distribution-worker-client.js', () => workerMocks);
 vi.mock('../a-stock-data-runner.js', () => aStockDataMocks);
 vi.mock('../symbols.js', () => ({

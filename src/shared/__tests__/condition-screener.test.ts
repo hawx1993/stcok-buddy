@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   CONDITION_SCREENER_COMMAND,
+  conditionScreenerParameters,
   conditionScreenerPresets,
   createConditionScreenerCommand,
+  insertConditionScreenerParameter,
   mergeConditionScreenerCriteria,
+  shouldOpenConditionScreenerParameters,
   toggleConditionScreenerPreset,
 } from '../condition-screener.js';
 
@@ -55,5 +58,27 @@ describe('条件选股预设命令', () => {
 
   it('没有已选模板时清空命令', () => {
     expect(createConditionScreenerCommand([])).toBe('');
+  });
+
+  it('完整列出带说明和可执行示例的可选参数', () => {
+    expect(conditionScreenerParameters).toHaveLength(14);
+    expect(new Set(conditionScreenerParameters.map((parameter) => parameter.id)).size).toBe(14);
+    expect(conditionScreenerParameters.every((parameter) => parameter.description.length > 0)).toBe(true);
+    expect(conditionScreenerParameters.every((parameter) => parameter.example.startsWith('--'))).toBe(true);
+  });
+
+  it('仅在条件选股命令以独立双横线结尾时打开参数面板', () => {
+    expect(shouldOpenConditionScreenerParameters('/条件选股 --')).toBe(true);
+    expect(shouldOpenConditionScreenerParameters('/条件选股 --成交额>2亿 --')).toBe(true);
+    expect(shouldOpenConditionScreenerParameters('/条件选股 --成交额>2亿')).toBe(false);
+    expect(shouldOpenConditionScreenerParameters('/超短选股 --')).toBe(false);
+  });
+
+  it('插入参数时替换尾部触发符并保留已有条件', () => {
+    expect(insertConditionScreenerParameter('/条件选股 --', '--换手率>8%')).toBe('/条件选股 --换手率>8%');
+    expect(insertConditionScreenerParameter('/条件选股 --成交额>2亿 --', '--换手率>8%')).toBe(
+      '/条件选股 --成交额>2亿 --换手率>8%',
+    );
+    expect(insertConditionScreenerParameter('', '--排除ST')).toBe('/条件选股 --排除ST');
   });
 });

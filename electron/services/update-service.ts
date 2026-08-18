@@ -15,7 +15,7 @@ import {
   getConfig,
   getPendingDownloadedUpdate,
   setPendingDownloadedUpdate,
-} from './config-store.ts';
+} from './stock-db/config-store.ts';
 
 const require = createRequire(import.meta.url);
 const { autoUpdater } = require('electron-updater') as { autoUpdater: AppUpdater };

@@ -53,7 +53,7 @@ vi.mock('../stock-client', () => ({
   listRecentDragonTigerDays: vi.fn(),
 }));
 
-vi.mock('../../config-store', () => ({
+vi.mock('../../stock-db/config-store', () => ({
   listFavoriteStocks: vi.fn(),
   getConfig: vi.fn(),
 }));
@@ -62,12 +62,12 @@ vi.mock('../../llm/openai-compatible-client', () => ({
   chatWithOpenAICompatible: vi.fn(),
 }));
 
-vi.mock('../surge-history-store', () => ({
+vi.mock('../../stock-db/surge-history-store', () => ({
   listSurgeDates: vi.fn(),
   listSurgeHistory: vi.fn(),
 }));
 
-vi.mock('../../market-data/market-data-store', () => ({
+vi.mock('../../stock-db/market-data-store', () => ({
   listBoardConstituents: vi.fn(),
   listMarketBoards: vi.fn(),
   readDiscoverySnapshot: vi.fn(),
@@ -95,13 +95,13 @@ vi.mock('../shared', async () => {
 });
 
 import { isRemoteTradingDay, listRemoteTradingCalendar } from '../../market-data/providers.js';
-import { getConfig } from '../../config-store.js';
+import { getConfig } from '../../stock-db/config-store.js';
 import { chatWithOpenAICompatible } from '../../llm/openai-compatible-client.js';
-import { listMarketBoards, writeDiscoverySnapshot } from '../../market-data/market-data-store.js';
+import { listMarketBoards, writeDiscoverySnapshot } from '../../stock-db/market-data-store.js';
 import { getCachedMarketBoardRows } from '../shared.js';
 import { getMarketReview, scoreSentiment } from '../market-review-service.js';
 import { listEastmoneySurgeByDate } from '../stock-client.js';
-import { listSurgeDates, listSurgeHistory } from '../surge-history-store.js';
+import { listSurgeDates, listSurgeHistory } from '../../stock-db/surge-history-store.js';
 import {
   buildDiscoverySnapshotFromHistoricalPoolsForTest,
   buildDiscoveryWaitingSnapshotForTest,

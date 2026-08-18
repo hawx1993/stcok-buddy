@@ -2,7 +2,7 @@ import { app } from '../electron-runtime.js';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ChatResponse, StoreItem } from '../../src/shared/types.js';
-import { installStoreItem, listInstalledStoreItems, uninstallStoreItem } from './config-store.js';
+import { installStoreItem, listInstalledStoreItems, uninstallStoreItem } from './stock-db/config-store.js';
 import { generateReport } from './llm/index.js';
 import { getBuiltInStoreCommandRunner } from './store-commands/registry.js';
 import type { TStoreCommandRunner } from './store-commands/types.js';

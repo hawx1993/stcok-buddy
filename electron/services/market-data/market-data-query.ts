@@ -3,7 +3,7 @@ import type { KlinePoint, StockDetail } from '../../../src/shared/types.js';
 import { inferExchange, normalizeASymbol } from '../stock/symbols.js';
 import { partitionValidDailyBars } from './quality.js';
 import { getRemoteFullQuote, remoteMarketStatus, stockSdkHistoricalProvider } from './providers.js';
-import { getLatestDailyBar, listDailyBars, upsertDailyBars } from './market-data-store.js';
+import { getLatestDailyBar, listDailyBars, upsertDailyBars } from '../stock-db/market-data-store.js';
 import type {
   AdjustType,
   DataResult,

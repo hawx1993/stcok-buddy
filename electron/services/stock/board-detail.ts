@@ -15,7 +15,7 @@ import {
   replaceBoardConstituents,
   upsertMarketBoards,
   writeBoardDetail,
-} from '../market-data/market-data-store.js';
+} from '../stock-db/market-data-store.js';
 import { formatMoney, formatNumber, formatPercent } from './format.js';
 import {
   BOARD_CONSTITUENT_SCAN_LIMIT,

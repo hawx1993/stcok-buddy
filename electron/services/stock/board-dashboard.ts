@@ -14,7 +14,7 @@ import {
   listMarketBoards,
   readBoardDashboardSnapshot,
   writeBoardDashboardSnapshot,
-} from '../market-data/market-data-store.js';
+} from '../stock-db/market-data-store.js';
 import type { BoardConstituentRecord, MarketBoardRecord } from '../market-data/types.js';
 import { getBoardDetail } from './board-detail.js';
 import { getBatchQuotes } from './stock-client.js';

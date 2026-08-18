@@ -132,4 +132,17 @@ describe('市场快照 Provider', () => {
       }),
     ]);
   });
+
+  it('a-stock-data 执行失败时保留完整 warning 且不伪造行情', async () => {
+    mocks.runAStockDataFn.mockRejectedValue(
+      new Error('a-stock-data 脚本不存在: /Applications/StockBuddy.app/Contents/Resources/python/a-stock-data.py'),
+    );
+
+    const result = await fetchAStockDataMarketSnapshotQuotes(['000004', '002808']);
+
+    expect(result.quotes).toEqual([]);
+    expect(result.warnings).toEqual([
+      'a-stock-data 批次 000004-002808 行情补齐失败：a-stock-data 脚本不存在: /Applications/StockBuddy.app/Contents/Resources/python/a-stock-data.py',
+    ]);
+  });
 });

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { resolveTradingDate } from './trade-date-resolver.js';
-import { getLatestSyncJob, getLatestTradeDate, getMarketDataStats } from './market-data-store.js';
+import { getLatestSyncJob, getLatestTradeDate, getMarketDataStats } from '../stock-db/market-data-store.js';
 import {
   requestMarketDataWorkerStop,
   retryMarketDataFailuresInWorker,

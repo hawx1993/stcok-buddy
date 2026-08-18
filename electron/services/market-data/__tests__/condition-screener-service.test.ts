@@ -39,7 +39,7 @@ import {
   setConditionScreenerDependenciesForTest,
 } from '../condition-screener-service.js';
 import type { IChipDistributionResult, MarketBoardRow } from '../../../../src/shared/types.js';
-import type { IAShareMarketCapSnapshotRow } from '../market-data-store.js';
+import type { IAShareMarketCapSnapshotRow } from '../../stock-db/market-data-store.js';
 import type { MarketBoardRecord, StockChipCacheRecord } from '../types.js';
 
 type TConditionScreenerDependencyOverrides = Parameters<typeof setConditionScreenerDependenciesForTest>[0];

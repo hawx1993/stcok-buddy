@@ -14,7 +14,7 @@ const monitorService = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../../src/shared/market-time', () => marketTime);
-vi.mock('../monitor-history-store', () => monitorStore);
+vi.mock('../../stock-db/monitor-history-store', () => monitorStore);
 vi.mock('../monitor-service', () => monitorService);
 
 type TMonitorHistoryScheduler = typeof import('../monitor-history-scheduler.js');

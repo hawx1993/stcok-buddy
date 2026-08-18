@@ -1,7 +1,7 @@
 import StockSDK from 'stock-sdk';
 import type { IStockFundFlowSnapshot } from '../../../src/shared/types.js';
 import { normalizeASymbol } from './symbols.js';
-import { listStockFundFlowDaily, upsertStockFundFlowDaily } from '../market-data/market-data-store.js';
+import { listStockFundFlowDaily, upsertStockFundFlowDaily } from '../stock-db/market-data-store.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 

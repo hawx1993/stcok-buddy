@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import type { ToolCallRecord } from '../../../../shared/types';
 import styles from './index.module.scss';
@@ -15,9 +16,11 @@ export function ToolCalls({ toolCalls }: { toolCalls?: ToolCallRecord[] }) {
 
   return (
     <div className={styles['tool-calls']}>
-      <button className={styles['tool-header']} onClick={() => setOpen(!open)} type='button'>
-        <span className={styles['section-title']}> 接口调用 · {toolCalls.length} 次</span>
-        <span className={styles['tool-caret']}>{open ? '▾' : '▸'}</span>
+      <button aria-expanded={open} className={styles['tool-header']} onClick={() => setOpen(!open)} type='button'>
+        <span className={styles['section-title']}>接口调用 · {toolCalls.length} 次</span>
+        <span aria-hidden='true' className={styles['tool-caret']}>
+          {open ? <ChevronDown size={15} strokeWidth={1.8} /> : <ChevronRight size={15} strokeWidth={1.8} />}
+        </span>
       </button>
       {open ? (
         <div className={styles['tool-list']}>

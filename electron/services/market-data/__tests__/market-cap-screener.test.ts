@@ -27,7 +27,7 @@ import {
   screenASharesByMarketCap,
   setMarketCapScreenerDependenciesForTest,
 } from '../market-cap-screener.js';
-import type { IAShareMarketCapSnapshotRow } from '../market-data-store.js';
+import type { IAShareMarketCapSnapshotRow } from '../../stock-db/market-data-store.js';
 import type { SecurityRecord } from '../types.js';
 
 const emptyRemoteSecurities: SecurityRecord[] = [];

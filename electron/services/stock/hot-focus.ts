@@ -9,7 +9,7 @@ import type {
 } from '../../../src/shared/types.js';
 import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/market-time.js';
 import { isRemoteTradingDay } from '../market-data/providers.js';
-import { listBoardConstituents, listLatestMarketRows, listMarketBoards } from '../market-data/market-data-store.js';
+import { listBoardConstituents, listLatestMarketRows, listMarketBoards } from '../stock-db/market-data-store.js';
 import type { MarketBoardRecord } from '../market-data/types.js';
 import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { getBoardDetail } from './board-detail.js';
@@ -24,7 +24,7 @@ import {
   enqueueSurgeSnapshot,
   saveIndividualSurgeHistory,
   setSurgeHistoryClearMarker,
-} from './surge-history-store.js';
+} from '../stock-db/surge-history-store.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 

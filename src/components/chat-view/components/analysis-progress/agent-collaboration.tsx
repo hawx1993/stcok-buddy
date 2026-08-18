@@ -1,8 +1,11 @@
+import { ChevronDown, ChevronRight, Handshake } from 'lucide-react';
 import { useState } from 'react';
 import { marked } from 'marked';
 import type { IAgentStatus, IIntermediateResult } from './types';
-import styles from './index.module.scss';
 import cx from '../../../../shared/cx';
+import styles from './index.module.scss';
+import { normalizeProgressLabel } from './presentation';
+import { AGENT_STATUS_ICONS } from './status-icons';
 
 function renderMarkdown(content: string): string {
   return marked.parse(content, { async: false, breaks: true }) as string;
@@ -18,19 +21,6 @@ export function AgentCollaboration({
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (!agents.length) return null;
-
-  const statusIcon = (status: IAgentStatus['status']) => {
-    switch (status) {
-      case 'completed':
-        return '✓';
-      case 'running':
-        return '⏳';
-      case 'error':
-        return '✗';
-      default:
-        return '○';
-    }
-  };
 
   const statusText = (agent: IAgentStatus) => {
     switch (agent.status) {
@@ -53,15 +43,21 @@ export function AgentCollaboration({
 
   return (
     <div className={styles['agent-collab']}>
-      <div className={styles['section-title']}>🤝 Agent 协作</div>
+      <div className={styles['section-title']}>
+        <Handshake aria-hidden='true' size={13} strokeWidth={1.8} />
+        <span>Agent 协作</span>
+      </div>
       {agents.map((agent) => {
         const result = getResult(agent.id);
         const isExpanded = expandedId === agent.id;
         const canExpand = agent.status === 'completed' && Boolean(result);
+        const statusIcon = AGENT_STATUS_ICONS[agent.status];
+        const StatusIcon = statusIcon.Icon;
 
         return (
           <div key={agent.id} className={styles['agent-row']}>
             <button
+              aria-expanded={canExpand ? isExpanded : undefined}
               className={cx(styles['agent-item'], styles[agent.status], canExpand && styles['clickable'])}
               onClick={() => canExpand && toggle(agent.id)}
               type='button'
@@ -74,11 +70,22 @@ export function AgentCollaboration({
                   isExpanded && styles['expanded'],
                 )}
               />
-              <span className={styles['agent-name']}>{agent.label}</span>
+              <span className={styles['agent-name']}>{normalizeProgressLabel(agent.label)}</span>
               <span className={styles['agent-status']}>
-                {statusIcon(agent.status)} {statusText(agent)}
+                <StatusIcon
+                  aria-label={statusIcon.label}
+                  className={statusIcon.spin ? styles['icon-spinning'] : undefined}
+                  role='img'
+                  size={12}
+                  strokeWidth={1.8}
+                />
+                <span>{normalizeProgressLabel(statusText(agent))}</span>
               </span>
-              {canExpand ? <span className={styles['agent-expand-icon']}>{isExpanded ? '▾' : '▸'}</span> : null}
+              {canExpand ? (
+                <span aria-hidden='true' className={styles['agent-expand-icon']}>
+                  {isExpanded ? <ChevronDown size={15} strokeWidth={1.8} /> : <ChevronRight size={15} strokeWidth={1.8} />}
+                </span>
+              ) : null}
             </button>
             {isExpanded && result ? (
               <div

@@ -12,7 +12,7 @@ import {
   getStockNewsPreferences,
   listFavoriteStocks,
   setMarketNewsSummaryState,
-} from '../config-store.js';
+} from '../stock-db/config-store.js';
 import { generateReport } from '../llm/index.js';
 import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
 

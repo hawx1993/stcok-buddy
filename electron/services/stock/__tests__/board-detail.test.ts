@@ -31,7 +31,7 @@ vi.mock('stock-sdk', () => ({
   },
 }));
 
-vi.mock('../../market-data/market-data-store', () => ({
+vi.mock('../../stock-db/market-data-store', () => ({
   listBoardConstituents: vi.fn(),
   listDailyBars: vi.fn(),
   listLatestMarketRows: vi.fn(),
@@ -54,7 +54,7 @@ import {
   listMarketBoards,
   listSecurities,
   readBoardDetail,
-} from '../../market-data/market-data-store.js';
+} from '../../stock-db/market-data-store.js';
 import { getCachedMarketBoardRows } from '../shared.js';
 import { getBoardDetail } from '../board-detail.js';
 

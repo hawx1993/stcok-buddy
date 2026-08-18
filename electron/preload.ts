@@ -10,6 +10,7 @@ import type {
   IAppUpdateSettings,
   IAppUpdateState,
   IDataSyncTaskProgress,
+  IHotStockHintSource,
   IStorageClearProgress,
   MarketDataSyncStatus,
   MarketIndexPeriod,
@@ -84,6 +85,11 @@ const api: StocksenseApi = {
   getMarketNewsItem: (item) => ipcRenderer.invoke('news:getDetail', item),
   listHotFocus: (tab: HotFocusTab) => ipcRenderer.invoke('hot:list', tab),
   getHotStockHintSource: () => ipcRenderer.invoke('hot:hintSource'),
+  onHotStockHintSourceUpdated: (handler: (source: IHotStockHintSource) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, source: IHotStockHintSource) => handler(source);
+    ipcRenderer.on('hot:hintSourceUpdated', listener);
+    return () => ipcRenderer.removeListener('hot:hintSourceUpdated', listener);
+  },
   listSurgeHistoryDates: () => ipcRenderer.invoke('hot:historyDates'),
   listSurgeHistory: (date: string, offset?: number, limit?: number) =>
     ipcRenderer.invoke('hot:history', date, offset, limit),

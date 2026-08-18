@@ -13,7 +13,7 @@ vi.mock('../shared', () => ({
   withTimeoutReject: <T>(promise: Promise<T>) => promise,
 }));
 
-vi.mock('../surge-history-store', () => ({
+vi.mock('../../stock-db/surge-history-store', () => ({
   isSurgeHistoryClearMarkerActive: vi.fn(),
   listSurgeHistory: vi.fn(),
   saveSurgeSnapshot: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock('../surge-history-store', () => ({
 
 import { isRemoteTradingDay } from '../../market-data/providers.js';
 import { listEastmoneySurgeByDate } from '../stock-client.js';
-import { isSurgeHistoryClearMarkerActive, listSurgeHistory, saveSurgeSnapshot } from '../surge-history-store.js';
+import { isSurgeHistoryClearMarkerActive, listSurgeHistory, saveSurgeSnapshot } from '../../stock-db/surge-history-store.js';
 import { listSurgeHistoryWithBackfill } from '../surge-history-service.js';
 
 const mockedIsRemoteTradingDay = vi.mocked(isRemoteTradingDay);

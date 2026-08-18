@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { buildAgentWorkflow } from '../services/agent/agent-workflows.js';
-import { classifyIntent, extractBoardKeyword, extractUrls, parseSlashCommand } from '../services/agent/intent-routing.js';
-import type { IAgentContext } from '../services/agent/orchestrator-types.js';
+import { buildAgentWorkflow } from '../services/agents/agent-workflows.js';
+import { classifyIntent, extractBoardKeyword, extractUrls, parseSlashCommand } from '../services/agents/intent-routing.js';
+import type { IAgentContext } from '../services/agents/orchestrator-types.js';
 
 assert.equal(parseSlashCommand('/复盘今日行情')?.intent, 'market-review');
 assert.equal(parseSlashCommand('/技术面分析 000858')?.singleAgent, 'technical');

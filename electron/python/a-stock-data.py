@@ -11,6 +11,8 @@ a-stock-data 运行时执行器（只移植所需函数）
 用途：`python a-stock-data.py <fn> [--key value ...]`，结果以
 `print(json.dumps(result, ensure_ascii=False))` 输出 JSON；失败抛错非零退出。
 """
+from __future__ import annotations
+
 import json
 import math
 import random
@@ -85,7 +87,7 @@ def eastmoney_datacenter(
         "client": "WEB",
     }
     r = em_get(DATACENTER_URL, params=params, timeout=15)
-    d = ron()
+    d = r.json()
     if d.get("result") and d["result"].get("data"):
         return d["result"]["data"]
     return []
@@ -148,7 +150,7 @@ def industry_comparison(top_n: int = 20) -> dict:
         "fields": "f2,f3,f4,f12,f13,f14,f104,f105,f128,f136,f140,f141,f207",
     }
     r = em_get(url, params=params, headers={"User-Agent": UA}, timeout=15)
-    d = ron()
+    d = r.json()
     items = d.get("data", {}).get("diff", [])
     if not items:
         return {"top": [], "bottom": [], "total": 0}
@@ -199,7 +201,7 @@ def board_fund_flow(board_type: str = "industry", period: str = "today", top_n: 
 
     def _page(pn: int):
         r = em_get(url, params={**base, "pn": str(pn)}, headers={"User-Agent": UA}, timeout=15)
-        d = ron().get("data") or {}
+        d = r.json().get("data") or {}
         return (d.get("diff") or []), int(d.get("total") or 0)
 
     _PAGE = 200
@@ -318,7 +320,7 @@ def sina_board_rank() -> dict:
 
 
 def _sina_board_stock_count(board_code: str) -> int:
-    payload = _sina_get(SINA_BOARD_COUNT_URL, {"node": board_code})on()
+    payload = _sina_get(SINA_BOARD_COUNT_URL, {"node": board_code}).json()
     try:
         count = int(str(payload).strip())
     except (TypeError, ValueError):
@@ -330,7 +332,7 @@ def _sina_board_page(board_code: str, page: int) -> list[dict]:
     payload = _sina_get(
         SINA_BOARD_ROWS_URL,
         {"node": board_code, "page": page, "num": 100, "sort": "symbol", "asc": 1},
-    )on()
+    ).json()
     if not isinstance(payload, list):
         raise ValueError(f"新浪板块 {board_code} 成分股响应不是数组")
     return [item for item in payload if isinstance(item, dict)]
@@ -388,7 +390,7 @@ def ths_hot_list(period: str = "hour") -> list[dict]:
             headers={"User-Agent": UA},
             timeout=10,
         )
-        lst = (ron().get("data") or {}).get("stock_list") or []
+        lst = (r.json().get("data") or {}).get("stock_list") or []
     except Exception as e:
         print(f"[WARN] 同花顺热榜失败: {e}", file=sys.stderr)
         return []
@@ -419,7 +421,7 @@ def em_hot_rank(top: int = 50) -> list[dict]:
             headers={"User-Agent": UA},
             timeout=10,
         )
-        data = ron().get("data") or []
+        data = r.json().get("data") or []
         if not data:
             return []
         # 人气榜只给带前缀代码，用 push2 ulist.np 批量补名称/价格
@@ -436,7 +438,7 @@ def em_hot_rank(top: int = 50) -> list[dict]:
             headers={"User-Agent": UA, "Referer": "https://quote.eastmoney.com/"},
             timeout=10,
         )
-        diff = (uon().get("data") or {}).get("diff") or []
+        diff = (u.json().get("data") or {}).get("diff") or []
         if isinstance(diff, dict):  # push2 的 diff 有时是 dict
             diff = list(diff.values())
         nm = {x["f12"]: (x.get("f14"), x.get("f2"), x.get("f3")) for x in diff}
@@ -571,7 +573,7 @@ def baidu_kline_with_ma(code: str, start_time: str = "") -> dict:
     }
     r = requests.get(url, params=params, headers=headers, timeout=10)
     r.raise_for_status()
-    d = ron()
+    d = r.json()
     md = _extract_baidu_new_market_data(d)
     keys = md.get("keys", [])
     market_data = md.get("marketData", "")
@@ -595,7 +597,7 @@ def eastmoney_fund_flow_minute(code: str) -> list[dict]:
     headers = {"User-Agent": UA, "Referer": "https://quote.eastmoney.com/", "Origin": "https://quote.eastmoney.com"}
     try:
         r = em_get(url, params=params, headers=headers, timeout=10)
-        d = ron()
+        d = r.json()
     except Exception as e:
         print(f"[WARN] push2 资金流请求失败: {e}", file=sys.stderr)
         return []

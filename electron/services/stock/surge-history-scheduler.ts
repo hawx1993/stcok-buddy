@@ -1,6 +1,6 @@
 import { isChinaMarketOpen } from '../../../src/shared/market-time.js';
 import { listHotFocus } from './stock-client.js';
-import { flushSurgeSnapshotQueue, pruneSurgeHistory } from './surge-history-store.js';
+import { flushSurgeSnapshotQueue, pruneSurgeHistory } from '../stock-db/surge-history-store.js';
 
 const CAPTURE_INTERVAL_MS = 20_000;
 const FLUSH_INTERVAL_MS = 20_000;

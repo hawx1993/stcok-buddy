@@ -3,7 +3,7 @@ import { release } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { PostHog } from 'posthog-node';
-import { getDeviceId } from '../config-store.js';
+import { getDeviceId } from '../stock-db/config-store.js';
 
 let _client: PostHog | null = null;
 

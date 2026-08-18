@@ -312,7 +312,7 @@ assert.equal(await shouldDeferDiscoveryRefresh(new Date('2026-08-01T02:00:00.000
 assert.equal(await shouldDeferDiscoveryRefresh(new Date('2026-08-03T00:00:00.000Z')), true);
 assert.equal(await shouldDeferDiscoveryRefresh(new Date('2026-08-03T01:30:00.000Z')), false);
 
-const marketStore = await import('../services/market-data/market-data-store.js');
+const marketStore = await import('../services/stock-db/market-data-store.js');
 await marketStore.initializeMarketDataStore();
 const updatedAt = '2026-07-30T09:30:00.000Z';
 await marketStore.writeDiscoverySnapshot({

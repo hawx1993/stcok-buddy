@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { reviewComplianceStructured } from '../services/agent/compliance-critic.js';
-import { parseStructuredAgentOutput } from '../services/agent/stock-analysis-agents.js';
+import { reviewComplianceStructured } from '../services/agents/compliance-critic.js';
+import { parseStructuredAgentOutput } from '../services/agents/stock-analysis-agents.js';
 
 const evidence = [{ id: 'quote:600519', source: 'quote' as const, title: '贵州茅台行情' }];
 const output = parseStructuredAgentOutput(

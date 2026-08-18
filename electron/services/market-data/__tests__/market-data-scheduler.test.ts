@@ -4,7 +4,7 @@ const latestJob = vi.hoisted(() => ({
   value: undefined as { targetTradeDate?: string; succeededSymbols: number } | undefined,
 }));
 
-vi.mock('../market-data-store', () => ({
+vi.mock('../../stock-db/market-data-store', () => ({
   getLatestSyncJob: vi.fn(() => Promise.resolve(latestJob.value)),
   initializeMarketDataStore: vi.fn(() => Promise.resolve()),
 }));

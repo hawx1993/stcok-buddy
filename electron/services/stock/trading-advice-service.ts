@@ -1,7 +1,7 @@
 import { getMarketReview } from './market-review-service.js';
 import { getDiscoverySnapshot } from './discovery-service.js';
 import { getBatchQuotes, listDailyDragonTiger, listEastmoneySurgeByDate } from './stock-client.js';
-import { getConfig } from '../config-store.js';
+import { getConfig } from '../stock-db/config-store.js';
 import { chatWithOpenAICompatible } from '../llm/openai-compatible-client.js';
 import { sdk } from './shared.js';
 import type {

@@ -1,4 +1,4 @@
-import { getConfig } from '../config-store.js';
+import { getConfig } from '../stock-db/config-store.js';
 import { chatWithOpenAICompatible, type LlmChatMessage } from './openai-compatible-client.js';
 import type { ModelProviderConfig } from '../../../src/shared/types.js';
 

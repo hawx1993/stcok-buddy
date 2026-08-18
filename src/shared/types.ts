@@ -1129,6 +1129,7 @@ export interface StocksenseApi {
   ): Promise<MarketNewsItem>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
   getHotStockHintSource(): Promise<IHotStockHintSource>;
+  onHotStockHintSourceUpdated?(handler: (source: IHotStockHintSource) => void): () => void;
   listSurgeHistoryDates(): Promise<string[]>;
   listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;
   listStockSurgeEvents(code: string): Promise<StockSurgeEvent[]>;

@@ -1,6 +1,6 @@
 import { requestMarketDataSyncStop, startMarketDataSync, waitForMarketDataSync } from './market-data-sync.js';
 import { disposeMarketDataSyncWorker } from './market-data-sync-worker-client.js';
-import { getLatestSyncJob, initializeMarketDataStore } from './market-data-store.js';
+import { getLatestSyncJob, initializeMarketDataStore } from '../stock-db/market-data-store.js';
 
 const INITIAL_SYNC_DELAY_MS = 15_000;
 const STALE_DAILY_BAR_DAYS = 31;
