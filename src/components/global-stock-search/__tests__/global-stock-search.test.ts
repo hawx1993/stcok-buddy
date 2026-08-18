@@ -1,4 +1,7 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { MarketSearchSuggestionList } from '../components/market-search-suggestion-list';
 import {
   formatSearchChangePercent,
   formatSearchQuoteValue,
@@ -70,5 +73,50 @@ describe('全局搜索会话结果辅助函数', () => {
     expect(getConversationRoleLabel('user')).toBe('用户');
     expect(getConversationRoleLabel('assistant')).toBe('AI');
     expect(getConversationRoleLabel()).toBe('会话');
+  });
+});
+
+describe('全局行情搜索候选列表', () => {
+  it('展示与快速输入一致的四项实时指标', () => {
+    const markup = renderToStaticMarkup(
+      createElement(MarketSearchSuggestionList, {
+        onSelect: () => undefined,
+        suggestions: [
+          {
+            code: '603000',
+            name: '人民网',
+            price: 16.35,
+            marketCap: 18_080_000_000,
+            turnoverRate: 1.23,
+            changePercent: -2.21,
+          },
+        ],
+      }),
+    );
+
+    expect(markup).toContain('现价');
+    expect(markup).toContain('市值');
+    expect(markup).toContain('换手率');
+    expect(markup).toContain('涨跌幅');
+    expect(markup).toContain('16.35');
+    expect(markup).toContain('180.8亿');
+    expect(markup).toContain('+1.23%');
+    expect(markup).toContain('-2.21%');
+  });
+
+  it('板块候选不渲染股票专属的实时指标', () => {
+    const markup = renderToStaticMarkup(
+      createElement(MarketSearchSuggestionList, {
+        onSelect: () => undefined,
+        suggestions: [{ code: 'BK0800', name: '人工智能', kind: 'board', minutes: [] }],
+      }),
+    );
+
+    expect(markup).toContain('人工智能');
+    expect(markup).toContain('BK0800');
+    expect(markup).not.toContain('现价');
+    expect(markup).not.toContain('市值');
+    expect(markup).not.toContain('换手率');
+    expect(markup).not.toContain('涨跌幅');
   });
 });

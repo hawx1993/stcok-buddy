@@ -1702,105 +1702,10 @@
   background: var(--border);
   border-radius: 999px;
 }
-.qe-suggestion-item {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 10px;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--fg);
-  cursor: pointer;
-  text-align: left;
-}
-.qe-suggestion-item:hover,
-.qe-suggestion-item:focus-visible {
-  background: color-mix(in srgb, var(--surface-hover) 88%, transparent);
-}
-.qe-suggestion-item:focus-visible {
-  outline: 1px solid color-mix(in srgb, var(--accent) 72%, transparent);
-  outline-offset: -1px;
-}
-.qe-suggestion-identity {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-.qe-suggestion-name {
-  overflow: hidden;
-  color: var(--fg);
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.qe-suggestion-item code {
-  color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-}
-.qe-suggestion-item em {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 999px;
-  background: var(--surface-hover);
-  color: var(--muted);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 400;
-}
-.qe-suggestion-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, max-content);
-  align-items: center;
-  gap: 8px;
-}
-.qe-suggestion-metrics > span {
-  display: grid;
-  gap: 2px;
-  min-width: 42px;
-  text-align: right;
-  white-space: nowrap;
-}
-.qe-suggestion-metrics small {
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1;
-}
-.qe-suggestion-metrics strong {
-  color: var(--fg);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.2;
-}
-.qe-suggestion-metrics .qe-suggestion-up {
-  color: var(--market-up);
-}
-.qe-suggestion-metrics .qe-suggestion-down {
-  color: var(--market-down);
-}
-.qe-suggestion-metrics .qe-suggestion-flat {
-  color: var(--muted);
-}
 .qe-suggestion-empty {
   padding: 9px 10px;
   color: var(--muted);
   font-size: 12px;
-}
-@media (max-width: 520px) {
-  .qe-suggestion-item {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
-  }
-  .qe-suggestion-metrics {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    width: 100%;
-  }
-  .qe-suggestion-metrics > span {
-    min-width: 0;
-  }
 }
 .qe-hint {
   font-size: 11px;

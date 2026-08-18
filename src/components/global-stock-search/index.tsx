@@ -3,13 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type { IConversationSearchResult, MarketSearchResult } from '../../shared/types';
 import { useOpenMarketSearchResult } from '../../hooks/use-open-market-search-result';
-import {
-  formatSearchChangePercent,
-  formatSearchQuoteValue,
-  getConversationRoleLabel,
-  getGlobalSearchResultKey,
-  getSearchChangeTone,
-} from './utils';
+import { getConversationRoleLabel, getGlobalSearchResultKey } from './utils';
+import { MarketSearchSuggestionList } from './components/market-search-suggestion-list';
 import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import { getGlobalSearchShortcutLabel } from './shortcut';
 import styles from './index.module.scss';
@@ -141,31 +136,7 @@ export function GlobalStockSearch({ open, onOpenChange }: IGlobalStockSearchProp
               {marketResults.length ? (
                 <section className={styles.group}>
                   <h3>行情 / 板块</h3>
-                  {marketResults.map((row) => {
-                    const tone = getSearchChangeTone(row.changePercent);
-                    const changeClassName = tone === 'up' ? styles.up : tone === 'down' ? styles.down : styles.flat;
-                    return (
-                      <button
-                        key={getGlobalSearchResultKey(row)}
-                        className={styles.resultItem}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          selectMarketResult(row);
-                        }}
-                        type='button'
-                      >
-                        <span className={styles.resultName}>
-                          {row.name}
-                          <em>{row.kind === 'board' ? '板块' : '股票'}</em>
-                        </span>
-                        <span className={styles.resultMeta}>
-                          <code>{row.code}</code>
-                          <span>{formatSearchQuoteValue(row.price)}</span>
-                          <span className={changeClassName}>{formatSearchChangePercent(row.changePercent)}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
+                  <MarketSearchSuggestionList onSelect={selectMarketResult} suggestions={marketResults} />
                 </section>
               ) : null}
               {conversationResults.length ? (
