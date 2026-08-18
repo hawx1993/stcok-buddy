@@ -23,7 +23,7 @@ const PROBE_TIMEOUT_MS = 60_000;
 export function probeMarketDatabaseCorruption(dbPath: string): Promise<string[]> {
   return new Promise((resolve) => {
     if (!existsSync(dbPath)) return resolve([]);
-    const probeScript = fileURLToPath(new URL('./market-data-integrity-probe.js', import.meta.url));
+    const probeScript = fileURLToPath(new URL('./market-data-integrity-probe', import.meta.url));
     const child = spawn(process.execPath, [probeScript, dbPath], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       stdio: ['ignore', 'pipe', 'inherit'],
@@ -53,7 +53,10 @@ export function probeMarketDatabaseCorruption(dbPath: string): Promise<string[]>
 
 /** Returns the last `SCAN <table>` progress line the probe printed before dying. */
 export function extractCorruptTables(probeOutput: string): string[] {
-  const lines = probeOutput.split('\n').map((line) => line.trim()).filter(Boolean);
+  const lines = probeOutput
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
   const scanned: string[] = [];
   for (const line of lines) {
     if (line.startsWith('SCAN ')) scanned.push(line.slice('SCAN '.length).trim());

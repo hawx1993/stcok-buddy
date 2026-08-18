@@ -10,7 +10,7 @@ let _client: PostHog | null = null;
 type TelemetryProperties = Record<string, unknown>;
 
 function readPackagedTelemetryConfig() {
-  const file = path.join(process.resourcesPath, 'telemetry.json');
+  const file = path.join(process.resourcesPath, 'telemetryon');
   if (!app.isPackaged || !existsSync(file)) return {} as { posthogKey?: string; posthogHost?: string };
   try {
     return JSON.parse(readFileSync(file, 'utf8')) as { posthogKey?: string; posthogHost?: string };

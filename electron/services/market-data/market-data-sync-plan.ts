@@ -23,7 +23,8 @@ export function classifyMarketBoard(symbol: string): TMarketBoard {
 
 export function sortSecuritiesForSync(securities: SecurityRecord[]): SecurityRecord[] {
   return [...securities].sort((left, right) => {
-    const boardDiff = BOARD_PRIORITY[classifyMarketBoard(left.symbol)] - BOARD_PRIORITY[classifyMarketBoard(right.symbol)];
+    const boardDiff =
+      BOARD_PRIORITY[classifyMarketBoard(left.symbol)] - BOARD_PRIORITY[classifyMarketBoard(right.symbol)];
     if (boardDiff !== 0) return boardDiff;
     return left.symbol.localeCompare(right.symbol);
   });

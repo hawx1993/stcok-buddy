@@ -4,10 +4,7 @@ import { existsSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { isMainThread } from 'node:worker_threads';
 import { probeMarketDatabaseCorruption } from './market-data-integrity.js';
-import type {
-  IBoardDashboardSnapshot,
-  TBoardDashboardRange,
-} from '../../../src/shared/types.js';
+import type { IBoardDashboardSnapshot, TBoardDashboardRange } from '../../../src/shared/types.js';
 import type {
   AdjustType,
   BoardConstituentRecord,
@@ -15,6 +12,7 @@ import type {
   BoardDetailCacheRecord,
   BoardSnapshotRecord,
   DailyBarRecord,
+  IDailyBarCoverageCandidate,
   DiscoverySnapshotCacheRecord,
   MarketBoardRecord,
   MarketDataStats,
@@ -27,10 +25,9 @@ import type {
   TradeCalendarRecord,
 } from './types.js';
 
-const dbPath = process.env.STOCKSENSE_MARKET_DB_PATH || path.join(
-  app.getPath('userData'),
-  app.isPackaged ? 'stocksense-market.duckdb' : 'stocksense-market-dev.duckdb',
-);
+const dbPath =
+  process.env.STOCKSENSE_MARKET_DB_PATH ||
+  path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-market.duckdb' : 'stocksense-market-dev.duckdb');
 // ponytail: dbReady must be reassignable so we can close the old DuckDB
 // instance and create a fresh one after the database file is deleted by
 // the storage manager. A const here would leave the app permanently
@@ -220,13 +217,27 @@ export function upsertSecurities(items: SecurityRecord[]) {
   });
 }
 
-export function upsertStockSnapshots(items: Array<{
-  symbol: string; name: string; price?: number; change?: number;
-  changePercent?: number; open?: number; high?: number; low?: number;
-  prevClose?: number; volume?: number; amount?: number; turnoverRate?: number;
-  pe?: number; pb?: number; totalMarketCap?: number; circulatingMarketCap?: number;
-  amplitude?: number;
-}>) {
+export function upsertStockSnapshots(
+  items: Array<{
+    symbol: string;
+    name: string;
+    price?: number;
+    change?: number;
+    changePercent?: number;
+    open?: number;
+    high?: number;
+    low?: number;
+    prevClose?: number;
+    volume?: number;
+    amount?: number;
+    turnoverRate?: number;
+    pe?: number;
+    pb?: number;
+    totalMarketCap?: number;
+    circulatingMarketCap?: number;
+    amplitude?: number;
+  }>,
+) {
   if (!items.length) return Promise.resolve();
   const now = new Date().toISOString();
   return write(async (connection) => {
@@ -437,9 +448,7 @@ export async function listSecurities() {
 
 export async function listAShareMarketCapSnapshotRows(includeST = false): Promise<IAShareMarketCapSnapshotRow[]> {
   return read(async (connection) => {
-    const stCondition = includeST
-      ? ''
-      : "AND s.is_st = FALSE AND s.name NOT LIKE '*ST%' AND s.name NOT LIKE 'ST%'";
+    const stCondition = includeST ? '' : "AND s.is_st = FALSE AND s.name NOT LIKE '*ST%' AND s.name NOT LIKE 'ST%'";
     const rows = await all<Record<string, unknown>>(
       connection,
       `
@@ -611,7 +620,9 @@ export async function getLatestDailyBar(symbol: string, adjustType: AdjustType =
   return (await listDailyBars(symbol, { limit: 1, adjustType }))[0];
 }
 
-export async function readDiscoverySnapshot(snapshotKey = 'default'): Promise<DiscoverySnapshotCacheRecord | undefined> {
+export async function readDiscoverySnapshot(
+  snapshotKey = 'default',
+): Promise<DiscoverySnapshotCacheRecord | undefined> {
   return read(async (connection) => {
     const row = (
       await all<{ snapshot_json?: string; updated_at?: string }>(
@@ -653,7 +664,10 @@ export async function readBoardDashboardSnapshot(
       )
     )[0];
     if (!row?.snapshot_json) return undefined;
-    return { snapshot: JSON.parse(row.snapshot_json) as IBoardDashboardSnapshot, updatedAt: String(row.updated_at ?? '') };
+    return {
+      snapshot: JSON.parse(row.snapshot_json) as IBoardDashboardSnapshot,
+      updatedAt: String(row.updated_at ?? ''),
+    };
   });
 }
 
@@ -760,13 +774,15 @@ export async function listStockFundFlowDaily(symbol: string, tradeDates: string[
   });
 }
 
-export function upsertStockFundFlowDaily(items: Array<{
-  symbol: string;
-  tradeDate: string;
-  mainNetInflow: number;
-  source: string;
-  fetchedAt: string;
-}>) {
+export function upsertStockFundFlowDaily(
+  items: Array<{
+    symbol: string;
+    tradeDate: string;
+    mainNetInflow: number;
+    source: string;
+    fetchedAt: string;
+  }>,
+) {
   if (!items.length) return Promise.resolve();
   return write(async (connection) => {
     await connection.run('BEGIN TRANSACTION');
@@ -1000,16 +1016,58 @@ export function getLatestTradeDate() {
   });
 }
 
-export function countDailyBarsForDate(tradeDate: string) {
+export function countDailyBarsForDate(tradeDate: string, adjustType: AdjustType = 'qfq') {
   return read(async (connection) => {
     const row = (
       await all<{ count: bigint | number }>(
         connection,
-        'SELECT count(DISTINCT symbol) AS count FROM daily_bars WHERE trade_date = $tradeDate',
-        { tradeDate },
+        `
+        SELECT count(DISTINCT daily_bars.symbol) AS count
+        FROM daily_bars
+        INNER JOIN securities
+          ON securities.symbol = daily_bars.symbol
+          AND securities.status = 'listed'
+          AND securities.security_type = 'stock'
+        WHERE daily_bars.trade_date = CAST($tradeDate AS DATE)
+          AND daily_bars.adjust_type = $adjustType
+        `,
+        { tradeDate, adjustType },
       )
     )[0];
     return Number(row?.count ?? 0);
+  });
+}
+
+export function listDailyBarCoverageCandidates(targetTradeDate: string): Promise<IDailyBarCoverageCandidate[]> {
+  return read(async (connection) => {
+    const rows = await all<Record<string, unknown>>(
+      connection,
+      `
+      WITH latest_qfq AS (
+        SELECT symbol, max(trade_date)::VARCHAR AS latest_trade_date
+        FROM daily_bars
+        WHERE adjust_type = 'qfq'
+          AND trade_date < CAST($targetTradeDate AS DATE)
+        GROUP BY symbol
+      )
+      SELECT s.*, latest_qfq.latest_trade_date
+      FROM securities s
+      LEFT JOIN daily_bars target_bar
+        ON target_bar.symbol = s.symbol
+        AND target_bar.trade_date = CAST($targetTradeDate AS DATE)
+        AND target_bar.adjust_type = 'qfq'
+      LEFT JOIN latest_qfq ON latest_qfq.symbol = s.symbol
+      WHERE s.status = 'listed'
+        AND s.security_type = 'stock'
+        AND target_bar.symbol IS NULL
+      ORDER BY s.symbol
+      `,
+      { targetTradeDate },
+    );
+    return rows.map((row) => ({
+      ...toSecurityRecord(row),
+      latestTradeDate: optionalString(row.latest_trade_date),
+    }));
   });
 }
 
@@ -1155,6 +1213,22 @@ export function getMarketDataStats(): Promise<MarketDataStats> {
   });
 }
 
+/** 统计本地 stock_snapshots 记录数。 */
+export function countStockSnapshots(): Promise<number> {
+  return read(async (connection) => {
+    const row = (await all<Record<string, unknown>>(connection, 'SELECT count(*) AS count FROM stock_snapshots'))[0];
+    return Number(row?.count ?? 0);
+  });
+}
+
+/** 统计本地 stock_chips 记录数。 */
+export function countStockChips(): Promise<number> {
+  return read(async (connection) => {
+    const row = (await all<Record<string, unknown>>(connection, 'SELECT count(*) AS count FROM stock_chips'))[0];
+    return Number(row?.count ?? 0);
+  });
+}
+
 export async function closeMarketDataStore(timeoutMs?: number) {
   isClosing = true;
   await operationQueue.catch((error) => console.warn('[market-data] close wait failed', error));
@@ -1172,7 +1246,9 @@ export async function closeMarketDataStore(timeoutMs?: number) {
 export async function closeMarketDataInstance() {
   try {
     if (activeConnections > 0) {
-      console.warn(`[market-data] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`);
+      console.warn(
+        `[market-data] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`,
+      );
       return;
     }
     const instance = await getDbReady();
@@ -1207,7 +1283,9 @@ export async function resetMarketDataStore() {
       console.warn('[market-data] failed to close old DuckDB instance during reset', error);
     }
   } else {
-    console.warn(`[market-data] skipping DuckDB closeSync during reset: ${activeConnections} connection(s) still active`);
+    console.warn(
+      `[market-data] skipping DuckDB closeSync during reset: ${activeConnections} connection(s) still active`,
+    );
   }
   // Create a fresh instance. DuckDBInstance.fromCache may return the closed
   // instance from its singleton cache, so we use DuckDBInstance.create which

@@ -68,7 +68,8 @@ const slashCommands: ISlashCommand[] = [
   {
     name: '/超短选股',
     intent: 'stock-picker',
-    usage: '请直接发送你的超短线技术选股需求，例如：/超短选股 找今天涨幅3%-7%、换手率>8%、MACD金叉、90%筹码集中度<15%、非ST、市值30-100亿的票',
+    usage:
+      '请直接发送你的超短线技术选股需求，例如：/超短选股 找今天涨幅3%-7%、换手率>8%、MACD金叉、90%筹码集中度<15%、非ST、市值30-100亿的票',
   },
 ];
 
@@ -91,12 +92,9 @@ export function classifyIntent(query: string): TAgentIntent {
   if (hasStock(query) && /股东户数|户数|筹码集中|控盘|筹码/.test(query)) return 'shareholder-chip';
   if (/热门|人气榜|在炒|炒作|概念.*炒|归.*概念|题材.*归/.test(query)) return 'hot-concepts';
   if (/行业.*(涨幅|涨跌|领涨|上涨|涨幅最大)/.test(query)) return 'industry-ranking';
-  if (
-    /超短|打板|首板|能连板|连板潜力|(?:找|选|筛|帮我|有没有|哪些).*连板|一进二|二进三|龙头股?|竞价高开|技术选股|帮我选股|筛选股票|选出.*股票|找出.*符合.*股票|全市场.*选股|超短线选股|强势股|强势票|主力控盘|找.*控盘.*票|找.*票/.test(
-      query,
-    )
-  )
-    return 'stock-picker';
+  if (isShortTermStrategyQuery(query)) return 'stock-picker';
+  if (isConditionScreenerQuery(query)) return 'condition-screener';
+  if (/帮我选股|筛选股票|选出.*股票|找出.*符合.*股票|全市场.*选股|找.*票/.test(query)) return 'stock-picker';
   if (/板块|行业|选股|资金流|北向|热点/.test(query)) return 'board';
   if (/MACD|KDJ|K线|均线|技术|走势|金叉|死叉/.test(query)) return 'technical';
   if (/股价|行情|现价|多少|涨跌/.test(query)) return 'quote';
@@ -115,6 +113,7 @@ export function isPossibleStockOnlyQuery(query: string): boolean {
  */
 export function applyStockAgentRouting(intent: TAgentIntent, query: string, isCommand: boolean): TAgentIntent {
   if (isCommand || intent === 'portfolio') return intent;
+  if (intent === 'condition-screener') return 'condition-screener';
   if (intent === 'stock-picker') return 'stock-picker';
   if (intent === 'analysis' && isPossibleStockOnlyQuery(query)) return intent;
   if (isStockRelatedQuestion(query)) return 'a-stock-data-agent';
@@ -169,6 +168,23 @@ export function extractBoardKeyword(query: string): string {
   if (query.includes('北向')) return '北向资金';
   if (query.includes('资金')) return '资金流';
   return '热点';
+}
+
+function isConditionScreenerQuery(query: string): boolean {
+  return (
+    /(?:帮我|请|想|找|筛|选|返回|展示|全市场|A股|股票|票).*(?:总市值|流通市值|市值|成交额|成交量|换手|筹码集中度|获利比例|排除\s*ST|非\s*ST)/i.test(
+      query,
+    ) ||
+    /(?:总市值|流通市值|市值|成交额|成交量|换手率?|90%筹码集中度|70%筹码集中度|筹码90%集中度|筹码70%集中度).*(?:大于|小于|超过|低于|不超过|不低于|到|至|以上|以下|<|>)/.test(
+      query,
+    )
+  );
+}
+
+function isShortTermStrategyQuery(query: string): boolean {
+  return /超短|打板|首板|能连板|连板潜力|(?:找|选|筛|帮我|有没有|哪些).*连板|一进二|二进三|龙头股?|竞价高开|技术选股|超短线选股|强势股|强势票|主力控盘|找.*控盘.*票/.test(
+    query,
+  );
 }
 
 function normalizeBoardKeyword(value: string): string {

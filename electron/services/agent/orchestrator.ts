@@ -79,6 +79,7 @@ export async function runOrchestrator(
 
   const context: IAgentContext = {
     query: request.message,
+    conversationId: request.conversationId,
     intent,
     urls: extractUrls(request.message),
     symbol,
@@ -146,7 +147,15 @@ export async function runOrchestrator(
     dataGaps: context.plan?.dataGaps ?? context.finalReflection?.dataGaps ?? [],
   });
   context.compliance = review;
-  applyFinalReflection(context, nodes, reflectBeforeFinalReport(context, review.issues.map((issue) => issue.message)), emitEvent);
+  applyFinalReflection(
+    context,
+    nodes,
+    reflectBeforeFinalReport(
+      context,
+      review.issues.map((issue) => issue.message),
+    ),
+    emitEvent,
+  );
   const content = review.revisedText;
   await streamContent(content, hasReportStep, onToken);
   const result = context.board ?? enrichTechnicalCard(context.technical, context.quote) ?? quoteToCard(context.quote);

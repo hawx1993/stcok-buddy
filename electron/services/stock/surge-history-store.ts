@@ -25,7 +25,9 @@ export interface ISurgeHistoryFreshness {
   latestCapturedAt?: string;
 }
 
-const dbPath = process.env.STOCKSENSE_SURGE_DB_PATH ?? path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb');
+const dbPath =
+  process.env.STOCKSENSE_SURGE_DB_PATH ??
+  path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb');
 // ponytail: dbReady is undefined after a storage clear so the database file is
 // NOT recreated until the next actual read/write — otherwise resetSurgeHistoryStore
 // would immediately DuckDBInstance.create() an empty ~12KB file and the storage
@@ -185,13 +187,19 @@ export function saveSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date()
          item.description,
          item.tag,
          item.type,
-       ].map(sqlValue).join(', ')})`,
+       ]
+         .map(sqlValue)
+         .join(', ')})`,
     ]);
     await run(`BEGIN TRANSACTION; ${statements.join('; ')}; COMMIT`);
   });
 }
 
-export function enqueueSurgeSnapshot(items: HotFocusItem[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
+export function enqueueSurgeSnapshot(
+  items: HotFocusItem[],
+  capturedAt = new Date(),
+  tradeDate = toTradeDate(capturedAt),
+) {
   const filteredItems = items.filter(shouldKeepSurgeItem);
   if (!filteredItems.length || isSurgeHistoryClearMarkerActive()) return;
   for (const item of filteredItems) {
@@ -243,7 +251,9 @@ export function clearAllSurgeHistory() {
 
 export function listSurgeDates(limit = 7) {
   return readDb(async () => {
-    const rows = await all<{ trade_date: string }>(`SELECT DISTINCT trade_date FROM stock_surge_events ORDER BY trade_date DESC LIMIT ${Math.max(1, limit)}`);
+    const rows = await all<{ trade_date: string }>(
+      `SELECT DISTINCT trade_date FROM stock_surge_events ORDER BY trade_date DESC LIMIT ${Math.max(1, limit)}`,
+    );
     return rows.map((row) => row.trade_date);
   });
 }
@@ -254,9 +264,10 @@ export function getSurgeHistoryFreshness() {
       `SELECT COUNT(*) AS record_count, MAX(captured_at) AS latest_captured_at FROM stock_surge_events`,
     );
     const recordCount = Number(row?.record_count ?? 0);
-    const latestCapturedAt = typeof row?.latest_captured_at === 'string' && row.latest_captured_at.length > 0
-      ? row.latest_captured_at
-      : undefined;
+    const latestCapturedAt =
+      typeof row?.latest_captured_at === 'string' && row.latest_captured_at.length > 0
+        ? row.latest_captured_at
+        : undefined;
     return { recordCount, latestCapturedAt };
   });
 }
@@ -362,16 +373,7 @@ function mapSurgeRowToHotFocusItem(row: SurgeRow): HotFocusItem {
 }
 
 function surgeItemContentKey(item: HotFocusItem): string {
-  return [
-    item.title,
-    item.code,
-    item.time,
-    item.tag,
-    item.price,
-    item.changePercent,
-    item.amount,
-    item.description,
-  ]
+  return [item.title, item.code, item.time, item.tag, item.price, item.changePercent, item.amount, item.description]
     .map((value) => value ?? '')
     .join('|');
 }
@@ -392,10 +394,13 @@ function dedupeSurgeHistoryRows(rows: SurgeRow[]): HotFocusItem[] {
 
 function dedupeStockSurgeEventRows(rows: SurgeRow[]) {
   const events = rows
-    .map((row) => ({
-      ...mapSurgeRowToHotFocusItem(row),
-      tradeDate: row.trade_date,
-    } satisfies StockSurgeEvent))
+    .map(
+      (row) =>
+        ({
+          ...mapSurgeRowToHotFocusItem(row),
+          tradeDate: row.trade_date,
+        }) satisfies StockSurgeEvent,
+    )
     .filter(shouldKeepSurgeItem);
   // De-duplicate anomalies that come from both the hot-list snapshot and
   // the per-stock individual history (they share the same time/tag/price).
@@ -442,7 +447,9 @@ export function saveIndividualSurgeHistory(events: StockSurgeEvent[]) {
            item.description,
            item.tag,
            item.type,
-         ].map(sqlValue).join(', ')})`,
+         ]
+           .map(sqlValue)
+           .join(', ')})`,
       ]);
       await run(`BEGIN TRANSACTION; ${statements.join('; ')}; COMMIT`);
     }
@@ -476,7 +483,9 @@ export async function closeSurgeHistoryInstance() {
   // threads before Electron tears down Node/N-API during app quit.
   try {
     if (activeConnections > 0) {
-      console.warn(`[surge-history] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`);
+      console.warn(
+        `[surge-history] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`,
+      );
       return;
     }
     if (dbReady) {

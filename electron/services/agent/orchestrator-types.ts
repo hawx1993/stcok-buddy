@@ -18,6 +18,7 @@ import type {
 } from '../../../src/shared/types.js';
 import type { DailyDragonTigerItem } from '../stock/stock-client.js';
 import type { StockAnalysisAgentName, StockAnalysisResult } from './stock-analysis-agents.js';
+import type { IDataCoverageResult } from './data-coverage-agent.js';
 
 export type TAgentIntent =
   | 'quote'
@@ -45,6 +46,7 @@ export interface ILinkedPage {
 
 export interface IAgentContext {
   query: string;
+  conversationId?: string;
   intent: TAgentIntent;
   urls: string[];
   symbol?: string;
@@ -71,6 +73,7 @@ export interface IAgentContext {
   findings: StructuredAgentFinding[];
   plan?: IAgentPlan;
   dataStatuses?: IAgentDataStatus[];
+  dataCoverage?: IDataCoverageResult;
   finalReflection?: IAgentReflectionResult;
   compliance?: ComplianceReview;
   emitEvent?: (event: AgentRunEvent) => void;

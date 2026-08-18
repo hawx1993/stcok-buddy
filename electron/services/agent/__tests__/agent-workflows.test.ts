@@ -11,36 +11,53 @@ vi.mock('electron', () => {
   return { ...electron, default: electron };
 });
 
-vi.mock('../../../electron-runtime.js', () => ({
+vi.mock('../../../electron-runtime', () => ({
   app: {
     getPath: () => os.tmpdir(),
     isPackaged: false,
   },
 }));
 
-vi.mock('../../tools/tool-registry.js', () => ({
+vi.mock('../../tools/tool-registry', () => ({
   callTool: vi.fn(),
 }));
 
-vi.mock('../../llm/posthog-client.js', () => ({
+vi.mock('../../llm/posthog-client', () => ({
   captureEvent: vi.fn(),
 }));
 
-vi.mock('../../llm/posthog-langchain-handler.js', () => ({
+vi.mock('../../llm/posthog-langchain-handler', () => ({
   PostHogCallbackHandler: vi.fn(),
 }));
 
-vi.mock('../../llm/openai-compatible-client.js', () => ({
+vi.mock('../../llm/openai-compatible-client', () => ({
   chatWithOpenAICompatible: vi.fn(),
 }));
 
-vi.mock('../../config-store.js', () => ({
+vi.mock('../../config-store', () => ({
   getConfig: vi.fn(() => ({ model: {} })),
 }));
 
-vi.mock('../../llm/index.js', () => ({
+vi.mock('../../llm/index', () => ({
   generateReport: vi.fn(),
 }));
+
+const coverageMocks = vi.hoisted(() => ({
+  runDataCoverageAgent: vi.fn(() =>
+    Promise.resolve({
+      ok: true,
+      minCoverage: 5000,
+      needsChips: false,
+      before: { securities: 5000, snapshots: 5000, dailyBarSymbols: 0, chips: 1152 },
+      after: { securities: 5000, snapshots: 5000, dailyBarSymbols: 0, chips: 1152 },
+      hydrated: { securities: 0, snapshots: 0, dailyBarSymbols: 0, chips: 0 },
+      warnings: [],
+      elapsedMs: 1,
+    }),
+  ),
+}));
+
+vi.mock('../data-coverage-agent', () => coverageMocks);
 
 import type { HotFocusItem, ToolCallRecord } from '../../../../src/shared/types.js';
 import { callTool } from '../../tools/tool-registry.js';
@@ -131,7 +148,8 @@ describe('agent workflow market-data', () => {
 
     mockedCallTool.mockImplementation(async (toolName, input) => {
       if (toolName === 'getHotFocus') return record(toolName, []);
-      if (toolName === 'getStockSurgeEventsLocalFirst') return { ...record(toolName, { rows: [localLargeOrder] }), input };
+      if (toolName === 'getStockSurgeEventsLocalFirst')
+        return { ...record(toolName, { rows: [localLargeOrder] }), input };
       if (toolName === 'getHistoricalDailyBars') return record(toolName, { data: [], meta: { warnings: [] } });
       if (toolName === 'getStockNewsAnnouncements') return record(toolName, { news: [], announcements: [] });
       if (toolName === 'getTechnicalIndicators') return record(toolName, undefined);
@@ -155,6 +173,26 @@ describe('agent workflow market-data', () => {
 });
 
 describe('条件选股工作流', () => {
+  it('筹码条件不把全市场筹码补齐作为 DataCoverage 阻塞前置条件', async () => {
+    coverageMocks.runDataCoverageAgent.mockClear();
+    const context = createContext();
+    context.query = '查找90%筹码集中度小于18%、70%筹码集中度小于14%的个股';
+    context.intent = 'condition-screener';
+    context.symbol = undefined;
+    context.plan = createInitialAgentPlan(context);
+    const coverageNode = buildAgentWorkflow(context).find((item) => item.id === 'data-coverage');
+    if (!coverageNode) throw new Error('data-coverage node missing');
+
+    await coverageNode.run(context);
+
+    expect(coverageNode.description).not.toContain('含筹码');
+    expect(coverageMocks.runDataCoverageAgent).toHaveBeenCalledWith(context, {
+      minCoverage: 5000,
+      needsChips: false,
+      requireDailyBars: false,
+    });
+  });
+
   it('使用确定性工具执行 slash 参数，不交由大模型重新解释', async () => {
     mockedCallTool.mockImplementation(async (toolName, input) => {
       if (toolName === 'screenASharesByConditions') {
@@ -245,9 +283,13 @@ describe('条件选股工作流', () => {
     expect(analysisOverview).toContain('条件命中股');
     expect(analysisOverview).toContain('换手率 > 8%');
     expect(analysisOverview).not.toContain('--换手率');
-    expect(analysisOverview).toContain('| 代码 | 名称 | 所属板块 | 涨幅 | 换手率 | 成交额 | 总市值 |');
+    expect(analysisOverview).toContain(
+      '| 代码 | 名称 | 所属板块 | 涨幅 | 换手率 | 成交额 | 成交量 | 总市值 | 流通市值 | 90%筹码 | 70%筹码 |',
+    );
     expect(analysisOverview.match(/\| 代码 \| 名称 \| 所属板块 \|/g)).toHaveLength(1);
-    expect(analysisOverview).toContain('所属板块分布：新能源（2只，占展示样本66.7%）、半导体（1只，占展示样本33.3%）。');
+    expect(analysisOverview).toContain(
+      '所属板块分布：新能源（2只，占展示样本66.7%）、半导体（1只，占展示样本33.3%）。',
+    );
     expect(analysisOverview).toContain('成交额较大个股：成交额最高股（600002，+4.50亿）');
     expect(analysisOverview).not.toContain('## 📰 核心事件');
     expect(context.board?.subtitle).toBe('换手率 > 8% · 成交额 > 2 亿');
@@ -296,7 +338,7 @@ describe('条件选股工作流', () => {
 
     await node.run(context);
 
-    expect(context.analysisOverview).toContain('## 🎯 筛选总结');
+    expect(context.analysisOverview).toContain('## 🎯 综合结论');
     expect(context.analysisOverview).toContain('已完整执行当前真实数据筛选，未发现符合全部条件的股票。');
     expect(context.analysisOverview).not.toContain('| 代码 | 名称 |');
     expect(context.analysisOverview).not.toContain('筛选数据存在缺口');

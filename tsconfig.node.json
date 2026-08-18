@@ -11,6 +11,8 @@
     "outDir": "dist-electron",
     "rootDir": ".",
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "types": ["node", "electron"]
   },
   "include": [

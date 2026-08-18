@@ -18,14 +18,17 @@ const dbState = vi.hoisted(() => ({
 }));
 
 function normalizeLike(value: string) {
-  return value.replace(/^%|%$/g, '').replace(/\\([\\%_])/g, '$1').toLowerCase();
+  return value
+    .replace(/^%|%$/g, '')
+    .replace(/\\([\\%_])/g, '$1')
+    .toLowerCase();
 }
 
 function matchesLike(text: string, like: string) {
   return text.toLowerCase().includes(normalizeLike(like));
 }
 
-vi.mock('../../electron-runtime.js', () => ({
+vi.mock('../../electron-runtime', () => ({
   app: {
     getPath: () => '/tmp',
     isPackaged: false,
@@ -89,7 +92,11 @@ function runAll(sql: string, params?: unknown) {
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
       .map((row) => ({ payload: row.payload }));
   }
-  if (sql.includes('FROM messages') && sql.includes('conversation_id = @conversationId') && !sql.includes('JOIN conversations')) {
+  if (
+    sql.includes('FROM messages') &&
+    sql.includes('conversation_id = @conversationId') &&
+    !sql.includes('JOIN conversations')
+  ) {
     const input = params as { conversationId: string; beforeCreatedAt?: string; beforeId?: string; limit?: number };
     const rows = dbState.messages
       .filter((row) => row.conversationId === input.conversationId)
@@ -173,7 +180,7 @@ function runStatement(sql: string, params: unknown[]) {
   }
   if (sql.includes('UPDATE conversations SET title = ?, updated_at = ? WHERE id')) {
     const [title, updatedAt, id] = params as [string, string, string];
-    dbState.conversations = dbState.conversations.map((row) => row.id === id ? { ...row, title, updatedAt } : row);
+    dbState.conversations = dbState.conversations.map((row) => (row.id === id ? { ...row, title, updatedAt } : row));
     return;
   }
   if (sql.includes('INSERT OR REPLACE INTO messages')) {
@@ -183,7 +190,15 @@ function runStatement(sql: string, params: unknown[]) {
     return;
   }
   if (sql.includes('UPDATE conversations') && sql.includes('SET title = ?, preview = ?')) {
-    const [title, preview, date, tab, count, updatedAt, id] = params as [string, string, string, ConversationSummary['tab'], number, string, string];
+    const [title, preview, date, tab, count, updatedAt, id] = params as [
+      string,
+      string,
+      string,
+      ConversationSummary['tab'],
+      number,
+      string,
+      string,
+    ];
     dbState.conversations = dbState.conversations.map((row) =>
       row.id === id ? { ...row, title, preview, date, tab, count, updatedAt } : row,
     );
@@ -218,6 +233,54 @@ describe('会话消息分页', () => {
     expect(latest.map((item) => item.id)).toEqual(['msg-3', 'msg-4', 'msg-5', 'msg-6', 'msg-7']);
     expect(earlier.map((item) => item.id)).toEqual(['msg-1', 'msg-2']);
   });
+
+  it('读取历史消息和保存新消息时仅保留工具调用摘要', async () => {
+    await loadStore();
+    const conversation = store!.createConversation();
+    const rawToolCall = {
+      id: 'tool-1',
+      toolName: 'queryLocalMarketDuckDB',
+      input: { dataset: 'stock_snapshot', limit: 5000 },
+      inputSummary: 'dataset=stock_snapshot limit=5000',
+      output: { rows: [{ code: '600519', name: '贵州茅台', payload: '完整工具结果' }] },
+      outputSummary: '返回 1 条股票快照',
+      startedAt: '2026-08-05T00:00:00.000Z',
+      endedAt: '2026-08-05T00:00:01.000Z',
+    };
+    const legacyMessage: ChatMessage = {
+      ...message('msg-1', 'assistant', '历史会话正文应正常显示'),
+      toolCalls: [rawToolCall],
+      runEvents: [{ type: 'tool_completed', title: '工具结果', toolCall: rawToolCall }],
+    };
+    dbState.messages.push({
+      id: legacyMessage.id,
+      conversationId: conversation.id,
+      payload: JSON.stringify(legacyMessage),
+      createdAt: legacyMessage.createdAt,
+    });
+
+    const [loaded] = store!.listMessages(conversation.id);
+
+    expect(loaded?.content).toBe('历史会话正文应正常显示');
+    expect(loaded?.toolCalls?.[0]).toMatchObject({
+      inputSummary: 'dataset=stock_snapshot limit=5000',
+      outputSummary: '返回 1 条股票快照',
+    });
+    expect(loaded?.toolCalls?.[0]?.input).toBeUndefined();
+    expect(loaded?.toolCalls?.[0]?.output).toBeUndefined();
+    expect(loaded?.runEvents?.[0]?.toolCall?.input).toBeUndefined();
+    expect(loaded?.runEvents?.[0]?.toolCall?.output).toBeUndefined();
+
+    const nextMessage: ChatMessage = { ...legacyMessage, id: 'msg-2', createdAt: '2026-08-05T00:00:02.000Z' };
+    store!.saveMessage(conversation.id, nextMessage);
+    const stored = dbState.messages.find((row) => row.id === nextMessage.id);
+    const persisted = JSON.parse(stored?.payload ?? '{}') as ChatMessage;
+
+    expect(persisted.toolCalls?.[0]).not.toHaveProperty('input');
+    expect(persisted.toolCalls?.[0]).not.toHaveProperty('output');
+    expect(persisted.runEvents?.[0]?.toolCall).not.toHaveProperty('input');
+    expect(persisted.runEvents?.[0]?.toolCall).not.toHaveProperty('output');
+  });
 });
 
 describe('会话内容搜索', () => {
@@ -229,11 +292,13 @@ describe('会话内容搜索', () => {
 
     const results = await store!.searchConversations('茅台');
 
-    expect(results[0]).toEqual(expect.objectContaining({
-      kind: 'conversation',
-      conversationId: conversation.id,
-      title: '贵州茅台复盘',
-    }));
+    expect(results[0]).toEqual(
+      expect.objectContaining({
+        kind: 'conversation',
+        conversationId: conversation.id,
+        title: '贵州茅台复盘',
+      }),
+    );
   });
 
   it('支持搜索用户和 AI 消息正文', async () => {
@@ -244,10 +309,12 @@ describe('会话内容搜索', () => {
 
     const results = await store!.searchConversations('低空经济');
 
-    expect(results).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'message', role: 'user', messageId: 'msg-1' }),
-      expect.objectContaining({ kind: 'message', role: 'assistant', messageId: 'msg-2' }),
-    ]));
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'message', role: 'user', messageId: 'msg-1' }),
+        expect.objectContaining({ kind: 'message', role: 'assistant', messageId: 'msg-2' }),
+      ]),
+    );
   });
 
   it('空关键词返回空数组且消息片段不暴露 payload 内部字段', async () => {

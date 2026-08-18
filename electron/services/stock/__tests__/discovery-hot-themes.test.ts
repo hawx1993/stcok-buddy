@@ -21,16 +21,12 @@ describe('合并热门主题龙头', () => {
   });
 
   it('从板块领涨股和候选龙头构建去重龙头列表', () => {
-    const result = mergeHotThemeLeaders(
-      { name: 'AI应用' },
-      { topStockCode: '600001', topStockName: '龙头A' },
-      [
-        { code: '600001', name: '重复A' },
-        { code: '600002', name: '龙头B' },
-        { code: '600003', name: '龙头C' },
-        { code: '600004', name: '龙头D' },
-      ],
-    );
+    const result = mergeHotThemeLeaders({ name: 'AI应用' }, { topStockCode: '600001', topStockName: '龙头A' }, [
+      { code: '600001', name: '重复A' },
+      { code: '600002', name: '龙头B' },
+      { code: '600003', name: '龙头C' },
+      { code: '600004', name: '龙头D' },
+    ]);
 
     expect(result.leaders).toEqual([
       { code: '600001', name: '龙头A' },
@@ -40,7 +36,9 @@ describe('合并热门主题龙头', () => {
   });
 
   it('没有有效龙头来源时返回不含龙头的主题', () => {
-    expect(mergeHotThemeLeaders({ name: '低空经济' }, undefined, [{ code: '', name: '空代码' }])).toEqual({ name: '低空经济' });
+    expect(mergeHotThemeLeaders({ name: '低空经济' }, undefined, [{ code: '', name: '空代码' }])).toEqual({
+      name: '低空经济',
+    });
   });
 });
 
@@ -50,11 +48,13 @@ describe('热门主题与本地板块校准', () => {
   });
 
   it('替换板块字段并格式化正向资金原因', () => {
-    expect(reconcileHotThemeWithLocalBoard(
-      { code: 'old', name: '旧名称', changePercent: 0, reason: null },
-      { code: 'BK1234', name: '机器人板块', changePercent: 2.345 },
-      { mainNetInflow: 1.26 },
-    )).toEqual({
+    expect(
+      reconcileHotThemeWithLocalBoard(
+        { code: 'old', name: '旧名称', changePercent: 0, reason: null },
+        { code: 'BK1234', name: '机器人板块', changePercent: 2.345 },
+        { mainNetInflow: 1.26 },
+      ),
+    ).toEqual({
       code: 'BK1234',
       name: '机器人板块',
       changePercent: 2.345,

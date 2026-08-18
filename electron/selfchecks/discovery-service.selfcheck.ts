@@ -92,14 +92,20 @@ assert.equal(
   155_000_000,
 );
 
-assert.equal(toLimitDownStockItemForTest({ code: '300407', name: '凯发电气', price: 11.28, changePercent: -12.56 }), undefined);
-assert.deepEqual(toLimitDownStockItemForTest({ code: '300001', name: '创业板测试', price: 8.01, changePercent: -19.82 }), {
-  code: '300001',
-  name: '创业板测试',
-  price: '8.01',
-  changePercent: '-19.82',
-  amount: undefined,
-});
+assert.equal(
+  toLimitDownStockItemForTest({ code: '300407', name: '凯发电气', price: 11.28, changePercent: -12.56 }),
+  undefined,
+);
+assert.deepEqual(
+  toLimitDownStockItemForTest({ code: '300001', name: '创业板测试', price: 8.01, changePercent: -19.82 }),
+  {
+    code: '300001',
+    name: '创业板测试',
+    price: '8.01',
+    changePercent: '-19.82',
+    amount: undefined,
+  },
+);
 assert.deepEqual(toLimitDownStockItemForTest({ code: '600001', name: '主板测试', price: 9.01, changePercent: -9.82 }), {
   code: '600001',
   name: '主板测试',
@@ -233,10 +239,16 @@ const northRows: NorthboundFlowSummary[] = [
 ];
 assert.equal(sumNorthFundFlowYi(northRows), 8);
 assert.equal(sumNorthFundFlowYi(northRows, '2026-07-30'), 8);
-assert.equal(sumNorthFundFlowYi([
-  { ...northRows[0], date: '2026-07-31', netBuyAmount: 0, netInflow: 0 },
-  { ...northRows[1], date: '2026-07-31', netBuyAmount: 0, netInflow: 0 },
-], '2026-07-31'), 0);
+assert.equal(
+  sumNorthFundFlowYi(
+    [
+      { ...northRows[0], date: '2026-07-31', netBuyAmount: 0, netInflow: 0 },
+      { ...northRows[1], date: '2026-07-31', netBuyAmount: 0, netInflow: 0 },
+    ],
+    '2026-07-31',
+  ),
+  0,
+);
 assert.equal(sumNorthFundFlowYi(northRows, '2026-07-31'), null);
 assert.equal(sumNorthFundFlowYi([{ ...northRows[0], netBuyAmount: null, netInflow: 300_000_000 }]), 3);
 assert.equal(sumNorthFundFlowYi([{ ...northRows[2] }]), null);
@@ -281,11 +293,7 @@ assert.deepEqual(localTheme, {
 assert.equal(reconcileHotThemeWithLocalBoard({ name: '未知板块', changePercent: 88 }, undefined, undefined), undefined);
 
 const constituentMainNetInflow = sumConstituentMainNetInflowYiForTest(
-  [
-    { code: '003032' },
-    { code: 'sz002659' },
-    { code: '300010' },
-  ],
+  [{ code: '003032' }, { code: 'sz002659' }, { code: '300010' }],
   [
     { code: '003032', mainNetInflow: 120_000_000 },
     { code: '002659', mainNetInflow: -20_000_000 },

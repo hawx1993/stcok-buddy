@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const stockSdkInstances = vi.hoisted(
-  () => [] as Array<{ northbound: { summary: ReturnType<typeof vi.fn> } }>,
-);
+const stockSdkInstances = vi.hoisted(() => [] as Array<{ northbound: { summary: ReturnType<typeof vi.fn> } }>);
 
 vi.mock('stock-sdk', () => ({
   default: class StockSDKMock {

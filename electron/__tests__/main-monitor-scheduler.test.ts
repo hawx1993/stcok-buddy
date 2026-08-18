@@ -81,49 +81,51 @@ vi.mock('dotenv', () => ({
   config: vi.fn(),
 }));
 
-vi.mock('../electron-runtime.js', () => electronRuntime);
-vi.mock('../ipc.js', () => ({ registerIpcHandlers: lifecycle.registerIpcHandlers }));
-vi.mock('../services/market-data/data-sync-handlers.js', () => ({ syncSurgeHistoryIfNeeded: lifecycle.syncSurgeHistoryIfNeeded }));
-vi.mock('../services/stock/monitor-history-scheduler.js', () => monitorScheduler);
-vi.mock('../services/market-data/market-data-store.js', () => ({
+vi.mock('../electron-runtime', () => electronRuntime);
+vi.mock('../ipc', () => ({ registerIpcHandlers: lifecycle.registerIpcHandlers }));
+vi.mock('../services/market-data/data-sync-handlers', () => ({
+  syncSurgeHistoryIfNeeded: lifecycle.syncSurgeHistoryIfNeeded,
+}));
+vi.mock('../services/stock/monitor-history-scheduler', () => monitorScheduler);
+vi.mock('../services/market-data/market-data-store', () => ({
   closeMarketDataInstance: lifecycle.closeMarketDataInstance,
   closeMarketDataStore: lifecycle.closeMarketDataStore,
 }));
-vi.mock('../services/market-data/market-data-scheduler.js', () => ({
+vi.mock('../services/market-data/market-data-scheduler', () => ({
   ensureMarketDataRuntime: lifecycle.ensureMarketDataRuntime,
   shutdownMarketDataScheduler: lifecycle.shutdownMarketDataScheduler,
   stopMarketDataScheduler: lifecycle.stopMarketDataScheduler,
 }));
-vi.mock('../services/conversation-store.js', () => ({
+vi.mock('../services/conversation-store', () => ({
   closeConversationStore: lifecycle.closeConversationStore,
 }));
-vi.mock('../services/stock/surge-history-scheduler.js', () => ({
+vi.mock('../services/stock/surge-history-scheduler', () => ({
   ensureSurgeHistoryCapture: lifecycle.ensureSurgeHistoryCapture,
   shutdownSurgeHistoryScheduler: lifecycle.shutdownSurgeHistoryScheduler,
   stopSurgeHistoryScheduler: lifecycle.stopSurgeHistoryScheduler,
   waitForSurgeHistoryScheduler: lifecycle.waitForSurgeHistoryScheduler,
 }));
-vi.mock('../services/stock/discovery-service.js', () => ({
+vi.mock('../services/stock/discovery-service', () => ({
   stopDiscoveryRefreshLoop: lifecycle.stopDiscoveryRefreshLoop,
 }));
-vi.mock('../services/stock/quote-store.js', () => ({
+vi.mock('../services/stock/quote-store', () => ({
   closeQuoteStore: lifecycle.closeQuoteStore,
   initializeQuoteStore: lifecycle.initializeQuoteStore,
 }));
-vi.mock('../services/stock/surge-history-store.js', () => ({
+vi.mock('../services/stock/surge-history-store', () => ({
   closeSurgeHistoryInstance: lifecycle.closeSurgeHistoryInstance,
   closeSurgeHistoryStore: lifecycle.closeSurgeHistoryStore,
 }));
-vi.mock('../services/stock/monitor-history-store.js', () => ({
+vi.mock('../services/stock/monitor-history-store', () => ({
   closeMonitorHistoryInstance: lifecycle.closeMonitorHistoryInstance,
   closeMonitorHistoryStore: lifecycle.closeMonitorHistoryStore,
 }));
-vi.mock('../services/llm/posthog-client.js', () => ({
+vi.mock('../services/llm/posthog-client', () => ({
   captureError: lifecycle.captureError,
   captureEvent: lifecycle.captureEvent,
   shutdownPostHog: lifecycle.shutdownPostHog,
 }));
-vi.mock('../services/update-service.js', () => ({
+vi.mock('../services/update-service', () => ({
   checkAppUpdate: lifecycle.checkAppUpdate,
   setInstallUpdateHandler: lifecycle.setInstallUpdateHandler,
 }));

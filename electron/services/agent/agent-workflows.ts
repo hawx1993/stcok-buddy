@@ -15,7 +15,12 @@ import type { IHotConceptsToolOutput } from './tools/get-hot-concepts.js';
 import type { IIndustryRankingToolOutput } from './tools/get-industry-ranking.js';
 import type { DagNode } from './dag-executor.js';
 import type { IAgentContext, TOnToken } from './orchestrator-types.js';
-import { buildStockAnalysisInput, createSkippedDataStatus, filterLargeOrders, runContextTool } from './agent-tool-runtime.js';
+import {
+  buildStockAnalysisInput,
+  createSkippedDataStatus,
+  filterLargeOrders,
+  runContextTool,
+} from './agent-tool-runtime.js';
 import {
   createPlanAgentsFromNodes,
   formatPlanUpdatedMessage,
@@ -54,6 +59,7 @@ import { generateReport } from '../llm/index.js';
 import { agenticAStockDataAnswer } from './a-stock-data-agent.js';
 import { agenticStockPickerAnswer } from './stock-picker-agent.js';
 import { runConditionScreenerAgent } from './condition-screener-agent.js';
+import { runDataCoverageAgent } from './data-coverage-agent.js';
 import { isStockRelatedQuestion } from './intent-routing.js';
 import { createMarketReviewMessages } from './market-review-prompt.js';
 import { createDirectAnswerMessages, createPlainQuestionMessages } from './plain-question-prompt.js';
@@ -67,6 +73,27 @@ import {
 
 function isSymbolResult(value: unknown): value is { symbol?: string } {
   return typeof value === 'object' && value !== null;
+}
+
+function buildDataCoverageNode(context: IAgentContext): DagNode<IAgentContext> {
+  const isConditionScreener = context.intent === 'condition-screener';
+  // 条件选股立即复用本地筹码，缺失部分由筛选服务限量后台补齐，不把全市场筹码作为阻塞前置条件。
+  const needsChips =
+    !isConditionScreener && /筹码|集中度|获利比例|控盘|单峰|concentration70|concentration90/.test(context.query);
+  // 条件选股基于实时快照+筹码缓存筛选，不依赖本地日K，跳过日K覆盖检查避免每次提问触发全量同步。
+  const requireDailyBars = !isConditionScreener;
+  return {
+    id: 'data-coverage',
+    agent: 'DataCoverage',
+    description: `检查并补齐本地 DuckDB 市场数据覆盖度（目标 5000 只${needsChips ? '，含筹码' : ''}${requireDailyBars ? '' : '，不含日K'}）`,
+    run: async (ctx) => {
+      ctx.dataCoverage = await runDataCoverageAgent(ctx, {
+        minCoverage: 5000,
+        needsChips,
+        requireDailyBars,
+      });
+    },
+  };
 }
 
 function emitReflectionEvents(ctx: IAgentContext, nodes: DagNode<IAgentContext>[], reason: string) {
@@ -270,12 +297,7 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         description: `拉取 ${context.symbol} 股东户数、筹码集中度与资金面`,
         run: async (ctx) => {
           const [quote, holder, chip, flow] = await Promise.all([
-            runContextTool<StockDetail | undefined>(
-              ctx,
-              'getStockQuote',
-              { symbol: ctx.symbol! },
-              () => undefined,
-            ),
+            runContextTool<StockDetail | undefined>(ctx, 'getStockQuote', { symbol: ctx.symbol! }, () => undefined),
             runContextTool<IHolderNumberChangeRow[] | undefined>(
               ctx,
               'getHolderNumberChange',
@@ -324,13 +346,17 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         agent: 'a-stock-data',
         description: '拉取今日热门股与概念归属',
         run: async (ctx) => {
-          const hot = await runContextTool<IHotConceptsToolOutput | undefined>(ctx, 'getHotConcepts', {}, () => undefined);
+          const hot = await runContextTool<IHotConceptsToolOutput | undefined>(
+            ctx,
+            'getHotConcepts',
+            {},
+            () => undefined,
+          );
           ctx.evidence.push(...evidenceFromHotConcepts(hot?.list, hot?.source));
           ctx.board = hotConceptsToCard({ source: hot?.source, list: hot?.list ?? [] });
-          ctx.analysisOverview =
-            hot?.list.length
-              ? await generateReport(createPlainQuestionMessages(ctx))
-              : '今日热门股数据源暂不可用，请稍后重试。';
+          ctx.analysisOverview = hot?.list.length
+            ? await generateReport(createPlainQuestionMessages(ctx))
+            : '今日热门股数据源暂不可用，请稍后重试。';
           emitReflectionEvents(ctx, nodes, 'hot-concepts-data');
         },
       },
@@ -368,10 +394,12 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
   if (context.intent === 'condition-screener') {
     const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
+      buildDataCoverageNode(context),
       {
         id: 'condition-screener',
         agent: 'ConditionScreener',
         description: '校验条件并基于真实市场快照执行全市场筛选',
+        dependsOn: ['data-coverage'],
         run: async (ctx) => {
           await runConditionScreenerAgent(ctx);
           emitReflectionEvents(ctx, nodes, 'condition-screener');
@@ -382,12 +410,14 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
   }
 
   if (context.intent === 'a-stock-data-agent') {
-    return [
+    const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
+      buildDataCoverageNode(context),
       {
         id: 'a-stock-data-agent',
         agent: 'a-stock-data',
         description: '先查本地 DuckDB，再按 stock-sdk/a-stock-data 补充分析...',
+        dependsOn: ['data-coverage'],
         run: async (ctx) => {
           // 预解析股票代码（如「茅台」→600519），帮助智能体直接调用个股工具；market 级问题无代码则跳过
           const resolved = await callTool('resolveStockSymbol', { query: ctx.query });
@@ -397,32 +427,38 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         },
       },
     ];
+    return nodes;
   }
 
   if (context.intent === 'stock-picker') {
-    return [
+    const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
+      buildDataCoverageNode(context),
       {
         id: 'stock-picker-agent',
         agent: 'stock-picker',
         description: '解析超短线技术选股条件，先宽筛后精筛，输出候选清单...',
+        dependsOn: ['data-coverage'],
         run: async (ctx) => {
           ctx.analysisOverview = await agenticStockPickerAnswer(ctx);
         },
       },
     ];
+    return nodes;
   }
 
   if (!context.symbol) {
     const stockRelated = isStockRelatedQuestion(context.query);
-    return [
+    const nodes: DagNode<IAgentContext>[] = [
       ...linkNodes,
+      ...(stockRelated ? [buildDataCoverageNode(context)] : []),
       {
         id: 'chat',
         agent: stockRelated ? 'a-stock-data' : 'Orchestrator',
         description: stockRelated
           ? '识别为 A 股相关问题，调用 a-stock-data 真实数据回答'
           : '非股票问题，由大模型直接回答',
+        dependsOn: stockRelated ? ['data-coverage'] : undefined,
         run: async (ctx) => {
           ctx.analysisOverview = stockRelated
             ? await agenticAStockDataAnswer(ctx)
@@ -430,6 +466,7 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         },
       },
     ];
+    return nodes;
   }
 
   const nodes: DagNode<IAgentContext>[] = [
@@ -507,64 +544,70 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
         description: `拉取 ${context.symbol} K线、指标与新闻样本`,
         dependsOn: ['quote'],
         run: async (ctx) => {
-          const [historical, technical, stockNewsResult, hotLargeOrders, localSurge, chip, fundFlow] = await Promise.all([
-            needsKline
-              ? runContextTool<HistoricalBarsResult>(
-                  ctx,
-                  'getHistoricalDailyBars',
-                  { symbol: ctx.symbol!, limit: 120, adjustType: 'qfq' },
-                  () => ({
-                    data: [],
-                    meta: {
-                      source: 'fallback',
-                      storage: 'local',
-                      freshness: 'fallback',
-                      isComplete: false,
-                      warnings: ['历史日线获取失败'],
-                      adjustType: 'qfq',
-                    },
-                  }),
-                )
-              : Promise.resolve(undefined),
-            needsTechnical
-              ? runContextTool<AgentResultCard | undefined>(
-                  ctx,
-                  'getTechnicalIndicators',
-                  { symbol: ctx.symbol! },
-                  () => undefined,
-                )
-              : Promise.resolve(undefined),
-            needsNews
-              ? runContextTool<{ news: MarketNewsItem[]; announcements: AnnouncementItem[] }>(
-                  ctx,
-                  'getStockNewsAnnouncements',
-                  { symbol: ctx.symbol!, limit: 10 },
-                  () => ({ news: [], announcements: [] }),
-                )
-              : Promise.resolve(undefined),
-            needsLargeOrders
-              ? runContextTool<HotFocusItem[]>(ctx, 'getHotFocus', { tab: 'surge' }, () => [])
-              : Promise.resolve([]),
-            needsLargeOrders
-              ? runContextTool<{ rows?: HotFocusItem[] } | undefined>(
-                  ctx,
-                  'getStockSurgeEventsLocalFirst',
-                  { symbol: ctx.symbol!, days: 7, limit: 200, minHands: 10000 },
-                  () => undefined,
-                )
-              : Promise.resolve(undefined),
-            needsChip
-              ? runContextTool<unknown>(ctx, 'getStockChipDistributionLocalFirst', { symbol: ctx.symbol!, days: 20 }, () => undefined)
-              : Promise.resolve(undefined),
-            needsFundFlow
-              ? runContextTool<IStockFundFlowSnapshot | undefined>(
-                  ctx,
-                  'getStockFundFlowSnapshot',
-                  { symbol: ctx.symbol! },
-                  () => undefined,
-                )
-              : Promise.resolve(undefined),
-          ]);
+          const [historical, technical, stockNewsResult, hotLargeOrders, localSurge, chip, fundFlow] =
+            await Promise.all([
+              needsKline
+                ? runContextTool<HistoricalBarsResult>(
+                    ctx,
+                    'getHistoricalDailyBars',
+                    { symbol: ctx.symbol!, limit: 120, adjustType: 'qfq' },
+                    () => ({
+                      data: [],
+                      meta: {
+                        source: 'fallback',
+                        storage: 'local',
+                        freshness: 'fallback',
+                        isComplete: false,
+                        warnings: ['历史日线获取失败'],
+                        adjustType: 'qfq',
+                      },
+                    }),
+                  )
+                : Promise.resolve(undefined),
+              needsTechnical
+                ? runContextTool<AgentResultCard | undefined>(
+                    ctx,
+                    'getTechnicalIndicators',
+                    { symbol: ctx.symbol! },
+                    () => undefined,
+                  )
+                : Promise.resolve(undefined),
+              needsNews
+                ? runContextTool<{ news: MarketNewsItem[]; announcements: AnnouncementItem[] }>(
+                    ctx,
+                    'getStockNewsAnnouncements',
+                    { symbol: ctx.symbol!, limit: 10 },
+                    () => ({ news: [], announcements: [] }),
+                  )
+                : Promise.resolve(undefined),
+              needsLargeOrders
+                ? runContextTool<HotFocusItem[]>(ctx, 'getHotFocus', { tab: 'surge' }, () => [])
+                : Promise.resolve([]),
+              needsLargeOrders
+                ? runContextTool<{ rows?: HotFocusItem[] } | undefined>(
+                    ctx,
+                    'getStockSurgeEventsLocalFirst',
+                    { symbol: ctx.symbol!, days: 7, limit: 200, minHands: 10000 },
+                    () => undefined,
+                  )
+                : Promise.resolve(undefined),
+              needsChip
+                ? runContextTool<unknown>(
+                    ctx,
+                    'getStockChipDistributionLocalFirst',
+                    { symbol: ctx.symbol!, days: 20 },
+                    () => undefined,
+                  )
+                : Promise.resolve(undefined),
+              needsFundFlow
+                ? runContextTool<IStockFundFlowSnapshot | undefined>(
+                    ctx,
+                    'getStockFundFlowSnapshot',
+                    { symbol: ctx.symbol! },
+                    () => undefined,
+                  )
+                : Promise.resolve(undefined),
+            ]);
           const kline = historical?.data ?? [];
           ctx.kline = needsKline ? kline : undefined;
           ctx.technical = technical?.chart
@@ -579,7 +622,8 @@ export function buildAgentWorkflow(context: IAgentContext, onToken?: TOnToken): 
           ctx.largeOrders = filterLargeOrders([...(localSurge?.rows ?? []), ...hotLargeOrders], ctx.symbol!);
           if (historical) ctx.evidence.push(...evidenceFromHistoricalBars(ctx.symbol!, historical));
           if (needsTechnical) ctx.evidence.push(...evidenceFromTechnical(ctx.symbol!, ctx.technical));
-          if (needsNews) ctx.evidence.push(...evidenceFromNews(ctx.news), ...evidenceFromAnnouncements(ctx.announcements));
+          if (needsNews)
+            ctx.evidence.push(...evidenceFromNews(ctx.news), ...evidenceFromAnnouncements(ctx.announcements));
           if (needsLargeOrders) ctx.evidence.push(...evidenceFromHotFocus(ctx.largeOrders));
           if (needsFundFlow) ctx.evidence.push(...evidenceFromFundFlow(ctx.symbol!, fundFlow));
           if (needsChip) ctx.evidence.push(...evidenceFromChip(ctx.symbol!, ctx.chip));

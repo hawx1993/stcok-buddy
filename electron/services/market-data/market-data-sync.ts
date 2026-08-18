@@ -1,16 +1,14 @@
 import { EventEmitter } from 'node:events';
 import { resolveTradingDate } from './trade-date-resolver.js';
-import {
-  getLatestSyncJob,
-  getLatestTradeDate,
-  getMarketDataStats,
-} from './market-data-store.js';
+import { getLatestSyncJob, getLatestTradeDate, getMarketDataStats } from './market-data-store.js';
 import {
   requestMarketDataWorkerStop,
   retryMarketDataFailuresInWorker,
   runHistoricalBackfillInWorker,
+  runMarketDataCoverageSyncInWorker,
   runMarketDataSyncInWorker,
 } from './market-data-sync-worker-client.js';
+import type { IMarketDataCoverageSyncOptions } from './market-data-sync-worker-types.js';
 import type { MarketDataSyncStatus } from './types.js';
 
 const FORCE_SYNC_COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12h
@@ -71,6 +69,37 @@ export async function startMarketDataSync(force = false) {
   }
   stopRequested = false;
   currentSync = runSyncInWorker(force).finally(() => {
+    currentSync = undefined;
+  });
+  return currentSync;
+}
+
+/**
+ * 为 Agent 补齐指定已收盘交易日的数据覆盖度。与手动强制全量同步不同，
+ * 此路径只处理 DuckDB 中缺少目标日 qfq 日K的股票。
+ */
+export async function ensureMarketDataCoverage(
+  options: IMarketDataCoverageSyncOptions,
+  onProgress?: (status: MarketDataSyncStatus) => void,
+): Promise<MarketDataSyncStatus> {
+  if (onProgress) {
+    const unsubscribe = onMarketDataProgress(onProgress);
+    try {
+      return await ensureMarketDataCoverageInternal(options);
+    } finally {
+      unsubscribe();
+    }
+  }
+  return ensureMarketDataCoverageInternal(options);
+}
+
+async function ensureMarketDataCoverageInternal(
+  options: IMarketDataCoverageSyncOptions,
+): Promise<MarketDataSyncStatus> {
+  if (currentSync) await currentSync.catch(() => undefined);
+
+  stopRequested = false;
+  currentSync = runMarketDataCoverageSyncInWorker(options, updateMemory).finally(() => {
     currentSync = undefined;
   });
   return currentSync;

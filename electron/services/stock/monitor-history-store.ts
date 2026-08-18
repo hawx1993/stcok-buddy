@@ -31,10 +31,9 @@ interface IMonitorHistoryQuery {
 const MAX_MONITOR_HISTORY_LIMIT = 1000;
 const HIGH_FREQUENCY_MONITOR_CATEGORIES: TMonitorCategory[] = ['technical', 'risk', 'ai-opportunity', 'ai-warning'];
 
-const dbPath = process.env.STOCKSENSE_MONITOR_DB_PATH ?? path.join(
-  app.getPath('userData'),
-  app.isPackaged ? 'stocksense-monitor.duckdb' : 'stocksense-monitor-dev.duckdb',
-);
+const dbPath =
+  process.env.STOCKSENSE_MONITOR_DB_PATH ??
+  path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-monitor.duckdb' : 'stocksense-monitor-dev.duckdb');
 
 let dbReady: Promise<DuckDBInstance> | undefined = DuckDBInstance.fromCache(dbPath);
 let ready: Promise<void> | undefined;
@@ -85,30 +84,40 @@ function ensureReady() {
   return ready;
 }
 
-export async function saveMonitorEvents(events: IMonitorEvent[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
+export async function saveMonitorEvents(
+  events: IMonitorEvent[],
+  capturedAt = new Date(),
+  tradeDate = toTradeDate(capturedAt),
+) {
   const dedupedEvents = dedupeMonitorEvents(events);
   if (!dedupedEvents.length) return Promise.resolve();
   return withDb(async () => {
     const captured = capturedAt.toISOString();
     const eventIds = Array.from(new Set(dedupedEvents.map((event) => event.id)));
-    const highFrequencyKeys = Array.from(new Set(dedupedEvents.filter(isHighFrequencyMonitorEvent).map(monitorSignalKey)));
+    const highFrequencyKeys = Array.from(
+      new Set(dedupedEvents.filter(isHighFrequencyMonitorEvent).map(monitorSignalKey)),
+    );
     const existingTimestamps = new Map(
-      (await all<{ id: string; timestamp: string }>(
-        `SELECT id, MIN(timestamp) AS timestamp
+      (
+        await all<{ id: string; timestamp: string }>(
+          `SELECT id, MIN(timestamp) AS timestamp
          FROM ai_monitor_events
          WHERE trade_date = ${sqlValue(tradeDate)} AND id IN (${eventIds.map(sqlValue).join(', ')})
          GROUP BY id`,
-      )).map((row) => [row.id, row.timestamp] as const),
+        )
+      ).map((row) => [row.id, row.timestamp] as const),
     );
     const existingSignalTimestamps = highFrequencyKeys.length
       ? new Map(
-          (await all<{ category: TMonitorCategory; code: string; title: string; timestamp: string }>(
-            `SELECT category, code, title, MIN(timestamp) AS timestamp
+          (
+            await all<{ category: TMonitorCategory; code: string; title: string; timestamp: string }>(
+              `SELECT category, code, title, MIN(timestamp) AS timestamp
              FROM ai_monitor_events
              WHERE trade_date = ${sqlValue(tradeDate)}
                AND (${highFrequencyKeys.map(monitorSignalWhereSql).join(' OR ')})
              GROUP BY category, code, title`,
-          )).map((row) => [monitorSignalKey(row), row.timestamp] as const),
+            )
+          ).map((row) => [monitorSignalKey(row), row.timestamp] as const),
         )
       : new Map<string, string>();
     const signalTimestamps = new Map(existingSignalTimestamps);
@@ -147,13 +156,19 @@ export async function saveMonitorEvents(events: IMonitorEvent[], capturedAt = ne
          event.aiAnalysis,
          event.chart ? JSON.stringify(event.chart) : undefined,
          event.score,
-       ].map(sqlValue).join(', ')})`,
+       ]
+         .map(sqlValue)
+         .join(', ')})`,
     ]);
     await run(`BEGIN TRANSACTION; ${statements.join('; ')}; COMMIT`);
   });
 }
 
-export function enqueueMonitorEvents(events: IMonitorEvent[], capturedAt = new Date(), tradeDate = toTradeDate(capturedAt)) {
+export function enqueueMonitorEvents(
+  events: IMonitorEvent[],
+  capturedAt = new Date(),
+  tradeDate = toTradeDate(capturedAt),
+) {
   const dedupedEvents = dedupeMonitorEvents(events);
   if (!dedupedEvents.length) return;
   const group = monitorEventQueue.get(tradeDate) ?? { events: new Map<string, IMonitorEvent>(), capturedAt, tradeDate };
@@ -294,7 +309,9 @@ export async function closeMonitorHistoryStore(timeoutMs?: number) {
 export async function closeMonitorHistoryInstance() {
   try {
     if (activeConnections > 0) {
-      console.warn(`[monitor-history] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`);
+      console.warn(
+        `[monitor-history] skipping DuckDB closeSync during app quit: ${activeConnections} connection(s) still active`,
+      );
       return;
     }
     if (dbReady) {
@@ -347,16 +364,19 @@ function enqueueDbOperation<T>(work: () => Promise<T>) {
       return work();
     }
   });
-  queue = next.then(() => undefined, () => undefined);
+  queue = next.then(
+    () => undefined,
+    () => undefined,
+  );
   return next;
 }
 
 function isDuckDbFatalInvalidation(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return (
-    message.includes('database has been invalidated')
-    || message.includes('The database must be restarted prior to being used again')
-    || message.includes('Failed to delete all rows from index')
+    message.includes('database has been invalidated') ||
+    message.includes('The database must be restarted prior to being used again') ||
+    message.includes('Failed to delete all rows from index')
   );
 }
 
@@ -494,7 +514,9 @@ function parseChart(value: string | undefined): IMonitorEvent['chart'] {
   return {
     type: chart.type,
     data: chart.data,
-    labels: Array.isArray(chart.labels) ? chart.labels.filter((item): item is string => typeof item === 'string') : undefined,
+    labels: Array.isArray(chart.labels)
+      ? chart.labels.filter((item): item is string => typeof item === 'string')
+      : undefined,
   };
 }
 

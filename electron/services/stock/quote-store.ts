@@ -159,7 +159,9 @@ function scheduleFlush() {
 
 function getDb() {
   if (db?.open) return db;
-  db = new Database(path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-quotes.sqlite' : 'stocksense-quotes-dev.sqlite'));
+  db = new Database(
+    path.join(app.getPath('userData'), app.isPackaged ? 'stocksense-quotes.sqlite' : 'stocksense-quotes-dev.sqlite'),
+  );
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.exec(schemaSql);
@@ -234,5 +236,7 @@ function quoteMatchesTab(code: string, tab: MarketTab) {
 }
 
 function compactRow<T extends object>(row: T) {
-  return Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined && value !== null && value !== '')) as Partial<T>;
+  return Object.fromEntries(
+    Object.entries(row).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  ) as Partial<T>;
 }

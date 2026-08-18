@@ -7,6 +7,7 @@ import type {
   StockDetail,
 } from '../../../src/shared/types.js';
 import { callTool } from '../tools/tool-registry.js';
+import { toToolCallPresentation } from '../conversation-message-presentation.js';
 import { findPlanItemIdsByDataName } from './agent-planning.js';
 import type { IAgentContext, ILinkedPage } from './orchestrator-types.js';
 
@@ -17,21 +18,24 @@ export async function runContextTool<T>(
   fallback: () => T,
 ): Promise<T> {
   const startedAt = new Date().toISOString();
+  const inputSummary = summarizeEventValue(input);
+  const pendingToolCall = toToolCallPresentation({
+    id: `tool-pending-${startedAt}-${name}`,
+    toolName: name,
+    input,
+    inputSummary,
+    startedAt,
+  });
   ctx.emitEvent?.({
     type: 'tool_started',
     title: '工具调用',
     message: `正在执行 ${name}`,
-    toolCall: {
-      id: `tool-pending-${startedAt}-${name}`,
-      toolName: name,
-      input,
-      inputSummary: summarizeEventValue(input),
-      startedAt,
-    },
-    tool: { name, inputSummary: summarizeEventValue(input), status: 'running' },
+    toolCall: pendingToolCall,
+    tool: { name, inputSummary, status: 'running' },
   });
   const record = await callTool(name, input);
-  ctx.toolCalls.push(record);
+  const presentationRecord = toToolCallPresentation(record);
+  ctx.toolCalls.push(presentationRecord);
   const dataStatuses = createDataStatuses(ctx, name, record.id, record.output, record.error);
   ctx.dataStatuses = [...(ctx.dataStatuses ?? []), ...dataStatuses];
   const hasDataGap = dataStatuses.some((status) => status.status !== 'available');
@@ -43,7 +47,7 @@ export async function runContextTool<T>(
       : hasDataGap
         ? `${name} completed，已记录数据缺口`
         : `${name} completed`,
-    toolCall: record,
+    toolCall: presentationRecord,
     tool: {
       name,
       inputSummary: record.inputSummary,
@@ -233,16 +237,25 @@ function dataNamesForTool(toolName: string): string[] {
   return map[toolName] ?? [toolName];
 }
 
-function reasonForStatus(status: IAgentDataStatus['status'], toolName: string, output: unknown, error?: string): string {
+function reasonForStatus(
+  status: IAgentDataStatus['status'],
+  toolName: string,
+  output: unknown,
+  error?: string,
+): string {
   if (status === 'failed') return `${toolName} 调用失败：${error ?? '未知错误'}`;
   if (status === 'empty') return `${toolName} 未返回可用样本。`;
   if (status === 'stale') return `${toolName} 返回的数据可能过期或来自不可用兜底标记。`;
-  if (status === 'partial') return `${toolName} 返回的数据不完整：${collectWarnings(output).join('；') || '存在缺失字段或不完整标记'}`;
+  if (status === 'partial')
+    return `${toolName} 返回的数据不完整：${collectWarnings(output).join('；') || '存在缺失字段或不完整标记'}`;
   return `${toolName} 返回可用数据。`;
 }
 
 function hasFreshness(output: unknown, freshness: 'fallback' | 'stale'): boolean {
-  return readStringField(output, 'freshness') === freshness || readNestedStringField(output, 'meta', 'freshness') === freshness;
+  return (
+    readStringField(output, 'freshness') === freshness ||
+    readNestedStringField(output, 'meta', 'freshness') === freshness
+  );
 }
 
 function hasWarnings(output: unknown): boolean {
@@ -250,7 +263,9 @@ function hasWarnings(output: unknown): boolean {
 }
 
 function hasIncompleteFlag(output: unknown): boolean {
-  return readBooleanField(output, 'isComplete') === false || readNestedBooleanField(output, 'meta', 'isComplete') === false;
+  return (
+    readBooleanField(output, 'isComplete') === false || readNestedBooleanField(output, 'meta', 'isComplete') === false
+  );
 }
 
 function collectWarnings(output: unknown): string[] {

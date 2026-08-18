@@ -630,14 +630,7 @@ function formatFibonacciPressureRadar(levels: TFibonacciLevels, trappedRange?: {
     ? levels.extension.find((price) => price >= trappedRange.low && price <= trappedRange.high)
     : undefined;
   if (!resonance || !trappedRange)
-    return [
-      '📊 压力共振',
-      '',
-      '不可确认',
-      '',
-      '突破条件：',
-      '成交量放大确认',
-    ].join('\n');
+    return ['📊 压力共振', '', '不可确认', '', '突破条件：', '成交量放大确认'].join('\n');
   return [
     '📊 压力共振',
     '',

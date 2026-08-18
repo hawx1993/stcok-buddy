@@ -45,7 +45,11 @@ describe('结构化合规审查', () => {
   });
 
   it('在缺少风险提示和免责声明时自动追加', () => {
-    const result = reviewComplianceStructured({ text: '行情表现较强', evidence: [evidence('quote')], findings: [finding] });
+    const result = reviewComplianceStructured({
+      text: '行情表现较强',
+      evidence: [evidence('quote')],
+      findings: [finding],
+    });
 
     expect(result.revisedText).toContain('风险提示');
     expect(result.revisedText).toContain('不构成投资建议');
@@ -59,10 +63,12 @@ describe('结构化合规审查', () => {
       findings: [finding],
     });
 
-    expect(result.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'unsupported-claim', message: '文本包含行情结论但缺少 quote evidence。' }),
-      expect.objectContaining({ type: 'unsupported-claim', message: '文本包含K线/技术结论但缺少 kline evidence。' }),
-    ]));
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'unsupported-claim', message: '文本包含行情结论但缺少 quote evidence。' }),
+        expect.objectContaining({ type: 'unsupported-claim', message: '文本包含K线/技术结论但缺少 kline evidence。' }),
+      ]),
+    );
   });
 
   it('fallback 证据不能支撑确定性行情或新闻结论', () => {

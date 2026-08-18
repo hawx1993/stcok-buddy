@@ -1,214 +1,131 @@
 ---
 name: stock-fix-bug
-description: 按根因定位、最小改动和可验证闭环修复 Stock Agents 的 Bug。
+description: 通过项目文件索引快速定位根因，以最小改动修复 Stock Agents Bug。
 argument-hint: '用户问题描述'
 ---
 
-# Bug 修复技能
-
-用于定位并修复 Stock Agents 中明确描述的 Bug。目标是修复**根因**，保持既有功能完整，并用可重复的验证证明修复有效。
-
-## 规则优先级
-
-开始前必须先阅读并严格遵守：
-
-1. `.claude/rules/bug-fix.md`
-2. `.claude/rules/typescript-react.md`（涉及 TypeScript、React、Electron 时）
-3. `.claude/rules/data.md`（涉及行情、新闻、板块、K 线或其他数据时）
-4. `.claude/rules/emoji.md`（涉及 AI 投研内容输出时）
-
-若本技能与上述规则冲突，以上规则优先。不得用 mock、假数据、静默 fallback、`any`、`@ts-ignore`、删除逻辑或关闭检查来掩盖问题。
-
-## Bug 定位前必须读取 Knowledge
-
-定位和修复 Bug 前必须先读取 `.claude/knowledge/api-guide.md`，再按用户症状所在链路读取对应知识文档：
-
-| 症状 / 链路 | 必读 Knowledge |
-| ----------- | -------------- |
-| UI、Hook、Store、Worker、组件状态 | `.claude/knowledge/frontend-architecture.md` |
-| IPC、preload、renderer API、channel 缺失 | `.claude/knowledge/ipc-data-flow.md` |
-| 股票、行情、探索、监控、新闻、板块 | `.claude/knowledge/stock-services.md` |
-| 市场数据同步、DuckDB、本地优先查询、交易日 | `.claude/knowledge/market-data-services.md` |
-| Agent、投研输出、runEvents、意图路由、DAG | `.claude/knowledge/agent-services.md` |
-| Agent 工具、ToolCallRecord、本地 DuckDB 工具 | `.claude/knowledge/agent-tools.md` |
-| 配置、会话、通知、更新、商店 | `.claude/knowledge/electron-services-overview.md` |
-
-根因定位不能只看单个报错文件，必须沿 `UI 状态 / 事件 → Hook / Store → stocksenseApi / IPC → Service → Provider / 本地库 → 真实数据源` 链路检查调用方和数据来源。
-
-## 总原则
-
-- 先找根因，再修复；禁止绕过、隐藏或删除功能。
-- 只改解决当前问题所必需的代码；每一行改动都必须能直接追溯到用户请求。
-- 保持现有项目风格、架构和数据流，优先复用已有实现、类型、组件与工具。
-- UI 优先复用已安装的 Ant Design 组件；需要样式时优先使用现有 Tailwind CSS 能力，其次复用或新增最少量 SCSS。不得为了修复 Bug 引入新的 UI 或状态管理依赖。
-- 金融行情、新闻等生产数据必须走既有 Provider → Service → UI 链路，使用真实数据源；数据不可用时只能展示加载、空态或错误态。
-
-## Think Before Coding（编码前思考）
-
-在编辑代码前，先明确以下内容：
-
-1. **问题定义**：用户实际看到的错误行为是什么？预期行为是什么？
-2. **假设**：写出当前推断，并明确哪些是已验证事实、哪些仍不确定。
-3. **歧义处理**：若存在多个合理解释，不得默默选择；列出解释和取舍。无法从代码或上下文判断时，停下来向用户提问。
-4. **更简单方案**：若已有更小、更直接的修复路径，应说明并优先采用；不要为一次性问题新增抽象、配置或功能。
-5. **影响边界**：说明预期会修改的文件/模块，以及可能受影响的调用方。
-
-不要假设，不要隐藏困惑，不要为了继续执行而编造前提。
-
-## Simplicity First（简洁优先）
-
-以最少代码解决问题：
-
-- 不实现用户未要求的功能。
-- 不为单次使用创建抽象层。
-- 不添加未要求的灵活性、配置项、兼容层或“未来可能需要”的分支。
-- 不为不可能发生的场景增加错误处理。
-- 如果实现写了约 200 行，而 50 行可以完成，应主动简化。
-- 编码前自检：**资深工程师会认为这过度复杂吗？** 若会，重写为更简单的方案。
-
-## 精准修改
-
-编辑现有代码时必须遵守：
-
-- 只碰修复 Bug 必须碰到的文件、函数、状态和样式。
-- 不“顺手改进”相邻代码、注释、命名、格式或架构。
-- 不重构没有损坏的逻辑；即使更偏好另一种写法，也应匹配当前代码风格。
-- 发现无关死代码、隐患或技术债时，只在最终说明中指出，不要删除或修改。
-- 删除仅限于：**本次改动直接造成**的无用 import、变量、函数、分支或样式。
-- 不删除本来就存在的死代码，除非用户明确要求。
-- 修改 public API、共享类型、IPC、Provider 或数据库结构前，先检索全部调用方并说明影响范围。
-
-## 目标驱动执行
-
-把任务转成可验证的成功标准，而不是模糊地“让它工作”。
-
-| 用户指令 | 转化后的目标                                          |
-| -------- | ----------------------------------------------------- |
-| 修复 Bug | 构造可重现该 Bug 的检查，使其修复前失败、修复后通过。 |
-| 添加验证 | 为错误输入或错误状态写出定向验证，并确认通过。        |
-| 重构     | 确认重构前后已有功能和测试均通过。                    |
-
-多步骤任务开始时，给出简短计划：
-
-1. `[定位步骤]` → 验证：`[可观察检查]`
-2. `[修复步骤]` → 验证：`[定向测试/自检]`
-3. `[影响检查]` → 验证：`[调用方、类型检查、构建等]`
-
-成功标准必须具体、可执行、可重复。弱标准如“应该能用”不可接受。
-
-## 执行流程
-
-### 1. 建立反馈闭环
-
-优先建立一个能覆盖用户**精确症状**的快速、确定性检查：
-
-1. 已有单测、自检或集成测试。
-2. 可直接调用的纯函数或 service 层检查。
-3. Electron IPC / 服务调用脚本。
-4. 必要时使用真实开发环境的 UI 自动化或最小复现。
-
-反馈闭环必须满足：
-
-- 能在修复前暴露错误，不能只验证“不报错”。
-- 可重复运行，尽量不依赖当前时间、随机数或不稳定远端状态。
-- 优先在秒级完成。
-- 覆盖真实调用路径，而非无关的浅层函数。
-
-如果暂时无法构造有效闭环，明确说明尝试过什么、缺少什么，并向用户索取复现步骤、日志、截图、录屏、HAR 或允许添加临时诊断信息；不要在没有证据的情况下猜测修复。
-
-### 2. 定位根因
-
-检查以下链路：
-
-`UI 状态 / 事件 → Hook / Store → Service → Provider / IPC → 真实数据源 / 持久化`
-
-逐项回答：
-
-1. 根因是什么？
-2. 为什么会发生？
-3. 为什么当前实现失效？
-4. 修复是否影响其他功能？
-5. 是否引入性能问题？
-6. 是否改动了需求之外的地方？
-7. 是否可能引入新问题？
-
-对于复杂问题，先给出 3–5 个可证伪的候选假设并按优先级验证；一次只验证一个变量。不要只凭代码表象下结论。
-
-### 3. 先写回归验证，再做修复
-
-在存在正确测试边界时：
-
-1. 将最小复现固化为失败的测试或 selfcheck。
-2. 确认它在修复前失败。
-3. 实施最小根因修复。
-4. 确认回归验证通过。
-
-测试替身仅限 test/selfcheck；不得进入生产 UI、生产接口或生产 Provider。
-
-### 4. 检查调用方与影响范围
-
-改完后必须检索所有被修改符号、类型、组件、IPC channel、service 方法的调用位置，并确认：
-
-- 调用方的参数、返回值、加载态、错误态没有被破坏。
-- React Hook 依赖、闭包和状态同步仍正确。
-- UI 组件样式、禁用态、可访问性和暗色/亮色主题未被意外破坏。
-- 数据访问仍满足 `UI → Service → Provider → Data Source`。
-- 没有因本次改动留下未使用 import、变量、函数或样式。
-
-## 必做验证
-
-每次完成代码修改后，至少执行：
-
-```bash
-pnpm run typecheck
-pnpm run test
-```
-
-若 TypeScript 类型检查失败：
-
-- 必须定位并修复由当前改动造成的类型错误。
-- 禁止使用 `any`、`as any`、`as unknown as`、`@ts-ignore`、降低 tsconfig 严格度或关闭 lint 来绕过。
-- 若失败来自与本次改动无关的既有问题，要明确区分并保留完整错误信息。
-
-此外按改动范围执行：
-
-- 相关单测 / selfcheck；
-- 必要的 `pnpm run build`、lint 或对应 Electron 验证；
-- `git diff --check`；
-- 真实开发环境中复验用户报告的原始场景（可用时）。
-
-## 完成前清单
-
-- [ ] 已定位并说明根因，而非仅绕过症状。
-- [ ] 已有定向复现或回归验证；若无正确测试边界，已说明原因。
-- [ ] 修复前后验证覆盖用户原始症状。
-- [ ] 已运行 `pnpm run typecheck`，并修复本次造成的类型错误。
-- [ ] 已检查修改符号的调用方与影响范围。
-- [ ] 未引入 mock、fake、preview、demo 或伪造行情数据。
-- [ ] 未修改需求以外的代码；未顺手重构相邻逻辑。
-- [ ] 已清理由本次修改产生的无用代码。
-- [ ] 已运行`pnpm run test` 相应测试、自检或构建，并如实报告结果。
-
-## 最终报告格式
-
-完成后使用以下结构：
-
-### Root Cause
-
-说明已证实的根因、触发条件和原实现为什么失败。
-
-### Fix
-
-说明最小修复方案，以及为何能解决根因。
-
-### Impact
-
-列出修改文件、调用方检查结果和受影响范围。
-
-### Risk
-
-说明剩余风险、数据源限制或未能自动化验证的部分；没有则明确写“未发现新增风险”。
-
-### Verification
-
-列出执行过的命令、结果，以及用户原始场景的验证结果。
+# Bug 快速定位技能
+
+目标：先用本索引定位**可能出错的文件和完整调用链**，再只读取与症状直接相关的实现和测试。禁止一开始批量阅读知识文档或无关源码。
+
+## 必须遵守的规则
+
+开始前读取并遵守：
+
+- `.claude/rules/bug-fix.md`
+- `.claude/rules/typescript-react.md`
+- `.claude/rules/data.md`
+- `.claude/rules/emoji.md`（修改 Agent 投研输出时）
+
+不得以 mock、伪造行情、静默 fallback、`any`、`@ts-ignore`、删除业务逻辑或关闭检查掩盖问题。
+
+## 快速定位步骤
+
+1. 根据用户症状在下方索引选择入口文件；先读该文件和同名/相邻测试。
+2. 对入口导出的**函数、类型、IPC channel、store action 或组件**执行全局搜索，沿实际调用链逐层读取；不要预先读取整个目录。
+3. 确认可复现症状、根因和最小修复点后再编辑。
+4. 编辑前、后均全局搜索被改符号的所有调用方；只修改用户要求直接涉及的文件和调用方。
+5. 运行定向测试；随后运行 `pnpm run typecheck`、`pnpm run test` 与 `git diff --check`。失败必须如实区分既有失败和本次失败。
+
+## 项目入口索引
+
+| 文件 | 职责 | 优先用于定位 |
+| --- | --- | --- |
+| `src/main.tsx` | Renderer 启动入口。 | 页面未挂载、全局初始化。 |
+| `src/app.tsx` | 主布局、视图切换、全局弹层。 | 页面切换、布局、弹层。 |
+| `electron/main.ts` | Electron 生命周期、窗口、运行时和 scheduler 启停。 | 启动、退出、后台任务。 |
+| `electron/app-main.ts` | Electron 应用初始化辅助。 | 主进程启动配置。 |
+| `electron/preload.cjs` | 安全暴露 `window.stocksense`。 | renderer API 缺失、IPC 调用失败。 |
+| `electron/ipc.ts` | IPC channel → service 路由。 | channel、参数、主进程错误。 |
+| `src/shared/types.ts` | 跨 renderer / preload / IPC / service 的共享类型和 API 接口。 | 返回类型、消息、IPC 类型不一致。 |
+| `src/shared/stocksense-api.ts` | renderer 访问 API 的统一入口和浏览器空态降级。 | Electron / 浏览器差异、API 调用。 |
+| `src/store/app-store.ts` | store 聚合出口。 | store 导入入口。 |
+| `src/store/app-ui-store.ts` | 视图、面板、弹层、同步进度等 UI 状态。 | 视图切换、面板状态。 |
+| `src/store/app-data-store.ts` | 会话、消息、收藏、选中标的、K 线等业务状态。 | 聊天流、选股、数据不同步。 |
+| `src/workers/stock-compute.worker.ts` | K 线、分时、筹码的重计算 worker。 | 图表计算卡顿或数据转换错误。 |
+| `src/workers/stock-compute-client.ts` / `stock-compute-types.ts` | worker 客户端和共享契约。 | worker API 或类型问题。 |
+
+## Renderer 文件索引
+
+| 路径 | 职责 | 优先用于定位 |
+| --- | --- | --- |
+| `src/components/chat-view/` | 对话发送、流式 runEvents、Markdown、结果卡、slash command。 | AI 回复、进度、工具卡、发送失败。 |
+| `chat-view/hooks/use-chat-send.ts` | 聊天发送和流式响应订阅。 | 发送、token 流、取消订阅。 |
+| `chat-view/components/analysis-progress/` | Agent 计划、步骤、工具调用、数据缺口展示。 | 进度/计划/工具调用展示。 |
+| `src/components/market-view/` | 行情页、指数、股票表、龙虎榜、指数 K 线弹层。 | 行情列表、排序、实时刷新。 |
+| `src/components/discovery-view/` | 探索页和各 section。 | 机会雷达、复盘、热点、历史交易日。 |
+| `discovery-view/hooks/use-discovery-sections.ts` | section 懒加载、缓存、竞态控制。 | section 不加载、旧请求覆盖新状态。 |
+| `src/components/stock-detail-panel/` | 右侧个股、板块、新闻、异动、收藏、AI 监控。 | 详情面板、选中标的、收藏。 |
+| `src/components/kline-chart/` | K 线、分时、筹码 overlay、加载更多历史。 | 图表空态、指标、时间序列。 |
+| `src/components/global-stock-search/` | 全局股票搜索和快捷键。 | 搜索/代码名称匹配。 |
+| `src/components/data-sync-modal/` | 手动数据同步与进度。 | 同步状态、进度事件。 |
+| `src/components/settings-modal/` | 模型、偏好、更新设置。 | 设置、模型校验、更新。 |
+| `src/components/sidebar/` | 会话列表、分组、离线/同步/更新提示。 | 会话、侧栏状态。 |
+| `src/components/news-reader/` | 新闻阅读覆盖层。 | 新闻详情与返回视图。 |
+| `src/components/{empty,error-boundary,theme-toggle,topbar,about-modal,storage-manager-modal,market-phase-pill}/` | 通用 UI：空/错态、主题、顶部栏、关于、存储、交易时段。 | 对应通用 UI 问题。 |
+| `src/shared/condition-screener.ts` | 条件选股的 renderer 侧格式和约束。 | 条件选股输入/展示。 |
+| `src/shared/{market-time,market-color,board-dashboard-rankings,hot-stock-hints-service,chat-message-pagination}.ts` | 时间、颜色、排行榜、热点提示、消息分页纯逻辑。 | 对应数据转换或展示规则。 |
+| `src/styles/` | 全局、主题、富文本和应用样式。 | 跨页面样式/主题问题。 |
+
+> `components/<feature>/index.tsx` 是该功能入口；`components/` 为拆分的 UI 子块；`hooks/` 为状态与副作用；`utils.ts`、`*-utils.ts`、`*-format.ts` 为纯转换；`*.module.scss` 是该功能私有样式；`__tests__/` 是对应回归测试。
+
+## Electron Service 文件索引
+
+| 路径 | 职责 | 优先用于定位 |
+| --- | --- | --- |
+| `electron/services/stock/stock-client.ts` | 股票 IPC 的聚合入口：搜索、行情、K 线、分时、筹码、热点。 | 个股数据、搜索、K 线总入口。 |
+| `electron/services/stock/shared.ts` | `stock-sdk`、K 线转换、板块缓存等通用能力。 | SDK 调用、K 线/板块共性问题。 |
+| `electron/services/stock/{symbols,schemas,format}.ts` | 标的标准化、校验、格式化。 | 代码解析、数据形状、数值格式。 |
+| `electron/services/stock/{market-page,market-indices,market-state,industry-provider}.ts` | 行情页快照、指数、市场状态、行业映射。 | 行情页、指数、行业。 |
+| `electron/services/stock/{board-detail,board-dashboard,board-dashboard-utils}.ts` | 板块详情和驾驶舱。 | 板块、成分股、板块排行。 |
+| `electron/services/stock/{discovery-service,discovery-market-summary,discovery-hot-themes,discovery-monthly-themes}.ts` | 探索页快照、摘要、热点和月度题材。 | 探索页/历史复盘。 |
+| `electron/services/stock/{market-review-service,market-review-data,trading-advice-service}.ts` | 市场复盘、情绪和交易建议。 | 复盘、建议内容。 |
+| `electron/services/stock/{news-client,northbound-flow,fund-flow,dragon-tiger,hot-focus}.ts` | 新闻、北向、资金流、龙虎榜、热点。 | 对应数据源与聚合。 |
+| `electron/services/stock/{quote-store,surge-history-store,monitor-history-store}.ts` | SQLite/DuckDB 缓存与批量持久化。 | 缓存、历史数据、写入性能。 |
+| `electron/services/stock/{surge-history-service,surge-history-scheduler,monitor-history-scheduler,monitor-service}.ts` | 异动/AI 监控历史查询和后台调度。 | 异动、监控、定时任务。 |
+| `electron/services/stock/{chip-distribution,chip-distribution-provider,chip-distribution-worker-client}.ts` | 筹码数据、provider、worker 桥接。 | 筹码图/计算。 |
+| `electron/services/market-data/market-data-query.ts` | DuckDB 本地优先日线/行情查询和真实远程补齐。 | K 线、最新行情、本地/远程一致性。 |
+| `electron/services/market-data/market-data-store.ts` | DuckDB schema、查询和写入队列。 | 本地库、迁移、批量写入。 |
+| `electron/services/market-data/{market-data-sync,market-data-scheduler,market-data-sync.worker}.ts` | 市场数据同步状态机、调度和 worker 实现。 | 自动同步、取消、重试、后台同步。 |
+| `electron/services/market-data/{data-sync-handlers,providers,quality,trade-date-resolver}.ts` | 手动同步、真实 provider、数据质量、交易日。 | 同步入口、数据异常、交易日。 |
+| `electron/services/market-data/{condition-screener-service,condition-screener-board-provider,market-cap-screener}.ts` | 条件选股与市值筛选。 | 条件选股结果。 |
+| `electron/services/agent/orchestrator.ts` | 对话编排总入口。 | Agent 请求未完成、最终响应错误。 |
+| `electron/services/agent/{intent-routing,agent-planning,agent-workflows,dag-executor}.ts` | 意图、计划、DAG 构建和执行。 | 命令路由、步骤顺序、子 Agent。 |
+| `electron/services/agent/{agent-tool-runtime,evidence,agent-reflection,compliance-critic}.ts` | 工具运行、证据、数据缺口、合规。 | 工具状态、报告证据、投研文案。 |
+| `electron/services/agent/{stock-analysis-agents,stock-analysis-overview-agent,report-agent,risk-agent,news-analysis-agent}.ts` | 专项分析和最终报告。 | 某分析维度/报告异常。 |
+| `electron/services/agent/tools/` | 一个文件一个 Agent 工具；`index.ts` 汇总、`input.ts` 定义输入。 | 某个 tool call 的参数、结果、真实数据来源。 |
+| `electron/services/tools/tool-registry.ts` | 可调用工具注册。 | 工具未注册/无法调用。 |
+| `electron/services/{config-store,conversation-store,store-service,update-service,desktop-notification}.ts` | 配置、会话、商店、更新、系统通知。 | 设置、会话、命令、更新、通知。 |
+
+> `electron/services/**/__tests__/` 是单元回归测试；`electron/selfchecks/*.selfcheck.ts` 是需要 Electron/服务链路的定向自检。新增/修改外部数据必须走 `Provider → Service → IPC → renderer`，不得在组件中直接请求第三方接口。
+
+## 症状到调用链
+
+| 症状 | 从这里开始 | 必查链路 |
+| --- | --- | --- |
+| 页面不显示、状态错乱 | 对应 `src/components/<feature>/index.tsx` | component → hook/store → `getStocksenseApi()`。 |
+| renderer API 不存在、IPC 报错 | `src/shared/stocksense-api.ts` | types → API → preload → IPC → service。 |
+| 行情、K 线、新闻、板块数据不对 | `stock-client.ts` 或专项 stock service | service → market-data query/cache → provider → `stock-sdk`。 |
+| 同步卡住、历史数据缺失 | `market-data-sync.ts` | handler/scheduler → worker → store/query/provider。 |
+| 聊天回复、意图、工具、报告异常 | `orchestrator.ts` | intent → planning → workflow/DAG → tool → evidence/reflection → `chat:token` → chat view/store。 |
+| 发现页某 section 错误 | `use-discovery-sections.ts` 或 `discovery-service.ts` | UI section → snapshot options → service section/cache → 数据服务。 |
+| 缓存、数据库、性能问题 | 相关 `*-store.ts` / `*.worker.ts` / scheduler | memory cache → batch/queue/transaction → SQLite/DuckDB；禁止逐条写库。 |
+
+## 需要深入背景时才读
+
+只有索引和直接调用方不足以判断根因时，按需读取**一份**对应文档：
+
+- renderer / store / worker：`.claude/knowledge/frontend-architecture.md`
+- IPC / preload / API：`.claude/knowledge/ipc-data-flow.md`
+- 股票、行情、探索、监控、新闻：`.claude/knowledge/stock-services.md`
+- DuckDB、同步、交易日：`.claude/knowledge/market-data-services.md`
+- Agent、报告、runEvents、DAG：`.claude/knowledge/agent-services.md`
+- Agent 工具：`.claude/knowledge/agent-tools.md`
+- 配置、会话、通知、更新：`.claude/knowledge/electron-services-overview.md`
+
+## 修改边界与验证
+
+- 每项改动都必须能直接对应用户原始问题；不得顺手重构、格式化或修改相邻无关逻辑。
+- 修改 public API、共享类型、IPC channel、service 方法、store action、组件 props 或数据库 schema 时，必须全局搜索**定义、导入、调用和测试**，逐一确认影响。
+- 先建立覆盖原症状的定向测试/selfcheck；不能建立时，明确缺失的复现信息，不得猜测修复。
+- 完成后报告：`Root Cause`、`Fix`、`Impact`、`Risk`、`Verification`。

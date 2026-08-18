@@ -1,11 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const stockSdkInstances = vi.hoisted(() => [] as Array<{
-  board: {
-    industry: { constituents: ReturnType<typeof vi.fn>; list: ReturnType<typeof vi.fn>; kline: ReturnType<typeof vi.fn> };
-    concept: { constituents: ReturnType<typeof vi.fn>; list: ReturnType<typeof vi.fn>; kline: ReturnType<typeof vi.fn> };
-  };
-}>);
+const stockSdkInstances = vi.hoisted(
+  () =>
+    [] as Array<{
+      board: {
+        industry: {
+          constituents: ReturnType<typeof vi.fn>;
+          list: ReturnType<typeof vi.fn>;
+          kline: ReturnType<typeof vi.fn>;
+        };
+        concept: {
+          constituents: ReturnType<typeof vi.fn>;
+          list: ReturnType<typeof vi.fn>;
+          kline: ReturnType<typeof vi.fn>;
+        };
+      };
+    }>,
+);
 
 vi.mock('stock-sdk', () => ({
   default: class StockSDKMock {
@@ -20,7 +31,7 @@ vi.mock('stock-sdk', () => ({
   },
 }));
 
-vi.mock('../../market-data/market-data-store.js', () => ({
+vi.mock('../../market-data/market-data-store', () => ({
   listBoardConstituents: vi.fn(),
   listDailyBars: vi.fn(),
   listLatestMarketRows: vi.fn(),
@@ -32,8 +43,8 @@ vi.mock('../../market-data/market-data-store.js', () => ({
   writeBoardDetail: vi.fn(),
 }));
 
-vi.mock('../shared.js', async () => {
-  const actual = await vi.importActual<typeof import('../shared.js')>('../shared.js');
+vi.mock('../shared', async () => {
+  const actual = await vi.importActual<typeof import('../shared.js')>('../shared');
   return { ...actual, getCachedMarketBoardRows: vi.fn() };
 });
 

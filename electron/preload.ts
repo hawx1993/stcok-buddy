@@ -51,8 +51,13 @@ const api: StocksenseApi = {
     ipcRenderer.on('chat:token', listener);
     return () => ipcRenderer.removeListener('chat:token', listener);
   },
-  onAiResponseNotification: (handler: (payload: { title: string; body: string; source: 'system' | 'in-app' }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: { title: string; body: string; source: 'system' | 'in-app' }) => handler(payload);
+  onAiResponseNotification: (
+    handler: (payload: { title: string; body: string; source: 'system' | 'in-app' }) => void,
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: { title: string; body: string; source: 'system' | 'in-app' },
+    ) => handler(payload);
     ipcRenderer.on('notification:aiResponse', listener);
     return () => ipcRenderer.removeListener('notification:aiResponse', listener);
   },
@@ -94,8 +99,10 @@ const api: StocksenseApi = {
   getDragonTigerSnapshot: (range?: TDragonTigerRange) => ipcRenderer.invoke('dragonTiger:getSnapshot', range),
   getDiscoverySnapshot: (options?: Parameters<StocksenseApi['getDiscoverySnapshot']>[0]) =>
     ipcRenderer.invoke('discovery:getSnapshot', options),
-  getMonitorFeed: (options?: Parameters<StocksenseApi['getMonitorFeed']>[0]) => ipcRenderer.invoke('monitor:getFeed', options),
-  getTradingAdvice: (options?: Parameters<StocksenseApi['getTradingAdvice']>[0]) => ipcRenderer.invoke('trading-advice:get', options),
+  getMonitorFeed: (options?: Parameters<StocksenseApi['getMonitorFeed']>[0]) =>
+    ipcRenderer.invoke('monitor:getFeed', options),
+  getTradingAdvice: (options?: Parameters<StocksenseApi['getTradingAdvice']>[0]) =>
+    ipcRenderer.invoke('trading-advice:get', options),
   onMarketPageSnapshotUpdated: (handler: (snapshot: MarketPageSnapshot) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: MarketPageSnapshot) => handler(snapshot);
     ipcRenderer.on('market:pageSnapshotUpdated', listener);

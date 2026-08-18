@@ -34,10 +34,14 @@ const item: HotFocusItem = {
   type: 'surge',
 };
 
-store.enqueueSurgeSnapshot([
-  { ...item, title: '队列写入前' },
-  { ...item, title: '队列写入后' },
-], new Date('2026-07-23T02:01:00.000Z'), '2026-07-23');
+store.enqueueSurgeSnapshot(
+  [
+    { ...item, title: '队列写入前' },
+    { ...item, title: '队列写入后' },
+  ],
+  new Date('2026-07-23T02:01:00.000Z'),
+  '2026-07-23',
+);
 assert.equal(store.getQueuedSurgeSnapshotCount(), 1);
 assert.equal((await store.listSurgeHistory('2026-07-23', 0, 10)).length, 0);
 await store.flushSurgeSnapshotQueue();
@@ -52,11 +56,18 @@ const bulkItems = Array.from({ length: 2048 }, (_, index) => ({
   title: `批量异动 ${index}`,
   time: `10:${String(index % 60).padStart(2, '0')}`,
 }));
-await store.saveSurgeSnapshot([...bulkItems, bulkItems[100], { ...bulkItems[100], title: '批量异动去重后' }], new Date('2026-07-24T02:30:00.000Z'), '2026-07-24');
+await store.saveSurgeSnapshot(
+  [...bulkItems, bulkItems[100], { ...bulkItems[100], title: '批量异动去重后' }],
+  new Date('2026-07-24T02:30:00.000Z'),
+  '2026-07-24',
+);
 await store.saveSurgeSnapshot(bulkItems.slice(0, 512), new Date('2026-07-24T02:31:00.000Z'), '2026-07-24');
 const bulkRows = await store.listSurgeHistory('2026-07-24', 0, 100);
 assert.equal(bulkRows.length, 100);
-assert.equal(bulkRows.some((row) => row.id === 'bulk-59'), true);
+assert.equal(
+  bulkRows.some((row) => row.id === 'bulk-59'),
+  true,
+);
 
 await store.saveIndividualSurgeHistory([
   {
@@ -76,7 +87,10 @@ await store.saveIndividualSurgeHistory([
   },
 ]);
 const individualRows = await store.listSurgeHistory('2026-07-24', 0, 100);
-assert.equal(individualRows.some((row) => row.title === '个股异动去重后'), true);
+assert.equal(
+  individualRows.some((row) => row.title === '个股异动去重后'),
+  true,
+);
 
 scheduler.ensureSurgeHistoryCapture();
 scheduler.ensureSurgeHistoryCapture();

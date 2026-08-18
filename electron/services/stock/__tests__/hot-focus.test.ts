@@ -37,22 +37,22 @@ vi.mock('stock-sdk', () => ({
   },
 }));
 
-vi.mock('../../market-data/providers.js', () => ({
+vi.mock('../../market-data/providers', () => ({
   isRemoteTradingDay: mocks.isRemoteTradingDay,
   previousRemoteTradingDay: mocks.previousRemoteTradingDay,
 }));
 
-vi.mock('../../market-data/market-data-store.js', () => ({
+vi.mock('../../market-data/market-data-store', () => ({
   listBoardConstituents: mocks.listBoardConstituents,
   listLatestMarketRows: mocks.listLatestMarketRows,
   listMarketBoards: mocks.listMarketBoards,
 }));
 
-vi.mock('../board-detail.js', () => ({
+vi.mock('../board-detail', () => ({
   getBoardDetail: mocks.getBoardDetail,
 }));
 
-vi.mock('../surge-history-store.js', () => ({
+vi.mock('../surge-history-store', () => ({
   isSurgeHistoryClearMarkerActive: mocks.isSurgeHistoryClearMarkerActive,
   listRecentStockSurgeEvents: mocks.listRecentStockSurgeEvents,
   listSurgeHistory: mocks.listSurgeHistory,

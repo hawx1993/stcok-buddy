@@ -119,4 +119,3 @@ async function runFlush() {
     isFlushing = false;
   }
 }
-

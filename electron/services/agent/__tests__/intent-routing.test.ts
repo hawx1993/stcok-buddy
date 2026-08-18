@@ -27,11 +27,17 @@ describe('普通问题意图识别（classifyIntent）', () => {
     expect(classifyIntent('今天哪些行业比较强')).toBe('board');
   });
 
-  it('自然语言选股请求命中 stock-picker 且不被 board 或 technical 抢走', () => {
+  it('自然语言超短策略选股请求命中 stock-picker 且不被 board 或 technical 抢走', () => {
     expect(classifyIntent('帮我找强势股')).toBe('stock-picker');
     expect(classifyIntent('找主力控盘的票')).toBe('stock-picker');
     expect(classifyIntent('找能连板的')).toBe('stock-picker');
     expect(classifyIntent('一进二有哪些机会')).toBe('stock-picker');
+  });
+
+  it('普通自然语言条件筛选请求命中 condition-screener', () => {
+    expect(classifyIntent('帮我筛总市值 30 到 100 亿、换手率大于 8%、排除 ST 的股票')).toBe('condition-screener');
+    expect(classifyIntent('找成交额超过 2 亿且 90% 筹码集中度小于 15% 的 A 股')).toBe('condition-screener');
+    expect(classifyIntent('筛流通市值 50 亿以下、成交量超过 100 万手的沪市股票')).toBe('condition-screener');
   });
 
   it('既有意图不因新增正则而回归异常', () => {
@@ -86,6 +92,11 @@ describe('applyStockAgentRouting 非 slash 股票问题统一路由', () => {
     expect(applyStockAgentRouting(classifyIntent(stockCode), stockCode, false)).toBe('analysis');
     expect(classifyIntent(stockName)).toBe('analysis');
     expect(applyStockAgentRouting(classifyIntent(stockName), stockName, false)).toBe('analysis');
+  });
+
+  it('普通条件筛选问句保持 condition-screener，不被股票相关统一路由改写', () => {
+    const q = '帮我筛总市值 30 到 100 亿、换手率大于 8% 的股票';
+    expect(applyStockAgentRouting(classifyIntent(q), q, false)).toBe('condition-screener');
   });
 
   it('普通行情问句也路由到 a-stock-data-agent', () => {

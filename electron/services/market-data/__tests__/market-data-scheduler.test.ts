@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const latestJob = vi.hoisted(() => ({
-  value: undefined as
-    | { targetTradeDate?: string; succeededSymbols: number }
-    | undefined,
+  value: undefined as { targetTradeDate?: string; succeededSymbols: number } | undefined,
 }));
 
-vi.mock('../market-data-store.js', () => ({
+vi.mock('../market-data-store', () => ({
   getLatestSyncJob: vi.fn(() => Promise.resolve(latestJob.value)),
   initializeMarketDataStore: vi.fn(() => Promise.resolve()),
 }));
@@ -15,13 +13,13 @@ const workerClient = vi.hoisted(() => ({
   disposeMarketDataSyncWorker: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../market-data-sync.js', () => ({
+vi.mock('../market-data-sync', () => ({
   requestMarketDataSyncStop: vi.fn(),
   startMarketDataSync: vi.fn(() => Promise.resolve()),
   waitForMarketDataSync: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../market-data-sync-worker-client.js', () => workerClient);
+vi.mock('../market-data-sync-worker-client', () => workerClient);
 
 import { shouldAutoSyncMarketDataForTest, shutdownMarketDataScheduler } from '../market-data-scheduler.js';
 

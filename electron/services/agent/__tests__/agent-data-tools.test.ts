@@ -7,33 +7,33 @@ const mocks = vi.hoisted(() => ({
   runAStockDataFn: vi.fn(),
 }));
 
-vi.mock('../../market-data/market-data-sync.js', () => ({
+vi.mock('../../market-data/market-data-sync', () => ({
   getMarketDataSyncStatus: vi.fn(),
 }));
 
-vi.mock('../../market-data/market-data-query.js', () => ({
+vi.mock('../../market-data/market-data-query', () => ({
   queryHistoricalBars: vi.fn(),
   queryLatestQuote: vi.fn(),
 }));
 
-vi.mock('../../market-data/market-data-store.js', () => ({
+vi.mock('../../market-data/market-data-store', () => ({
   getLatestDailyBar: vi.fn(),
   getStockChipCacheRecord: mocks.getStockChipCacheRecord,
   listDailyBars: vi.fn(),
   listLatestMarketRows: vi.fn(),
 }));
 
-vi.mock('../../market-data/providers.js', () => ({
+vi.mock('../../market-data/providers', () => ({
   remoteMarketStatus: vi.fn(() => 'closed'),
 }));
 
-vi.mock('../../stock/stock-client.js', () => ({
+vi.mock('../../stock/stock-client', () => ({
   getChipDistribution: mocks.getChipDistribution,
   getStockFundFlowSnapshot: vi.fn(),
   listStockSurgeEvents: mocks.listStockSurgeEvents,
 }));
 
-vi.mock('../../stock/a-stock-data-runner.js', () => ({
+vi.mock('../../stock/a-stock-data-runner', () => ({
   runAStockDataFn: mocks.runAStockDataFn,
 }));
 
@@ -83,7 +83,13 @@ describe('getStockChipDistributionLocalFirst 个股筹码本地优先工具', ()
 
     const result = await getStockChipDistributionLocalFirst.run({ symbol: '600519', days: 2 });
 
-    expect(result).toMatchObject({ source: 'duckdb:market', storage: 'local', freshness: 'current', symbol: '600519', isEmpty: false });
+    expect(result).toMatchObject({
+      source: 'duckdb:market',
+      storage: 'local',
+      freshness: 'current',
+      symbol: '600519',
+      isEmpty: false,
+    });
     expect(result.latest?.concentration90).toBe(0.18);
     expect(result.latest?.concentration70).toBe(0.12);
     expect(result.recent.map((item) => item.date)).toEqual(['2026-08-04', '2026-08-05']);
@@ -100,7 +106,13 @@ describe('getStockChipDistributionLocalFirst 个股筹码本地优先工具', ()
 
     const result = await getStockChipDistributionLocalFirst.run({ symbol: '600519', days: 5 });
 
-    expect(result).toMatchObject({ source: 'a-stock-data', storage: 'remote', freshness: 'current', symbol: '600519', isEmpty: false });
+    expect(result).toMatchObject({
+      source: 'a-stock-data',
+      storage: 'remote',
+      freshness: 'current',
+      symbol: '600519',
+      isEmpty: false,
+    });
     expect(result.sourceTrace[0]).toContain('已超过 5 天');
     expect(result.warnings).toEqual([]);
     expect(mocks.getChipDistribution).toHaveBeenCalledWith('600519');
@@ -112,7 +124,13 @@ describe('getStockChipDistributionLocalFirst 个股筹码本地优先工具', ()
 
     const result = await getStockChipDistributionLocalFirst.run({ symbol: '600519', days: 5 });
 
-    expect(result).toMatchObject({ source: 'a-stock-data', storage: 'remote', freshness: 'current', symbol: '600519', isEmpty: false });
+    expect(result).toMatchObject({
+      source: 'a-stock-data',
+      storage: 'remote',
+      freshness: 'current',
+      symbol: '600519',
+      isEmpty: false,
+    });
     expect(result.sourceTrace[0]).toContain('本地 DuckDB 暂无该股票筹码缓存');
     expect(result.warnings).toEqual([]);
     expect(result.recent).toHaveLength(3);
@@ -130,7 +148,12 @@ describe('getStockSurgeEventsLocalFirst 个股异动本地优先工具', () => {
 
     const result = await getStockSurgeEventsLocalFirst.run({ symbol: '600519', days: 7, limit: 200 });
 
-    expect(result).toMatchObject({ source: 'right-panel-local-first', storage: 'local', symbol: '600519', isEmpty: false });
+    expect(result).toMatchObject({
+      source: 'right-panel-local-first',
+      storage: 'local',
+      symbol: '600519',
+      isEmpty: false,
+    });
     expect(result.rows).toEqual([localEvent]);
     expect(mocks.listStockSurgeEvents).toHaveBeenCalledWith('600519');
     expect(mocks.runAStockDataFn).not.toHaveBeenCalled();
@@ -151,14 +174,15 @@ describe('getStockSurgeEventsLocalFirst 个股异动本地优先工具', () => {
 
   it('右侧栏同源服务为空时调用 a-stock-data 逐笔成交兜底', async () => {
     mocks.listStockSurgeEvents.mockResolvedValueOnce([]);
-    mocks.runAStockDataFn.mockResolvedValueOnce([
-      { time: '10:01', price: 10.8, vol: 12000, num: 3, buyorsell: 0 },
-    ]);
+    mocks.runAStockDataFn.mockResolvedValueOnce([{ time: '10:01', price: 10.8, vol: 12000, num: 3, buyorsell: 0 }]);
 
     const result = await getStockSurgeEventsLocalFirst.run({ symbol: '600519', minHands: 10000 });
 
     expect(result).toMatchObject({ source: 'a-stock-data', storage: 'remote', symbol: '600519', isEmpty: false });
     expect(result.rows[0]).toMatchObject({ code: '600519', amount: '买入1.20万手', tag: '特大单买入' });
-    expect(mocks.runAStockDataFn).toHaveBeenCalledWith('tdx_transactions', expect.objectContaining({ code: '600519', min_hands: 10000 }));
+    expect(mocks.runAStockDataFn).toHaveBeenCalledWith(
+      'tdx_transactions',
+      expect.objectContaining({ code: '600519', min_hands: 10000 }),
+    );
   });
 });

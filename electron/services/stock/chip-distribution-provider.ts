@@ -2,12 +2,20 @@ import type { IChipDistributionResult, KlinePoint } from '../../../src/shared/ty
 import { getStockChipCacheRecord, upsertStockChip } from '../market-data/market-data-store.js';
 import type { IBaiduKline } from './a-stock-data-runner.js';
 import { runAStockDataFn } from './a-stock-data-runner.js';
-import { calculateChipDistributionInWorker, loadStockSdkChipDistributionInWorker } from './chip-distribution-worker-client.js';
+import {
+  calculateChipDistributionInWorker,
+  loadStockSdkChipDistributionInWorker,
+} from './chip-distribution-worker-client.js';
 import { normalizeASymbol } from './symbols.js';
 
 const chipDistributionCache = new Map<
   string,
-  { result?: IChipDistributionResult; updatedAt: number; fetchedAt?: string; promise?: Promise<IChipDistributionResult> }
+  {
+    result?: IChipDistributionResult;
+    updatedAt: number;
+    fetchedAt?: string;
+    promise?: Promise<IChipDistributionResult>;
+  }
 >();
 const CHIP_DISTRIBUTION_CACHE_TTL_MS = 5 * 60_000;
 const CHIP_DISTRIBUTION_MAX_AGE_MS = 5 * 24 * 60 * 60_000;
@@ -30,7 +38,11 @@ export async function getChipDistribution(symbolInput: string): Promise<IChipDis
     const cacheRecord = await getStockChipCacheRecord(symbol);
     if (cacheRecord && isFreshChipCache(cacheRecord.fetchedAt, now)) {
       const localResult = asChipDistributionResult(cacheRecord.data);
-      chipDistributionCache.set(symbol, { result: localResult, updatedAt: Date.now(), fetchedAt: cacheRecord.fetchedAt });
+      chipDistributionCache.set(symbol, {
+        result: localResult,
+        updatedAt: Date.now(),
+        fetchedAt: cacheRecord.fetchedAt,
+      });
       return localResult;
     }
     if (cacheRecord) localWarnings.push(`DuckDB 筹码缓存已超过 5 天（${cacheRecord.fetchedAt}）`);
@@ -40,8 +52,13 @@ export async function getChipDistribution(symbolInput: string): Promise<IChipDis
 
   const promise = loadChipDistribution(symbol, localWarnings)
     .then(async (result) => {
-      chipDistributionCache.set(symbol, { result, updatedAt: Date.now(), fetchedAt: new Date().toISOString() });
-      void upsertStockChip(symbol, result).catch((err) => console.warn('[chip] upsert failed', err));
+      const fetchedAt = new Date().toISOString();
+      try {
+        await upsertStockChip(symbol, result);
+      } catch (error) {
+        throw new Error(`DuckDB 筹码缓存写入失败（${symbol}）：${formatError(error)}`);
+      }
+      chipDistributionCache.set(symbol, { result, updatedAt: Date.now(), fetchedAt });
       return result;
     })
     .catch((error: unknown) => {
@@ -119,7 +136,8 @@ function parseAStockDataBaiduKline(data: IBaiduKline | null): KlinePoint[] {
       amount: optionalKlineNumber(values, indexOf('amount')),
       change: optionalKlineNumber(values, indexOf('ratioamount')),
       changePercent: optionalKlineNumber(values, indexOf('ratioprice')),
-      turnoverRate: optionalKlineNumber(values, indexOf('turnoverratio')) ?? optionalKlineNumber(values, indexOf('turnover')),
+      turnoverRate:
+        optionalKlineNumber(values, indexOf('turnoverratio')) ?? optionalKlineNumber(values, indexOf('turnover')),
     };
     return point.time && [point.open, point.high, point.low, point.close].every(Number.isFinite) ? [point] : [];
   });

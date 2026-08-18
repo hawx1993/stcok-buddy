@@ -3,11 +3,16 @@ import { reviewComplianceStructured } from '../services/agent/compliance-critic.
 import { parseStructuredAgentOutput } from '../services/agent/stock-analysis-agents.js';
 
 const evidence = [{ id: 'quote:600519', source: 'quote' as const, title: '贵州茅台行情' }];
-const output = parseStructuredAgentOutput('```json\n{"findings":[{"score":120,"confidence":2,"summary":"测试","evidenceIds":["quote:600519"]}],"markdown":"### 测试"}\n```', {
-  name: 'technical',
-  label: '📈 技术面分析',
-  dimension: 'technical',
-}, { query: '测试', symbol: '600519', stockLabel: '贵州茅台', evidence }, evidence);
+const output = parseStructuredAgentOutput(
+  '```json\n{"findings":[{"score":120,"confidence":2,"summary":"测试","evidenceIds":["quote:600519"]}],"markdown":"### 测试"}\n```',
+  {
+    name: 'technical',
+    label: '📈 技术面分析',
+    dimension: 'technical',
+  },
+  { query: '测试', symbol: '600519', stockLabel: '贵州茅台', evidence },
+  evidence,
+);
 
 assert.equal(output.findings[0].score, 100);
 assert.equal(output.findings[0].confidence, 1);

@@ -23,7 +23,9 @@ const duckDbMock = vi.hoisted(() => {
     async runAndReadAll() {
       if (state.failNextRead) {
         state.failNextRead = false;
-        throw new Error('FATAL Error: database has been invalidated because of a previous fatal error. The database must be restarted prior to being used again.');
+        throw new Error(
+          'FATAL Error: database has been invalidated because of a previous fatal error. The database must be restarted prior to being used again.',
+        );
       }
       return { getRowObjectsJS: () => [] };
     }
@@ -69,7 +71,7 @@ const duckDbMock = vi.hoisted(() => {
 });
 
 vi.mock('@duckdb/node-api', () => ({ DuckDBInstance: duckDbMock.DuckDBInstance }));
-vi.mock('../../../electron-runtime.js', () => ({
+vi.mock('../../../electron-runtime', () => ({
   app: {
     getPath: () => os.tmpdir(),
     isPackaged: false,
@@ -105,7 +107,8 @@ describe('AI 监控历史 DuckDB fatal 恢复', () => {
 
   it('删除索引 fatal 错误后重建实例并重试当前写入', async () => {
     const store = await loadStore();
-    duckDbMock.state.failNextRunError = 'Invalid Input Error: Failed to delete all rows from index. Only deleted 5 out of 8 rows.';
+    duckDbMock.state.failNextRunError =
+      'Invalid Input Error: Failed to delete all rows from index. Only deleted 5 out of 8 rows.';
 
     await expect(store.cleanupMonitorHistoryNoise('2026-08-12')).resolves.toBeUndefined();
 

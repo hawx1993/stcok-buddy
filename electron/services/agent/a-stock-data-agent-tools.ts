@@ -37,7 +37,7 @@ export const A_STOCK_DATA_TOOLBOX: IToolSpec[] = [
   },
   {
     name: 'queryLocalMarketDuckDB',
-    description: '查询本地 stocksense-market DuckDB 的基础信息/K线/交易日历/板块缓存/发现页快照/筹码/股票快照，输入 {dataset, symbol?, boardCode?, snapshotKey?, startDate?, endDate?, limit?}。',
+    description: '查询本地 stocksense-market DuckDB 的白名单数据集：dataset 可选 securities（证券列表）、daily_bars（日K线，需传 symbol）、trade_calendar（交易日历）、market_rows（最新市场快照）、market_boards（板块列表）、board_constituents（板块成分股，需传 boardCode）、board_snapshot、board_detail、discovery_snapshot、stock_chip（筹码，可传 symbol 或查列表）、stock_snapshot（股票快照）。输入 {dataset, symbol?, boardCode?, snapshotKey?, startDate?, endDate?, limit?}。查个股日K务必用 dataset: "daily_bars"。',
   },
   {
     name: 'queryLocalMonitorDuckDB',

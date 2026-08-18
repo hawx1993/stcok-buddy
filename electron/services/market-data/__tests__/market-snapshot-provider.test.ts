@@ -7,11 +7,11 @@ const mocks = vi.hoisted(() => ({
   stockSdkBatchCn: vi.fn(),
 }));
 
-vi.mock('../../stock/a-stock-data-runner.js', () => ({
+vi.mock('../../stock/a-stock-data-runner', () => ({
   runAStockDataFn: mocks.runAStockDataFn,
 }));
 
-vi.mock('../../stock/shared.js', () => ({
+vi.mock('../../stock/shared', () => ({
   sdk: { batch: { byCodes: mocks.stockSdkBatchByCodes, cn: mocks.stockSdkBatchCn } },
 }));
 
@@ -79,10 +79,12 @@ describe('市场快照 Provider', () => {
       batchSize: 500,
       concurrency: 6,
     });
-    expect(result).toEqual(expect.objectContaining({
-      warnings: [],
-      quotes: [expect.objectContaining({ code: '600001', totalMarketCap: 50, amount: 30_000 })],
-    }));
+    expect(result).toEqual(
+      expect.objectContaining({
+        warnings: [],
+        quotes: [expect.objectContaining({ code: '600001', totalMarketCap: 50, amount: 30_000 })],
+      }),
+    );
   });
 
   it('在本地快照为空时拉取真实全市场 stock-sdk 行情', async () => {

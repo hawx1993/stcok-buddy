@@ -88,10 +88,11 @@ describe('AI 监控历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('monitor history store not loaded');
 
-    currentStore.enqueueMonitorEvents([
-      createEvent({ id: 'queued-1', title: '队列写入前' }),
-      createEvent({ id: 'queued-1', title: '队列写入后' }),
-    ], new Date('2026-07-23T02:01:00.000Z'), '2026-07-23');
+    currentStore.enqueueMonitorEvents(
+      [createEvent({ id: 'queued-1', title: '队列写入前' }), createEvent({ id: 'queued-1', title: '队列写入后' })],
+      new Date('2026-07-23T02:01:00.000Z'),
+      '2026-07-23',
+    );
 
     expect(currentStore.getQueuedMonitorEventCount()).toBe(1);
     expect(await currentStore.listMonitorHistory({ date: '2026-07-23', limit: 10 })).toEqual([]);
@@ -108,14 +109,34 @@ describe('AI 监控历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('monitor history store not loaded');
 
-    await currentStore.saveMonitorEvents([
-      createEvent({ id: 'stable-time', category: 'large-order', timestamp: '2026-07-23T02:10:00.000Z', title: '首次生成' }),
-    ], new Date('2026-07-23T02:10:00.000Z'), '2026-07-23');
-    await currentStore.saveMonitorEvents([
-      createEvent({ id: 'stable-time', category: 'large-order', timestamp: '2026-07-23T02:11:00.000Z', title: '更新内容' }),
-    ], new Date('2026-07-23T02:11:00.000Z'), '2026-07-23');
+    await currentStore.saveMonitorEvents(
+      [
+        createEvent({
+          id: 'stable-time',
+          category: 'large-order',
+          timestamp: '2026-07-23T02:10:00.000Z',
+          title: '首次生成',
+        }),
+      ],
+      new Date('2026-07-23T02:10:00.000Z'),
+      '2026-07-23',
+    );
+    await currentStore.saveMonitorEvents(
+      [
+        createEvent({
+          id: 'stable-time',
+          category: 'large-order',
+          timestamp: '2026-07-23T02:11:00.000Z',
+          title: '更新内容',
+        }),
+      ],
+      new Date('2026-07-23T02:11:00.000Z'),
+      '2026-07-23',
+    );
 
-    const row = (await currentStore.listMonitorHistory({ date: '2026-07-23', categories: ['large-order'], limit: 10 }))[0];
+    const row = (
+      await currentStore.listMonitorHistory({ date: '2026-07-23', categories: ['large-order'], limit: 10 })
+    )[0];
     expect(row).toMatchObject({ id: 'stable-time', title: '更新内容', timestamp: '2026-07-23T02:10:00.000Z' });
   });
 
@@ -123,14 +144,38 @@ describe('AI 监控历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('monitor history store not loaded');
 
-    await currentStore.saveMonitorEvents([
-      createEvent({ id: 'stable-signal-1', category: 'ai-opportunity', code: '300001', title: '强势量价机会', timestamp: '2026-07-23T02:20:00.000Z' }),
-    ], new Date('2026-07-23T02:20:00.000Z'), '2026-07-23');
-    await currentStore.saveMonitorEvents([
-      createEvent({ id: 'stable-signal-2', category: 'ai-opportunity', code: '300001', title: '强势量价机会', timestamp: '2026-07-23T02:21:00.000Z' }),
-    ], new Date('2026-07-23T02:21:00.000Z'), '2026-07-23');
+    await currentStore.saveMonitorEvents(
+      [
+        createEvent({
+          id: 'stable-signal-1',
+          category: 'ai-opportunity',
+          code: '300001',
+          title: '强势量价机会',
+          timestamp: '2026-07-23T02:20:00.000Z',
+        }),
+      ],
+      new Date('2026-07-23T02:20:00.000Z'),
+      '2026-07-23',
+    );
+    await currentStore.saveMonitorEvents(
+      [
+        createEvent({
+          id: 'stable-signal-2',
+          category: 'ai-opportunity',
+          code: '300001',
+          title: '强势量价机会',
+          timestamp: '2026-07-23T02:21:00.000Z',
+        }),
+      ],
+      new Date('2026-07-23T02:21:00.000Z'),
+      '2026-07-23',
+    );
 
-    const rows = await currentStore.listMonitorHistory({ date: '2026-07-23', categories: ['ai-opportunity'], limit: 10 });
+    const rows = await currentStore.listMonitorHistory({
+      date: '2026-07-23',
+      categories: ['ai-opportunity'],
+      limit: 10,
+    });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: 'stable-signal-2', timestamp: '2026-07-23T02:20:00.000Z' });
   });
@@ -139,19 +184,34 @@ describe('AI 监控历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('monitor history store not loaded');
 
-    await currentStore.saveMonitorEvents([
-      createEvent({ id: 'technical-1', category: 'technical', timestamp: '2026-07-23T02:00:00.000Z' }),
-      createEvent({ id: 'news-1', category: 'news', timestamp: '2026-07-23T02:01:00.000Z', title: '公告更新' }),
-      createEvent({ id: 'technical-2', category: 'technical', timestamp: '2026-07-23T02:02:00.000Z', title: '技术信号二' }),
-    ], new Date('2026-07-23T02:02:00.000Z'), '2026-07-23');
-    await currentStore.saveMonitorEvents([
-      createEvent({ id: 'older-news', category: 'news', timestamp: '2026-07-22T02:00:00.000Z', title: '前日新闻' }),
-    ], new Date('2026-07-22T02:00:00.000Z'), '2026-07-22');
+    await currentStore.saveMonitorEvents(
+      [
+        createEvent({ id: 'technical-1', category: 'technical', timestamp: '2026-07-23T02:00:00.000Z' }),
+        createEvent({ id: 'news-1', category: 'news', timestamp: '2026-07-23T02:01:00.000Z', title: '公告更新' }),
+        createEvent({
+          id: 'technical-2',
+          category: 'technical',
+          timestamp: '2026-07-23T02:02:00.000Z',
+          title: '技术信号二',
+        }),
+      ],
+      new Date('2026-07-23T02:02:00.000Z'),
+      '2026-07-23',
+    );
+    await currentStore.saveMonitorEvents(
+      [createEvent({ id: 'older-news', category: 'news', timestamp: '2026-07-22T02:00:00.000Z', title: '前日新闻' })],
+      new Date('2026-07-22T02:00:00.000Z'),
+      '2026-07-22',
+    );
 
     expect(await currentStore.listMonitorDates(7)).toEqual(['2026-07-23', '2026-07-22']);
     expect(await currentStore.listMonitorHistory({ date: 'bad-date', limit: 10 })).toEqual([]);
 
-    const technical = await currentStore.listMonitorHistory({ date: '2026-07-23', categories: ['technical'], limit: 10 });
+    const technical = await currentStore.listMonitorHistory({
+      date: '2026-07-23',
+      categories: ['technical'],
+      limit: 10,
+    });
     expect(technical.map((item) => item.id)).toEqual(['technical-2', 'technical-1']);
 
     const secondRow = await currentStore.listMonitorHistory({ date: '2026-07-23', offset: 1, limit: 1 });
@@ -168,19 +228,69 @@ describe('AI 监控历史 DuckDB 存储', () => {
 
     for (let index = 1; index <= 8; index += 1) {
       const date = `2026-07-${String(10 + index).padStart(2, '0')}`;
-      await currentStore.saveMonitorEvents([createEvent({ id: `older-${index}`, timestamp: `${date}T02:00:00.000Z` })], new Date(`${date}T02:00:00.000Z`), date);
+      await currentStore.saveMonitorEvents(
+        [createEvent({ id: `older-${index}`, timestamp: `${date}T02:00:00.000Z` })],
+        new Date(`${date}T02:00:00.000Z`),
+        date,
+      );
     }
     await currentStore.pruneMonitorHistory(7);
     expect(await currentStore.listMonitorDates(20)).toHaveLength(7);
 
-    await currentStore.saveMonitorEvents([
-      createEvent({ id: 'weak-opp', category: 'ai-opportunity', timestamp: '2026-07-26T02:00:00.000Z', code: '300001', title: '强势量价机会', changePercent: 3.2 }),
-      createEvent({ id: 'strong-opp', category: 'ai-opportunity', timestamp: '2026-07-26T02:01:00.000Z', code: '300002', title: '强势量价机会', changePercent: 5.2 }),
-      createEvent({ id: 'weak-warn', category: 'ai-warning', timestamp: '2026-07-26T02:02:00.000Z', code: '300003', title: '日内回撤风险', changePercent: -3.2 }),
-      createEvent({ id: 'strong-warn', category: 'ai-warning', timestamp: '2026-07-26T02:03:00.000Z', code: '300004', title: '日内回撤风险', changePercent: -5.2 }),
-      createEvent({ id: 'news-keep-1', category: 'news', timestamp: '2026-07-26T02:04:00.000Z', code: '300005', title: '新闻事件', changePercent: 0 }),
-      createEvent({ id: 'news-keep-2', category: 'news', timestamp: '2026-07-26T02:05:00.000Z', code: '300005', title: '新闻事件', changePercent: 0 }),
-    ], new Date('2026-07-26T02:05:00.000Z'), '2026-07-26');
+    await currentStore.saveMonitorEvents(
+      [
+        createEvent({
+          id: 'weak-opp',
+          category: 'ai-opportunity',
+          timestamp: '2026-07-26T02:00:00.000Z',
+          code: '300001',
+          title: '强势量价机会',
+          changePercent: 3.2,
+        }),
+        createEvent({
+          id: 'strong-opp',
+          category: 'ai-opportunity',
+          timestamp: '2026-07-26T02:01:00.000Z',
+          code: '300002',
+          title: '强势量价机会',
+          changePercent: 5.2,
+        }),
+        createEvent({
+          id: 'weak-warn',
+          category: 'ai-warning',
+          timestamp: '2026-07-26T02:02:00.000Z',
+          code: '300003',
+          title: '日内回撤风险',
+          changePercent: -3.2,
+        }),
+        createEvent({
+          id: 'strong-warn',
+          category: 'ai-warning',
+          timestamp: '2026-07-26T02:03:00.000Z',
+          code: '300004',
+          title: '日内回撤风险',
+          changePercent: -5.2,
+        }),
+        createEvent({
+          id: 'news-keep-1',
+          category: 'news',
+          timestamp: '2026-07-26T02:04:00.000Z',
+          code: '300005',
+          title: '新闻事件',
+          changePercent: 0,
+        }),
+        createEvent({
+          id: 'news-keep-2',
+          category: 'news',
+          timestamp: '2026-07-26T02:05:00.000Z',
+          code: '300005',
+          title: '新闻事件',
+          changePercent: 0,
+        }),
+      ],
+      new Date('2026-07-26T02:05:00.000Z'),
+      '2026-07-26',
+    );
     await currentStore.cleanupMonitorHistoryNoise('2026-07-26');
 
     const cleaned = await currentStore.listMonitorHistory({ date: '2026-07-26', limit: 20 });
@@ -195,12 +305,20 @@ describe('AI 监控历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('monitor history store not loaded');
 
-    await currentStore.saveMonitorEvents([createEvent({ id: 'before-reset' })], new Date('2026-07-23T02:00:00.000Z'), '2026-07-23');
+    await currentStore.saveMonitorEvents(
+      [createEvent({ id: 'before-reset' })],
+      new Date('2026-07-23T02:00:00.000Z'),
+      '2026-07-23',
+    );
     expect(await currentStore.countMonitorHistory({ date: '2026-07-23' })).toBe(1);
 
     await currentStore.resetMonitorHistoryStore();
     removeDbFiles(dbPath);
-    await currentStore.saveMonitorEvents([createEvent({ id: 'after-reset' })], new Date('2026-07-24T02:00:00.000Z'), '2026-07-24');
+    await currentStore.saveMonitorEvents(
+      [createEvent({ id: 'after-reset' })],
+      new Date('2026-07-24T02:00:00.000Z'),
+      '2026-07-24',
+    );
 
     expect(await currentStore.countMonitorHistory({ date: '2026-07-23' })).toBe(0);
     expect(await currentStore.listMonitorHistory({ date: '2026-07-24', limit: 10 })).toEqual([

@@ -2,18 +2,25 @@ import type { IChipDistributionResult } from '../../../src/shared/types.js';
 import { getBoardDetail } from '../stock/board-detail.js';
 import { getChipDistribution } from '../stock/chip-distribution-provider.js';
 import { normalizeMarketCap } from '../stock/format.js';
-import { getCachedMarketBoardRows } from '../stock/shared.js';
+import { refreshMarketBoardRows } from '../stock/shared.js';
 import {
   emptyConditionScreenerBoardScope,
   loadConditionScreenerLeadingBoardScope,
   type IConditionScreenerBoardDependencies,
   type IConditionScreenerBoardScope,
 } from './condition-screener-board-provider.js';
+import {
+  fetchConditionScreenerSinaBoards,
+  fetchConditionScreenerSinaConstituents,
+} from './condition-screener-sina-board-provider.js';
 import type {
   IConditionScreenerCandidate,
   IConditionScreenerInput,
   IConditionScreenerResult,
   IConditionScreenerRow,
+  TConditionScreenerMarketScope,
+  TConditionScreenerSortBy,
+  TConditionScreenerSortOrder,
 } from './condition-screener-types.js';
 export type {
   IConditionScreenerInput,
@@ -21,6 +28,7 @@ export type {
   IConditionScreenerResult,
   IConditionScreenerRow,
   TConditionScreenerDataSource,
+  TConditionScreenerMarketScope,
   TConditionScreenerSortBy,
   TConditionScreenerSortOrder,
 } from './condition-screener-types.js';
@@ -66,25 +74,27 @@ const defaultDependencies: IConditionScreenerDependencies = {
   listRemoteSecurities,
   upsertSecurities,
   upsertSnapshots: async (records) => {
-    await upsertStockSnapshots(records.map((record) => ({
-      symbol: record.code,
-      name: record.name,
-      price: record.price,
-      change: record.change,
-      changePercent: record.changePercent,
-      open: record.open,
-      high: record.high,
-      low: record.low,
-      prevClose: record.prevClose,
-      volume: record.volume,
-      amount: record.amount,
-      turnoverRate: record.turnoverRate,
-      pe: record.pe,
-      pb: record.pb,
-      totalMarketCap: record.totalMarketCap,
-      circulatingMarketCap: record.circulatingMarketCap,
-      amplitude: record.amplitude,
-    })));
+    await upsertStockSnapshots(
+      records.map((record) => ({
+        symbol: record.code,
+        name: record.name,
+        price: record.price,
+        change: record.change,
+        changePercent: record.changePercent,
+        open: record.open,
+        high: record.high,
+        low: record.low,
+        prevClose: record.prevClose,
+        volume: record.volume,
+        amount: record.amount,
+        turnoverRate: record.turnoverRate,
+        pe: record.pe,
+        pb: record.pb,
+        totalMarketCap: record.totalMarketCap,
+        circulatingMarketCap: record.circulatingMarketCap,
+        amplitude: record.amplitude,
+      })),
+    );
   },
   fetchStockSdkAllQuotes: fetchStockSdkAllMarketSnapshotQuotes,
   fetchAStockDataQuotes: fetchAStockDataMarketSnapshotQuotes,
@@ -92,8 +102,10 @@ const defaultDependencies: IConditionScreenerDependencies = {
   getChipDistribution,
   listMarketBoards,
   listBoardConstituents,
-  getRemoteBoards: () => getCachedMarketBoardRows(true),
+  getRemoteBoards: refreshMarketBoardRows,
   getBoardDetail,
+  getAStockDataBoards: fetchConditionScreenerSinaBoards,
+  getAStockDataBoardConstituents: fetchConditionScreenerSinaConstituents,
   getMarketDataStats,
 };
 
@@ -115,7 +127,9 @@ export async function screenASharesByConditions(input: IConditionScreenerInput):
   const leadingBoardScope = options.leadingBoards
     ? await loadConditionScreenerLeadingBoardScope(dependencies, warnings)
     : emptyConditionScreenerBoardScope();
-  const scopedCandidates = candidates.filter((candidate) => passesQuoteConditions(candidate, options, leadingBoardScope));
+  const scopedCandidates = candidates.filter((candidate) =>
+    passesQuoteConditions(candidate, options, leadingBoardScope),
+  );
   const chipResult = await applyChipConditions(scopedCandidates, options, leadingBoardScope, warnings);
   const rows = sortRows(chipResult.rows, options).slice(0, options.limit);
   const stats = await loadStats(warnings);
@@ -152,18 +166,56 @@ function normalizeInput(input: IConditionScreenerInput) {
     minTotalMarketCapYuan: integer(input.minTotalMarketCapYuan),
     maxTotalMarketCapYuan: integer(input.maxTotalMarketCapYuan),
     maxTotalMarketCapYuanExclusive: integer(input.maxTotalMarketCapYuanExclusive),
+    minCirculatingMarketCapYuan: integer(input.minCirculatingMarketCapYuan),
+    maxCirculatingMarketCapYuan: integer(input.maxCirculatingMarketCapYuan),
+    maxCirculatingMarketCapYuanExclusive: integer(input.maxCirculatingMarketCapYuanExclusive),
+    turnoverRateMin: finite(input.turnoverRateMin),
+    turnoverRateMax: finite(input.turnoverRateMax),
     turnoverRateMinExclusive: finite(input.turnoverRateMinExclusive),
+    minAmountYuan: integer(input.minAmountYuan),
+    maxAmountYuan: integer(input.maxAmountYuan),
     amountMinYuanExclusive: integer(input.amountMinYuanExclusive),
+    minVolume: integer(input.minVolume),
+    maxVolume: integer(input.maxVolume),
+    volumeMinExclusive: integer(input.volumeMinExclusive),
     changePercentMin: finite(input.changePercentMin),
     changePercentMax: finite(input.changePercentMax),
+    concentration90Min: finite(input.concentration90Min),
+    concentration90Max: finite(input.concentration90Max),
     concentration90MaxExclusive: finite(input.concentration90MaxExclusive),
+    concentration70Min: finite(input.concentration70Min),
+    concentration70Max: finite(input.concentration70Max),
+    concentration70MaxExclusive: finite(input.concentration70MaxExclusive),
+    profitRatioMin: finite(input.profitRatioMin),
+    profitRatioMax: finite(input.profitRatioMax),
     profitRatioMinExclusive: finite(input.profitRatioMinExclusive),
     excludeST: input.excludeST === true,
+    marketScopes: normalizeMarketScopes(input.marketScopes),
     leadingBoards: input.leadingBoards === true,
-    sortBy: input.sortBy === 'turnoverRate' ? 'turnoverRate' as const : 'code' as const,
-    sortOrder: input.sortOrder === 'desc' ? 'desc' as const : 'asc' as const,
+    sortBy: normalizeSortBy(input.sortBy),
+    sortOrder: input.sortOrder === 'desc' ? ('desc' as const) : ('asc' as const),
     limit: Math.max(1, Math.min(MAX_LIMIT, Math.floor(input.limit ?? DEFAULT_LIMIT))),
   };
+}
+
+function normalizeSortBy(value: IConditionScreenerInput['sortBy']): TConditionScreenerSortBy {
+  const allowed: TConditionScreenerSortBy[] = [
+    'code',
+    'totalMarketCap',
+    'circulatingMarketCap',
+    'amount',
+    'volume',
+    'turnoverRate',
+    'changePercent',
+    'concentration90',
+    'concentration70',
+  ];
+  return value && allowed.includes(value) ? value : 'code';
+}
+
+function normalizeMarketScopes(value: IConditionScreenerInput['marketScopes']): TConditionScreenerMarketScope[] {
+  const allowed: TConditionScreenerMarketScope[] = ['sh', 'sz', 'bj', 'kc', 'cy', 'main'];
+  return value ? [...new Set(value.filter((scope) => allowed.includes(scope)))] : [];
 }
 
 async function loadCandidateRows(includeST: boolean, warnings: string[]) {
@@ -199,7 +251,12 @@ async function enrichCandidates(
   const missingAfterStockSdk = [...candidates.values()]
     .filter((candidate) => !hasCurrentQuote(candidate) || hasRequiredQuoteFieldMissing(candidate, options))
     .map((candidate) => candidate.code);
-  const aStockData = await loadQuotes(dependencies.fetchAStockDataQuotes, missingAfterStockSdk, 'a-stock-data', warnings);
+  const aStockData = await loadQuotes(
+    dependencies.fetchAStockDataQuotes,
+    missingAfterStockSdk,
+    'a-stock-data',
+    warnings,
+  );
   mergeQuoteCandidates(candidates, aStockData.quotes, 'a-stock-data', false);
   await persistQuotes(aStockData.quotes, warnings);
 
@@ -257,17 +314,19 @@ async function persistQuotes(records: IMarketSnapshotQuoteRecord[], warnings: st
 async function persistSecurities(records: IMarketSnapshotQuoteRecord[], warnings: string[]) {
   if (!records.length) return;
   try {
-    await dependencies.upsertSecurities(records.map((record) => ({
-      symbol: record.code,
-      name: record.name,
-      exchange: record.exchange ?? exchangeForCode(record.code),
-      securityType: 'stock',
-      status: 'listed',
-      industry: record.industry,
-      isSt: isStName(record.name),
-      source: 'stock-sdk',
-      updatedAt: record.fetchedAt ?? new Date().toISOString(),
-    })));
+    await dependencies.upsertSecurities(
+      records.map((record) => ({
+        symbol: record.code,
+        name: record.name,
+        exchange: record.exchange ?? exchangeForCode(record.code),
+        securityType: 'stock',
+        status: 'listed',
+        industry: record.industry,
+        isSt: isStName(record.name),
+        source: 'stock-sdk',
+        updatedAt: record.fetchedAt ?? new Date().toISOString(),
+      })),
+    );
   } catch (error) {
     warnings.push(`全市场证券列表回写 DuckDB 失败：${formatError(error)}`);
   }
@@ -284,7 +343,9 @@ function quoteToCandidate(quote: IMarketSnapshotQuoteRecord): IConditionScreener
     changePercent: quote.changePercent,
     turnoverRate: quote.turnoverRate,
     amountYuan: amountYuanFromWan(quote.amount),
+    volume: integer(quote.volume),
     totalMarketCapYuan: marketCapYuan(quote.totalMarketCap),
+    circulatingMarketCapYuan: marketCapYuan(quote.circulatingMarketCap),
     fetchedAt: quote.fetchedAt,
     dataSource: 'stock-sdk',
   };
@@ -330,7 +391,9 @@ function mergeQuoteCandidates(
       candidate.changePercent = quote.changePercent;
       candidate.turnoverRate = quote.turnoverRate;
       candidate.amountYuan = amountYuanFromWan(quote.amount);
+      candidate.volume = integer(quote.volume);
       candidate.totalMarketCapYuan = marketCapYuan(quote.totalMarketCap);
+      candidate.circulatingMarketCapYuan = marketCapYuan(quote.circulatingMarketCap);
       candidate.fetchedAt = quote.fetchedAt;
       candidate.dataSource = source;
       continue;
@@ -339,7 +402,9 @@ function mergeQuoteCandidates(
     candidate.changePercent ??= quote.changePercent;
     candidate.turnoverRate ??= quote.turnoverRate;
     candidate.amountYuan ??= amountYuanFromWan(quote.amount);
+    candidate.volume ??= integer(quote.volume);
     candidate.totalMarketCapYuan ??= marketCapYuan(quote.totalMarketCap);
+    candidate.circulatingMarketCapYuan ??= marketCapYuan(quote.circulatingMarketCap);
     candidate.fetchedAt ??= quote.fetchedAt;
     if (candidateDiffers(before, candidate)) candidate.dataSource = source;
   }
@@ -348,9 +413,15 @@ function mergeQuoteCandidates(
 function hasCurrentQuote(candidate: IConditionScreenerCandidate) {
   return (
     candidate.dataSource !== 'duckdb' &&
-    [candidate.price, candidate.changePercent, candidate.turnoverRate, candidate.amountYuan, candidate.totalMarketCapYuan].some(
-      (value) => value !== undefined && Number.isFinite(value),
-    )
+    [
+      candidate.price,
+      candidate.changePercent,
+      candidate.turnoverRate,
+      candidate.amountYuan,
+      candidate.volume,
+      candidate.totalMarketCapYuan,
+      candidate.circulatingMarketCapYuan,
+    ].some((value) => value !== undefined && Number.isFinite(value))
   );
 }
 
@@ -358,17 +429,50 @@ function hasRequiredQuoteFieldMissing(
   candidate: IConditionScreenerCandidate,
   options: ReturnType<typeof normalizeInput>,
 ) {
-  const needsMarketCap =
+  return missingQuoteFields(candidate, options).length > 0;
+}
+
+function missingQuoteFields(
+  candidate: IConditionScreenerCandidate,
+  options: ReturnType<typeof normalizeInput>,
+): string[] {
+  const missing: string[] = [];
+  const needsTotalMarketCap =
     options.minTotalMarketCapYuan !== undefined ||
     options.maxTotalMarketCapYuan !== undefined ||
-    options.maxTotalMarketCapYuanExclusive !== undefined;
-  const needsChangePercent = options.changePercentMin !== undefined || options.changePercentMax !== undefined;
-  return (
-    needsMarketCap && candidate.totalMarketCapYuan === undefined ||
-    options.turnoverRateMinExclusive !== undefined && candidate.turnoverRate === undefined ||
-    options.amountMinYuanExclusive !== undefined && candidate.amountYuan === undefined ||
-    needsChangePercent && candidate.changePercent === undefined
-  );
+    options.maxTotalMarketCapYuanExclusive !== undefined ||
+    options.sortBy === 'totalMarketCap';
+  const needsCirculatingMarketCap =
+    options.minCirculatingMarketCapYuan !== undefined ||
+    options.maxCirculatingMarketCapYuan !== undefined ||
+    options.maxCirculatingMarketCapYuanExclusive !== undefined ||
+    options.sortBy === 'circulatingMarketCap';
+  const needsAmount =
+    options.minAmountYuan !== undefined ||
+    options.maxAmountYuan !== undefined ||
+    options.amountMinYuanExclusive !== undefined ||
+    options.sortBy === 'amount';
+  const needsVolume =
+    options.minVolume !== undefined ||
+    options.maxVolume !== undefined ||
+    options.volumeMinExclusive !== undefined ||
+    options.sortBy === 'volume';
+  const needsTurnover =
+    options.turnoverRateMin !== undefined ||
+    options.turnoverRateMax !== undefined ||
+    options.turnoverRateMinExclusive !== undefined ||
+    options.sortBy === 'turnoverRate';
+  const needsChangePercent =
+    options.changePercentMin !== undefined ||
+    options.changePercentMax !== undefined ||
+    options.sortBy === 'changePercent';
+  if (needsTotalMarketCap && candidate.totalMarketCapYuan === undefined) missing.push('总市值');
+  if (needsCirculatingMarketCap && candidate.circulatingMarketCapYuan === undefined) missing.push('流通市值');
+  if (needsAmount && candidate.amountYuan === undefined) missing.push('成交额');
+  if (needsVolume && candidate.volume === undefined) missing.push('成交量');
+  if (needsTurnover && candidate.turnoverRate === undefined) missing.push('换手率');
+  if (needsChangePercent && candidate.changePercent === undefined) missing.push('涨跌幅');
+  return missing;
 }
 
 async function applyChipConditions(
@@ -377,7 +481,7 @@ async function applyChipConditions(
   boardScope: IConditionScreenerBoardScope,
   warnings: string[],
 ): Promise<{ rows: IConditionScreenerRow[]; missingChipData: number }> {
-  const needsChip = options.concentration90MaxExclusive !== undefined || options.profitRatioMinExclusive !== undefined;
+  const needsChip = hasChipConditions(options);
   const chipByCode = needsChip ? await loadChips(warnings) : new Map<string, StockChipCacheRecord>();
   if (needsChip) startBackgroundChipHydration(candidates, options, chipByCode, warnings);
 
@@ -389,14 +493,7 @@ async function applyChipConditions(
       missingChipData += 1;
       continue;
     }
-    if (
-      options.concentration90MaxExclusive !== undefined &&
-      (metrics.concentration90Percent === undefined || metrics.concentration90Percent >= options.concentration90MaxExclusive)
-    ) continue;
-    if (
-      options.profitRatioMinExclusive !== undefined &&
-      (metrics.profitRatioPercent === undefined || metrics.profitRatioPercent <= options.profitRatioMinExclusive)
-    ) continue;
+    if (!passesChipConditions(metrics, options)) continue;
     rows.push({
       code: candidate.code,
       name: candidate.name,
@@ -406,11 +503,15 @@ async function applyChipConditions(
       changePercent: candidate.changePercent,
       turnoverRate: candidate.turnoverRate,
       amountYuan: candidate.amountYuan,
+      volume: candidate.volume,
       totalMarketCapYuan: candidate.totalMarketCapYuan,
+      circulatingMarketCapYuan: candidate.circulatingMarketCapYuan,
       concentration90Percent: metrics.concentration90Percent,
+      concentration70Percent: metrics.concentration70Percent,
       profitRatioPercent: metrics.profitRatioPercent,
       chipDate: metrics.chipDate,
       leadingBoards: boardScope.membershipByCode.get(candidate.code),
+      missingFields: missingQuoteFields(candidate, options),
       dataSource: candidate.dataSource,
       fetchedAt: candidate.fetchedAt,
     });
@@ -435,7 +536,9 @@ function startBackgroundChipHydration(
   chipByCode: Map<string, StockChipCacheRecord>,
   warnings: string[],
 ) {
-  const missingCandidates = candidates.filter((candidate) => !hasRequiredChipMetrics(getChipMetrics(chipByCode.get(candidate.code)), options));
+  const missingCandidates = candidates.filter(
+    (candidate) => !hasRequiredChipMetrics(getChipMetrics(chipByCode.get(candidate.code)), options),
+  );
   if (!missingCandidates.length) return;
 
   const candidatesToHydrate = missingCandidates.slice(0, CHIP_BACKGROUND_HYDRATION_LIMIT);
@@ -472,6 +575,7 @@ function getChipMetrics(chip: StockChipCacheRecord | undefined) {
   const latest = chip && isChipDistributionResult(chip.data) ? chip.data.latest : undefined;
   return {
     concentration90Percent: ratioPercent(latest?.concentration90),
+    concentration70Percent: ratioPercent(latest?.concentration70),
     profitRatioPercent: ratioPercent(latest?.profitRatio),
     chipDate: latest?.date,
   };
@@ -482,9 +586,53 @@ function hasRequiredChipMetrics(
   options: ReturnType<typeof normalizeInput>,
 ) {
   return !(
-    options.concentration90MaxExclusive !== undefined && metrics.concentration90Percent === undefined ||
-    options.profitRatioMinExclusive !== undefined && metrics.profitRatioPercent === undefined
+    (needsRangeMetric(options.concentration90Min, options.concentration90Max, options.concentration90MaxExclusive) &&
+      metrics.concentration90Percent === undefined) ||
+    (needsRangeMetric(options.concentration70Min, options.concentration70Max, options.concentration70MaxExclusive) &&
+      metrics.concentration70Percent === undefined) ||
+    (needsRangeMetric(options.profitRatioMin, options.profitRatioMax, options.profitRatioMinExclusive) &&
+      metrics.profitRatioPercent === undefined) ||
+    (options.sortBy === 'concentration90' && metrics.concentration90Percent === undefined) ||
+    (options.sortBy === 'concentration70' && metrics.concentration70Percent === undefined)
   );
+}
+
+function hasChipConditions(options: ReturnType<typeof normalizeInput>) {
+  return (
+    needsRangeMetric(options.concentration90Min, options.concentration90Max, options.concentration90MaxExclusive) ||
+    needsRangeMetric(options.concentration70Min, options.concentration70Max, options.concentration70MaxExclusive) ||
+    needsRangeMetric(options.profitRatioMin, options.profitRatioMax, options.profitRatioMinExclusive) ||
+    options.sortBy === 'concentration90' ||
+    options.sortBy === 'concentration70'
+  );
+}
+
+function needsRangeMetric(min?: number, max?: number, exclusiveMinOrMax?: number) {
+  return min !== undefined || max !== undefined || exclusiveMinOrMax !== undefined;
+}
+
+function passesChipConditions(metrics: ReturnType<typeof getChipMetrics>, options: ReturnType<typeof normalizeInput>) {
+  if (!passesInclusiveRange(metrics.concentration90Percent, options.concentration90Min, options.concentration90Max))
+    return false;
+  if (
+    options.concentration90MaxExclusive !== undefined &&
+    !passesExclusiveMax(metrics.concentration90Percent, options.concentration90MaxExclusive)
+  )
+    return false;
+  if (!passesInclusiveRange(metrics.concentration70Percent, options.concentration70Min, options.concentration70Max))
+    return false;
+  if (
+    options.concentration70MaxExclusive !== undefined &&
+    !passesExclusiveMax(metrics.concentration70Percent, options.concentration70MaxExclusive)
+  )
+    return false;
+  if (!passesInclusiveRange(metrics.profitRatioPercent, options.profitRatioMin, options.profitRatioMax)) return false;
+  if (
+    options.profitRatioMinExclusive !== undefined &&
+    !passesExclusiveMin(metrics.profitRatioPercent, options.profitRatioMinExclusive)
+  )
+    return false;
+  return true;
 }
 
 function passesQuoteConditions(
@@ -494,22 +642,94 @@ function passesQuoteConditions(
 ) {
   if (!hasCurrentQuote(candidate)) return false;
   if (options.excludeST && candidate.isSt) return false;
-  if (!passesInclusiveRange(candidate.totalMarketCapYuan, options.minTotalMarketCapYuan, options.maxTotalMarketCapYuan)) return false;
-  if (options.maxTotalMarketCapYuanExclusive !== undefined && !(candidate.totalMarketCapYuan! < options.maxTotalMarketCapYuanExclusive)) return false;
-  if (options.turnoverRateMinExclusive !== undefined && !(candidate.turnoverRate! > options.turnoverRateMinExclusive)) return false;
-  if (options.amountMinYuanExclusive !== undefined && !(candidate.amountYuan! > options.amountMinYuanExclusive)) return false;
+  if (!passesMarketScopes(candidate, options.marketScopes)) return false;
+  if (!passesInclusiveRange(candidate.totalMarketCapYuan, options.minTotalMarketCapYuan, options.maxTotalMarketCapYuan))
+    return false;
+  if (
+    options.maxTotalMarketCapYuanExclusive !== undefined &&
+    !passesExclusiveMax(candidate.totalMarketCapYuan, options.maxTotalMarketCapYuanExclusive)
+  )
+    return false;
+  if (
+    !passesInclusiveRange(
+      candidate.circulatingMarketCapYuan,
+      options.minCirculatingMarketCapYuan,
+      options.maxCirculatingMarketCapYuan,
+    )
+  )
+    return false;
+  if (
+    options.maxCirculatingMarketCapYuanExclusive !== undefined &&
+    !passesExclusiveMax(candidate.circulatingMarketCapYuan, options.maxCirculatingMarketCapYuanExclusive)
+  )
+    return false;
+  if (!passesInclusiveRange(candidate.turnoverRate, options.turnoverRateMin, options.turnoverRateMax)) return false;
+  if (
+    options.turnoverRateMinExclusive !== undefined &&
+    !passesExclusiveMin(candidate.turnoverRate, options.turnoverRateMinExclusive)
+  )
+    return false;
+  if (!passesInclusiveRange(candidate.amountYuan, options.minAmountYuan, options.maxAmountYuan)) return false;
+  if (
+    options.amountMinYuanExclusive !== undefined &&
+    !passesExclusiveMin(candidate.amountYuan, options.amountMinYuanExclusive)
+  )
+    return false;
+  if (!passesInclusiveRange(candidate.volume, options.minVolume, options.maxVolume)) return false;
+  if (options.volumeMinExclusive !== undefined && !passesExclusiveMin(candidate.volume, options.volumeMinExclusive))
+    return false;
   if (!passesInclusiveRange(candidate.changePercent, options.changePercentMin, options.changePercentMax)) return false;
   return !options.leadingBoards || boardScope.membershipByCode.has(candidate.code);
 }
 
+function passesMarketScopes(candidate: IConditionScreenerCandidate, scopes: TConditionScreenerMarketScope[]) {
+  if (!scopes.length) return true;
+  return scopes.some((scope) => {
+    if (scope === 'sh') return candidate.exchange === 'SH';
+    if (scope === 'sz') return candidate.exchange === 'SZ';
+    if (scope === 'bj') return candidate.exchange === 'BJ';
+    if (scope === 'kc') return candidate.code.startsWith('688') || candidate.code.startsWith('689');
+    if (scope === 'cy') return candidate.code.startsWith('300') || candidate.code.startsWith('301');
+    if (scope === 'main')
+      return (
+        (candidate.exchange === 'SH' &&
+          candidate.code.startsWith('6') &&
+          !candidate.code.startsWith('688') &&
+          !candidate.code.startsWith('689')) ||
+        (candidate.exchange === 'SZ' &&
+          (candidate.code.startsWith('000') ||
+            candidate.code.startsWith('001') ||
+            candidate.code.startsWith('002') ||
+            candidate.code.startsWith('003')))
+      );
+    return false;
+  });
+}
+
 function sortRows(rows: IConditionScreenerRow[], options: ReturnType<typeof normalizeInput>) {
   return [...rows].sort((left, right) => {
-    if (options.sortBy === 'turnoverRate') {
-      const difference = (left.turnoverRate ?? Number.NEGATIVE_INFINITY) - (right.turnoverRate ?? Number.NEGATIVE_INFINITY);
-      if (difference) return options.sortOrder === 'desc' ? -difference : difference;
-    }
+    const difference = compareOptionalNumbers(
+      sortValue(left, options.sortBy),
+      sortValue(right, options.sortBy),
+      options.sortOrder,
+    );
+    if (difference) return difference;
     return left.code.localeCompare(right.code);
   });
+}
+
+function sortValue(row: IConditionScreenerRow, sortBy: TConditionScreenerSortBy) {
+  return {
+    code: undefined,
+    totalMarketCap: row.totalMarketCapYuan,
+    circulatingMarketCap: row.circulatingMarketCapYuan,
+    amount: row.amountYuan,
+    volume: row.volume,
+    turnoverRate: row.turnoverRate,
+    changePercent: row.changePercent,
+    concentration90: row.concentration90Percent,
+    concentration70: row.concentration70Percent,
+  }[sortBy];
 }
 
 function storageForCandidates(candidates: IConditionScreenerCandidate[]): IConditionScreenerResult['storage'] {
@@ -520,7 +740,15 @@ function storageForCandidates(candidates: IConditionScreenerCandidate[]): ICondi
 }
 
 function candidateDiffers(left: IConditionScreenerCandidate, right: IConditionScreenerCandidate) {
-  return left.price !== right.price || left.changePercent !== right.changePercent || left.turnoverRate !== right.turnoverRate || left.amountYuan !== right.amountYuan || left.totalMarketCapYuan !== right.totalMarketCapYuan;
+  return (
+    left.price !== right.price ||
+    left.changePercent !== right.changePercent ||
+    left.turnoverRate !== right.turnoverRate ||
+    left.amountYuan !== right.amountYuan ||
+    left.volume !== right.volume ||
+    left.totalMarketCapYuan !== right.totalMarketCapYuan ||
+    left.circulatingMarketCapYuan !== right.circulatingMarketCapYuan
+  );
 }
 
 function marketCapYuan(value: number | undefined) {
@@ -535,6 +763,26 @@ function amountYuanFromWan(value: number | undefined) {
 function passesInclusiveRange(value: number | undefined, min?: number, max?: number) {
   if (min === undefined && max === undefined) return true;
   return value !== undefined && (min === undefined || value >= min) && (max === undefined || value <= max);
+}
+
+function passesExclusiveMin(value: number | undefined, min: number) {
+  return value !== undefined && value > min;
+}
+
+function passesExclusiveMax(value: number | undefined, max: number) {
+  return value !== undefined && value < max;
+}
+
+function compareOptionalNumbers(
+  left: number | undefined,
+  right: number | undefined,
+  order: TConditionScreenerSortOrder,
+) {
+  if (left === undefined && right === undefined) return 0;
+  if (left === undefined) return 1;
+  if (right === undefined) return -1;
+  const difference = left - right;
+  return order === 'desc' ? -difference : difference;
 }
 
 function isChipDistributionResult(value: unknown): value is IChipDistributionResult {

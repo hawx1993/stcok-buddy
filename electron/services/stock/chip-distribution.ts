@@ -1,6 +1,12 @@
 import { calcChipDistribution } from 'stock-sdk';
 import type { ChipDistributionItem, ChipKlineLike } from 'stock-sdk';
-import type { ChipDistribution, ChipPoint, IChipDistributionResult, KlinePoint, TChipDistributionSource } from '../../../src/shared/types.js';
+import type {
+  ChipDistribution,
+  ChipPoint,
+  IChipDistributionResult,
+  KlinePoint,
+  TChipDistributionSource,
+} from '../../../src/shared/types.js';
 
 const CHIP_TREND_DAYS = [5, 10, 20] as const;
 
@@ -9,16 +15,14 @@ export function calculateChipDistribution(
   source: TChipDistributionSource,
   warnings?: string[],
 ): IChipDistributionResult {
-  const input: ChipKlineLike[] = klines
-    .filter(hasValidChipBar)
-    .map((bar) => ({
-      date: bar.time,
-      open: bar.open,
-      high: bar.high,
-      low: bar.low,
-      close: bar.close,
-      turnoverRate: bar.turnoverRate ?? null,
-    }));
+  const input: ChipKlineLike[] = klines.filter(hasValidChipBar).map((bar) => ({
+    date: bar.time,
+    open: bar.open,
+    high: bar.high,
+    low: bar.low,
+    close: bar.close,
+    turnoverRate: bar.turnoverRate ?? null,
+  }));
   if (!input.length || !input.some((bar) => (bar.turnoverRate ?? 0) > 0)) {
     throw new Error('日 K 线缺少有效换手率，无法计算筹码分布');
   }

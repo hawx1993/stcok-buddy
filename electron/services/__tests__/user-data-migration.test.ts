@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../electron-runtime.js', () => ({
+vi.mock('../../electron-runtime', () => ({
   app: {
     getPath: vi.fn(),
   },
@@ -33,7 +33,11 @@ describe('userData 目录迁移', () => {
     mkdirSync(legacyPath, { recursive: true });
     mkdirSync(targetPath, { recursive: true });
     writeFileSync(path.join(legacyPath, 'stocksense-chat.sqlite'), 'legacy-chat', { flag: 'wx' });
-    writeFileSync(path.join(legacyPath, 'stocksense-store.json'), JSON.stringify({ config: { model: { apiKey: 'sk-old' } } }), { flag: 'wx' });
+    writeFileSync(
+      path.join(legacyPath, 'stocksense-storeon'),
+      JSON.stringify({ config: { model: { apiKey: 'sk-old' } } }),
+      { flag: 'wx' },
+    );
     writeFileSync(path.join(targetPath, 'stocksense-chat.sqlite'), 'empty', { flag: 'wx' });
 
     const result = migrateUserDataDirectory({
@@ -47,7 +51,9 @@ describe('userData 目录迁移', () => {
     expect(readFileSync(path.join(targetPath, 'stocksense-chat.sqlite'), 'utf8')).toBe('legacy-chat');
     expect(readMigrationMarker(targetPath)).toContain('stockbuddy-desktop');
     expect(result.backupPath).toBeTruthy();
-    expect(result.backupPath ? readFileSync(path.join(result.backupPath, 'stocksense-chat.sqlite'), 'utf8') : '').toBe('empty');
+    expect(result.backupPath ? readFileSync(path.join(result.backupPath, 'stocksense-chat.sqlite'), 'utf8') : '').toBe(
+      'empty',
+    );
     expect(listUserDataFilesForTest(legacyPath)).toEqual([]);
   });
 

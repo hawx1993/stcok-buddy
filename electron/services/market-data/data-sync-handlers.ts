@@ -81,7 +81,8 @@ async function runSurgeHistorySync() {
   try {
     // Dynamic import to avoid circular deps
     const { listHotFocus, toIndividualHistoryEvents } = await import('../stock/hot-focus.js');
-    const { pruneSurgeHistory, saveSurgeSnapshot, saveIndividualSurgeHistory } = await import('../stock/surge-history-store.js');
+    const { pruneSurgeHistory, saveSurgeSnapshot, saveIndividualSurgeHistory } =
+      await import('../stock/surge-history-store.js');
 
     await ensureMarketDataRuntime();
 
@@ -126,7 +127,10 @@ async function runSurgeHistorySync() {
           events = toIndividualHistoryEvents(history, code);
         } catch (error) {
           failed += 1;
-          console.warn(`[data-sync] individual surge history failed for ${code}`, error instanceof Error ? error.message : String(error));
+          console.warn(
+            `[data-sync] individual surge history failed for ${code}`,
+            error instanceof Error ? error.message : String(error),
+          );
           return;
         }
         pendingEvents.push(...events);
@@ -215,25 +219,27 @@ export async function syncStockDetails() {
       const batch = codes.slice(i, i + batchSize);
       try {
         const quotes = await sdk.batch.byCodes(batch, { batchSize: 80, concurrency: 1 });
-        await upsertStockSnapshots(quotes.map((q) => ({
-          symbol: q.code,
-          name: q.name,
-          price: q.price,
-          change: q.change,
-          changePercent: q.changePercent,
-          open: q.open,
-          high: q.high,
-          low: q.low,
-          prevClose: q.prevClose,
-          volume: q.volume,
-          amount: q.amount,
-          turnoverRate: q.turnoverRate ?? undefined,
-          pe: q.pe ?? undefined,
-          pb: q.pb ?? undefined,
-          totalMarketCap: q.totalMarketCap ?? undefined,
-          circulatingMarketCap: q.circulatingMarketCap ?? undefined,
-          amplitude: q.amplitude ?? undefined,
-        })));
+        await upsertStockSnapshots(
+          quotes.map((q) => ({
+            symbol: q.code,
+            name: q.name,
+            price: q.price,
+            change: q.change,
+            changePercent: q.changePercent,
+            open: q.open,
+            high: q.high,
+            low: q.low,
+            prevClose: q.prevClose,
+            volume: q.volume,
+            amount: q.amount,
+            turnoverRate: q.turnoverRate ?? undefined,
+            pe: q.pe ?? undefined,
+            pb: q.pb ?? undefined,
+            totalMarketCap: q.totalMarketCap ?? undefined,
+            circulatingMarketCap: q.circulatingMarketCap ?? undefined,
+            amplitude: q.amplitude ?? undefined,
+          })),
+        );
         processed += quotes.length;
         failed += batch.length - quotes.length;
       } catch {
@@ -289,7 +295,9 @@ export async function syncMarketSnapshot() {
   for (const tab of tabs) {
     try {
       await getMarketPageSnapshot(tab);
-    } catch { /* individual tab failure is non-fatal */ }
+    } catch {
+      /* individual tab failure is non-fatal */
+    }
     done += 1;
     emitProgress({
       taskType: 'marketSnapshot',

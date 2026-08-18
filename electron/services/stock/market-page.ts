@@ -195,9 +195,12 @@ export async function resolveStockIndustry(code: string, currentIndustry?: strin
       () => new Map<string, string>(),
     ),
   ]);
-  const industry = normalizeIndustryName(rowIndustryMap.get(symbol)) ?? normalizeIndustryName(boardIndustryMap.get(symbol));
+  const industry =
+    normalizeIndustryName(rowIndustryMap.get(symbol)) ?? normalizeIndustryName(boardIndustryMap.get(symbol));
   if (industry) {
-    updateSecurityIndustries([{ symbol, industry }]).catch((err) => console.warn('[market] persist stock industry failed', err));
+    updateSecurityIndustries([{ symbol, industry }]).catch((err) =>
+      console.warn('[market] persist stock industry failed', err),
+    );
   }
   return industry;
 }
@@ -500,11 +503,7 @@ async function getLocalMarketPageSnapshot(tab: MarketTab, period: MarketIndexPer
   // Merge daily-bar rows with the last cached/stored live quotes so offline users
   // still see prices even when remote is unreachable.
   const mergedRows = mergeQuoteRows(localRows, persistedRows);
-  const rows = mergedRows.length
-    ? mergedRows
-    : cached?.rows?.length
-      ? cached.rows
-      : await buildRowsFromSecurities(tab);
+  const rows = mergedRows.length ? mergedRows : cached?.rows?.length ? cached.rows : await buildRowsFromSecurities(tab);
   const indices = marketIndexCache.get(period)?.rows ?? cached?.indices ?? (await getLocalMarketIndices(period));
   const snapshot: MarketPageSnapshot = {
     tab,

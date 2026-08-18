@@ -93,25 +93,27 @@ const defaultDependencies: IMarketCapScreenerDependencies = {
   listRemoteSecurities,
   upsertSecurities,
   upsertSnapshots: async (records) => {
-    await upsertStockSnapshots(records.map((record) => ({
-      symbol: record.code,
-      name: record.name,
-      price: record.price,
-      change: record.change,
-      changePercent: record.changePercent,
-      open: record.open,
-      high: record.high,
-      low: record.low,
-      prevClose: record.prevClose,
-      volume: record.volume,
-      amount: record.amount,
-      turnoverRate: record.turnoverRate,
-      pe: record.pe,
-      pb: record.pb,
-      totalMarketCap: record.totalMarketCap,
-      circulatingMarketCap: record.circulatingMarketCap,
-      amplitude: record.amplitude,
-    })));
+    await upsertStockSnapshots(
+      records.map((record) => ({
+        symbol: record.code,
+        name: record.name,
+        price: record.price,
+        change: record.change,
+        changePercent: record.changePercent,
+        open: record.open,
+        high: record.high,
+        low: record.low,
+        prevClose: record.prevClose,
+        volume: record.volume,
+        amount: record.amount,
+        turnoverRate: record.turnoverRate,
+        pe: record.pe,
+        pb: record.pb,
+        totalMarketCap: record.totalMarketCap,
+        circulatingMarketCap: record.circulatingMarketCap,
+        amplitude: record.amplitude,
+      })),
+    );
   },
   fetchStockSdkQuotes: fetchStockSdkMarketSnapshotQuotes,
   fetchAStockDataQuotes: fetchAStockDataMarketSnapshotQuotes,
@@ -146,9 +148,7 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
     if (mapped) resolved.set(mapped.code, mapped);
   }
 
-  const missingAfterDuckDB = localRows
-    .filter((row) => !resolved.has(row.symbol))
-    .map((row) => row.symbol);
+  const missingAfterDuckDB = localRows.filter((row) => !resolved.has(row.symbol)).map((row) => row.symbol);
   const stockSdkResult = await loadStockSdkQuotes(missingAfterDuckDB, warnings);
   await persistQuoteRecords(stockSdkResult.quotes, warnings);
   mergeQuoteRows(stockSdkResult.quotes, candidateByCode, resolved, options.marketCapField, 'stock-sdk');
@@ -161,7 +161,9 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
   const matched = [...resolved.values()]
     .filter((row) => passesRange(row.marketCap, options.minMarketCap, options.maxMarketCap))
     .filter((row) => passesTurnoverRange(row.turnoverRate, options.turnoverRateMin, options.turnoverRateMax))
-    .sort((left, right) => options.sortOrder === 'asc' ? left.marketCap - right.marketCap : right.marketCap - left.marketCap);
+    .sort((left, right) =>
+      options.sortOrder === 'asc' ? left.marketCap - right.marketCap : right.marketCap - left.marketCap,
+    );
 
   const rows = matched.slice(0, options.limit);
   const sourceStats = {
@@ -172,7 +174,10 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
   };
 
   if (!totalCandidates) warnings.push('未获取到全市场 A 股候选列表，无法完成 5000+ 股票市值筛选');
-  if (sourceStats.missingMarketCap > 0) warnings.push(`${sourceStats.missingMarketCap} 只 A 股缺少可用${marketCapFieldLabel(options.marketCapField)}，未纳入市值筛选`);
+  if (sourceStats.missingMarketCap > 0)
+    warnings.push(
+      `${sourceStats.missingMarketCap} 只 A 股缺少可用${marketCapFieldLabel(options.marketCapField)}，未纳入市值筛选`,
+    );
   if (!matched.length) warnings.push('未找到同时符合市值区间与换手率条件的 A 股');
 
   return {
@@ -194,7 +199,10 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
   };
 }
 
-function normalizeInput(input: IMarketCapScreenInput): Required<Pick<IMarketCapScreenInput, 'marketCapField' | 'limit' | 'includeST' | 'sortOrder'>> & Pick<IMarketCapScreenInput, 'minMarketCap' | 'maxMarketCap' | 'turnoverRateMin' | 'turnoverRateMax'> {
+function normalizeInput(
+  input: IMarketCapScreenInput,
+): Required<Pick<IMarketCapScreenInput, 'marketCapField' | 'limit' | 'includeST' | 'sortOrder'>> &
+  Pick<IMarketCapScreenInput, 'minMarketCap' | 'maxMarketCap' | 'turnoverRateMin' | 'turnoverRateMax'> {
   const unit = input.unit ?? 'yi';
   const minMarketCap = normalizeBound(input.minMarketCap, unit);
   const maxMarketCap = normalizeBound(input.maxMarketCap, unit);

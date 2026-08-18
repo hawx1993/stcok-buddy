@@ -1,13 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const stockSdkInstances = vi.hoisted(() => [] as Array<{
-  fundFlow: { market: ReturnType<typeof vi.fn>; rank: ReturnType<typeof vi.fn>; sectorRank: ReturnType<typeof vi.fn> };
-  northbound: { summary: ReturnType<typeof vi.fn> };
-  board: {
-    concept: { constituents: ReturnType<typeof vi.fn>; list: ReturnType<typeof vi.fn>; kline: ReturnType<typeof vi.fn> };
-    industry: { constituents: ReturnType<typeof vi.fn>; list: ReturnType<typeof vi.fn>; kline: ReturnType<typeof vi.fn> };
-  };
-}>);
+const stockSdkInstances = vi.hoisted(
+  () =>
+    [] as Array<{
+      fundFlow: {
+        market: ReturnType<typeof vi.fn>;
+        rank: ReturnType<typeof vi.fn>;
+        sectorRank: ReturnType<typeof vi.fn>;
+      };
+      northbound: { summary: ReturnType<typeof vi.fn> };
+      board: {
+        concept: {
+          constituents: ReturnType<typeof vi.fn>;
+          list: ReturnType<typeof vi.fn>;
+          kline: ReturnType<typeof vi.fn>;
+        };
+        industry: {
+          constituents: ReturnType<typeof vi.fn>;
+          list: ReturnType<typeof vi.fn>;
+          kline: ReturnType<typeof vi.fn>;
+        };
+      };
+    }>,
+);
 
 vi.mock('stock-sdk', () => ({
   default: class StockSDKMock {
@@ -24,12 +39,12 @@ vi.mock('stock-sdk', () => ({
   },
 }));
 
-vi.mock('../market-review-service.js', () => ({
+vi.mock('../market-review-service', () => ({
   getMarketReview: vi.fn(),
   scoreSentiment: vi.fn(),
 }));
 
-vi.mock('../stock-client.js', () => ({
+vi.mock('../stock-client', () => ({
   getBatchQuotes: vi.fn(),
   getAllMarketQuoteRows: vi.fn(),
   getMarketPageSnapshot: vi.fn(),
@@ -38,21 +53,21 @@ vi.mock('../stock-client.js', () => ({
   listRecentDragonTigerDays: vi.fn(),
 }));
 
-vi.mock('../../config-store.js', () => ({
+vi.mock('../../config-store', () => ({
   listFavoriteStocks: vi.fn(),
   getConfig: vi.fn(),
 }));
 
-vi.mock('../../llm/openai-compatible-client.js', () => ({
+vi.mock('../../llm/openai-compatible-client', () => ({
   chatWithOpenAICompatible: vi.fn(),
 }));
 
-vi.mock('../surge-history-store.js', () => ({
+vi.mock('../surge-history-store', () => ({
   listSurgeDates: vi.fn(),
   listSurgeHistory: vi.fn(),
 }));
 
-vi.mock('../../market-data/market-data-store.js', () => ({
+vi.mock('../../market-data/market-data-store', () => ({
   listBoardConstituents: vi.fn(),
   listMarketBoards: vi.fn(),
   readDiscoverySnapshot: vi.fn(),
@@ -60,22 +75,22 @@ vi.mock('../../market-data/market-data-store.js', () => ({
   getStockChip: vi.fn(),
 }));
 
-vi.mock('../market-indices.js', () => ({
+vi.mock('../market-indices', () => ({
   fetchMarketIndex: vi.fn(),
 }));
 
-vi.mock('../../market-data/providers.js', () => ({
+vi.mock('../../market-data/providers', () => ({
   isRemoteTradingDay: vi.fn(),
   listRemoteTradingCalendar: vi.fn(),
   previousRemoteTradingDay: vi.fn(),
 }));
 
-vi.mock('../monitor-service.js', () => ({
+vi.mock('../monitor-service', () => ({
   getMonitorFeed: vi.fn(),
 }));
 
-vi.mock('../shared.js', async () => {
-  const actual = await vi.importActual<typeof import('../shared.js')>('../shared.js');
+vi.mock('../shared', async () => {
+  const actual = await vi.importActual<typeof import('../shared.js')>('../shared');
   return { ...actual, getCachedMarketBoardRows: vi.fn() };
 });
 
@@ -260,17 +275,23 @@ describe('本地板块匹配工具', () => {
       { code: 'BK0001', name: '半导体行业Ⅱ', kind: 'industry', changePercent: 95, mainNetInflow: 0, amount: 10 },
     ]);
 
-    expect(reconcileSectorsWithLocalBoardsForTest([{ code: 'old', name: '半导体', changePercent: 9, mainNetInflow: 1 }], catalog)).toEqual([
-      { code: 'BK0001', name: '半导体行业Ⅱ', changePercent: 9, mainNetInflow: 1, amount: 10 },
-    ]);
+    expect(
+      reconcileSectorsWithLocalBoardsForTest(
+        [{ code: 'old', name: '半导体', changePercent: 9, mainNetInflow: 1 }],
+        catalog,
+      ),
+    ).toEqual([{ code: 'BK0001', name: '半导体行业Ⅱ', changePercent: 9, mainNetInflow: 1, amount: 10 }]);
   });
 
   it('未匹配本地板块时保留远端真实板块行', () => {
     const catalog = buildLocalBoardCatalog(boards);
 
-    expect(reconcileSectorsWithLocalBoardsForTest([{ code: 'missing', name: '不存在', changePercent: 1, mainNetInflow: 0 }], catalog)).toEqual([
-      { code: 'missing', name: '不存在', changePercent: 1, mainNetInflow: 0 },
-    ]);
+    expect(
+      reconcileSectorsWithLocalBoardsForTest(
+        [{ code: 'missing', name: '不存在', changePercent: 1, mainNetInflow: 0 }],
+        catalog,
+      ),
+    ).toEqual([{ code: 'missing', name: '不存在', changePercent: 1, mainNetInflow: 0 }]);
   });
 
   it('使用实时板块报价更新板块雷达涨跌幅并重算资金涨幅比', () => {
@@ -300,12 +321,17 @@ describe('本地板块匹配工具', () => {
       { code: 'BK0004', name: '电子', kind: 'industry', changePercent: 30, mainNetInflow: 0 },
     ]);
 
-    expect(reconcileSectorsWithLocalBoardsForTest([
-      { code: 'remote-a', name: '小金属', changePercent: 2.3, mainNetInflow: 1 },
-      { code: 'remote-b', name: '小金属概念', changePercent: 2.1, mainNetInflow: 2 },
-      { code: 'remote-c', name: '电子', changePercent: -1.4, mainNetInflow: 3 },
-      { code: 'remote-d', name: '电子行业', changePercent: -1.2, mainNetInflow: 4 },
-    ], catalog)).toEqual([
+    expect(
+      reconcileSectorsWithLocalBoardsForTest(
+        [
+          { code: 'remote-a', name: '小金属', changePercent: 2.3, mainNetInflow: 1 },
+          { code: 'remote-b', name: '小金属概念', changePercent: 2.1, mainNetInflow: 2 },
+          { code: 'remote-c', name: '电子', changePercent: -1.4, mainNetInflow: 3 },
+          { code: 'remote-d', name: '电子行业', changePercent: -1.2, mainNetInflow: 4 },
+        ],
+        catalog,
+      ),
+    ).toEqual([
       { code: 'BK0003', name: '小金属概念', changePercent: 2.3, mainNetInflow: 1 },
       { code: 'BK0004', name: '电子', changePercent: -1.4, mainNetInflow: 3 },
     ]);
@@ -314,25 +340,37 @@ describe('本地板块匹配工具', () => {
 
 describe('发现页股票和资金流工具', () => {
   it('仅将跌停行情行转换为股票项', () => {
-    expect(toLimitDownStockItemForTest({ code: '600001', name: '跌停A', changePercent: '-10.01%', price: 5, amount: 120_000_000 })).toEqual({
+    expect(
+      toLimitDownStockItemForTest({
+        code: '600001',
+        name: '跌停A',
+        changePercent: '-10.01%',
+        price: 5,
+        amount: 120_000_000,
+      }),
+    ).toEqual({
       code: '600001',
       name: '跌停A',
       price: '5',
       changePercent: '-10.01',
       amount: '+1.20亿',
     });
-    expect(toLimitDownStockItemForTest({ code: '300001', name: '创业板', changePercent: '-10%', price: 5 })).toBeUndefined();
+    expect(
+      toLimitDownStockItemForTest({ code: '300001', name: '创业板', changePercent: '-10%', price: 5 }),
+    ).toBeUndefined();
   });
 
   it('归一化股票代码后按亿元汇总成分股主力净流入', () => {
-    expect(sumConstituentMainNetInflowYiForTest(
-      [{ code: 'sh600001' }, { code: 'sz000001' }, { code: 'bad' }],
-      [
-        { code: '600001', mainNetInflow: 100_000_000 },
-        { code: '000001', mainNetInflow: -50_000_000 },
-        { code: '300001', mainNetInflow: 999_000_000 },
-      ],
-    )).toBe(0.5);
+    expect(
+      sumConstituentMainNetInflowYiForTest(
+        [{ code: 'sh600001' }, { code: 'sz000001' }, { code: 'bad' }],
+        [
+          { code: '600001', mainNetInflow: 100_000_000 },
+          { code: '000001', mainNetInflow: -50_000_000 },
+          { code: '300001', mainNetInflow: 999_000_000 },
+        ],
+      ),
+    ).toBe(0.5);
     expect(sumConstituentMainNetInflowYiForTest([], [])).toBeUndefined();
   });
 
@@ -366,7 +404,15 @@ describe('发现页股票和资金流工具', () => {
     expect(radar[0]?.changePercent).toBeCloseTo(2.7);
     expect(radar.some((item) => item.name === '涨停股')).toBe(false);
     expect(radar.some((item) => item.name === '资金流出')).toBe(false);
-    expect(radar.every((item) => item.changePercent !== undefined && item.changePercent !== null && item.changePercent < 4 && Number(item.amount) > 0)).toBe(true);
+    expect(
+      radar.every(
+        (item) =>
+          item.changePercent !== undefined &&
+          item.changePercent !== null &&
+          item.changePercent < 4 &&
+          Number(item.amount) > 0,
+      ),
+    ).toBe(true);
   });
 
   it('机会雷达在超大单字段缺失时使用主力净流入真实数据', () => {
@@ -425,18 +471,30 @@ describe('发现页股票和资金流工具', () => {
 
   it('发现页机会雷达返回个股机会时同时保留市场总结里的板块机会数据', () => {
     const radar = buildDiscoveryOpportunityRadarForTest({
-      boards: [
-        { code: 'BK0001', name: '机器人', ratio: 2.5, changePercent: 1.2, mainNetInflow: 3.2 },
-      ],
+      boards: [{ code: 'BK0001', name: '机器人', ratio: 2.5, changePercent: 1.2, mainNetInflow: 3.2 }],
       stocks: [
-        { code: '600001', name: '个股机会', reason: '超大单净买入', changePercent: 1.2, amount: 120_000_000, score: 120_000_000 },
+        {
+          code: '600001',
+          name: '个股机会',
+          reason: '超大单净买入',
+          changePercent: 1.2,
+          amount: 120_000_000,
+          score: 120_000_000,
+        },
       ],
     });
 
     expect(radar.boards).toHaveLength(1);
     expect(radar.boards[0]?.name).toBe('机器人');
     expect(radar.stocks).toEqual([
-      { code: '600001', name: '个股机会', reason: '超大单净买入', changePercent: 1.2, amount: 120_000_000, score: 120_000_000 },
+      {
+        code: '600001',
+        name: '个股机会',
+        reason: '超大单净买入',
+        changePercent: 1.2,
+        amount: 120_000_000,
+        score: 120_000_000,
+      },
     ]);
   });
 
@@ -447,9 +505,33 @@ describe('发现页股票和资金流工具', () => {
         [{ id: 'today', title: '今日股', code: '600000', name: '今日股', tag: '封涨停板', description: '机器人·首板' }],
         [],
         [
-          { id: 'previous-1', title: '前日首板', code: '600001', name: '前日首板', tag: '封涨停板', description: '半导体·首板', changePercent: '10.00%' },
-          { id: 'previous-2', title: '前日连板', code: '600002', name: '前日连板', tag: '封涨停板', description: '机器人·2连板', changePercent: '10.01%' },
-          { id: 'broken', title: '炸板股', code: '600003', name: '炸板股', tag: '涨停开板', description: '机器人·开板', changePercent: '5.00%' },
+          {
+            id: 'previous-1',
+            title: '前日首板',
+            code: '600001',
+            name: '前日首板',
+            tag: '封涨停板',
+            description: '半导体·首板',
+            changePercent: '10.00%',
+          },
+          {
+            id: 'previous-2',
+            title: '前日连板',
+            code: '600002',
+            name: '前日连板',
+            tag: '封涨停板',
+            description: '机器人·2连板',
+            changePercent: '10.01%',
+          },
+          {
+            id: 'broken',
+            title: '炸板股',
+            code: '600003',
+            name: '炸板股',
+            tag: '涨停开板',
+            description: '机器人·开板',
+            changePercent: '5.00%',
+          },
         ],
       ],
       '2026-08-03',
@@ -463,8 +545,24 @@ describe('发现页股票和资金流工具', () => {
 
   it('昨日情绪池使用上一个交易日而不是自然日', async () => {
     mockedListEastmoneySurgeByDate.mockResolvedValue([
-      { id: 'previous-1', title: '前日首板', code: '600001', name: '前日首板', tag: '封涨停板', description: '半导体·首板', changePercent: '10.00%' },
-      { id: 'previous-2', title: '前日连板', code: '600002', name: '前日连板', tag: '封涨停板', description: '机器人·2连板', changePercent: '10.01%' },
+      {
+        id: 'previous-1',
+        title: '前日首板',
+        code: '600001',
+        name: '前日首板',
+        tag: '封涨停板',
+        description: '半导体·首板',
+        changePercent: '10.00%',
+      },
+      {
+        id: 'previous-2',
+        title: '前日连板',
+        code: '600002',
+        name: '前日连板',
+        tag: '封涨停板',
+        description: '机器人·2连板',
+        changePercent: '10.01%',
+      },
     ]);
 
     const resolved = await fetchPreviousTradingDaySentimentPoolsForTest('2026-08-04', [
@@ -552,11 +650,29 @@ describe('发现页股票和资金流工具', () => {
     expect(buildDiscoveryDragonTigerForTest(rows)).toEqual({
       inst: [],
       hot: [
-        { code: '600002', name: '涨幅上榜', changePercent: 10, netBuy: 120_000_000, reason: '日涨幅偏离值达到7%的前5只证券' },
-        { code: '600001', name: '换手上榜', changePercent: 9, netBuy: 80_000_000, reason: '日换手率达到20%的前5只证券' },
+        {
+          code: '600002',
+          name: '涨幅上榜',
+          changePercent: 10,
+          netBuy: 120_000_000,
+          reason: '日涨幅偏离值达到7%的前5只证券',
+        },
+        {
+          code: '600001',
+          name: '换手上榜',
+          changePercent: 9,
+          netBuy: 80_000_000,
+          reason: '日换手率达到20%的前5只证券',
+        },
       ],
       first: [
-        { code: '600002', name: '涨幅上榜', changePercent: 10, netBuy: 120_000_000, reason: '日涨幅偏离值达到7%的前5只证券' },
+        {
+          code: '600002',
+          name: '涨幅上榜',
+          changePercent: 10,
+          netBuy: 120_000_000,
+          reason: '日涨幅偏离值达到7%的前5只证券',
+        },
       ],
     });
   });
@@ -586,41 +702,44 @@ describe('发现页股票和资金流工具', () => {
         date: '2026-07-31',
         weekday: '星期五',
         inst: [],
-        hot: [
-          { code: '600001', name: '首板股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' },
-        ],
-        first: [
-          { code: '600001', name: '首板股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' },
-        ],
+        hot: [{ code: '600001', name: '首板股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+        first: [{ code: '600001', name: '首板股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
       },
     ]);
   });
 
   it('龙虎榜任一分类有真实数据就算已有龙虎榜数据', () => {
-    const createItems = (count: number) => Array.from({ length: count }, (_, index) => ({
-      code: `6000${String(index).padStart(2, '0')}`,
-      name: `样本${index}`,
-      changePercent: index,
-      netBuy: 100_000_000 - index,
-      reason: '日涨幅偏离值达7%',
-    }));
+    const createItems = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        code: `6000${String(index).padStart(2, '0')}`,
+        name: `样本${index}`,
+        changePercent: index,
+        netBuy: 100_000_000 - index,
+        reason: '日涨幅偏离值达7%',
+      }));
 
-    expect(hasDragonTigerRowsForTest({
-      tradeDate: '2026-07-31',
-      generatedAt: '2026-07-31T10:00:00.000Z',
-      dragonTiger: { inst: createItems(1), hot: [], first: [] },
-    })).toBe(true);
-    expect(hasDragonTigerRowsForTest({
-      tradeDate: '2026-07-31',
-      generatedAt: '2026-07-31T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [], first: [] },
-      dragonTigerHistory: [{ date: '2026-07-31', weekday: '星期五', inst: [], hot: [], first: createItems(1) }],
-    })).toBe(true);
-    expect(hasDragonTigerRowsForTest({
-      tradeDate: '2026-07-31',
-      generatedAt: '2026-07-31T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [], first: [] },
-    })).toBe(false);
+    expect(
+      hasDragonTigerRowsForTest({
+        tradeDate: '2026-07-31',
+        generatedAt: '2026-07-31T10:00:00.000Z',
+        dragonTiger: { inst: createItems(1), hot: [], first: [] },
+      }),
+    ).toBe(true);
+    expect(
+      hasDragonTigerRowsForTest({
+        tradeDate: '2026-07-31',
+        generatedAt: '2026-07-31T10:00:00.000Z',
+        dragonTiger: { inst: [], hot: [], first: [] },
+        dragonTigerHistory: [{ date: '2026-07-31', weekday: '星期五', inst: [], hot: [], first: createItems(1) }],
+      }),
+    ).toBe(true);
+    expect(
+      hasDragonTigerRowsForTest({
+        tradeDate: '2026-07-31',
+        generatedAt: '2026-07-31T10:00:00.000Z',
+        dragonTiger: { inst: [], hot: [], first: [] },
+      }),
+    ).toBe(false);
   });
 
   it('按选中交易日只保留该日龙虎榜数据', () => {
@@ -659,12 +778,19 @@ describe('发现页股票和资金流工具', () => {
       },
     ]);
 
-    const selected = withSelectedDiscoveryTradeDateForTest({
-      tradeDate: '2026-07-31',
-      generatedAt: '2026-07-31T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [], first: [{ code: '600001', name: '最新股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }] },
-      dragonTigerHistory: history,
-    }, '2026-07-30');
+    const selected = withSelectedDiscoveryTradeDateForTest(
+      {
+        tradeDate: '2026-07-31',
+        generatedAt: '2026-07-31T10:00:00.000Z',
+        dragonTiger: {
+          inst: [],
+          hot: [],
+          first: [{ code: '600001', name: '最新股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+        },
+        dragonTigerHistory: history,
+      },
+      '2026-07-30',
+    );
 
     expect(selected.tradeDate).toBe('2026-07-30');
     expect(selected.dragonTiger).toEqual({
@@ -675,146 +801,261 @@ describe('发现页股票和资金流工具', () => {
   });
 
   it('默认发现页缓存交易日落后最新交易日时需要同步刷新', () => {
-    expect(shouldRefreshCachedDiscoverySnapshotForTest({
-      tradeDate: '2026-07-31',
-      generatedAt: '2026-07-31T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [{ code: '600001', name: '旧榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
-    }, '2026-08-03')).toBe(true);
+    expect(
+      shouldRefreshCachedDiscoverySnapshotForTest(
+        {
+          tradeDate: '2026-07-31',
+          generatedAt: '2026-07-31T10:00:00.000Z',
+          dragonTiger: {
+            inst: [],
+            hot: [{ code: '600001', name: '旧榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+            first: [],
+          },
+        },
+        '2026-08-03',
+      ),
+    ).toBe(true);
   });
 
   it('当前交易日缓存缺少个股机会雷达时需要同步刷新', () => {
-    expect(shouldRefreshCachedDiscoverySnapshotForTest({
-      tradeDate: '2026-08-03',
-      generatedAt: '2026-08-03T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
-      opportunityRadar: {
-        boards: [{ code: 'BK0001', name: '电力', ratio: 16.3, changePercent: 1.26, mainNetInflow: 20.6 }],
-        stocks: [],
-      },
-    }, '2026-08-03')).toBe(true);
+    expect(
+      shouldRefreshCachedDiscoverySnapshotForTest(
+        {
+          tradeDate: '2026-08-03',
+          generatedAt: '2026-08-03T10:00:00.000Z',
+          dragonTiger: {
+            inst: [],
+            hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+            first: [],
+          },
+          opportunityRadar: {
+            boards: [{ code: 'BK0001', name: '电力', ratio: 16.3, changePercent: 1.26, mainNetInflow: 20.6 }],
+            stocks: [],
+          },
+        },
+        '2026-08-03',
+      ),
+    ).toBe(true);
   });
 
   it('当前交易日缓存已有龙虎榜和个股机会雷达时不强制同步刷新', () => {
-    expect(shouldRefreshCachedDiscoverySnapshotForTest({
-      tradeDate: '2026-08-03',
-      generatedAt: '2026-08-03T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
-      marketSummary: {
-        indices: [],
-        mainFundFlow: null,
-        northFundFlow: null,
-        limitUp: 0,
-        limitDown: 0,
-        sentimentBar: 50,
-        sectors: [{ code: 'BK0001', name: '电力', changePercent: 1.26, mainNetInflow: 20.6 }],
-        opportunityRadar: [],
-        monthlyThemes: [],
-        nextWeekSectors: [],
-      },
-      opportunityRadar: {
-        boards: [],
-        stocks: [{ code: '600002', name: '个股机会', reason: '主力净流入 +1.00亿', price: 10.86, changePercent: 1.2, amount: 100_000_000, score: 100_000_000 }],
-      },
-    }, '2026-08-03')).toBe(false);
+    expect(
+      shouldRefreshCachedDiscoverySnapshotForTest(
+        {
+          tradeDate: '2026-08-03',
+          generatedAt: '2026-08-03T10:00:00.000Z',
+          dragonTiger: {
+            inst: [],
+            hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+            first: [],
+          },
+          marketSummary: {
+            indices: [],
+            mainFundFlow: null,
+            northFundFlow: null,
+            limitUp: 0,
+            limitDown: 0,
+            sentimentBar: 50,
+            sectors: [{ code: 'BK0001', name: '电力', changePercent: 1.26, mainNetInflow: 20.6 }],
+            opportunityRadar: [],
+            monthlyThemes: [],
+            nextWeekSectors: [],
+          },
+          opportunityRadar: {
+            boards: [],
+            stocks: [
+              {
+                code: '600002',
+                name: '个股机会',
+                reason: '主力净流入 +1.00亿',
+                price: 10.86,
+                changePercent: 1.2,
+                amount: 100_000_000,
+                score: 100_000_000,
+              },
+            ],
+          },
+        },
+        '2026-08-03',
+      ),
+    ).toBe(false);
   });
 
   it('当前交易日缓存缺少板块强弱时需要同步刷新', () => {
-    expect(shouldRefreshCachedDiscoverySnapshotForTest({
-      tradeDate: '2026-08-03',
-      generatedAt: '2026-08-03T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
-      marketSummary: {
-        indices: [],
-        mainFundFlow: null,
-        northFundFlow: null,
-        limitUp: 0,
-        limitDown: 0,
-        sentimentBar: 50,
-        sectors: [],
-        opportunityRadar: [],
-        monthlyThemes: [],
-        nextWeekSectors: [],
-      },
-      opportunityRadar: {
-        boards: [],
-        stocks: [{ code: '600002', name: '个股机会', reason: '主力净流入 +1.00亿', price: 10.86, changePercent: 1.2, amount: 100_000_000, score: 100_000_000 }],
-      },
-    }, '2026-08-03')).toBe(true);
+    expect(
+      shouldRefreshCachedDiscoverySnapshotForTest(
+        {
+          tradeDate: '2026-08-03',
+          generatedAt: '2026-08-03T10:00:00.000Z',
+          dragonTiger: {
+            inst: [],
+            hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+            first: [],
+          },
+          marketSummary: {
+            indices: [],
+            mainFundFlow: null,
+            northFundFlow: null,
+            limitUp: 0,
+            limitDown: 0,
+            sentimentBar: 50,
+            sectors: [],
+            opportunityRadar: [],
+            monthlyThemes: [],
+            nextWeekSectors: [],
+          },
+          opportunityRadar: {
+            boards: [],
+            stocks: [
+              {
+                code: '600002',
+                name: '个股机会',
+                reason: '主力净流入 +1.00亿',
+                price: 10.86,
+                changePercent: 1.2,
+                amount: 100_000_000,
+                score: 100_000_000,
+              },
+            ],
+          },
+        },
+        '2026-08-03',
+      ),
+    ).toBe(true);
   });
 
   it('当前交易日缓存板块强弱含异常单日涨跌幅时需要同步刷新', () => {
-    expect(shouldRefreshCachedDiscoverySnapshotForTest({
-      tradeDate: '2026-08-03',
-      generatedAt: '2026-08-03T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
-      marketSummary: {
-        indices: [],
-        mainFundFlow: null,
-        northFundFlow: null,
-        limitUp: 0,
-        limitDown: 0,
-        sentimentBar: 50,
-        sectors: [{ code: 'BK1216', name: '医药生物', changePercent: 95, mainNetInflow: 1 }],
-        opportunityRadar: [],
-        monthlyThemes: [],
-        nextWeekSectors: [],
-      },
-      opportunityRadar: {
-        boards: [],
-        stocks: [{ code: '600002', name: '个股机会', reason: '主力净流入 +1.00亿', price: 10.86, changePercent: 1.2, amount: 100_000_000, score: 100_000_000 }],
-      },
-    }, '2026-08-03')).toBe(true);
+    expect(
+      shouldRefreshCachedDiscoverySnapshotForTest(
+        {
+          tradeDate: '2026-08-03',
+          generatedAt: '2026-08-03T10:00:00.000Z',
+          dragonTiger: {
+            inst: [],
+            hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+            first: [],
+          },
+          marketSummary: {
+            indices: [],
+            mainFundFlow: null,
+            northFundFlow: null,
+            limitUp: 0,
+            limitDown: 0,
+            sentimentBar: 50,
+            sectors: [{ code: 'BK1216', name: '医药生物', changePercent: 95, mainNetInflow: 1 }],
+            opportunityRadar: [],
+            monthlyThemes: [],
+            nextWeekSectors: [],
+          },
+          opportunityRadar: {
+            boards: [],
+            stocks: [
+              {
+                code: '600002',
+                name: '个股机会',
+                reason: '主力净流入 +1.00亿',
+                price: 10.86,
+                changePercent: 1.2,
+                amount: 100_000_000,
+                score: 100_000_000,
+              },
+            ],
+          },
+        },
+        '2026-08-03',
+      ),
+    ).toBe(true);
   });
 
   it('当前交易日缓存个股机会雷达缺少现价字段时需要同步刷新', () => {
-    expect(shouldRefreshCachedDiscoverySnapshotForTest({
-      tradeDate: '2026-08-03',
-      generatedAt: '2026-08-03T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
-      opportunityRadar: {
-        boards: [],
-        stocks: [{ code: '600002', name: '个股机会', reason: '主力净流入 +1.00亿', changePercent: 1.2, amount: 100_000_000, score: 100_000_000 }],
-      },
-    }, '2026-08-03')).toBe(true);
+    expect(
+      shouldRefreshCachedDiscoverySnapshotForTest(
+        {
+          tradeDate: '2026-08-03',
+          generatedAt: '2026-08-03T10:00:00.000Z',
+          dragonTiger: {
+            inst: [],
+            hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+            first: [],
+          },
+          opportunityRadar: {
+            boards: [],
+            stocks: [
+              {
+                code: '600002',
+                name: '个股机会',
+                reason: '主力净流入 +1.00亿',
+                changePercent: 1.2,
+                amount: 100_000_000,
+                score: 100_000_000,
+              },
+            ],
+          },
+        },
+        '2026-08-03',
+      ),
+    ).toBe(true);
   });
 
   it('当前交易日缓存个股机会雷达含卖出侧大单时需要同步刷新', () => {
-    expect(shouldRefreshCachedDiscoverySnapshotForTest({
-      tradeDate: '2026-08-03',
-      generatedAt: '2026-08-03T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
-      opportunityRadar: {
-        boards: [],
-        stocks: [{ code: '600002', name: '卖出股', reason: '特大单卖出 · 总市值 80.0亿', changePercent: 1.2, amount: 100_000_000, score: 100_000_000 }],
-      },
-    }, '2026-08-03')).toBe(true);
+    expect(
+      shouldRefreshCachedDiscoverySnapshotForTest(
+        {
+          tradeDate: '2026-08-03',
+          generatedAt: '2026-08-03T10:00:00.000Z',
+          dragonTiger: {
+            inst: [],
+            hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+            first: [],
+          },
+          opportunityRadar: {
+            boards: [],
+            stocks: [
+              {
+                code: '600002',
+                name: '卖出股',
+                reason: '特大单卖出 · 总市值 80.0亿',
+                changePercent: 1.2,
+                amount: 100_000_000,
+                score: 100_000_000,
+              },
+            ],
+          },
+        },
+        '2026-08-03',
+      ),
+    ).toBe(true);
   });
 
   it('发现页龙虎榜机构榜优先使用真实机构席位数据', () => {
     const rows = buildDiscoveryDragonTigerForTest(
-      [{
-        id: 'dragon-tiger-2026-08-04-600001-a',
-        date: '2026-08-04',
-        code: '600001',
-        name: '机构净买股',
-        reason: '日涨幅偏离值达到7%的前5只证券',
-        changePercent: 9.8,
-        netBuy: 80_000_000,
-        buy: 100_000_000,
-        sell: 20_000_000,
-      }],
-      [{
-        code: '600001',
-        name: '机构净买股',
-        date: '2026-08-04',
-        price: null,
-        changePercent: 9.8,
-        buyOrgCount: 2,
-        sellOrgCount: 1,
-        orgBuyAmount: 90_000_000,
-        orgSellAmount: 20_000_000,
-        orgNetAmount: 70_000_000,
-      }],
+      [
+        {
+          id: 'dragon-tiger-2026-08-04-600001-a',
+          date: '2026-08-04',
+          code: '600001',
+          name: '机构净买股',
+          reason: '日涨幅偏离值达到7%的前5只证券',
+          changePercent: 9.8,
+          netBuy: 80_000_000,
+          buy: 100_000_000,
+          sell: 20_000_000,
+        },
+      ],
+      [
+        {
+          code: '600001',
+          name: '机构净买股',
+          date: '2026-08-04',
+          price: null,
+          changePercent: 9.8,
+          buyOrgCount: 2,
+          sellOrgCount: 1,
+          orgBuyAmount: 90_000_000,
+          orgSellAmount: 20_000_000,
+          orgNetAmount: 70_000_000,
+        },
+      ],
     );
 
     expect(rows.inst).toEqual([
@@ -829,34 +1070,62 @@ describe('发现页股票和资金流工具', () => {
   });
 
   it('当前交易日缓存少于10条且含90%筹码集中度文案时需要同步刷新', () => {
-    expect(shouldRefreshCachedDiscoverySnapshotForTest({
-      tradeDate: '2026-08-03',
-      generatedAt: '2026-08-03T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }], first: [] },
-      opportunityRadar: {
-        boards: [],
-        stocks: [{ code: '600002', name: '旧缓存股', reason: '特大单买入 · 总市值 80.0亿 · 90%筹码集中度 11.90%', changePercent: 1.2, amount: 100_000_000, score: 100_000_000 }],
-      },
-    }, '2026-08-03')).toBe(true);
+    expect(
+      shouldRefreshCachedDiscoverySnapshotForTest(
+        {
+          tradeDate: '2026-08-03',
+          generatedAt: '2026-08-03T10:00:00.000Z',
+          dragonTiger: {
+            inst: [],
+            hot: [{ code: '600001', name: '上榜股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+            first: [],
+          },
+          opportunityRadar: {
+            boards: [],
+            stocks: [
+              {
+                code: '600002',
+                name: '旧缓存股',
+                reason: '特大单买入 · 总市值 80.0亿 · 90%筹码集中度 11.90%',
+                changePercent: 1.2,
+                amount: 100_000_000,
+                score: 100_000_000,
+              },
+            ],
+          },
+        },
+        '2026-08-03',
+      ),
+    ).toBe(true);
   });
 
   it('当前交易日龙虎榜尚未更新时展示该交易日真实空态', () => {
     const latestRows = [{ code: '600001', name: '最新股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }];
-    const picked = pickCurrentDragonTigerFromHistoryForTest([
-      { date: '2026-08-03', weekday: '星期一', inst: [], hot: [], first: [] },
-      { date: '2026-07-31', weekday: '星期五', inst: [], hot: latestRows, first: [] },
-    ], '2026-08-03');
+    const picked = pickCurrentDragonTigerFromHistoryForTest(
+      [
+        { date: '2026-08-03', weekday: '星期一', inst: [], hot: [], first: [] },
+        { date: '2026-07-31', weekday: '星期五', inst: [], hot: latestRows, first: [] },
+      ],
+      '2026-08-03',
+    );
 
     expect(picked).toEqual({ inst: [], hot: [], first: [] });
   });
 
   it('选中无龙虎榜交易日时返回真实空态而不是回退最新日', () => {
-    const selected = withSelectedDiscoveryTradeDateForTest({
-      tradeDate: '2026-07-31',
-      generatedAt: '2026-07-31T10:00:00.000Z',
-      dragonTiger: { inst: [], hot: [], first: [{ code: '600001', name: '最新股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }] },
-      dragonTigerHistory: [],
-    }, '2026-07-29');
+    const selected = withSelectedDiscoveryTradeDateForTest(
+      {
+        tradeDate: '2026-07-31',
+        generatedAt: '2026-07-31T10:00:00.000Z',
+        dragonTiger: {
+          inst: [],
+          hot: [],
+          first: [{ code: '600001', name: '最新股', changePercent: 10, netBuy: 90_000_000, reason: '首板上榜' }],
+        },
+        dragonTigerHistory: [],
+      },
+      '2026-07-29',
+    );
 
     expect(selected.tradeDate).toBe('2026-07-29');
     expect(selected.dragonTiger).toEqual({ inst: [], hot: [], first: [] });
@@ -886,7 +1155,15 @@ describe('发现页股票和资金流工具', () => {
         weekday: '星期五',
         inst: [],
         hot: [],
-        first: [{ code: `6000${String(index).padStart(2, '0')}`, name: `样本${index}`, changePercent: 10, netBuy: 10_000_000, reason: '首板上榜' }],
+        first: [
+          {
+            code: `6000${String(index).padStart(2, '0')}`,
+            name: `样本${index}`,
+            changePercent: 10,
+            netBuy: 10_000_000,
+            reason: '首板上榜',
+          },
+        ],
       };
     });
 
@@ -911,8 +1188,24 @@ describe('发现页股票和资金流工具', () => {
       tradeDate: '2026-07-30',
       generatedAt: '2026-07-30T15:30:00.000Z',
       poolItems: [
-        { id: '600001', title: '机器人A', code: '600001', name: '机器人A', tag: '封涨停板', description: '机器人·2连板·成交额 12亿', changePercent: '10.00%' },
-        { id: '600002', title: '机器人B', code: '600002', name: '机器人B', tag: '涨停开板', description: '机器人·开板', changePercent: '6.00%' },
+        {
+          id: '600001',
+          title: '机器人A',
+          code: '600001',
+          name: '机器人A',
+          tag: '封涨停板',
+          description: '机器人·2连板·成交额 12亿',
+          changePercent: '10.00%',
+        },
+        {
+          id: '600002',
+          title: '机器人B',
+          code: '600002',
+          name: '机器人B',
+          tag: '涨停开板',
+          description: '机器人·开板',
+          changePercent: '6.00%',
+        },
       ],
       dragonTiger: { inst: [], hot: [], first: [] },
       tradeDates: [{ date: '2026-07-30', weekday: '星期四' }],
@@ -1143,9 +1436,7 @@ describe('发现页股票和资金流工具', () => {
       if (date === '2026-08-03') return [{ ...baseItem, id: 'b', title: '炸板B', tag: '涨停开板' }];
       return [];
     });
-    mockedScoreSentiment
-      .mockReturnValueOnce(62)
-      .mockReturnValueOnce(48);
+    mockedScoreSentiment.mockReturnValueOnce(62).mockReturnValueOnce(48);
 
     await expect(buildScoreTrendForTest('2026-08-04', 70)).resolves.toEqual([62, 48, 70]);
   });
@@ -1199,14 +1490,30 @@ describe('发现页股票和资金流工具', () => {
 
     const radar = buildOpportunityStockRadarFromLargeOrdersForTest(candidates);
     expect(radar).toEqual([
-      expect.objectContaining({ code: '600100', name: '监控股A', price: 10.86, changePercent: 3.2, amount: 180_000_000 }),
+      expect.objectContaining({
+        code: '600100',
+        name: '监控股A',
+        price: 10.86,
+        changePercent: 3.2,
+        amount: 180_000_000,
+      }),
     ]);
     expect(radar.some((item) => item.code === '600102')).toBe(false);
   });
 
   it('缓存机会雷达个股使用实时行情覆盖历史涨跌幅', () => {
     const stocks = patchOpportunityRadarStocksWithRealtimeQuotesForTest(
-      [{ code: '002354', name: '天娱数科', reason: '大单买入', price: 8.32, changePercent: 0, amount: 332_083, score: 1 }],
+      [
+        {
+          code: '002354',
+          name: '天娱数科',
+          reason: '大单买入',
+          price: 8.32,
+          changePercent: 0,
+          amount: 332_083,
+          score: 1,
+        },
+      ],
       new Map([['002354', { code: '002354', name: '天娱数科', price: 8.32, changePercent: '-0.60%' }]]),
     );
 
@@ -1276,7 +1583,6 @@ describe('发现页股票和资金流工具', () => {
     expect(radar.some((item) => item.code === '600012')).toBe(false);
   });
 
-
   it('大盘主力资金请求失败时使用短期缓存，避免重复触发网络错误', async () => {
     const sdk = getDiscoverySdk();
     sdk.fundFlow.market.mockResolvedValueOnce([
@@ -1291,7 +1597,9 @@ describe('发现页股票和资金流工具', () => {
 
   it('大盘主力资金请求失败时使用个股资金流排名汇总作为真实数据降级', async () => {
     const sdk = getDiscoverySdk();
-    sdk.fundFlow.market.mockRejectedValueOnce(Object.assign(new Error('fetch failed'), { code: 'NETWORK_ERROR', provider: 'eastmoney' }));
+    sdk.fundFlow.market.mockRejectedValueOnce(
+      Object.assign(new Error('fetch failed'), { code: 'NETWORK_ERROR', provider: 'eastmoney' }),
+    );
     sdk.fundFlow.rank.mockResolvedValueOnce([
       createFundFlowRankRow('600001', '资金流入', 120_000_000),
       createFundFlowRankRow('600002', '资金流出', -20_000_000),
@@ -1304,11 +1612,13 @@ describe('发现页股票和资金流工具', () => {
   });
 
   it('个股资金流排名汇总应忽略空值并按亿元返回', () => {
-    expect(sumFundFlowRankRowsYiForTest([
-      createFundFlowRankRow('600001', '资金流入', 200_000_000),
-      createFundFlowRankRow('600002', '资金流出', -50_000_000),
-      createFundFlowRankRow('600003', '空值', null),
-    ])).toBe(1.5);
+    expect(
+      sumFundFlowRankRowsYiForTest([
+        createFundFlowRankRow('600001', '资金流入', 200_000_000),
+        createFundFlowRankRow('600002', '资金流出', -50_000_000),
+        createFundFlowRankRow('600003', '空值', null),
+      ]),
+    ).toBe(1.5);
     expect(sumFundFlowRankRowsYiForTest([createFundFlowRankRow('600004', '空值', null)])).toBeNull();
   });
 
@@ -1356,12 +1666,12 @@ describe('发现页股票和资金流工具', () => {
     const sdk = getDiscoverySdk();
     sdk.fundFlow.rank.mockRejectedValue(new Error('fetch failed'));
 
-    await expect(enrichMissingSectorMainNetInflowsForTest(
-      [{ code: 'BK0001', name: '半导体行业Ⅱ', changePercent: 2.1, mainNetInflow: 0, amount: 10 }],
-      buildLocalBoardCatalog(boards),
-    )).resolves.toEqual([
-      { code: 'BK0001', name: '半导体行业Ⅱ', changePercent: 2.1, mainNetInflow: 0, amount: 10 },
-    ]);
+    await expect(
+      enrichMissingSectorMainNetInflowsForTest(
+        [{ code: 'BK0001', name: '半导体行业Ⅱ', changePercent: 2.1, mainNetInflow: 0, amount: 10 }],
+        buildLocalBoardCatalog(boards),
+      ),
+    ).resolves.toEqual([{ code: 'BK0001', name: '半导体行业Ⅱ', changePercent: 2.1, mainNetInflow: 0, amount: 10 }]);
     expect(sdk.board.industry.constituents).not.toHaveBeenCalled();
     expect(sdk.board.concept.constituents).not.toHaveBeenCalled();
   });
@@ -1372,9 +1682,27 @@ describe('发现页股票和资金流工具', () => {
     try {
       mockedIsRemoteTradingDay.mockResolvedValue(true);
       mockedListRemoteTradingCalendar.mockResolvedValue([
-        { market: 'A', tradeDate: '2026-07-31', isOpen: true, source: 'stock-sdk:tencent', updatedAt: '2026-08-03T00:00:00.000Z' },
-        { market: 'A', tradeDate: '2026-08-03', isOpen: true, source: 'stock-sdk:tencent', updatedAt: '2026-08-03T00:00:00.000Z' },
-        { market: 'A', tradeDate: '2026-08-04', isOpen: true, source: 'stock-sdk:tencent', updatedAt: '2026-08-03T00:00:00.000Z' },
+        {
+          market: 'A',
+          tradeDate: '2026-07-31',
+          isOpen: true,
+          source: 'stock-sdk:tencent',
+          updatedAt: '2026-08-03T00:00:00.000Z',
+        },
+        {
+          market: 'A',
+          tradeDate: '2026-08-03',
+          isOpen: true,
+          source: 'stock-sdk:tencent',
+          updatedAt: '2026-08-03T00:00:00.000Z',
+        },
+        {
+          market: 'A',
+          tradeDate: '2026-08-04',
+          isOpen: true,
+          source: 'stock-sdk:tencent',
+          updatedAt: '2026-08-03T00:00:00.000Z',
+        },
       ]);
 
       const snapshot = await getDiscoverySnapshot({ sections: ['trade-date-nav'] });
@@ -1391,9 +1719,27 @@ describe('发现页股票和资金流工具', () => {
 
   it('等待 9:30 时显示交易日历导航，但不加载历史日期详情', async () => {
     mockedListRemoteTradingCalendar.mockResolvedValue([
-      { market: 'A', tradeDate: '2026-07-31', isOpen: true, source: 'stock-sdk:tencent', updatedAt: '2026-08-03T00:00:00.000Z' },
-      { market: 'A', tradeDate: '2026-08-03', isOpen: true, source: 'stock-sdk:tencent', updatedAt: '2026-08-03T00:00:00.000Z' },
-      { market: 'A', tradeDate: '2026-08-04', isOpen: true, source: 'stock-sdk:tencent', updatedAt: '2026-08-03T00:00:00.000Z' },
+      {
+        market: 'A',
+        tradeDate: '2026-07-31',
+        isOpen: true,
+        source: 'stock-sdk:tencent',
+        updatedAt: '2026-08-03T00:00:00.000Z',
+      },
+      {
+        market: 'A',
+        tradeDate: '2026-08-03',
+        isOpen: true,
+        source: 'stock-sdk:tencent',
+        updatedAt: '2026-08-03T00:00:00.000Z',
+      },
+      {
+        market: 'A',
+        tradeDate: '2026-08-04',
+        isOpen: true,
+        source: 'stock-sdk:tencent',
+        updatedAt: '2026-08-03T00:00:00.000Z',
+      },
     ]);
 
     const snapshot = await buildDiscoveryWaitingSnapshotForTest(new Date('2026-08-03T16:10:00.000Z'));
@@ -1406,16 +1752,37 @@ describe('发现页股票和资金流工具', () => {
   it('点击历史日期后仍保留当前最新交易日导航', async () => {
     mockedIsRemoteTradingDay.mockResolvedValue(true);
     mockedListRemoteTradingCalendar.mockResolvedValue([
-      { market: 'A', tradeDate: '2026-07-31', isOpen: true, source: 'stock-sdk:tencent', updatedAt: '2026-08-03T00:00:00.000Z' },
-      { market: 'A', tradeDate: '2026-08-03', isOpen: true, source: 'stock-sdk:tencent', updatedAt: '2026-08-03T00:00:00.000Z' },
-      { market: 'A', tradeDate: '2026-08-04', isOpen: true, source: 'stock-sdk:tencent', updatedAt: '2026-08-03T00:00:00.000Z' },
+      {
+        market: 'A',
+        tradeDate: '2026-07-31',
+        isOpen: true,
+        source: 'stock-sdk:tencent',
+        updatedAt: '2026-08-03T00:00:00.000Z',
+      },
+      {
+        market: 'A',
+        tradeDate: '2026-08-03',
+        isOpen: true,
+        source: 'stock-sdk:tencent',
+        updatedAt: '2026-08-03T00:00:00.000Z',
+      },
+      {
+        market: 'A',
+        tradeDate: '2026-08-04',
+        isOpen: true,
+        source: 'stock-sdk:tencent',
+        updatedAt: '2026-08-03T00:00:00.000Z',
+      },
     ]);
 
-    const snapshot = await withLatestDiscoveryTradeDatesForTest({
-      tradeDate: '2026-08-03',
-      generatedAt: '2026-08-03T10:00:00.000Z',
-      tradeDates: [{ date: '2026-08-03', weekday: '星期一' }],
-    }, new Date('2026-08-03T16:10:00.000Z'));
+    const snapshot = await withLatestDiscoveryTradeDatesForTest(
+      {
+        tradeDate: '2026-08-03',
+        generatedAt: '2026-08-03T10:00:00.000Z',
+        tradeDates: [{ date: '2026-08-03', weekday: '星期一' }],
+      },
+      new Date('2026-08-03T16:10:00.000Z'),
+    );
 
     expect(snapshot.tradeDate).toBe('2026-08-03');
     expect(snapshot.tradeDates?.map((item) => item.date)).toEqual(['2026-08-04', '2026-08-03', '2026-07-31']);

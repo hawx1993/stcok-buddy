@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../llm/index.js', () => ({
+vi.mock('../../llm/index', () => ({
   generateReport: vi.fn(),
 }));
 
-vi.mock('../evidence.js', () => ({
+vi.mock('../evidence', () => ({
   fallbackEvidence: (id: string, title: string) => ({ id, source: 'fallback', title }),
 }));
 
@@ -93,7 +93,13 @@ describe('股票分析子 Agent 输入裁剪', () => {
   });
 
   it('返回可用子 Agent 名称和中文标签', () => {
-    expect(stockAnalysisAgentNames().map((item) => item.name)).toEqual(['technical', 'fundamental', 'capital', 'sentiment', 'chip']);
+    expect(stockAnalysisAgentNames().map((item) => item.name)).toEqual([
+      'technical',
+      'fundamental',
+      'capital',
+      'sentiment',
+      'chip',
+    ]);
     expect(stockAnalysisAgentNames()[0].label).toContain('技术面分析');
   });
 
@@ -102,7 +108,9 @@ describe('股票分析子 Agent 输入裁剪', () => {
       ...input(),
       plan,
       dataGaps: [klineGap, { ...klineGap, id: 'gap-news', dataName: '新闻', userMessage: '新闻为空。' }],
-      planRevisions: [{ id: 'r1', reason: '数据采集后计划反思', changes: ['降低置信度'], createdAt: '2026-08-05T00:00:00.000Z' }],
+      planRevisions: [
+        { id: 'r1', reason: '数据采集后计划反思', changes: ['降低置信度'], createdAt: '2026-08-05T00:00:00.000Z' },
+      ],
     });
 
     expect(result.plan?.summary).toBe('测试计划');
@@ -203,14 +211,22 @@ describe('筹码不可用报告', () => {
 
 describe('结构化 Agent 输出解析', () => {
   it('解析 JSON 代码块并过滤不存在的证据 ID', () => {
-    const raw = '```json\n{"findings":[{"id":"f1","dimension":"technical","stance":"bullish","score":120,"confidence":2,"summary":"趋势偏强","evidenceIds":["quote-1","missing"],"risks":["回撤"]}],"markdown":"### 技术面\\n趋势偏强"}\n```';
+    const raw =
+      '```json\n{"findings":[{"id":"f1","dimension":"technical","stance":"bullish","score":120,"confidence":2,"summary":"趋势偏强","evidenceIds":["quote-1","missing"],"risks":["回撤"]}],"markdown":"### 技术面\\n趋势偏强"}\n```';
 
     const result = parseStructuredAgentOutput(raw, agent, input(), evidence);
 
     expect(result.agentName).toBe('technical');
-    expect(result.findings[0]).toEqual(expect.objectContaining({
-      id: 'f1', stance: 'bullish', score: 100, confidence: 1, evidenceIds: ['quote-1'], risks: ['回撤'],
-    }));
+    expect(result.findings[0]).toEqual(
+      expect.objectContaining({
+        id: 'f1',
+        stance: 'bullish',
+        score: 100,
+        confidence: 1,
+        evidenceIds: ['quote-1'],
+        risks: ['回撤'],
+      }),
+    );
     expect(result.markdown).toBe('### 技术面\n趋势偏强');
   });
 
@@ -232,7 +248,8 @@ describe('结构化 Agent 输出解析', () => {
   });
 
   it('数据缺口覆盖维度时会压低模型返回的确定性结论', () => {
-    const raw = '{"findings":[{"id":"f1","dimension":"technical","stance":"bullish","score":90,"confidence":0.9,"summary":"突破","evidenceIds":["kline-1"],"risks":[]}],"markdown":"### 技术面"}';
+    const raw =
+      '{"findings":[{"id":"f1","dimension":"technical","stance":"bullish","score":90,"confidence":0.9,"summary":"突破","evidenceIds":["kline-1"],"risks":[]}],"markdown":"### 技术面"}';
 
     const result = parseStructuredAgentOutput(raw, agent, { ...input(), dataGaps: [klineGap] }, evidence);
 

@@ -384,13 +384,19 @@ export function industryRankingToCard({ ranking, flow }: IIndustryRankingCardInp
     top.length
       ? top
           .slice(0, 5)
-          .map((row) => `- 📈 ${row.rank}. ${row.name}：${formatSignedPercent(row.change_pct)}，领涨 ${row.leader || '--'}`)
+          .map(
+            (row) =>
+              `- 📈 ${row.rank}. ${row.name}：${formatSignedPercent(row.change_pct)}，领涨 ${row.leader || '--'}`,
+          )
           .join('\n')
       : '- 📈 暂无数据。',
     '',
     '## 📉 跌幅 BOTTOM',
     bottom.length
-      ? bottom.slice(0, 5).map((row) => `- 📉 ${row.name}：${formatSignedPercent(row.change_pct)}`).join('\n')
+      ? bottom
+          .slice(0, 5)
+          .map((row) => `- 📉 ${row.name}：${formatSignedPercent(row.change_pct)}`)
+          .join('\n')
       : '- 📉 暂无数据。',
     '',
     '## 💰 行业资金流',
@@ -405,10 +411,17 @@ export function industryRankingToCard({ ranking, flow }: IIndustryRankingCardInp
       : '- 💰 行业资金流数据暂不可用。',
     '',
     '## 🎯 综合结论',
-    `- 今日涨幅靠前的行业为 ${top.slice(0, 3).map((row) => row.name).join('、') || '暂无'}，主力资金净流入靠前的行业为 ${flowRows
-      .slice(0, 3)
-      .map((row) => row.name)
-      .join('、') || '暂无'}。数据来自东财行业板块公开接口，仅供研究参考。`,
+    `- 今日涨幅靠前的行业为 ${
+      top
+        .slice(0, 3)
+        .map((row) => row.name)
+        .join('、') || '暂无'
+    }，主力资金净流入靠前的行业为 ${
+      flowRows
+        .slice(0, 3)
+        .map((row) => row.name)
+        .join('、') || '暂无'
+    }。数据来自东财行业板块公开接口，仅供研究参考。`,
   ].join('\n');
   return {
     title: '今日行业涨幅排行',

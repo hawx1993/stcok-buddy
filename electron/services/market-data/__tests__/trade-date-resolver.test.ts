@@ -37,7 +37,9 @@ describe('交易日解析', () => {
   it('交易日 cutoff 后返回当天上海日期', async () => {
     const calendar = createCalendar(true);
 
-    await expect(resolveTradingDate(9 * 60 + 30, new Date('2026-07-31T01:30:00.000Z'), calendar)).resolves.toBe('2026-07-31');
+    await expect(resolveTradingDate(9 * 60 + 30, new Date('2026-07-31T01:30:00.000Z'), calendar)).resolves.toBe(
+      '2026-07-31',
+    );
     expect(calendar.isTradingDay).toHaveBeenCalledWith('2026-07-31');
     expect(calendar.previousTradingDay).not.toHaveBeenCalled();
   });
@@ -45,14 +47,18 @@ describe('交易日解析', () => {
   it('截止时间前返回上一交易日', async () => {
     const calendar = createCalendar(true, '2026-07-29');
 
-    await expect(resolveTradingDate(9 * 60 + 30, new Date('2026-07-31T01:29:00.000Z'), calendar)).resolves.toBe('2026-07-29');
+    await expect(resolveTradingDate(9 * 60 + 30, new Date('2026-07-31T01:29:00.000Z'), calendar)).resolves.toBe(
+      '2026-07-29',
+    );
     expect(calendar.previousTradingDay).toHaveBeenCalledWith('2026-07-31');
   });
 
   it('非交易日返回上一交易日', async () => {
     const calendar = createCalendar(false, '2026-07-30');
 
-    await expect(resolveTradingDate(9 * 60 + 30, new Date('2026-08-01T02:00:00.000Z'), calendar)).resolves.toBe('2026-07-30');
+    await expect(resolveTradingDate(9 * 60 + 30, new Date('2026-08-01T02:00:00.000Z'), calendar)).resolves.toBe(
+      '2026-07-30',
+    );
     expect(calendar.previousTradingDay).toHaveBeenCalledWith('2026-08-01');
   });
 });

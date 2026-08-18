@@ -17,6 +17,8 @@ export type AStockDataFnName =
   | 'tdx_transactions'
   | 'industry_comparison'
   | 'board_fund_flow'
+  | 'sina_board_rank'
+  | 'sina_board_constituents'
   | 'ths_hot_list'
   | 'em_hot_rank';
 
@@ -126,6 +128,35 @@ export interface IBoardFundFlow {
   period: string;
   total: number;
   rows: IBoardFundFlowRow[];
+}
+
+export type TSinaBoardKind = 'industry' | 'concept';
+
+export interface ISinaBoardRankRow {
+  code: string;
+  name: string;
+  kind: TSinaBoardKind;
+  change_percent: number;
+  amount: number | null;
+  leader_code: string;
+  leader_change_percent: number | null;
+  leader_name: string;
+}
+
+export interface ISinaBoardRankResult {
+  rows: ISinaBoardRankRow[];
+  failed_kinds: TSinaBoardKind[];
+}
+
+export interface ISinaBoardConstituentRow {
+  board_code: string;
+  stock_code: string;
+  stock_name: string;
+}
+
+export interface ISinaBoardConstituentResult {
+  rows: ISinaBoardConstituentRow[];
+  failed_board_codes: string[];
 }
 
 // 同花顺热榜

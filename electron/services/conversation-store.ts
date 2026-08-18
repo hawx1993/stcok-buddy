@@ -7,6 +7,7 @@ import type {
   IConversationMessagesOptions,
   IConversationSearchResult,
 } from '../../src/shared/types.js';
+import { toChatMessagePresentation } from './conversation-message-presentation.js';
 
 let db: Database.Database | undefined;
 
@@ -135,7 +136,7 @@ export function listMessages(conversationId: string, options: IConversationMessa
   const rows = options.beforeCreatedAt
     ? listMessagesBeforeCursor(conversationId, options.beforeCreatedAt, options.beforeId ?? '', limit)
     : listLatestMessages(conversationId, limit);
-  return rows.map((row) => JSON.parse(row.payload) as ChatMessage);
+  return rows.map((row) => toChatMessagePresentation(JSON.parse(row.payload) as ChatMessage));
 }
 
 function listLatestMessages(conversationId: string, limit: number | undefined): MessageRow[] {
@@ -268,7 +269,8 @@ function ensureSearchIndexReady(): Promise<void> {
     const database = getDb();
     database.exec(FTS_SCHEMA_SQL);
     const hasMessages =
-      (database.prepare('SELECT EXISTS(SELECT 1 FROM messages) AS has').get() as { has: number } | undefined)?.has === 1;
+      (database.prepare('SELECT EXISTS(SELECT 1 FROM messages) AS has').get() as { has: number } | undefined)?.has ===
+      1;
     const ftsCount =
       (database.prepare('SELECT COUNT(*) AS c FROM messages_fts').get() as { c: number } | undefined)?.c ?? 0;
     if (hasMessages && ftsCount === 0) {
@@ -442,7 +444,7 @@ export function saveMessage(conversationId: string, message: ChatMessage) {
     VALUES (?, ?, ?, ?)
   `,
     )
-    .run(message.id, conversationId, JSON.stringify(message), message.createdAt);
+    .run(message.id, conversationId, JSON.stringify(toChatMessagePresentation(message)), message.createdAt);
   updateConversation(conversationId, message.content.slice(0, 80));
 }
 
@@ -482,7 +484,10 @@ function createSnippet(content: string, keyword: string) {
   if (!normalized) return '';
   const index = normalized.toLowerCase().indexOf(keyword.toLowerCase());
   const start = index >= 0 ? Math.max(0, index - SNIPPET_RADIUS) : 0;
-  const end = index >= 0 ? Math.min(normalized.length, index + keyword.length + SNIPPET_RADIUS) : Math.min(normalized.length, SNIPPET_RADIUS * 2);
+  const end =
+    index >= 0
+      ? Math.min(normalized.length, index + keyword.length + SNIPPET_RADIUS)
+      : Math.min(normalized.length, SNIPPET_RADIUS * 2);
   const prefix = start > 0 ? '…' : '';
   const suffix = end < normalized.length ? '…' : '';
   return `${prefix}${normalized.slice(start, end)}${suffix}`;

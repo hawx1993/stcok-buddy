@@ -31,7 +31,8 @@ export const getStockQuoteLocalFirst: AgentTool<{ symbol: string }, StockDetail>
     let localStaleQuote: StockDetail | undefined;
     try {
       const result = await queryLatestQuote(symbol);
-      const freshRemote = result.meta.storage === 'remote' && result.meta.freshness !== 'stale' && result.meta.freshness !== 'fallback';
+      const freshRemote =
+        result.meta.storage === 'remote' && result.meta.freshness !== 'stale' && result.meta.freshness !== 'fallback';
       if (freshRemote) return result.data;
       localStaleQuote = result.data;
       errors.push(...(result.meta.warnings ?? ['stock-sdk 未返回满足实时性的行情']));

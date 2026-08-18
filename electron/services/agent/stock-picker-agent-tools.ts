@@ -77,7 +77,10 @@ export const STOCK_PICKER_TOOLBOX: IToolSpec[] = [
       '获取个股龙虎榜上榜记录与游资席位（买方营业部、机构专用），用于判断是否获一线游资参与。输入 {symbol}。',
   },
   { name: 'getHotConcepts', description: '获取今日热门题材与概念归属，用于判断候选股是否踩中当日热点。无需输入。' },
-  { name: 'getMarketReview', description: '获取全市场情绪、涨停梯队、热点板块，用于判断超短线情绪周期与板块效应。无需输入。' },
+  {
+    name: 'getMarketReview',
+    description: '获取全市场情绪、涨停梯队、热点板块，用于判断超短线情绪周期与板块效应。无需输入。',
+  },
   {
     name: 'readUrl',
     description:
@@ -94,7 +97,12 @@ const DEFAULT_CUSTOM_INTENT: IResolvedStockPickerIntent = {
   id: 'custom',
   label: '自定义超短线选股',
   description: '用户描述了复合选股需求，由模型在工具白名单内自主拆解真实数据条件。',
-  followupTools: ['screenLocalAStocks', 'getTechnicalIndicators', 'getStockChipDistributionLocalFirst', 'getStockFundFlowLocalFirst'],
+  followupTools: [
+    'screenLocalAStocks',
+    'getTechnicalIndicators',
+    'getStockChipDistributionLocalFirst',
+    'getStockFundFlowLocalFirst',
+  ],
   criteriaText: ['按用户自然语言条件拆解宽筛参数', '先全市场宽筛，再对候选股做技术/筹码/资金精筛'],
   answerHint: '先说明已按用户描述拆解条件；只基于真实工具结果输出候选清单，数据不足时说明缺口。',
 };
@@ -133,9 +141,14 @@ export const STOCK_PICKER_INTENT_TEMPLATES: readonly IStockPickerIntentTemplate[
       sortBy: 'concentration90',
       sortOrder: 'asc',
     },
-    followupTools: ['getStockChipDistributionLocalFirst', 'getStockFundFlowLocalFirst', 'getStockSurgeEventsLocalFirst'],
+    followupTools: [
+      'getStockChipDistributionLocalFirst',
+      'getStockFundFlowLocalFirst',
+      'getStockSurgeEventsLocalFirst',
+    ],
     criteriaText: ['90% 筹码集中度 < 15%', '获利比例 > 80%', '排除 ST', '后续验证主力/超大单净流入是否为正'],
-    answerHint: '对用户表达为「筹码高度集中 + 获利盘较高 + 资金流验证」；资金流未返回时，只能说控盘迹象缺少资金面确认。',
+    answerHint:
+      '对用户表达为「筹码高度集中 + 获利盘较高 + 资金流验证」；资金流未返回时，只能说控盘迹象缺少资金面确认。',
   },
   {
     id: 'limit-up-potential',
@@ -145,9 +158,14 @@ export const STOCK_PICKER_INTENT_TEMPLATES: readonly IStockPickerIntentTemplate[
     primaryTool: 'getMarketReview',
     primaryInput: {},
     followupTools: ['getHotConcepts', 'screenLocalAStocks', 'getStockSurgeEventsLocalFirst', 'getDragonTiger'],
-    criteriaText: ['先读取真实市场复盘、涨停梯队和热点板块', '再筛选高换手、高涨幅、资金异动候选', '必要时验证龙虎榜和个股异动'],
+    criteriaText: [
+      '先读取真实市场复盘、涨停梯队和热点板块',
+      '再筛选高换手、高涨幅、资金异动候选',
+      '必要时验证龙虎榜和个股异动',
+    ],
     answerHint: '对用户表达为「情绪周期 + 涨停梯队 + 题材热度 + 资金异动」；不得把缺失字段当作已满足条件。',
-    dataGapHint: '当前工具未稳定提供昨日首板、封单金额和竞价高开字段；若结果中没有这些真实字段，必须明确标注缺口，不得编造。',
+    dataGapHint:
+      '当前工具未稳定提供昨日首板、封单金额和竞价高开字段；若结果中没有这些真实字段，必须明确标注缺口，不得编造。',
   },
 ];
 

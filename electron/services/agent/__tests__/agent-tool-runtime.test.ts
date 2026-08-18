@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../tools/tool-registry.js', () => ({
+vi.mock('../../tools/tool-registry', () => ({
   callTool: vi.fn(),
 }));
 
-import type { ToolCallRecord } from '../../../../src/shared/types.js';
+import type { AgentRunEvent, ToolCallRecord } from '../../../../src/shared/types.js';
 import { callTool } from '../../tools/tool-registry.js';
 import { createInitialAgentPlan } from '../agent-planning.js';
-import { createDataStatuses, createSkippedDataStatus, inferToolDataStatus, isEmptyToolOutput, runContextTool } from '../agent-tool-runtime.js';
+import {
+  createDataStatuses,
+  createSkippedDataStatus,
+  inferToolDataStatus,
+  isEmptyToolOutput,
+  runContextTool,
+} from '../agent-tool-runtime.js';
 import type { IAgentContext } from '../orchestrator-types.js';
 
 const mockedCallTool = vi.mocked(callTool);
@@ -81,13 +87,49 @@ describe('agent-tool-runtime 数据状态记录', () => {
     );
   });
 
-  it('新闻公告复合输出会分别记录缺口', () => {
-    const statuses = createDataStatuses(
-      createContext(),
-      'getStockNewsAnnouncements',
-      'tool-2',
-      { news: [{ title: '新闻' }], announcements: [] },
+  it('工具原始结果仅保留在执行链路，进度记录只保留摘要', async () => {
+    const context = createContext();
+    const emittedEvents: AgentRunEvent[] = [];
+    context.emitEvent = (event) => emittedEvents.push(event);
+    const rawInput = { dataset: 'stock_snapshot', limit: 5000 };
+    const rawOutput = { rows: [{ code: '600519', name: '贵州茅台', payload: '完整工具结果' }] };
+    mockedCallTool.mockResolvedValueOnce(
+      record({
+        input: rawInput,
+        inputSummary: 'dataset=stock_snapshot limit=5000',
+        output: rawOutput,
+        outputSummary: '返回 1 条股票快照',
+      }),
     );
+
+    const result = await runContextTool(context, 'getStockQuote', rawInput, () => ({ rows: [] }));
+
+    expect(result).toBe(rawOutput);
+    expect(context.toolCalls).toEqual([
+      expect.objectContaining({
+        inputSummary: 'dataset=stock_snapshot limit=5000',
+        outputSummary: '返回 1 条股票快照',
+      }),
+    ]);
+    expect(context.toolCalls[0]?.input).toBeUndefined();
+    expect(context.toolCalls[0]?.output).toBeUndefined();
+
+    const startedEvent = emittedEvents.find((event) => event.type === 'tool_started');
+    expect(startedEvent?.toolCall?.input).toBeUndefined();
+    expect(startedEvent?.toolCall?.output).toBeUndefined();
+    expect(startedEvent?.toolCall?.inputSummary).toBe('{"dataset":"stock_snapshot","limit":5000}');
+
+    const completedEvent = emittedEvents.find((event) => event.type === 'tool_completed');
+    expect(completedEvent?.toolCall?.input).toBeUndefined();
+    expect(completedEvent?.toolCall?.output).toBeUndefined();
+    expect(completedEvent?.toolCall?.outputSummary).toBe('返回 1 条股票快照');
+  });
+
+  it('新闻公告复合输出会分别记录缺口', () => {
+    const statuses = createDataStatuses(createContext(), 'getStockNewsAnnouncements', 'tool-2', {
+      news: [{ title: '新闻' }],
+      announcements: [],
+    });
 
     expect(statuses.map((status) => [status.dataName, status.status])).toEqual([
       ['新闻', 'available'],
@@ -96,88 +138,68 @@ describe('agent-tool-runtime 数据状态记录', () => {
   });
 
   it('筹码本地优先工具会映射到筹码集中度数据状态', () => {
-    const statuses = createDataStatuses(
-      createContext(),
-      'getStockChipDistributionLocalFirst',
-      'tool-3',
-      { latest: { concentration90: 0.18, concentration70: 0.12 }, recent: [{ date: '2026-08-05' }] },
-    );
+    const statuses = createDataStatuses(createContext(), 'getStockChipDistributionLocalFirst', 'tool-3', {
+      latest: { concentration90: 0.18, concentration70: 0.12 },
+      recent: [{ date: '2026-08-05' }],
+    });
 
     expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '筹码集中度', status: 'available' }));
   });
 
   it('筹码数据源切换追踪不会把可用真实结果标记为 partial', () => {
-    const statuses = createDataStatuses(
-      createContext(),
-      'getStockChipDistributionLocalFirst',
-      'tool-4',
-      {
-        latest: { concentration90: 0.18, concentration70: 0.12 },
-        recent: [{ date: '2026-08-05' }],
-        source: 'a-stock-data',
-        freshness: 'current',
-        sourceTrace: ['本地缓存不存在', 'stock-sdk 失败，已切换 a-stock-data'],
-        warnings: [],
-      },
-    );
+    const statuses = createDataStatuses(createContext(), 'getStockChipDistributionLocalFirst', 'tool-4', {
+      latest: { concentration90: 0.18, concentration70: 0.12 },
+      recent: [{ date: '2026-08-05' }],
+      source: 'a-stock-data',
+      freshness: 'current',
+      sourceTrace: ['本地缓存不存在', 'stock-sdk 失败，已切换 a-stock-data'],
+      warnings: [],
+    });
 
     expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '筹码集中度', status: 'available' }));
   });
 
   it('完整但零命中的条件选股不会被记录为数据缺口', () => {
-    const statuses = createDataStatuses(
-      createContext(),
-      'screenASharesByConditions',
-      'tool-condition-empty',
-      {
-        isComplete: true,
-        rows: [],
-        matchedCount: 0,
-        returnedCount: 0,
-        warnings: [],
-      },
-    );
+    const statuses = createDataStatuses(createContext(), 'screenASharesByConditions', 'tool-condition-empty', {
+      isComplete: true,
+      rows: [],
+      matchedCount: 0,
+      returnedCount: 0,
+      warnings: [],
+    });
 
     expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '条件选股', status: 'available' }));
   });
 
   it('完整但零命中的本地选股不会被记录为数据缺口', () => {
-    const statuses = createDataStatuses(
-      createContext(),
-      'screenLocalAStocks',
-      'tool-local-screen-empty',
-      {
-        source: 'duckdb:market',
-        storage: 'local',
-        rows: [],
-        matchedCount: 0,
-        returnedCount: 0,
-        warnings: [],
-        isEmpty: true,
-      },
-    );
+    const statuses = createDataStatuses(createContext(), 'screenLocalAStocks', 'tool-local-screen-empty', {
+      source: 'duckdb:market',
+      storage: 'local',
+      rows: [],
+      matchedCount: 0,
+      returnedCount: 0,
+      warnings: [],
+      isEmpty: true,
+    });
 
     expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '本地选股/筹码筛选', status: 'available' }));
   });
 
   it('联网搜索工具会映射到联网搜索数据状态', () => {
-    const statuses = createDataStatuses(
-      createContext(),
-      'webSearch',
-      'tool-web-search',
-      { query: '半导体 催化', results: [{ title: '新闻', url: 'https://example.com', snippet: '摘要' }], warnings: [] },
-    );
+    const statuses = createDataStatuses(createContext(), 'webSearch', 'tool-web-search', {
+      query: '半导体 催化',
+      results: [{ title: '新闻', url: 'https://example.com', snippet: '摘要' }],
+      warnings: [],
+    });
 
     expect(statuses[0]).toEqual(expect.objectContaining({ dataName: '联网搜索', status: 'available' }));
   });
 
   it('市值筛选工具会映射到 A 股市值筛选数据状态', () => {
-    const statuses = createDataStatuses(
-      createContext(),
-      'screenASharesByMarketCap',
-      'tool-4',
-      { rows: [{ code: '600001', marketCapYi: 50 }], warnings: ['部分股票缺少市值'] },
-    );
+    const statuses = createDataStatuses(createContext(), 'screenASharesByMarketCap', 'tool-4', {
+      rows: [{ code: '600001', marketCapYi: 50 }],
+      warnings: ['部分股票缺少市值'],
+    });
 
     expect(statuses[0]).toEqual(expect.objectContaining({ dataName: 'A股市值筛选', status: 'partial' }));
   });

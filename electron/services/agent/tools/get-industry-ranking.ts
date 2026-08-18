@@ -23,6 +23,10 @@ export const getIndustryRanking: AgentTool<Record<string, never>, IIndustryRanki
     const hasRanking = rankingData !== null && rankingData.total > 0;
     const hasFlow = flowData !== null && flowData.rows.length > 0;
     if (!hasRanking && !hasFlow) throw new Error('行业涨幅排名与行业资金流数据源均不可用');
-    return { ranking: hasRanking ? rankingData : null, flow: hasFlow ? flowData : null, gaps: { ranking: !hasRanking, flow: !hasFlow } };
+    return {
+      ranking: hasRanking ? rankingData : null,
+      flow: hasFlow ? flowData : null,
+      gaps: { ranking: !hasRanking, flow: !hasFlow },
+    };
   },
 };

@@ -8,5 +8,6 @@ export const getHolderNumberChange: AgentTool<{ symbol: string }, IHolderNumberC
   name: 'getHolderNumberChange',
   description: 'Fetch A-share shareholder count change history (a-stock-data).',
   inputSchema: { type: 'object', properties: { symbol: { type: 'string' } }, required: ['symbol'] },
-  run: (input) => runAStockDataFn<IHolderNumberChangeRow[]>('holder_num_change', { code: text(asRecord(input), 'symbol') }),
+  run: (input) =>
+    runAStockDataFn<IHolderNumberChangeRow[]>('holder_num_change', { code: text(asRecord(input), 'symbol') }),
 };

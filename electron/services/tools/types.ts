@@ -1,4 +1,4 @@
-import type { ToolCallRecord } from '../../../src/shared/types.js';
+import type { ToolCallRecord } from '../../../src/shared/types.ts';
 
 export interface AgentTool<Input = unknown, Output = unknown> {
   name: string;

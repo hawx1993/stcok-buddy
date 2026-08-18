@@ -20,10 +20,10 @@ type TMarketDataStore = typeof import('../../market-data/market-data-store.js');
 type TMonitorHistoryStore = typeof import('../../stock/monitor-history-store.js');
 type TSurgeHistoryStore = typeof import('../../stock/surge-history-store.js');
 type TLocalDuckDBTools = {
-  screenLocalAStocks: typeof import('../tools/screen-local-a-stocks.js')['screenLocalAStocks'];
-  queryLocalMarketDuckDB: typeof import('../tools/query-local-market-duckdb.js')['queryLocalMarketDuckDB'];
-  queryLocalMonitorDuckDB: typeof import('../tools/query-local-monitor-duckdb.js')['queryLocalMonitorDuckDB'];
-  queryLocalSurgeDuckDB: typeof import('../tools/query-local-surge-duckdb.js')['queryLocalSurgeDuckDB'];
+  screenLocalAStocks: (typeof import('../tools/screen-local-a-stocks.js'))['screenLocalAStocks'];
+  queryLocalMarketDuckDB: (typeof import('../tools/query-local-market-duckdb.js'))['queryLocalMarketDuckDB'];
+  queryLocalMonitorDuckDB: (typeof import('../tools/query-local-monitor-duckdb.js'))['queryLocalMonitorDuckDB'];
+  queryLocalSurgeDuckDB: (typeof import('../tools/query-local-surge-duckdb.js'))['queryLocalSurgeDuckDB'];
 };
 
 let marketDbPath = '';
@@ -213,10 +213,15 @@ describe('本地 DuckDB Agent 工具', () => {
       limit: 10,
     });
 
-    expect(result).toMatchObject({ source: 'duckdb:market', storage: 'local', latestTradeDate: '2026-07-09', matchedCount: 1, returnedCount: 1, isEmpty: false });
-    expect(result.rows).toEqual([
-      expect.objectContaining({ code: '600519', name: '贵州茅台', changePercent: 6.2 }),
-    ]);
+    expect(result).toMatchObject({
+      source: 'duckdb:market',
+      storage: 'local',
+      latestTradeDate: '2026-07-09',
+      matchedCount: 1,
+      returnedCount: 1,
+      isEmpty: false,
+    });
+    expect(result.rows).toEqual([expect.objectContaining({ code: '600519', name: '贵州茅台', changePercent: 6.2 })]);
     expect(result.rows[0].concentration90Percent).toBeCloseTo(14.5);
   });
 
@@ -270,7 +275,11 @@ describe('本地 DuckDB Agent 工具', () => {
     await monitorStore.saveMonitorEvents([createMonitorEvent()], new Date('2026-07-09T10:00:00.000Z'), '2026-07-09');
     await surgeStore.saveSurgeSnapshot([createSurgeItem()], new Date('2026-07-09T10:01:00.000Z'), '2026-07-09');
 
-    const monitor = await tools.queryLocalMonitorDuckDB.run({ date: '2026-07-09', categories: ['technical'], includeCounts: true });
+    const monitor = await tools.queryLocalMonitorDuckDB.run({
+      date: '2026-07-09',
+      categories: ['technical'],
+      includeCounts: true,
+    });
     expect(monitor).toMatchObject({ source: 'duckdb:monitor', dataset: 'ai_monitor_events', total: 1, isEmpty: false });
     expect(monitor.rows).toEqual([expect.objectContaining({ code: '600519', title: '日内强势信号' })]);
 
@@ -282,50 +291,137 @@ describe('本地 DuckDB Agent 工具', () => {
   it('按买入手数筛选全市场异动时不会漏掉 000889', async () => {
     if (!surgeStore || !tools) throw new Error('modules not loaded');
 
-    await surgeStore.saveSurgeSnapshot([
-      createSurgeItem({ id: 'large-buy-000889', title: '中嘉博创 000889', code: '000889', name: '中嘉博创', time: '11:28', amount: '买入1.02万手' }),
-      createSurgeItem({ id: 'large-buy-300552', title: '万集科技 300552', code: '300552', name: '万集科技', time: '11:29', amount: '买入1.2万手' }),
-      createSurgeItem({ id: 'small-buy-600000', title: '浦发银行 600000', code: '600000', name: '浦发银行', time: '11:30', amount: '买入9999手' }),
-      createSurgeItem({ id: 'large-sell-000001', title: '平安银行 000001', code: '000001', name: '平安银行', time: '11:31', amount: '卖出2万手', tag: '特大单卖出', description: '特大单卖出', type: 'plummet' }),
-    ], new Date('2026-08-05T03:31:00.000Z'), '2026-08-05');
+    await surgeStore.saveSurgeSnapshot(
+      [
+        createSurgeItem({
+          id: 'large-buy-000889',
+          title: '中嘉博创 000889',
+          code: '000889',
+          name: '中嘉博创',
+          time: '11:28',
+          amount: '买入1.02万手',
+        }),
+        createSurgeItem({
+          id: 'large-buy-300552',
+          title: '万集科技 300552',
+          code: '300552',
+          name: '万集科技',
+          time: '11:29',
+          amount: '买入1.2万手',
+        }),
+        createSurgeItem({
+          id: 'small-buy-600000',
+          title: '浦发银行 600000',
+          code: '600000',
+          name: '浦发银行',
+          time: '11:30',
+          amount: '买入9999手',
+        }),
+        createSurgeItem({
+          id: 'large-sell-000001',
+          title: '平安银行 000001',
+          code: '000001',
+          name: '平安银行',
+          time: '11:31',
+          amount: '卖出2万手',
+          tag: '特大单卖出',
+          description: '特大单卖出',
+          type: 'plummet',
+        }),
+      ],
+      new Date('2026-08-05T03:31:00.000Z'),
+      '2026-08-05',
+    );
 
-    const result = await tools.queryLocalSurgeDuckDB.run({ date: '2026-08-05', side: 'buy', minHands: 10000, limit: 100 });
+    const result = await tools.queryLocalSurgeDuckDB.run({
+      date: '2026-08-05',
+      side: 'buy',
+      minHands: 10000,
+      limit: 100,
+    });
 
     expect(result).toMatchObject({ source: 'duckdb:surge', dataset: 'stock_surge_events', isEmpty: false });
     expect(result.rows).toHaveLength(2);
-    expect(result.rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: '000889', name: '中嘉博创', amount: '买入1.02万手' }),
-      expect.objectContaining({ code: '300552', name: '万集科技', amount: '买入1.2万手' }),
-    ]));
-    expect(result.rows).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: '600000' }),
-      expect.objectContaining({ code: '000001' }),
-    ]));
+    expect(result.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: '000889', name: '中嘉博创', amount: '买入1.02万手' }),
+        expect.objectContaining({ code: '300552', name: '万集科技', amount: '买入1.2万手' }),
+      ]),
+    );
+    expect(result.rows).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: '600000' }),
+        expect.objectContaining({ code: '000001' }),
+      ]),
+    );
   });
 
   it('未指定日期时按近期可用异动历史筛选全市场买入手数', async () => {
     if (!surgeStore || !tools) throw new Error('modules not loaded');
 
-    await surgeStore.saveSurgeSnapshot([
-      createSurgeItem({ id: 'recent-large-buy-000889', title: '中嘉博创 000889', code: '000889', name: '中嘉博创', time: '11:28', amount: '买入1.02万手' }),
-      createSurgeItem({ id: 'recent-small-buy-600000', title: '浦发银行 600000', code: '600000', name: '浦发银行', time: '11:30', amount: '买入9999手' }),
-    ], new Date('2026-08-05T03:31:00.000Z'), '2026-08-05');
-    await surgeStore.saveSurgeSnapshot([
-      createSurgeItem({ id: 'older-large-buy-300552', title: '万集科技 300552', code: '300552', name: '万集科技', time: '10:29', amount: '买入1.2万手' }),
-      createSurgeItem({ id: 'older-large-sell-000001', title: '平安银行 000001', code: '000001', name: '平安银行', time: '10:31', amount: '卖出2万手', tag: '特大单卖出', description: '特大单卖出', type: 'plummet' }),
-    ], new Date('2026-08-04T03:31:00.000Z'), '2026-08-04');
+    await surgeStore.saveSurgeSnapshot(
+      [
+        createSurgeItem({
+          id: 'recent-large-buy-000889',
+          title: '中嘉博创 000889',
+          code: '000889',
+          name: '中嘉博创',
+          time: '11:28',
+          amount: '买入1.02万手',
+        }),
+        createSurgeItem({
+          id: 'recent-small-buy-600000',
+          title: '浦发银行 600000',
+          code: '600000',
+          name: '浦发银行',
+          time: '11:30',
+          amount: '买入9999手',
+        }),
+      ],
+      new Date('2026-08-05T03:31:00.000Z'),
+      '2026-08-05',
+    );
+    await surgeStore.saveSurgeSnapshot(
+      [
+        createSurgeItem({
+          id: 'older-large-buy-300552',
+          title: '万集科技 300552',
+          code: '300552',
+          name: '万集科技',
+          time: '10:29',
+          amount: '买入1.2万手',
+        }),
+        createSurgeItem({
+          id: 'older-large-sell-000001',
+          title: '平安银行 000001',
+          code: '000001',
+          name: '平安银行',
+          time: '10:31',
+          amount: '卖出2万手',
+          tag: '特大单卖出',
+          description: '特大单卖出',
+          type: 'plummet',
+        }),
+      ],
+      new Date('2026-08-04T03:31:00.000Z'),
+      '2026-08-04',
+    );
 
     const result = await tools.queryLocalSurgeDuckDB.run({ side: 'buy', minHands: 10000, keepDays: 7, limit: 100 });
 
     expect(result).toMatchObject({ source: 'duckdb:surge', dataset: 'stock_surge_events', isEmpty: false });
-    expect(result.rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: '000889', amount: '买入1.02万手' }),
-      expect.objectContaining({ code: '300552', amount: '买入1.2万手' }),
-    ]));
-    expect(result.rows).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: '600000' }),
-      expect.objectContaining({ code: '000001' }),
-    ]));
+    expect(result.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: '000889', amount: '买入1.02万手' }),
+        expect.objectContaining({ code: '300552', amount: '买入1.2万手' }),
+      ]),
+    );
+    expect(result.rows).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: '600000' }),
+        expect.objectContaining({ code: '000001' }),
+      ]),
+    );
   });
 
   it('全市场按买入手数筛选时整日扫描，不因当日行数超过100条而漏掉早盘特大单', async () => {
@@ -345,34 +441,76 @@ describe('本地 DuckDB Agent 工具', () => {
         description: '快速涨幅',
       }),
     );
-    items.push(createSurgeItem({
-      id: 'early-large-buy-000889',
-      title: '中嘉博创 000889',
-      code: '000889',
-      name: '中嘉博创',
-      time: '09:35',
-      amount: '买入1.02万手',
-    }));
+    items.push(
+      createSurgeItem({
+        id: 'early-large-buy-000889',
+        title: '中嘉博创 000889',
+        code: '000889',
+        name: '中嘉博创',
+        time: '09:35',
+        amount: '买入1.02万手',
+      }),
+    );
     await surgeStore.saveSurgeSnapshot(items, new Date('2026-08-05T03:31:00.000Z'), '2026-08-05');
 
-    const result = await tools.queryLocalSurgeDuckDB.run({ date: '2026-08-05', side: 'buy', minHands: 10000, limit: 100 });
+    const result = await tools.queryLocalSurgeDuckDB.run({
+      date: '2026-08-05',
+      side: 'buy',
+      minHands: 10000,
+      limit: 100,
+    });
 
     expect(result).toMatchObject({ source: 'duckdb:surge', dataset: 'stock_surge_events', isEmpty: false });
-    expect(result.rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: '000889', name: '中嘉博创', amount: '买入1.02万手', tradeDate: '2026-08-05' }),
-    ]));
+    expect(result.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: '000889', name: '中嘉博创', amount: '买入1.02万手', tradeDate: '2026-08-05' }),
+      ]),
+    );
   });
 
   it('全市场按买入手数筛选时按股票聚合，同一股票多次特大单只保留最新一条', async () => {
     if (!surgeStore || !tools) throw new Error('modules not loaded');
 
-    await surgeStore.saveSurgeSnapshot([
-      createSurgeItem({ id: 'buy-1', title: '嘉麟杰 002486', code: '002486', name: '嘉麟杰', time: '10:36:30', amount: '买入1.40万手', changePercent: '+1.66%' }),
-      createSurgeItem({ id: 'buy-2', title: '嘉麟杰 002486', code: '002486', name: '嘉麟杰', time: '10:37:09', amount: '买入1.89万手', changePercent: '+3.32%' }),
-      createSurgeItem({ id: 'buy-3', title: '成都路桥 002628', code: '002628', name: '成都路桥', time: '10:39:57', amount: '买入1.03万手', changePercent: '-0.20%' }),
-    ], new Date('2026-08-05T03:31:00.000Z'), '2026-08-05');
+    await surgeStore.saveSurgeSnapshot(
+      [
+        createSurgeItem({
+          id: 'buy-1',
+          title: '嘉麟杰 002486',
+          code: '002486',
+          name: '嘉麟杰',
+          time: '10:36:30',
+          amount: '买入1.40万手',
+          changePercent: '+1.66%',
+        }),
+        createSurgeItem({
+          id: 'buy-2',
+          title: '嘉麟杰 002486',
+          code: '002486',
+          name: '嘉麟杰',
+          time: '10:37:09',
+          amount: '买入1.89万手',
+          changePercent: '+3.32%',
+        }),
+        createSurgeItem({
+          id: 'buy-3',
+          title: '成都路桥 002628',
+          code: '002628',
+          name: '成都路桥',
+          time: '10:39:57',
+          amount: '买入1.03万手',
+          changePercent: '-0.20%',
+        }),
+      ],
+      new Date('2026-08-05T03:31:00.000Z'),
+      '2026-08-05',
+    );
 
-    const result = await tools.queryLocalSurgeDuckDB.run({ date: '2026-08-05', side: 'buy', minHands: 10000, limit: 100 });
+    const result = await tools.queryLocalSurgeDuckDB.run({
+      date: '2026-08-05',
+      side: 'buy',
+      minHands: 10000,
+      limit: 100,
+    });
 
     expect(result).toMatchObject({ source: 'duckdb:surge', dataset: 'stock_surge_events', isEmpty: false });
     expect(result.rows).toHaveLength(2);
@@ -402,7 +540,13 @@ describe('本地 DuckDB Agent 工具', () => {
       limit: 10,
     });
 
-    expect(result).toMatchObject({ source: 'duckdb:market', storage: 'local', matchedCount: 1, returnedCount: 1, isEmpty: false });
+    expect(result).toMatchObject({
+      source: 'duckdb:market',
+      storage: 'local',
+      matchedCount: 1,
+      returnedCount: 1,
+      isEmpty: false,
+    });
     expect(result.rows).toEqual([expect.objectContaining({ code: '600519', name: '贵州茅台', turnoverRate: 12.3 })]);
     expect(result.rows[0].concentration90Percent).toBeCloseTo(14.5);
   });
@@ -437,17 +581,37 @@ describe('本地 DuckDB Agent 工具', () => {
     if (!marketStore || !tools) throw new Error('modules not loaded');
 
     await marketStore.upsertStockSnapshots([
-      { symbol: '600519', name: '贵州茅台', price: 10.8, changePercent: 1.2, amount: 30_000_000, turnoverRate: 3.2, totalMarketCap: 20_000_000_000, circulatingMarketCap: 20_000_000_000 },
-      { symbol: '000001', name: '平安银行', price: 12.3, changePercent: 1.5, amount: 50_000_000, turnoverRate: 15.5, totalMarketCap: 30_000_000_000, circulatingMarketCap: 25_000_000_000 },
+      {
+        symbol: '600519',
+        name: '贵州茅台',
+        price: 10.8,
+        changePercent: 1.2,
+        amount: 30_000_000,
+        turnoverRate: 3.2,
+        totalMarketCap: 20_000_000_000,
+        circulatingMarketCap: 20_000_000_000,
+      },
+      {
+        symbol: '000001',
+        name: '平安银行',
+        price: 12.3,
+        changePercent: 1.5,
+        amount: 50_000_000,
+        turnoverRate: 15.5,
+        totalMarketCap: 30_000_000_000,
+        circulatingMarketCap: 25_000_000_000,
+      },
     ]);
 
     const result = await tools.queryLocalMarketDuckDB.run({ dataset: 'stock_snapshot', limit: 100 });
 
     expect(result).toMatchObject({ source: 'duckdb:market', dataset: 'stock_snapshot', isEmpty: false });
-    expect(result.rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: '600519', name: '贵州茅台', turnoverRate: 3.2, marketCapYi: 200 }),
-      expect.objectContaining({ code: '000001', name: '平安银行', turnoverRate: 15.5, marketCapYi: 300 }),
-    ]));
+    expect(result.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: '600519', name: '贵州茅台', turnoverRate: 3.2, marketCapYi: 200 }),
+        expect.objectContaining({ code: '000001', name: '平安银行', turnoverRate: 15.5, marketCapYi: 300 }),
+      ]),
+    );
   });
 
   it('未知数据集返回告警而不是静默降级', async () => {

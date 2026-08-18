@@ -1,4 +1,4 @@
-import { app, shell } from '../electron-runtime.js';
+import { app, shell } from '../electron-runtime.ts';
 import { copyFileSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -9,13 +9,13 @@ import type {
   IAppUpdateSettings,
   IAppUpdateState,
   TAppUpdateChannel,
-} from '../../src/shared/types.js';
+} from '../../src/shared/types.ts';
 import {
   clearPendingDownloadedUpdate,
   getConfig,
   getPendingDownloadedUpdate,
   setPendingDownloadedUpdate,
-} from './config-store.js';
+} from './config-store.ts';
 
 const require = createRequire(import.meta.url);
 const { autoUpdater } = require('electron-updater') as { autoUpdater: AppUpdater };

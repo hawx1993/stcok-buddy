@@ -68,7 +68,9 @@ const duckDbMock = vi.hoisted(() => {
     async run() {
       if (state.failNextStatementRun) {
         state.failNextStatementRun = false;
-        throw new Error('FATAL Error: Failed: database has been invalidated because of a previous fatal error. The database must be restarted prior to being used again. Original error: "Invalid bitpacking mode"');
+        throw new Error(
+          'FATAL Error: Failed: database has been invalidated because of a previous fatal error. The database must be restarted prior to being used again. Original error: "Invalid bitpacking mode"',
+        );
       }
       state.statementRunCalls += 1;
       state.boundRows.push(this.values);
@@ -177,7 +179,10 @@ function createBar(overrides: Partial<DailyBarRecord> = {}): DailyBarRecord {
 describe('市场数据 DuckDB fatal invalidation recovery', () => {
   beforeEach(() => {
     duckDbMock.reset();
-    process.env.STOCKSENSE_MARKET_DB_PATH = path.join(os.tmpdir(), `stocksense-market-recovery-vitest-${process.pid}.duckdb`);
+    process.env.STOCKSENSE_MARKET_DB_PATH = path.join(
+      os.tmpdir(),
+      `stocksense-market-recovery-vitest-${process.pid}.duckdb`,
+    );
     vi.resetModules();
   });
 

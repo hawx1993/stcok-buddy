@@ -1,20 +1,48 @@
 import type { SecurityRecord } from './types.js';
 
 export type TConditionScreenerDataSource = 'duckdb' | 'stock-sdk' | 'a-stock-data';
-export type TConditionScreenerSortBy = 'code' | 'turnoverRate';
+export type TConditionScreenerMarketScope = 'sh' | 'sz' | 'bj' | 'kc' | 'cy' | 'main';
+export type TConditionScreenerSortBy =
+  | 'code'
+  | 'totalMarketCap'
+  | 'circulatingMarketCap'
+  | 'amount'
+  | 'volume'
+  | 'turnoverRate'
+  | 'changePercent'
+  | 'concentration90'
+  | 'concentration70';
 export type TConditionScreenerSortOrder = 'asc' | 'desc';
 
 export interface IConditionScreenerInput {
   minTotalMarketCapYuan?: number;
   maxTotalMarketCapYuan?: number;
   maxTotalMarketCapYuanExclusive?: number;
+  minCirculatingMarketCapYuan?: number;
+  maxCirculatingMarketCapYuan?: number;
+  maxCirculatingMarketCapYuanExclusive?: number;
+  turnoverRateMin?: number;
+  turnoverRateMax?: number;
   turnoverRateMinExclusive?: number;
+  minAmountYuan?: number;
+  maxAmountYuan?: number;
   amountMinYuanExclusive?: number;
+  minVolume?: number;
+  maxVolume?: number;
+  volumeMinExclusive?: number;
   changePercentMin?: number;
   changePercentMax?: number;
+  concentration90Min?: number;
+  concentration90Max?: number;
   concentration90MaxExclusive?: number;
+  concentration70Min?: number;
+  concentration70Max?: number;
+  concentration70MaxExclusive?: number;
+  profitRatioMin?: number;
+  profitRatioMax?: number;
   profitRatioMinExclusive?: number;
   excludeST?: boolean;
+  marketScopes?: TConditionScreenerMarketScope[];
   leadingBoards?: boolean;
   sortBy?: TConditionScreenerSortBy;
   sortOrder?: TConditionScreenerSortOrder;
@@ -37,11 +65,15 @@ export interface IConditionScreenerRow {
   changePercent?: number;
   turnoverRate?: number;
   amountYuan?: number;
+  volume?: number;
   totalMarketCapYuan?: number;
+  circulatingMarketCapYuan?: number;
   concentration90Percent?: number;
+  concentration70Percent?: number;
   profitRatioPercent?: number;
   chipDate?: string;
   leadingBoards?: string[];
+  missingFields?: string[];
   dataSource: TConditionScreenerDataSource;
   fetchedAt?: string;
 }
@@ -78,7 +110,9 @@ export interface IConditionScreenerCandidate {
   changePercent?: number;
   turnoverRate?: number;
   amountYuan?: number;
+  volume?: number;
   totalMarketCapYuan?: number;
+  circulatingMarketCapYuan?: number;
   fetchedAt?: string;
   dataSource: TConditionScreenerDataSource;
 }

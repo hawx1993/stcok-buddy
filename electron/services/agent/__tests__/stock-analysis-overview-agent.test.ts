@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../llm/index.js', () => ({
+vi.mock('../../llm/index', () => ({
   generateReport: vi.fn(() => {
     throw new Error('模型不可用');
   }),
 }));
 
-vi.mock('../../llm/openai-compatible-client.js', () => ({
+vi.mock('../../llm/openai-compatible-client', () => ({
   isLlmRequestError: () => false,
 }));
 
@@ -76,7 +76,9 @@ describe('股票综合报告数据缺口兜底', () => {
         stockLabel: '测试股',
         plan,
         dataGaps: [gap],
-        planRevisions: [{ id: 'r1', reason: '数据采集后计划反思', changes: ['降低置信度'], createdAt: '2026-08-05T00:00:00.000Z' }],
+        planRevisions: [
+          { id: 'r1', reason: '数据采集后计划反思', changes: ['降低置信度'], createdAt: '2026-08-05T00:00:00.000Z' },
+        ],
       },
       [result],
     );

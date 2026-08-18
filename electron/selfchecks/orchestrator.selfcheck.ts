@@ -19,7 +19,10 @@ const context: IAgentContext = {
   findings: [],
 };
 const workflow = buildAgentWorkflow(context);
-assert.deepEqual(workflow.map((node) => node.id), ['market-review-data', 'market-review-report']);
+assert.deepEqual(
+  workflow.map((node) => node.id),
+  ['market-review-data', 'market-review-report'],
+);
 assert.deepEqual(workflow[1]?.dependsOn, ['market-review-data']);
 
 console.log('orchestrator selfcheck passed');

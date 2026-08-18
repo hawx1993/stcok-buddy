@@ -10,7 +10,7 @@ let api: Remote<IChipDistributionWorkerApi> | undefined;
 
 function getChipDistributionWorker(): Remote<IChipDistributionWorkerApi> {
   if (!api) {
-    worker = new Worker(fileURLToPath(new URL('./chip-distribution.worker.js', import.meta.url)));
+    worker = new Worker(fileURLToPath(new URL('./chip-distribution.worker', import.meta.url)));
     worker.once('exit', () => {
       worker = undefined;
       api = undefined;

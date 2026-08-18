@@ -198,7 +198,8 @@ export async function agenticStockPickerAnswer(ctx: IAgentContext): Promise<stri
   emitAgentProgress(ctx, '正在汇总已获取的真实数据并生成候选清单...', MAX_TOOL_ROUNDS);
   messages.push({
     role: 'user',
-    content: '已完成本轮可用真实数据查询。请只基于以上真实工具结果给出最终候选清单；如数据不足，明确说明缺口或暂无数据，不要提及内部执行预算或系统约束。',
+    content:
+      '已完成本轮可用真实数据查询。请只基于以上真实工具结果给出最终候选清单；如数据不足，明确说明缺口或暂无数据，不要提及内部执行预算或系统约束。',
   });
   return finalizePickerAnswer(messages, await generateReport(messages));
 }

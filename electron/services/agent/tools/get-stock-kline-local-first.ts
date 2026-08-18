@@ -10,7 +10,11 @@ import { asRecord, formatError, num, text } from './input.js';
 export const getStockKlineLocalFirst: AgentTool<{ symbol: string; limit?: number }, KlinePoint[]> = {
   name: 'getStockKlineLocalFirst',
   description: 'Get A-share daily K-line with priority DuckDB → stock-sdk → a-stock-data.',
-  inputSchema: { type: 'object', properties: { symbol: { type: 'string' }, limit: { type: 'number' } }, required: ['symbol'] },
+  inputSchema: {
+    type: 'object',
+    properties: { symbol: { type: 'string' }, limit: { type: 'number' } },
+    required: ['symbol'],
+  },
   async run(input) {
     const record = asRecord(input);
     const symbol = text(record, 'symbol');

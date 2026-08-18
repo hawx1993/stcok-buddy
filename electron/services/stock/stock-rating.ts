@@ -1,5 +1,13 @@
 import type { AgentResultCard, StockDetail } from '../../../src/shared/types.js';
-import { formatMoney, formatMoneyFromWan, formatNumber, formatPercentPoints, normalizeMarketCap, pickNumber, pickString } from './format.js';
+import {
+  formatMoney,
+  formatMoneyFromWan,
+  formatNumber,
+  formatPercentPoints,
+  normalizeMarketCap,
+  pickNumber,
+  pickString,
+} from './format.js';
 import { inferExchange } from './symbols.js';
 
 type AnyRecord = Record<string, unknown>;

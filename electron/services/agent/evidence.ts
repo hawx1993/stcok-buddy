@@ -255,10 +255,7 @@ export function evidenceFromIndustryRanking(
   return items.length ? items : [fallbackEvidence('industry-ranking', '行业涨幅与资金流数据不足')];
 }
 
-export function evidenceFromHotConcepts(
-  list?: Array<IThsHotStock | IEmHotRankItem>,
-  source?: string,
-): EvidenceItem[] {
+export function evidenceFromHotConcepts(list?: Array<IThsHotStock | IEmHotRankItem>, source?: string): EvidenceItem[] {
   if (!list?.length) return [fallbackEvidence('hot-concepts', '热门股数据不足')];
   return list.slice(0, 10).map((item, index) => {
     const summary =

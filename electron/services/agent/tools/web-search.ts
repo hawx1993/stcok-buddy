@@ -67,7 +67,9 @@ export const webSearch: AgentTool<WebSearchInput, WebSearchOutput> = {
         query,
         results: [],
         source: 'unconfigured',
-        warnings: ['未配置联网搜索 API Key（TAVILY_API_KEY / SERPER_API_KEY），无法联网检索。可改用 getHotConcepts / getMarketReview 等本地数据，或让用户提供链接后用 readUrl 读取。'],
+        warnings: [
+          '未配置联网搜索 API Key（TAVILY_API_KEY / SERPER_API_KEY），无法联网检索。可改用 getHotConcepts / getMarketReview 等本地数据，或让用户提供链接后用 readUrl 读取。',
+        ],
         isEmpty: true,
       };
     }
@@ -82,7 +84,13 @@ export const webSearch: AgentTool<WebSearchInput, WebSearchOutput> = {
         });
         const data = (await response.json()) as unknown;
         const results = normalizeTavily(data);
-        return { query, results: results.slice(0, maxResults), source: 'tavily', warnings, isEmpty: results.length === 0 };
+        return {
+          query,
+          results: results.slice(0, maxResults),
+          source: 'tavily',
+          warnings,
+          isEmpty: results.length === 0,
+        };
       }
       const response = await fetchWithTimeout('https://google.serper.dev/search', {
         method: 'POST',
@@ -91,7 +99,13 @@ export const webSearch: AgentTool<WebSearchInput, WebSearchOutput> = {
       });
       const data = (await response.json()) as unknown;
       const results = normalizeSerper(data);
-      return { query, results: results.slice(0, maxResults), source: 'serper', warnings, isEmpty: results.length === 0 };
+      return {
+        query,
+        results: results.slice(0, maxResults),
+        source: 'serper',
+        warnings,
+        isEmpty: results.length === 0,
+      };
     } catch (error) {
       warnings.push(`联网搜索失败：${error instanceof Error ? error.message : String(error)}`);
       return { query, results: [], source: 'error', warnings, isEmpty: true };
@@ -103,7 +117,11 @@ async function fetchWithTimeout(url: string, init?: RequestInit) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal, headers: { 'User-Agent': 'StockBuddy/0.2 WebSearch', ...init?.headers } });
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: { 'User-Agent': 'StockBuddy/0.2 WebSearch', ...init?.headers },
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
     return response;
   } finally {

@@ -80,7 +80,10 @@ function summarizeSurgeRowsForMarketWide(value: unknown): string {
     const changePercent = readTextField(row, 'changePercent') ?? '';
     return [date, code, name, time, amount, changePercent].filter(Boolean).join(' ');
   });
-  return `共 ${rows.length} 条符合大单买入（不低于10000手）的同源异动样本（每行：日期 代码 名称 时间 手数 涨幅）：\n${lines.join('\n')}`.slice(0, 20_000);
+  return `共 ${rows.length} 条符合大单买入（不低于10000手）的同源异动样本（每行：日期 代码 名称 时间 手数 涨幅）：\n${lines.join('\n')}`.slice(
+    0,
+    20_000,
+  );
 }
 
 /**
@@ -102,7 +105,15 @@ function summarizeScreeningRows(value: unknown): string {
     const marketCapText = readTextField(row, 'marketCapText') ?? '';
     const turnoverRate = readNumberField(row, 'turnoverRate');
     const changePercent = readNumberField(row, 'changePercent');
-    return [code, name, marketCapText, turnoverRate !== undefined ? `换手${turnoverRate}%` : '', changePercent !== undefined ? `涨跌${changePercent}%` : ''].filter(Boolean).join(' ');
+    return [
+      code,
+      name,
+      marketCapText,
+      turnoverRate !== undefined ? `换手${turnoverRate}%` : '',
+      changePercent !== undefined ? `涨跌${changePercent}%` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
   });
   const warningText = warnings.length ? `\n注意：${warnings.join('；')}` : '';
   return `${header}${warningText}\n${lines.join('\n')}`.slice(0, 20_000);
@@ -213,7 +224,8 @@ function buildCompoundScreeningSummary(
       const firstLargeBuy = largeBuyRows[0];
       return {
         code,
-        name: readTextField(chipRow, 'name') ?? readTextField(marketCapRow, 'name') ?? readTextField(firstLargeBuy, 'name'),
+        name:
+          readTextField(chipRow, 'name') ?? readTextField(marketCapRow, 'name') ?? readTextField(firstLargeBuy, 'name'),
         concentration90Percent: readNumberField(chipRow, 'concentration90Percent'),
         chipDate: readTextField(chipRow, 'chipDate'),
         marketCapYi: readNumberField(marketCapRow, 'marketCapYi'),
@@ -228,7 +240,11 @@ function buildCompoundScreeningSummary(
       };
     })
     .filter((item): item is NonNullable<typeof item> => item !== undefined)
-    .sort((left, right) => (left.concentration90Percent ?? Number.POSITIVE_INFINITY) - (right.concentration90Percent ?? Number.POSITIVE_INFINITY));
+    .sort(
+      (left, right) =>
+        (left.concentration90Percent ?? Number.POSITIVE_INFINITY) -
+        (right.concentration90Percent ?? Number.POSITIVE_INFINITY),
+    );
 
   const warnings: string[] = [];
   if (!chipRows.length) warnings.push('本地筹码筛选未返回符合 90% 筹码集中度条件的样本');
@@ -267,28 +283,68 @@ async function prefetchCompoundMarketScreening(ctx: IAgentContext, messages: Llm
 
   emitAgentProgress(ctx, '正在执行筹码、市值与近期大单买入复合筛选...', 1);
   const [chipResult, marketCapResult, surgeResult] = await Promise.all([
-    runContextTool(ctx, SCREEN_LOCAL_TOOL_NAME, {
-      concentration90Max,
-      limit: 500,
-      sortBy: 'concentration90',
-      sortOrder: 'asc',
-    }, () => ({ source: 'duckdb:market', storage: 'local', rows: [], warnings: ['本地筹码筛选暂不可用'], isEmpty: true })),
-    runContextTool(ctx, MARKET_CAP_TOOL_NAME, {
-      minMarketCap: marketCapRange.min,
-      maxMarketCap: marketCapRange.max,
-      unit: 'yi',
-      marketCapField: 'total',
-      limit: 500,
-      sortOrder: 'asc',
-    }, () => ({ source: 'duckdb+stock-sdk+a-stock-data', storage: 'none', rows: [], warnings: ['市值筛选暂不可用'], isEmpty: true })),
-    runContextTool(ctx, MARKET_SURGE_TOOL_NAME, {
-      side: 'buy',
-      minHands: COMPOUND_SURGE_MIN_HANDS,
-      keepDays: 7,
-      limit: 1000,
-    }, () => ({ source: 'duckdb:surge', storage: 'local', dataset: 'stock_surge_events', rows: [], warnings: ['本地个股异动数据源暂不可用'], isEmpty: true })),
+    runContextTool(
+      ctx,
+      SCREEN_LOCAL_TOOL_NAME,
+      {
+        concentration90Max,
+        limit: 500,
+        sortBy: 'concentration90',
+        sortOrder: 'asc',
+      },
+      () => ({
+        source: 'duckdb:market',
+        storage: 'local',
+        rows: [],
+        warnings: ['本地筹码筛选暂不可用'],
+        isEmpty: true,
+      }),
+    ),
+    runContextTool(
+      ctx,
+      MARKET_CAP_TOOL_NAME,
+      {
+        minMarketCap: marketCapRange.min,
+        maxMarketCap: marketCapRange.max,
+        unit: 'yi',
+        marketCapField: 'total',
+        limit: 500,
+        sortOrder: 'asc',
+      },
+      () => ({
+        source: 'duckdb+stock-sdk+a-stock-data',
+        storage: 'none',
+        rows: [],
+        warnings: ['市值筛选暂不可用'],
+        isEmpty: true,
+      }),
+    ),
+    runContextTool(
+      ctx,
+      MARKET_SURGE_TOOL_NAME,
+      {
+        side: 'buy',
+        minHands: COMPOUND_SURGE_MIN_HANDS,
+        keepDays: 7,
+        limit: 1000,
+      },
+      () => ({
+        source: 'duckdb:surge',
+        storage: 'local',
+        dataset: 'stock_surge_events',
+        rows: [],
+        warnings: ['本地个股异动数据源暂不可用'],
+        isEmpty: true,
+      }),
+    ),
   ]);
-  const summary = buildCompoundScreeningSummary(concentration90Max, marketCapRange, chipResult, marketCapResult, surgeResult);
+  const summary = buildCompoundScreeningSummary(
+    concentration90Max,
+    marketCapRange,
+    chipResult,
+    marketCapResult,
+    surgeResult,
+  );
   messages.push({
     role: 'user',
     content: `用户问题命中筹码集中度 + 市值区间 + 近期大单买入复合选股场景，已确定性调用本地/真实数据工具完成交集筛选。复合筛选汇总：\n${summarizeToolResult(
@@ -403,7 +459,8 @@ export async function agenticAStockDataAnswer(ctx: IAgentContext): Promise<strin
   emitAgentProgress(ctx, '正在汇总已获取的真实数据...', MAX_TOOL_ROUNDS);
   messages.push({
     role: 'user',
-    content: '已完成本轮可用真实数据查询。请只基于以上真实工具结果给出最终回答；如数据不足，明确说明缺口或暂无数据，不要提及内部执行预算或系统约束。',
+    content:
+      '已完成本轮可用真实数据查询。请只基于以上真实工具结果给出最终回答；如数据不足，明确说明缺口或暂无数据，不要提及内部执行预算或系统约束。',
   });
   return finalizeAgenticAnswer(messages, await generateReport(messages));
 }

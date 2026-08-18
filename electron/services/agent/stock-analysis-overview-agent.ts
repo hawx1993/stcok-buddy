@@ -34,7 +34,10 @@ export async function runStockAnalysisOverview(
       ],
       onToken,
     );
-    return ensureRequiredOverviewSections(ensureFundFlowSection(ensureScoredOverview(report, input, results), input), input);
+    return ensureRequiredOverviewSections(
+      ensureFundFlowSection(ensureScoredOverview(report, input, results), input),
+      input,
+    );
   } catch (error) {
     if (isLlmRequestError(error)) throw error;
     return fallbackOverview(input, results);
@@ -178,7 +181,11 @@ function fallbackOverview(input: StockAnalysisInput, results: StockAnalysisResul
       : '- 数据缺口已记录，当前仅基于可用真实证据，不使用缺失数据外推。',
   );
   lines.push('', '### 🧭 分析计划回顾');
-  lines.push(input.plan?.items.length ? input.plan.items.map((item) => `- ${item.title}：${item.status}`).join('\n') : '- 本轮未生成详细计划项。');
+  lines.push(
+    input.plan?.items.length
+      ? input.plan.items.map((item) => `- ${item.title}：${item.status}`).join('\n')
+      : '- 本轮未生成详细计划项。',
+  );
   lines.push('', '### ⚠️ 数据缺口与影响');
   lines.push(formatDataGapsForPrompt(input.dataGaps));
   lines.push('', '### 🎯 关键价位');

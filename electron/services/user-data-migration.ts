@@ -8,7 +8,7 @@ const MIGRATION_BACKUP_PREFIX = 'StockBuddy.migration-backup';
 
 const knownDataFiles = [
   'stocksense-chat.sqlite',
-  'stocksense-store.json',
+  'stocksense-storeon',
   'stocksense-market.duckdb',
   'stocksense-market-dev.duckdb',
   'stocksense-monitor.duckdb',
@@ -118,7 +118,12 @@ function toSafeTimestamp(date: Date) {
   return date.toISOString().replaceAll(':', '-').replaceAll('.', '-');
 }
 
-function writeMigrationMarker(targetPath: string, legacyPath: string, backupPath: string | undefined, migratedAt: Date) {
+function writeMigrationMarker(
+  targetPath: string,
+  legacyPath: string,
+  backupPath: string | undefined,
+  migratedAt: Date,
+) {
   writeFileSync(
     path.join(targetPath, MIGRATION_MARKER_FILE),
     JSON.stringify(
@@ -133,7 +138,11 @@ function writeMigrationMarker(targetPath: string, legacyPath: string, backupPath
   );
 }
 
-function restoreTargetAfterFailedMigration(targetPath: string, backupPath: string | undefined, logger: Pick<Console, 'warn'>) {
+function restoreTargetAfterFailedMigration(
+  targetPath: string,
+  backupPath: string | undefined,
+  logger: Pick<Console, 'warn'>,
+) {
   if (!backupPath || existsSync(targetPath) || !existsSync(backupPath)) return;
   try {
     renameSync(backupPath, targetPath);

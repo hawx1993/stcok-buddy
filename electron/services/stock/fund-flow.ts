@@ -21,13 +21,15 @@ export async function getStockWeeklyMainNetInflow(symbolInput: string, tradeDate
   return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
 }
 
-async function fetchStockFundFlowDaily(symbol: string): Promise<Array<{
-  symbol: string;
-  tradeDate: string;
-  mainNetInflow: number;
-  source: string;
-  fetchedAt: string;
-}>> {
+async function fetchStockFundFlowDaily(symbol: string): Promise<
+  Array<{
+    symbol: string;
+    tradeDate: string;
+    mainNetInflow: number;
+    source: string;
+    fetchedAt: string;
+  }>
+> {
   let rows: Array<{
     symbol: string;
     tradeDate: string;
@@ -156,13 +158,15 @@ async function eastmoneyGet(url: URL, timeoutMs = 15_000): Promise<Response> {
   throw lastError;
 }
 
-async function fetchEastmoneyFundFlowDaily(symbol: string): Promise<Array<{
-  symbol: string;
-  tradeDate: string;
-  mainNetInflow: number;
-  source: string;
-  fetchedAt: string;
-}>> {
+async function fetchEastmoneyFundFlowDaily(symbol: string): Promise<
+  Array<{
+    symbol: string;
+    tradeDate: string;
+    mainNetInflow: number;
+    source: string;
+    fetchedAt: string;
+  }>
+> {
   const secid = `${symbol.startsWith('6') ? 1 : 0}.${symbol}`;
   const url = new URL('https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get');
   url.search = new URLSearchParams({
@@ -180,9 +184,18 @@ async function fetchEastmoneyFundFlowDaily(symbol: string): Promise<Array<{
       const mainNetInflow = parseNullableNumber(parts[1]);
       return mainNetInflow === null
         ? undefined
-        : { symbol, tradeDate: normalizeTradeDate(parts[0]), mainNetInflow, source: 'a-stock-data:eastmoney', fetchedAt };
+        : {
+            symbol,
+            tradeDate: normalizeTradeDate(parts[0]),
+            mainNetInflow,
+            source: 'a-stock-data:eastmoney',
+            fetchedAt,
+          };
     })
-    .filter((row): row is { symbol: string; tradeDate: string; mainNetInflow: number; source: string; fetchedAt: string } => Boolean(row));
+    .filter(
+      (row): row is { symbol: string; tradeDate: string; mainNetInflow: number; source: string; fetchedAt: string } =>
+        Boolean(row),
+    );
 }
 
 async function fetchEastmoneyFundFlowSnapshot(symbol: string, warnings: string[]): Promise<IStockFundFlowSnapshot> {

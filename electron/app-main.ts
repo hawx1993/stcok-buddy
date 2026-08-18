@@ -6,7 +6,11 @@ import path from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { registerIpcHandlers } from './ipc.js';
 import { closeMarketDataInstance, closeMarketDataStore } from './services/market-data/market-data-store.js';
-import { ensureMarketDataRuntime, shutdownMarketDataScheduler, stopMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
+import {
+  ensureMarketDataRuntime,
+  shutdownMarketDataScheduler,
+  stopMarketDataScheduler,
+} from './services/market-data/market-data-scheduler.js';
 import { closeConversationStore } from './services/conversation-store.js';
 import {
   ensureSurgeHistoryCapture,
@@ -47,7 +51,7 @@ const QUIT_POSTHOG_WAIT_MS = 800;
 
 function getPackageVersion() {
   try {
-    return JSON.parse(readFileSync(path.join(__dirname, '../../package.json'), 'utf8')).version as string;
+    return JSON.parse(readFileSync(path.join(__dirname, '../../packageon'), 'utf8')).version as string;
   } catch {
     return app.getVersion();
   }
@@ -67,7 +71,7 @@ function getBuildCommitHash() {
 }
 
 function configureAboutPanel() {
-  const aboutText = `版本: ${getPackageVersion()} (${getBuildCommitHash()})\nElectron: ${process.versions.electron}\nChrome: ${process.versions.chrome}\nNode.js: ${process.versions.node}`;
+  const aboutText = `版本: ${getPackageVersion()} (${getBuildCommitHash()})\nElectron: ${process.versions.electron}\nChrome: ${process.versions.chrome}\nNode: ${process.versions.node}`;
   app.setAboutPanelOptions({
     applicationName: 'StockBuddy',
     applicationVersion: '',

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../tools/tool-registry.js', () => ({
+vi.mock('../../tools/tool-registry', () => ({
   callTool: vi.fn(),
 }));
 
-vi.mock('../../llm/index.js', () => ({
+vi.mock('../../llm/index', () => ({
   generateReport: vi.fn(),
 }));
 
@@ -205,7 +205,9 @@ describe('无数据结果识别与本地 DuckDB 递归保护', () => {
 
   it('有效数据不会触发本地 DuckDB 续查', () => {
     expect(shouldQueryLocalDuckDB('getHotConcepts', { list: [{ code: '600519' }] })).toBe(false);
-    expect(shouldQueryLocalDuckDB('getStockNewsAnnouncements', { news: [{ title: '公告' }], announcements: [] })).toBe(false);
+    expect(shouldQueryLocalDuckDB('getStockNewsAnnouncements', { news: [{ title: '公告' }], announcements: [] })).toBe(
+      false,
+    );
   });
 
   it('本地 DuckDB 工具自身不会递归续查', () => {
@@ -231,10 +233,23 @@ describe('agenticAStockDataAnswer 全市场异动日期解析', () => {
     mockedCallTool.mockImplementation(async (toolName, input) => {
       if (toolName === 'queryLocalDuckDBData') return record(toolName, { rows: [], isEmpty: true }, input);
       if (toolName === 'queryLocalSurgeDuckDB') {
-        return record(toolName, {
-          rows: [{ code: '000889', name: '中嘉博创', title: '中嘉博创 000889', time: '11:28', amount: '买入1.02万手', description: '特大单买入' }],
-          isEmpty: false,
-        }, input);
+        return record(
+          toolName,
+          {
+            rows: [
+              {
+                code: '000889',
+                name: '中嘉博创',
+                title: '中嘉博创 000889',
+                time: '11:28',
+                amount: '买入1.02万手',
+                description: '特大单买入',
+              },
+            ],
+            isEmpty: false,
+          },
+          input,
+        );
       }
       return record(toolName, { rows: [], isEmpty: true }, input);
     });
@@ -244,12 +259,14 @@ describe('agenticAStockDataAnswer 全市场异动日期解析', () => {
 
     const surgeCalls = mockedCallTool.mock.calls.filter(([toolName]) => toolName === 'queryLocalSurgeDuckDB');
     expect(surgeCalls).toHaveLength(1);
-    expect(surgeCalls[0]?.[1]).toEqual(expect.objectContaining({
-      date: '2026-08-04',
-      side: 'buy',
-      minHands: 10000,
-      limit: 1000,
-    }));
+    expect(surgeCalls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        date: '2026-08-04',
+        side: 'buy',
+        minHands: 10000,
+        limit: 1000,
+      }),
+    );
     expect(surgeCalls[0]?.[1]).not.toEqual(expect.objectContaining({ date: '2026-08-05' }));
     const reportMessages = mockedGenerateReport.mock.calls.at(-1)?.[0] ?? [];
     expect(JSON.stringify(reportMessages)).toContain('筛选日期：2026-08-04');
@@ -271,22 +288,43 @@ describe('agenticAStockDataAnswer 复合选股预取', () => {
     mockedCallTool.mockImplementation(async (toolName, input) => {
       if (toolName === 'queryLocalDuckDBData') return record(toolName, { rows: [], isEmpty: true }, input);
       if (toolName === 'screenLocalAStocks') {
-        return record(toolName, {
-          rows: [{ code: '000889', name: '中嘉博创', concentration90Percent: 14.2, chipDate: '2026-08-05' }],
-          isEmpty: false,
-        }, input);
+        return record(
+          toolName,
+          {
+            rows: [{ code: '000889', name: '中嘉博创', concentration90Percent: 14.2, chipDate: '2026-08-05' }],
+            isEmpty: false,
+          },
+          input,
+        );
       }
       if (toolName === 'screenASharesByMarketCap') {
-        return record(toolName, {
-          rows: [{ code: '000889', name: '中嘉博创', marketCapYi: 45, marketCapText: '45.00亿' }],
-          isEmpty: false,
-        }, input);
+        return record(
+          toolName,
+          {
+            rows: [{ code: '000889', name: '中嘉博创', marketCapYi: 45, marketCapText: '45.00亿' }],
+            isEmpty: false,
+          },
+          input,
+        );
       }
       if (toolName === 'queryLocalSurgeDuckDB') {
-        return record(toolName, {
-          rows: [{ code: '000889', name: '中嘉博创', title: '中嘉博创 000889', time: '11:28', amount: '买入1.02万手', description: '特大单买入' }],
-          isEmpty: false,
-        }, input);
+        return record(
+          toolName,
+          {
+            rows: [
+              {
+                code: '000889',
+                name: '中嘉博创',
+                title: '中嘉博创 000889',
+                time: '11:28',
+                amount: '买入1.02万手',
+                description: '特大单买入',
+              },
+            ],
+            isEmpty: false,
+          },
+          input,
+        );
       }
       return record(toolName, { rows: [{ code: '000889' }], isEmpty: false }, input);
     });
@@ -298,9 +336,18 @@ describe('agenticAStockDataAnswer 复合选股预取', () => {
 
     await expect(agenticAStockDataAnswer(context)).resolves.toBe('最终回答');
 
-    expect(mockedCallTool).toHaveBeenCalledWith('screenLocalAStocks', expect.objectContaining({ concentration90Max: 15, limit: 500 }));
-    expect(mockedCallTool).toHaveBeenCalledWith('screenASharesByMarketCap', expect.objectContaining({ minMarketCap: 30, maxMarketCap: 100, unit: 'yi' }));
-    expect(mockedCallTool).toHaveBeenCalledWith('queryLocalSurgeDuckDB', expect.objectContaining({ side: 'buy', minHands: 10000, keepDays: 7 }));
+    expect(mockedCallTool).toHaveBeenCalledWith(
+      'screenLocalAStocks',
+      expect.objectContaining({ concentration90Max: 15, limit: 500 }),
+    );
+    expect(mockedCallTool).toHaveBeenCalledWith(
+      'screenASharesByMarketCap',
+      expect.objectContaining({ minMarketCap: 30, maxMarketCap: 100, unit: 'yi' }),
+    );
+    expect(mockedCallTool).toHaveBeenCalledWith(
+      'queryLocalSurgeDuckDB',
+      expect.objectContaining({ side: 'buy', minHands: 10000, keepDays: 7 }),
+    );
     const lastMessages = mockedGenerateReport.mock.calls.at(-1)?.[0] ?? [];
     expect(JSON.stringify(lastMessages)).not.toContain('工具调用已达上限');
     expect(JSON.stringify(lastMessages)).not.toContain('调用上限');
@@ -321,28 +368,53 @@ describe('agenticAStockDataAnswer 复合选股预取', () => {
     mockedCallTool.mockImplementation(async (toolName, input) => {
       if (toolName === 'queryLocalDuckDBData') return record(toolName, { rows: [], isEmpty: true }, input);
       if (toolName === 'screenLocalAStocks') {
-        return record(toolName, {
-          rows: [{ code: '000889', name: '中嘉博创', concentration90Percent: 14.2, chipDate: '2026-08-05' }],
-          isEmpty: false,
-        }, input);
+        return record(
+          toolName,
+          {
+            rows: [{ code: '000889', name: '中嘉博创', concentration90Percent: 14.2, chipDate: '2026-08-05' }],
+            isEmpty: false,
+          },
+          input,
+        );
       }
       if (toolName === 'screenASharesByMarketCap') {
-        return record(toolName, {
-          rows: [{ code: '000889', name: '中嘉博创', marketCapYi: 45, marketCapText: '45.00亿' }],
-          isEmpty: false,
-        }, input);
+        return record(
+          toolName,
+          {
+            rows: [{ code: '000889', name: '中嘉博创', marketCapYi: 45, marketCapText: '45.00亿' }],
+            isEmpty: false,
+          },
+          input,
+        );
       }
       if (toolName === 'queryLocalSurgeDuckDB') {
-        return record(toolName, {
-          rows: [{ code: '000889', name: '中嘉博创', title: '中嘉博创 000889', time: '11:28', amount: '买入1.02万手', description: '特大单买入' }],
-          isEmpty: false,
-        }, input);
+        return record(
+          toolName,
+          {
+            rows: [
+              {
+                code: '000889',
+                name: '中嘉博创',
+                title: '中嘉博创 000889',
+                time: '11:28',
+                amount: '买入1.02万手',
+                description: '特大单买入',
+              },
+            ],
+            isEmpty: false,
+          },
+          input,
+        );
       }
       return record(toolName, { rows: [], isEmpty: true }, input);
     });
     mockedGenerateReport
-      .mockResolvedValueOnce('该项条件需要个股异动/大单成交数据来验证，本次工具调用已达上限，未能获取到对应的异动数据，因此无法确认。')
-      .mockResolvedValueOnce('真实工具结果显示：000889 中嘉博创同时满足90%筹码集中度小于15%、总市值45.00亿、近期出现买入1.02万手特大单买入样本。');
+      .mockResolvedValueOnce(
+        '该项条件需要个股异动/大单成交数据来验证，本次工具调用已达上限，未能获取到对应的异动数据，因此无法确认。',
+      )
+      .mockResolvedValueOnce(
+        '真实工具结果显示：000889 中嘉博创同时满足90%筹码集中度小于15%、总市值45.00亿、近期出现买入1.02万手特大单买入样本。',
+      );
 
     const answer = await agenticAStockDataAnswer(context);
 
@@ -369,23 +441,29 @@ describe('agenticAStockDataAnswer 复合选股预取', () => {
     mockedCallTool.mockImplementation(async (toolName, input) => {
       if (toolName === 'queryLocalDuckDBData') return record(toolName, { rows: [], isEmpty: true }, input);
       if (toolName === 'screenASharesByMarketCap') {
-        return record(toolName, {
-          rows: longNames.map((name, index) => ({
-            code: String(600000 + index),
-            name,
-            marketCapYi: 100 + index,
-            marketCapText: `${100 + index}亿`,
-            turnoverRate: 10 + (index % 5),
-          })),
-          matchedCount: 100,
-          returnedCount: 100,
-          isEmpty: false,
-        }, input);
+        return record(
+          toolName,
+          {
+            rows: longNames.map((name, index) => ({
+              code: String(600000 + index),
+              name,
+              marketCapYi: 100 + index,
+              marketCapText: `${100 + index}亿`,
+              turnoverRate: 10 + (index % 5),
+            })),
+            matchedCount: 100,
+            returnedCount: 100,
+            isEmpty: false,
+          },
+          input,
+        );
       }
       return record(toolName, { rows: [], isEmpty: true }, input);
     });
     mockedGenerateReport
-      .mockResolvedValueOnce('{"tool":"screenASharesByMarketCap","input":{"minMarketCap":100,"maxMarketCap":500,"unit":"yi","marketCapField":"total","turnoverRateMin":10}}')
+      .mockResolvedValueOnce(
+        '{"tool":"screenASharesByMarketCap","input":{"minMarketCap":100,"maxMarketCap":500,"unit":"yi","marketCapField":"total","turnoverRateMin":10}}',
+      )
       .mockResolvedValueOnce('最终回答');
 
     await agenticAStockDataAnswer(context);

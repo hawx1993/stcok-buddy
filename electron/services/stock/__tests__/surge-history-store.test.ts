@@ -62,10 +62,11 @@ describe('异动历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('surge history store not loaded');
 
-    currentStore.enqueueSurgeSnapshot([
-      createItem({ title: '队列写入前' }),
-      createItem({ title: '队列写入后' }),
-    ], new Date('2026-07-23T02:01:00.000Z'), '2026-07-23');
+    currentStore.enqueueSurgeSnapshot(
+      [createItem({ title: '队列写入前' }), createItem({ title: '队列写入后' })],
+      new Date('2026-07-23T02:01:00.000Z'),
+      '2026-07-23',
+    );
 
     expect(currentStore.getQueuedSurgeSnapshotCount()).toBe(1);
     expect(await currentStore.listSurgeHistory('2026-07-23', 0, 10)).toEqual([]);
@@ -94,9 +95,7 @@ describe('异动历史 DuckDB 存储', () => {
       new Date('2026-07-24T02:30:00.000Z'),
       '2026-07-24',
     );
-    await currentStore.saveIndividualSurgeHistory([
-      { ...createItem({ id: 'new' }), tradeDate: '2026-07-25' },
-    ]);
+    await currentStore.saveIndividualSurgeHistory([{ ...createItem({ id: 'new' }), tradeDate: '2026-07-25' }]);
 
     await expect(currentStore.getSurgeHistoryFreshness()).resolves.toMatchObject({
       recordCount: 2,
@@ -110,12 +109,16 @@ describe('异动历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('surge history store not loaded');
 
-    await currentStore.saveSurgeSnapshot([
-      createItem({ id: 'a', title: '旧标题', time: '10:01' }),
-      createItem({ id: 'b', title: '中间事件', time: '10:02' }),
-      createItem({ id: 'c', title: '最新事件', time: '10:03' }),
-      createItem({ id: 'a', title: '新标题', time: '10:01' }),
-    ], new Date('2026-07-24T02:30:00.000Z'), '2026-07-24');
+    await currentStore.saveSurgeSnapshot(
+      [
+        createItem({ id: 'a', title: '旧标题', time: '10:01' }),
+        createItem({ id: 'b', title: '中间事件', time: '10:02' }),
+        createItem({ id: 'c', title: '最新事件', time: '10:03' }),
+        createItem({ id: 'a', title: '新标题', time: '10:01' }),
+      ],
+      new Date('2026-07-24T02:30:00.000Z'),
+      '2026-07-24',
+    );
 
     const firstPage = await currentStore.listSurgeHistory('2026-07-24', 0, 2);
     expect(firstPage.map((item) => item.id)).toEqual(['c', 'b']);
@@ -132,8 +135,14 @@ describe('异动历史 DuckDB 存储', () => {
 
     const events: StockSurgeEvent[] = [
       { ...createItem({ id: 'individual-1', time: '14:57', tag: '快速涨幅' }), tradeDate: '2026-07-24' },
-      { ...createItem({ id: 'individual-1', time: '14:57', tag: '快速涨幅', title: '个股异动去重后' }), tradeDate: '2026-07-24' },
-      { ...createItem({ id: 'individual-2', time: '14:57', tag: '快速涨幅', title: '重复信号' }), tradeDate: '2026-07-24' },
+      {
+        ...createItem({ id: 'individual-1', time: '14:57', tag: '快速涨幅', title: '个股异动去重后' }),
+        tradeDate: '2026-07-24',
+      },
+      {
+        ...createItem({ id: 'individual-2', time: '14:57', tag: '快速涨幅', title: '重复信号' }),
+        tradeDate: '2026-07-24',
+      },
     ];
     await currentStore.saveIndividualSurgeHistory(events);
 
@@ -196,13 +205,41 @@ describe('异动历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('surge history store not loaded');
 
-    await currentStore.saveSurgeSnapshot([
-      createItem({ id: 'invalid-buy', time: '10:04', amount: '买入183手', tag: '特大单买入', description: '特大单买入' }),
-      createItem({ id: 'invalid-sell', time: '10:03', amount: '卖出9999手', tag: '特大单卖出', description: '特大单卖出' }),
-      createItem({ id: 'valid-buy', time: '10:02', amount: '买入1万手', tag: '特大单买入', description: '特大单买入' }),
-      createItem({ id: 'valid-sell', time: '10:01', amount: '卖出10000手', tag: '特大单卖出', description: '特大单卖出' }),
-      createItem({ id: 'normal-surge', time: '10:00', amount: '183手', tag: '快速涨幅', description: '快速涨幅' }),
-    ], new Date('2026-07-24T02:30:00.000Z'), '2026-07-24');
+    await currentStore.saveSurgeSnapshot(
+      [
+        createItem({
+          id: 'invalid-buy',
+          time: '10:04',
+          amount: '买入183手',
+          tag: '特大单买入',
+          description: '特大单买入',
+        }),
+        createItem({
+          id: 'invalid-sell',
+          time: '10:03',
+          amount: '卖出9999手',
+          tag: '特大单卖出',
+          description: '特大单卖出',
+        }),
+        createItem({
+          id: 'valid-buy',
+          time: '10:02',
+          amount: '买入1万手',
+          tag: '特大单买入',
+          description: '特大单买入',
+        }),
+        createItem({
+          id: 'valid-sell',
+          time: '10:01',
+          amount: '卖出10000手',
+          tag: '特大单卖出',
+          description: '特大单卖出',
+        }),
+        createItem({ id: 'normal-surge', time: '10:00', amount: '183手', tag: '快速涨幅', description: '快速涨幅' }),
+      ],
+      new Date('2026-07-24T02:30:00.000Z'),
+      '2026-07-24',
+    );
 
     const firstPage = await currentStore.listSurgeHistory('2026-07-24', 0, 2);
     expect(firstPage.map((item) => item.id)).toEqual(['valid-buy', 'valid-sell']);
@@ -237,10 +274,14 @@ describe('异动历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('surge history store not loaded');
 
-    currentStore.enqueueSurgeSnapshot([
-      createItem({ id: 'queued-invalid', amount: '买入183手', tag: '特大单买入', description: '特大单买入' }),
-      createItem({ id: 'queued-valid', amount: '买入1万手', tag: '特大单买入', description: '特大单买入' }),
-    ], new Date('2026-07-25T02:01:00.000Z'), '2026-07-25');
+    currentStore.enqueueSurgeSnapshot(
+      [
+        createItem({ id: 'queued-invalid', amount: '买入183手', tag: '特大单买入', description: '特大单买入' }),
+        createItem({ id: 'queued-valid', amount: '买入1万手', tag: '特大单买入', description: '特大单买入' }),
+      ],
+      new Date('2026-07-25T02:01:00.000Z'),
+      '2026-07-25',
+    );
     await currentStore.flushSurgeSnapshotQueue();
 
     expect(await currentStore.listSurgeHistory('2026-07-25', 0, 10)).toEqual([
@@ -248,8 +289,14 @@ describe('异动历史 DuckDB 存储', () => {
     ]);
 
     await currentStore.saveIndividualSurgeHistory([
-      { ...createItem({ id: 'individual-invalid', amount: '买入183手', tag: '特大单买入', description: '特大单买入' }), tradeDate: '2026-07-26' },
-      { ...createItem({ id: 'individual-valid', amount: '买入1万手', tag: '特大单买入', description: '特大单买入' }), tradeDate: '2026-07-26' },
+      {
+        ...createItem({ id: 'individual-invalid', amount: '买入183手', tag: '特大单买入', description: '特大单买入' }),
+        tradeDate: '2026-07-26',
+      },
+      {
+        ...createItem({ id: 'individual-valid', amount: '买入1万手', tag: '特大单买入', description: '特大单买入' }),
+        tradeDate: '2026-07-26',
+      },
     ]);
 
     expect(await currentStore.listStockSurgeEvents('600519', '2026-07-26')).toEqual([
@@ -261,8 +308,16 @@ describe('异动历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('surge history store not loaded');
 
-    await currentStore.saveSurgeSnapshot([createItem({ id: 'd1' })], new Date('2026-07-23T02:00:00.000Z'), '2026-07-23');
-    await currentStore.saveSurgeSnapshot([createItem({ id: 'd2' })], new Date('2026-07-24T02:00:00.000Z'), '2026-07-24');
+    await currentStore.saveSurgeSnapshot(
+      [createItem({ id: 'd1' })],
+      new Date('2026-07-23T02:00:00.000Z'),
+      '2026-07-23',
+    );
+    await currentStore.saveSurgeSnapshot(
+      [createItem({ id: 'd2' })],
+      new Date('2026-07-24T02:00:00.000Z'),
+      '2026-07-24',
+    );
 
     await currentStore.clearSurgeHistoryDate('2026-07-23');
     expect(await currentStore.listSurgeHistory('2026-07-23', 0, 10)).toEqual([]);
@@ -273,8 +328,16 @@ describe('异动历史 DuckDB 存储', () => {
 
     currentStore.setSurgeHistoryClearMarker();
     expect(currentStore.isSurgeHistoryClearMarkerActive()).toBe(true);
-    await currentStore.saveSurgeSnapshot([createItem({ id: 'blocked' })], new Date('2026-07-25T02:00:00.000Z'), '2026-07-25');
-    currentStore.enqueueSurgeSnapshot([createItem({ id: 'queued-blocked' })], new Date('2026-07-25T02:01:00.000Z'), '2026-07-25');
+    await currentStore.saveSurgeSnapshot(
+      [createItem({ id: 'blocked' })],
+      new Date('2026-07-25T02:00:00.000Z'),
+      '2026-07-25',
+    );
+    currentStore.enqueueSurgeSnapshot(
+      [createItem({ id: 'queued-blocked' })],
+      new Date('2026-07-25T02:01:00.000Z'),
+      '2026-07-25',
+    );
     expect(currentStore.getQueuedSurgeSnapshotCount()).toBe(0);
     expect(await currentStore.listSurgeHistory('2026-07-25', 0, 10)).toEqual([]);
   });
@@ -283,12 +346,20 @@ describe('异动历史 DuckDB 存储', () => {
     const currentStore = store;
     if (!currentStore) throw new Error('surge history store not loaded');
 
-    await currentStore.saveSurgeSnapshot([createItem({ id: 'before-reset' })], new Date('2026-07-23T02:00:00.000Z'), '2026-07-23');
+    await currentStore.saveSurgeSnapshot(
+      [createItem({ id: 'before-reset' })],
+      new Date('2026-07-23T02:00:00.000Z'),
+      '2026-07-23',
+    );
     expect(await currentStore.listSurgeHistory('2026-07-23', 0, 10)).toHaveLength(1);
 
     await currentStore.resetSurgeHistoryStore();
     removeDbFiles(dbPath);
-    await currentStore.saveSurgeSnapshot([createItem({ id: 'after-reset' })], new Date('2026-07-24T02:00:00.000Z'), '2026-07-24');
+    await currentStore.saveSurgeSnapshot(
+      [createItem({ id: 'after-reset' })],
+      new Date('2026-07-24T02:00:00.000Z'),
+      '2026-07-24',
+    );
 
     expect(await currentStore.listSurgeHistory('2026-07-23', 0, 10)).toEqual([]);
     expect(await currentStore.listSurgeHistory('2026-07-24', 0, 10)).toEqual([

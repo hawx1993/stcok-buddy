@@ -1,5 +1,5 @@
-import { captureEvent } from '../llm/posthog-client.js';
-import type { AgentTool, ToolCallRecord } from './types.js';
+import { captureEvent } from '../llm/posthog-client.ts';
+import type { AgentTool, ToolCallRecord } from './types.ts';
 import {
   getDividendHistory,
   getDragonTiger,
@@ -33,7 +33,7 @@ import {
   screenASharesByMarketCap,
   screenLocalAStocks,
   webSearch,
-} from '../agent/tools/index.js';
+} from '../agent/tools/index.ts';
 
 export const stockToolRegistry = {
   resolveStockSymbol,

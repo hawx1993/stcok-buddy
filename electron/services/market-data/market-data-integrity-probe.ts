@@ -13,7 +13,7 @@ import { DuckDBInstance, type DuckDBConnection } from '@duckdb/node-api';
 const dbPath = process.argv[2];
 
 if (!dbPath) {
-  console.error('usage: market-data-integrity-probe.js <dbPath>');
+  console.error('usage: market-data-integrity-probe <dbPath>');
   process.exit(2);
 }
 

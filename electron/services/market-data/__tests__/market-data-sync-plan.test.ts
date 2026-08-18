@@ -41,14 +41,16 @@ describe('market data sync planning helpers', () => {
     expect(classifyMarketBoard('688001')).toBe('star');
     expect(classifyMarketBoard('835185')).toBe('bj');
 
-    expect(sortSecuritiesForSync([
-      security('835185'),
-      security('688001'),
-      security('300001'),
-      security('000001'),
-      security('600519'),
-      security('600000'),
-    ]).map((item) => item.symbol)).toEqual(['600000', '600519', '000001', '300001', '688001', '835185']);
+    expect(
+      sortSecuritiesForSync([
+        security('835185'),
+        security('688001'),
+        security('300001'),
+        security('000001'),
+        security('600519'),
+        security('600000'),
+      ]).map((item) => item.symbol),
+    ).toEqual(['600000', '600519', '000001', '300001', '688001', '835185']);
   });
 
   it('uses the trading calendar to choose a recent-first start date', () => {

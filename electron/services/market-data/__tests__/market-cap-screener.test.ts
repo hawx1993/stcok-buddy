@@ -15,7 +15,7 @@ vi.mock('electron', () => {
   return { ...electron, default: electron };
 });
 
-vi.mock('../../../electron-runtime.js', () => ({
+vi.mock('../../../electron-runtime', () => ({
   app: {
     getPath: () => os.tmpdir(),
     isPackaged: false,
@@ -32,7 +32,9 @@ import type { SecurityRecord } from '../types.js';
 
 const emptyRemoteSecurities: SecurityRecord[] = [];
 
-function row(partial: Partial<IAShareMarketCapSnapshotRow> & Pick<IAShareMarketCapSnapshotRow, 'symbol' | 'name'>): IAShareMarketCapSnapshotRow {
+function row(
+  partial: Partial<IAShareMarketCapSnapshotRow> & Pick<IAShareMarketCapSnapshotRow, 'symbol' | 'name'>,
+): IAShareMarketCapSnapshotRow {
   return {
     exchange: partial.symbol.startsWith('6') ? 'SH' : 'SZ',
     isSt: false,
@@ -52,10 +54,12 @@ afterAll(() => {
 describe('A股市值筛选服务', () => {
   it('优先返回 DuckDB 命中的市值区间结果', async () => {
     setMarketCapScreenerDependenciesForTest({
-      listLocalRows: vi.fn().mockResolvedValue([
-        row({ symbol: '600001', name: '区间内股', totalMarketCap: 5_000_000_000 }),
-        row({ symbol: '600002', name: '区间外股', totalMarketCap: 15_000_000_000 }),
-      ]),
+      listLocalRows: vi
+        .fn()
+        .mockResolvedValue([
+          row({ symbol: '600001', name: '区间内股', totalMarketCap: 5_000_000_000 }),
+          row({ symbol: '600002', name: '区间外股', totalMarketCap: 15_000_000_000 }),
+        ]),
       listRemoteSecurities: vi.fn().mockResolvedValue(emptyRemoteSecurities),
       upsertSnapshots: vi.fn(),
     });
@@ -70,9 +74,7 @@ describe('A股市值筛选服务', () => {
   it('DuckDB 缺失市值时使用 stock-sdk 批量补齐并回写快照', async () => {
     const upsertSnapshots = vi.fn().mockResolvedValue(undefined);
     setMarketCapScreenerDependenciesForTest({
-      listLocalRows: vi.fn().mockResolvedValue([
-        row({ symbol: '600010', name: '缺失市值股' }),
-      ]),
+      listLocalRows: vi.fn().mockResolvedValue([row({ symbol: '600010', name: '缺失市值股' })]),
       listRemoteSecurities: vi.fn().mockResolvedValue(emptyRemoteSecurities),
       upsertSnapshots,
       fetchStockSdkQuotes: vi.fn().mockResolvedValue({
@@ -83,16 +85,18 @@ describe('A股市值筛选服务', () => {
 
     const result = await screenASharesByMarketCap({ minMarketCap: 30, maxMarketCap: 100, unit: 'yi' });
 
-    expect(result.rows[0]).toEqual(expect.objectContaining({ code: '600010', dataSource: 'stock-sdk', marketCapYi: 80 }));
-    expect(upsertSnapshots).toHaveBeenCalledWith([expect.objectContaining({ code: '600010', totalMarketCap: 8_000_000_000 })]);
+    expect(result.rows[0]).toEqual(
+      expect.objectContaining({ code: '600010', dataSource: 'stock-sdk', marketCapYi: 80 }),
+    );
+    expect(upsertSnapshots).toHaveBeenCalledWith([
+      expect.objectContaining({ code: '600010', totalMarketCap: 8_000_000_000 }),
+    ]);
     expect(result.sourceStats.stockSdkMatched).toBe(1);
   });
 
   it('stock-sdk 缺失后使用 a-stock-data 腾讯市值字段兜底', async () => {
     setMarketCapScreenerDependenciesForTest({
-      listLocalRows: vi.fn().mockResolvedValue([
-        row({ symbol: '000001', name: '兜底股' }),
-      ]),
+      listLocalRows: vi.fn().mockResolvedValue([row({ symbol: '000001', name: '兜底股' })]),
       listRemoteSecurities: vi.fn().mockResolvedValue(emptyRemoteSecurities),
       upsertSnapshots: vi.fn().mockResolvedValue(undefined),
       fetchStockSdkQuotes: vi.fn().mockResolvedValue({ quotes: [], warnings: [] }),
@@ -104,17 +108,21 @@ describe('A股市值筛选服务', () => {
 
     const result = await screenASharesByMarketCap({ minMarketCap: 30, maxMarketCap: 100, unit: 'yi' });
 
-    expect(result.rows[0]).toEqual(expect.objectContaining({ code: '000001', dataSource: 'a-stock-data', marketCapYi: 90 }));
+    expect(result.rows[0]).toEqual(
+      expect.objectContaining({ code: '000001', dataSource: 'a-stock-data', marketCapYi: 90 }),
+    );
     expect(result.sourceStats.aStockDataMatched).toBe(1);
   });
 
   it('支持 30 亿到 100 亿单位转换', async () => {
     setMarketCapScreenerDependenciesForTest({
-      listLocalRows: vi.fn().mockResolvedValue([
-        row({ symbol: '600030', name: '下界股', totalMarketCap: 3_000_000_000 }),
-        row({ symbol: '600100', name: '上界股', totalMarketCap: 10_000_000_000 }),
-        row({ symbol: '600200', name: '过大股', totalMarketCap: 10_100_000_000 }),
-      ]),
+      listLocalRows: vi
+        .fn()
+        .mockResolvedValue([
+          row({ symbol: '600030', name: '下界股', totalMarketCap: 3_000_000_000 }),
+          row({ symbol: '600100', name: '上界股', totalMarketCap: 10_000_000_000 }),
+          row({ symbol: '600200', name: '过大股', totalMarketCap: 10_100_000_000 }),
+        ]),
       listRemoteSecurities: vi.fn().mockResolvedValue(emptyRemoteSecurities),
       upsertSnapshots: vi.fn(),
     });
@@ -129,14 +137,24 @@ describe('A股市值筛选服务', () => {
   it('总市值与流通市值使用不同字段筛选', async () => {
     setMarketCapScreenerDependenciesForTest({
       listLocalRows: vi.fn().mockResolvedValue([
-        row({ symbol: '000002', name: '流通命中股', totalMarketCap: 200_000_000_000, circulatingMarketCap: 6_000_000_000 }),
+        row({
+          symbol: '000002',
+          name: '流通命中股',
+          totalMarketCap: 200_000_000_000,
+          circulatingMarketCap: 6_000_000_000,
+        }),
       ]),
       listRemoteSecurities: vi.fn().mockResolvedValue(emptyRemoteSecurities),
       upsertSnapshots: vi.fn(),
     });
 
     const totalResult = await screenASharesByMarketCap({ minMarketCap: 30, maxMarketCap: 100, unit: 'yi' });
-    const circulatingResult = await screenASharesByMarketCap({ minMarketCap: 30, maxMarketCap: 100, unit: 'yi', marketCapField: 'circulating' });
+    const circulatingResult = await screenASharesByMarketCap({
+      minMarketCap: 30,
+      maxMarketCap: 100,
+      unit: 'yi',
+      marketCapField: 'circulating',
+    });
 
     expect(totalResult.rows).toHaveLength(0);
     expect(circulatingResult.rows[0]?.code).toBe('000002');
@@ -145,9 +163,7 @@ describe('A股市值筛选服务', () => {
 
   it('缺失真实市值时返回 warning 而不是伪造数据', async () => {
     setMarketCapScreenerDependenciesForTest({
-      listLocalRows: vi.fn().mockResolvedValue([
-        row({ symbol: '300001', name: '无市值股' }),
-      ]),
+      listLocalRows: vi.fn().mockResolvedValue([row({ symbol: '300001', name: '无市值股' })]),
       listRemoteSecurities: vi.fn().mockResolvedValue(emptyRemoteSecurities),
       upsertSnapshots: vi.fn(),
       fetchStockSdkQuotes: vi.fn().mockResolvedValue({ quotes: [], warnings: ['stock-sdk 未返回市值'] }),
@@ -166,16 +182,23 @@ describe('A股市值筛选服务', () => {
 
   it('支持换手率区间二次过滤', async () => {
     setMarketCapScreenerDependenciesForTest({
-      listLocalRows: vi.fn().mockResolvedValue([
-        row({ symbol: '600001', name: '高换手', totalMarketCap: 20_000_000_000, turnoverRate: 12.5 }),
-        row({ symbol: '600002', name: '低换手', totalMarketCap: 20_000_000_000, turnoverRate: 3.2 }),
-        row({ symbol: '600003', name: '无换手', totalMarketCap: 20_000_000_000 }),
-      ]),
+      listLocalRows: vi
+        .fn()
+        .mockResolvedValue([
+          row({ symbol: '600001', name: '高换手', totalMarketCap: 20_000_000_000, turnoverRate: 12.5 }),
+          row({ symbol: '600002', name: '低换手', totalMarketCap: 20_000_000_000, turnoverRate: 3.2 }),
+          row({ symbol: '600003', name: '无换手', totalMarketCap: 20_000_000_000 }),
+        ]),
       listRemoteSecurities: vi.fn().mockResolvedValue(emptyRemoteSecurities),
       upsertSnapshots: vi.fn(),
     });
 
-    const result = await screenASharesByMarketCap({ minMarketCap: 100, maxMarketCap: 500, unit: 'yi', turnoverRateMin: 10 });
+    const result = await screenASharesByMarketCap({
+      minMarketCap: 100,
+      maxMarketCap: 500,
+      unit: 'yi',
+      turnoverRateMin: 10,
+    });
 
     expect(result.rows.map((item) => item.code)).toEqual(['600001']);
     expect(result.matchedCount).toBe(1);
@@ -184,16 +207,24 @@ describe('A股市值筛选服务', () => {
 
   it('换手率上限过滤与下限同用时按区间取交集', async () => {
     setMarketCapScreenerDependenciesForTest({
-      listLocalRows: vi.fn().mockResolvedValue([
-        row({ symbol: '600001', name: '换手15', totalMarketCap: 20_000_000_000, turnoverRate: 15 }),
-        row({ symbol: '600002', name: '换手25', totalMarketCap: 20_000_000_000, turnoverRate: 25 }),
-        row({ symbol: '600003', name: '换手35', totalMarketCap: 20_000_000_000, turnoverRate: 35 }),
-      ]),
+      listLocalRows: vi
+        .fn()
+        .mockResolvedValue([
+          row({ symbol: '600001', name: '换手15', totalMarketCap: 20_000_000_000, turnoverRate: 15 }),
+          row({ symbol: '600002', name: '换手25', totalMarketCap: 20_000_000_000, turnoverRate: 25 }),
+          row({ symbol: '600003', name: '换手35', totalMarketCap: 20_000_000_000, turnoverRate: 35 }),
+        ]),
       listRemoteSecurities: vi.fn().mockResolvedValue(emptyRemoteSecurities),
       upsertSnapshots: vi.fn(),
     });
 
-    const result = await screenASharesByMarketCap({ minMarketCap: 100, maxMarketCap: 500, unit: 'yi', turnoverRateMin: 10, turnoverRateMax: 30 });
+    const result = await screenASharesByMarketCap({
+      minMarketCap: 100,
+      maxMarketCap: 500,
+      unit: 'yi',
+      turnoverRateMin: 10,
+      turnoverRateMax: 30,
+    });
 
     expect(result.rows.map((item) => item.code)).toEqual(['600001', '600002']);
     expect(result.matchedCount).toBe(2);

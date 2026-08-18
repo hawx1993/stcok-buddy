@@ -207,8 +207,22 @@ describe('板块 Dashboard 热度评分', () => {
 describe('板块 Dashboard 龙头股评分', () => {
   it('按资金涨幅和成交额综合选择龙头候选', () => {
     const leaders = pickBoardLeaders([
-      { code: '600001', name: '资金龙头', changePercent: 4, mainNetInflow: 300000000, amount: 900000000, turnoverRate: 8 },
-      { code: '600002', name: '缩量上涨', changePercent: 8, mainNetInflow: 10000000, amount: 10000000, turnoverRate: 1 },
+      {
+        code: '600001',
+        name: '资金龙头',
+        changePercent: 4,
+        mainNetInflow: 300000000,
+        amount: 900000000,
+        turnoverRate: 8,
+      },
+      {
+        code: '600002',
+        name: '缩量上涨',
+        changePercent: 8,
+        mainNetInflow: 10000000,
+        amount: 10000000,
+        turnoverRate: 1,
+      },
       { code: '600003', name: '缺少数据' },
     ]);
     expect(leaders.map((item) => item.name)).toEqual(['资金龙头', '缩量上涨', '缺少数据']);

@@ -121,7 +121,8 @@ function inspectFinalEvidenceSupport(context: IAgentContext, gaps: IAgentDataGap
     }
   }
   const text = `${context.analysisOverview ?? ''} ${context.findings.map((finding) => finding.summary).join(' ')}`;
-  if (/必须买入|立即加仓|立即买入|立即卖出|清仓|必涨|稳赚/.test(text)) issues.push('最终文案存在确定性买卖建议，需要替换为观察框架。');
+  if (/必须买入|立即加仓|立即买入|立即卖出|清仓|必涨|稳赚/.test(text))
+    issues.push('最终文案存在确定性买卖建议，需要替换为观察框架。');
   if (/[🚀🔥💎🌙🤑🎉]/u.test(text)) issues.push('最终文案存在禁用娱乐化 Emoji，需要替换为专业表述。');
   return issues;
 }
@@ -138,11 +139,7 @@ function gapAffectsFinding(gaps: IAgentDataGap[], dimension: string): boolean {
   return gaps.some((gap) => names.some((name) => gap.dataName.includes(name) || name.includes(gap.dataName)));
 }
 
-function createRevisions(
-  gaps: IAgentDataGap[],
-  reason: string,
-  existing: IAgentPlanRevision[],
-): IAgentPlanRevision[] {
+function createRevisions(gaps: IAgentDataGap[], reason: string, existing: IAgentPlanRevision[]): IAgentPlanRevision[] {
   if (!gaps.length) return existing;
   const key = `revision-${reason}-${gaps.map((gap) => `${gap.dataName}:${gap.status}`).join('-')}`;
   if (existing.some((revision) => revision.id === key)) return existing;

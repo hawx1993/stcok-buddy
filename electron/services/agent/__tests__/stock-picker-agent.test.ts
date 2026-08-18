@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../tools/tool-registry.js', () => ({
+vi.mock('../../tools/tool-registry', () => ({
   callTool: vi.fn(),
 }));
 
-vi.mock('../../llm/index.js', () => ({
+vi.mock('../../llm/index', () => ({
   generateReport: vi.fn(),
 }));
 

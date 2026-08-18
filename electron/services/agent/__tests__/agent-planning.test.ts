@@ -51,9 +51,9 @@ describe('agent-planning 分析计划', () => {
     const plan = createInitialAgentPlan(createContext());
     const covered = attachPlanNodeCoverage(plan, [createNode('quote'), createNode('market-data')]);
 
-    expect(covered.items.flatMap((item) => item.relatedNodeIds).every((id) => ['quote', 'market-data'].includes(id))).toBe(
-      true,
-    );
+    expect(
+      covered.items.flatMap((item) => item.relatedNodeIds).every((id) => ['quote', 'market-data'].includes(id)),
+    ).toBe(true);
     expect(covered.items.some((item) => item.relatedNodeIds.includes('analysis-report'))).toBe(false);
   });
 

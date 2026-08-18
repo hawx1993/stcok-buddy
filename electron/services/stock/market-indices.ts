@@ -1,14 +1,5 @@
-import type {
-  KlinePoint,
-  MarketIndexPeriod,
-  MarketIndexSnapshot,
-} from '../../../src/shared/types.js';
-import {
-  type IndexKlinePeriod,
-  aggregateKline,
-  mergeByCode,
-  parseMarketTime,
-} from './shared.js';
+import type { KlinePoint, MarketIndexPeriod, MarketIndexSnapshot } from '../../../src/shared/types.js';
+import { type IndexKlinePeriod, aggregateKline, mergeByCode, parseMarketTime } from './shared.js';
 import { marketIndexCache } from './market-state.js';
 import { upsertDailyBars } from '../market-data/market-data-store.js';
 import type { DailyBarRecord } from '../market-data/types.js';

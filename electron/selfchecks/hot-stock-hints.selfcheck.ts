@@ -17,25 +17,37 @@ for (const group of groups) {
   assert.equal(group.length, 5);
   assert.equal(new Set(group.map((hint) => hint.code)).size, 5);
 }
-assert.deepEqual(groups.slice(0, 5).map((group) => group.map((hint) => hint.code)), [
-  ['600000', '600001', '600002', '600003', '600004'],
-  ['600005', '600006', '600007', '600008', '600009'],
-  ['600010', '600011', '600012', '600013', '600014'],
-  ['600015', '600016', '600017', '600018', '600019'],
-  ['600020', '600021', '600022', '600023', '600024'],
-]);
+assert.deepEqual(
+  groups.slice(0, 5).map((group) => group.map((hint) => hint.code)),
+  [
+    ['600000', '600001', '600002', '600003', '600004'],
+    ['600005', '600006', '600007', '600008', '600009'],
+    ['600010', '600011', '600012', '600013', '600014'],
+    ['600015', '600016', '600017', '600018', '600019'],
+    ['600020', '600021', '600022', '600023', '600024'],
+  ],
+);
 assert.equal(new Set(groups.slice(5).map((group) => group.map((hint) => hint.code).join(','))).size, 10);
 
 const limitedGroups = createHotStockHintGroups(items.slice(0, 3));
 assert.equal(limitedGroups.length, 1);
-assert.deepEqual(limitedGroups[0].map((hint) => hint.code), ['600000', '600001', '600002']);
+assert.deepEqual(
+  limitedGroups[0].map((hint) => hint.code),
+  ['600000', '600001', '600002'],
+);
 for (const group of limitedGroups) assert.equal(new Set(group.map((hint) => hint.code)).size, group.length);
 
 const previousTradeItems = items.slice(0, 12);
 const previousTradeSource = await listHotStockHintSource(new Date('2026-07-25T01:30:00.000Z'), {
-  async isTradingDay() { return false; },
-  async previousTradingDay() { return '2026-07-24'; },
-  async listCurrentHotFocus() { throw new Error('非交易日不应获取当日热点'); },
+  async isTradingDay() {
+    return false;
+  },
+  async previousTradingDay() {
+    return '2026-07-24';
+  },
+  async listCurrentHotFocus() {
+    throw new Error('非交易日不应获取当日热点');
+  },
   async listPreviousSurge(date) {
     assert.equal(date, '2026-07-24');
     return previousTradeItems;
@@ -46,20 +58,37 @@ assert.equal(previousTradeSource.tradeDate, '2026-07-24');
 assert.equal(previousTradeSource.items.length, 10);
 
 const emptyPreviousTradeSource = await listHotStockHintSource(new Date('2026-07-25T01:30:00.000Z'), {
-  async isTradingDay() { return false; },
-  async previousTradingDay() { return '2026-07-24'; },
-  async listCurrentHotFocus() { throw new Error('非交易日不应获取当日热点'); },
-  async listPreviousSurge() { return []; },
+  async isTradingDay() {
+    return false;
+  },
+  async previousTradingDay() {
+    return '2026-07-24';
+  },
+  async listCurrentHotFocus() {
+    throw new Error('非交易日不应获取当日热点');
+  },
+  async listPreviousSurge() {
+    return [];
+  },
 });
 assert.equal(emptyPreviousTradeSource.items.length, 0);
 
 await assert.rejects(
-  () => listHotStockHintSource(new Date('2026-07-25T01:30:00.000Z'), {
-    async isTradingDay() { return false; },
-    async previousTradingDay() { return '2026-07-24'; },
-    async listCurrentHotFocus() { throw new Error('非交易日不应获取当日热点'); },
-    async listPreviousSurge() { throw new Error('历史热点数据源不可用'); },
-  }),
+  () =>
+    listHotStockHintSource(new Date('2026-07-25T01:30:00.000Z'), {
+      async isTradingDay() {
+        return false;
+      },
+      async previousTradingDay() {
+        return '2026-07-24';
+      },
+      async listCurrentHotFocus() {
+        throw new Error('非交易日不应获取当日热点');
+      },
+      async listPreviousSurge() {
+        throw new Error('历史热点数据源不可用');
+      },
+    }),
   /历史热点数据源不可用/,
 );
 

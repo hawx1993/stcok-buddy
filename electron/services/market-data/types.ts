@@ -8,7 +8,12 @@ import type {
 
 export type AdjustType = 'qfq' | 'none' | 'qfq_weekly' | 'qfq_monthly';
 export type DataFreshness = 'live' | 'current' | 'historical' | 'stale' | 'fallback';
-export type SyncJobType = 'initial_backfill' | 'recent_initial' | 'historical_backfill' | 'daily_incremental' | 'repair';
+export type SyncJobType =
+  | 'initial_backfill'
+  | 'recent_initial'
+  | 'historical_backfill'
+  | 'daily_incremental'
+  | 'repair';
 export type SyncJobStatus = 'pending' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
 
 export interface DataMeta {
@@ -83,6 +88,10 @@ export interface DailyBarRecord {
   fetchedAt: string;
 }
 
+export interface IDailyBarCoverageCandidate extends SecurityRecord {
+  latestTradeDate?: string;
+}
+
 export interface HistoricalBarsOptions {
   limit?: number;
   startDate?: string;
@@ -93,7 +102,10 @@ export interface HistoricalBarsOptions {
 
 export interface HistoricalBarProvider {
   name: string;
-  getDailyBars(symbol: string, options: Required<Pick<HistoricalBarsOptions, 'adjustType'>> & Pick<HistoricalBarsOptions, 'startDate' | 'endDate'>): Promise<DailyBarRecord[]>;
+  getDailyBars(
+    symbol: string,
+    options: Required<Pick<HistoricalBarsOptions, 'adjustType'>> & Pick<HistoricalBarsOptions, 'startDate' | 'endDate'>,
+  ): Promise<DailyBarRecord[]>;
 }
 
 export interface MarketDataSyncStatus {

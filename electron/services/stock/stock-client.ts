@@ -254,7 +254,9 @@ async function getKlineUncached(
     try {
       const cached = await listDailyBars(symbol, { limit, adjustType: wmAdjust });
       if (cached.length >= limit) return cached.map(dailyBarToKline);
-    } catch { /* DB read failed, fall through to remote */ }
+    } catch {
+      /* DB read failed, fall through to remote */
+    }
     // Fetch remote and persist
     try {
       const remote = await fetchWeeklyMonthlyRemote(symbol, period, limit, beforeTimestamp);
@@ -277,7 +279,8 @@ async function getKlineUncached(
             source: 'stock-sdk:tencent',
             fetchedAt: new Date().toISOString(),
           }));
-        if (bars.length) upsertDailyBars(bars).catch((err) => console.warn('[stock-client] weekly/monthly persist failed', err));
+        if (bars.length)
+          upsertDailyBars(bars).catch((err) => console.warn('[stock-client] weekly/monthly persist failed', err));
         return remote;
       }
     } catch (err) {
@@ -287,7 +290,9 @@ async function getKlineUncached(
     try {
       const cached = await listDailyBars(symbol, { limit, adjustType: wmAdjust });
       return cached.map(dailyBarToKline);
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
   try {
     if (period === '15m') return getTencentMinuteKline(symbol, limit, '15', beforeTimestamp);
@@ -448,9 +453,7 @@ async function getCachedIndexKline(
             fetchedAt: new Date().toISOString(),
           }));
         if (bars.length) {
-          upsertDailyBars(bars).catch((err) =>
-            console.warn('[market-data] index kline persist failed', err),
-          );
+          upsertDailyBars(bars).catch((err) => console.warn('[market-data] index kline persist failed', err));
         }
       }
       return snapshot.minutes.slice(-limit);
@@ -473,7 +476,6 @@ async function getCachedIndexKline(
     return [];
   }
 }
-
 
 function toSdkKlinePeriod(period: string): 'daily' | 'weekly' | 'monthly' {
   return period === '1w' ? 'weekly' : period === '1mo' ? 'monthly' : 'daily';
@@ -626,7 +628,9 @@ export async function searchStocks(query: string): Promise<MarketSearchResult[]>
   const stockRows = fromSdk.filter((item) => item.kind === 'stock');
   const sdkBoardRows = fromSdk.filter((item) => item.kind === 'board');
   const mergedBoardRows = dedupeSearchRows([...sdkBoardRows, ...boardRows]).slice(0, 20);
-  const baseStockRows = stockRows.length ? dedupeSearchRows(stockRows).slice(0, 50) : await searchFallbackStocks(text, q);
+  const baseStockRows = stockRows.length
+    ? dedupeSearchRows(stockRows).slice(0, 50)
+    : await searchFallbackStocks(text, q);
   const mergedStockRows = await enrichSearchStockRows(baseStockRows);
   const results = [...mergedBoardRows, ...mergedStockRows].slice(0, 50);
   if (results.length) return results;
@@ -925,5 +929,10 @@ export {
   listEastmoneySurgeByDate,
   getBoardSnapshot,
 } from './hot-focus.js';
-export { getDragonTigerSnapshot, listDailyDragonTiger, listDragonTigerByDate, listRecentDragonTigerDays } from './dragon-tiger.js';
+export {
+  getDragonTigerSnapshot,
+  listDailyDragonTiger,
+  listDragonTigerByDate,
+  listRecentDragonTigerDays,
+} from './dragon-tiger.js';
 export type { DailyDragonTigerGroup, DailyDragonTigerItem } from './dragon-tiger.js';

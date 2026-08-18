@@ -37,8 +37,6 @@ type AnyRecord = Record<string, unknown>;
 let eastmoneyClistWarned = false;
 const eastmoneyClistDisabledUntil = new Map<string, number>();
 
-
-
 export function aggregateKline(data: KlinePoint[], size: number): KlinePoint[] {
   const result: KlinePoint[] = [];
   for (let i = 0; i < data.length; i += size) {
@@ -102,7 +100,6 @@ export function aggregateKlineByMonth(data: KlinePoint[]): KlinePoint[] {
   return Array.from(groups.values()).map(aggregateKlineChunk);
 }
 
-
 export function parseEastmoneyKline(line: string): KlinePoint | undefined {
   const [time, open, close, high, low, volume, amount, amplitude, changePercent, change, turnoverRate] =
     line.split(',');
@@ -123,7 +120,6 @@ export function parseEastmoneyKline(line: string): KlinePoint | undefined {
   return [point.open, point.close, point.high, point.low].every(Number.isFinite) ? point : undefined;
 }
 
-
 export function parseMarketTime(value: string): number | undefined {
   const text = String(value || '').trim();
   const minute = text.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
@@ -133,7 +129,6 @@ export function parseMarketTime(value: string): number | undefined {
   const date = Date.parse(text.includes('T') ? text : `${text}T00:00:00+08:00`);
   return Number.isFinite(date) ? date : undefined;
 }
-
 
 export function toKlinePoint(raw: unknown): KlinePoint | undefined {
   const record = (raw ?? {}) as AnyRecord;
@@ -159,23 +154,19 @@ export function toKlinePoint(raw: unknown): KlinePoint | undefined {
   };
 }
 
-
 export function hasValue(value: unknown) {
   return value !== undefined && value !== null && value !== '' && value !== '--';
 }
 
-
 export function orderBoardApis(kind?: BoardKind): BoardApi[] {
   return kind === 'concept' ? [sdk.board.concept, sdk.board.industry] : [sdk.board.industry, sdk.board.concept];
 }
-
 
 export function mergeByCode<T extends { code: string }>(current: T[], incoming: T[]) {
   const byCode = new Map(current.map((row) => [row.code, row]));
   for (const row of incoming) byCode.set(row.code, { ...byCode.get(row.code), ...compactRow(row) } as T);
   return [...byCode.values()];
 }
-
 
 export function compactRow<T extends object>(row: T) {
   return Object.fromEntries(
@@ -185,7 +176,6 @@ export function compactRow<T extends object>(row: T) {
     }),
   ) as Partial<T>;
 }
-
 
 export async function getCachedMarketBoardRows(allowRemote = true): Promise<MarketBoardRow[]> {
   if (allowRemote && shouldUseRemoteMarketData()) {
@@ -200,7 +190,6 @@ export async function getCachedMarketBoardRows(allowRemote = true): Promise<Mark
   }
   return [];
 }
-
 
 export async function refreshMarketBoardRows(): Promise<MarketBoardRow[]> {
   if (marketBoardsCache.promise) return marketBoardsCache.promise;
@@ -219,7 +208,6 @@ export async function refreshMarketBoardRows(): Promise<MarketBoardRow[]> {
     }) as Promise<MarketBoardRow[]>;
   return marketBoardsCache.promise;
 }
-
 
 export async function persistMarketBoardRows(rows: MarketBoardRow[]) {
   marketBoardsLastPersistedAt = Date.now();
@@ -256,12 +244,10 @@ function parseBoardAmount(value?: string | number): number | undefined {
   return Number.isFinite(num) ? num * unit : undefined;
 }
 
-
 export function shouldUseRemoteMarketData() {
   const status = remoteMarketStatus();
   return status === 'open' || status === 'pre_market' || status === 'lunch_break';
 }
-
 
 export async function getRemoteMarketBoardRows(): Promise<MarketBoardRow[]> {
   const sdkRows = await getSdkMarketBoardRows();
@@ -269,7 +255,6 @@ export async function getRemoteMarketBoardRows(): Promise<MarketBoardRow[]> {
   warnEastmoneyFallback('boards', new Error('stock-sdk board.list empty'));
   return fetchEastmoneyBoardRows();
 }
-
 
 export async function fetchEastmoneyBoardRows(): Promise<MarketBoardRow[]> {
   const [industries, concepts] = await Promise.allSettled([
@@ -284,7 +269,6 @@ export async function fetchEastmoneyBoardRows(): Promise<MarketBoardRow[]> {
     .filter((row) => row.code && row.name);
   return rows;
 }
-
 
 export async function getSdkMarketBoardRows(kinds: BoardKind[] = ['industry', 'concept']): Promise<MarketBoardRow[]> {
   const [industries, concepts] = await Promise.allSettled([
@@ -307,7 +291,6 @@ export async function getSdkMarketBoardRows(kinds: BoardKind[] = ['industry', 'c
     .filter((row) => row.code && row.name);
   return enrichBoardSpotRows(rows);
 }
-
 
 export async function enrichBoardSpotRows(rows: MarketBoardRow[]): Promise<MarketBoardRow[]> {
   const result = [...rows];
@@ -341,17 +324,14 @@ export async function enrichBoardSpotRows(rows: MarketBoardRow[]): Promise<Marke
   return result;
 }
 
-
 export function normalizeBoardName(name: string) {
   return name.replace(/行业|板块|Ⅱ|Ⅲ|II|III|\s/g, '');
 }
-
 
 export function boardNamesMatch(industry: string, boardName: string) {
   const local = normalizeBoardName(industry);
   return local === boardName || local.includes(boardName) || boardName.includes(local);
 }
-
 
 export async function fetchEastmoneyClist(
   fs: string,
@@ -386,7 +366,6 @@ export async function fetchEastmoneyClist(
   return Array.isArray(diff) ? diff : Object.values(diff);
 }
 
-
 export async function fetchEastmoneyQuoteRowsByCodes(codes: string[]): Promise<AnyRecord[]> {
   const uniqueCodes = [...new Set(codes)].filter(Boolean);
   if (!uniqueCodes.length) return [];
@@ -413,13 +392,11 @@ export async function fetchEastmoneyQuoteRowsByCodes(codes: string[]): Promise<A
   return rows.flat();
 }
 
-
 export function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let start = 0; start < items.length; start += size) chunks.push(items.slice(start, start + size));
   return chunks;
 }
-
 
 export function warnEastmoneyFallback(scope: string, error: unknown) {
   if (eastmoneyClistWarned) return;
@@ -428,11 +405,9 @@ export function warnEastmoneyFallback(scope: string, error: unknown) {
   console.warn(`[market] eastmoney ${scope} unavailable (${message}); fallback enabled for 5 minutes`);
 }
 
-
 export function withTimeoutReject<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return Promise.race([promise, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(message)), ms))]);
 }
-
 
 export function toMarketQuoteRow(row: AnyRecord): MarketQuoteRow {
   const code =
@@ -457,24 +432,20 @@ export function toMarketQuoteRow(row: AnyRecord): MarketQuoteRow {
   };
 }
 
-
 export function pickStockName(row: AnyRecord, code: string) {
   const name = pickString(row, ['f14', 'name', '名称']);
   return name && !/^\d{6}$/.test(name) ? name : code;
 }
 
-
 export function normalizeAmount(value?: number) {
   return value !== undefined && Math.abs(value) < 1_000_000 ? value * 10_000 : value;
 }
-
 
 export function normalizeIndustryName(value: string | undefined) {
   if (!value) return undefined;
   const text = value.trim();
   return text && text !== '-' && text !== '--' ? text : undefined;
 }
-
 
 export function toMarketBoardRow(row: AnyRecord): MarketBoardRow {
   const rawCode = pickString(row, ['f12', 'code', 'boardCode', 'symbol']) ?? '';
@@ -490,7 +461,9 @@ export function toMarketBoardRow(row: AnyRecord): MarketBoardRow {
     price: pickNumber(row, ['f2', 'price', 'latestPrice', 'lastPrice', 'close']),
     changePercent: pickNumber(row, ['f3', 'changePercent', 'pctChg', 'pctChange', 'change_rate']),
     volume: pickNumber(row, ['f5', 'volume']),
-    amount: normalizeAmount(pickNumber(row, ['f6', 'amount', 'turnover'])) ?? parseBoardAmount(pickString(row, ['amount', 'turnover', '成交额'])),
+    amount:
+      normalizeAmount(pickNumber(row, ['f6', 'amount', 'turnover'])) ??
+      parseBoardAmount(pickString(row, ['amount', 'turnover', '成交额'])),
     marketCap: pickNumber(row, ['f20', 'totalMarketCap', 'marketCap']),
     turnoverRate: pickNumber(row, ['f8', 'turnoverRate']),
     minutes: [],

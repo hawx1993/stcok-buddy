@@ -4,14 +4,18 @@ import { proxy, wrap, type Remote } from 'comlink';
 import { nodeEndpoint } from '../stock/comlink-node-endpoint.js';
 import { getMarketDataDatabasePath } from './market-data-store.js';
 import type { MarketDataSyncStatus } from './types.js';
-import type { IMarketDataSyncWorkerApi, TMarketDataProgressListener } from './market-data-sync-worker-types.js';
+import type {
+  IMarketDataCoverageSyncOptions,
+  IMarketDataSyncWorkerApi,
+  TMarketDataProgressListener,
+} from './market-data-sync-worker-types.js';
 
 let worker: Worker | undefined;
 let api: Remote<IMarketDataSyncWorkerApi> | undefined;
 
 function getMarketDataSyncWorker(): Remote<IMarketDataSyncWorkerApi> {
   if (!api) {
-    worker = new Worker(fileURLToPath(new URL('./market-data-sync.worker.js', import.meta.url)), {
+    worker = new Worker(fileURLToPath(new URL('./market-data-sync.worker', import.meta.url)), {
       env: {
         ...process.env,
         STOCKSENSE_MARKET_DB_PATH: getMarketDataDatabasePath(),
@@ -33,15 +37,20 @@ export function runMarketDataSyncInWorker(
   return getMarketDataSyncWorker().runSync(force, proxy(onProgress));
 }
 
+export function runMarketDataCoverageSyncInWorker(
+  options: IMarketDataCoverageSyncOptions,
+  onProgress: TMarketDataProgressListener,
+): Promise<MarketDataSyncStatus> {
+  return getMarketDataSyncWorker().runCoverageSync(options, proxy(onProgress));
+}
+
 export function retryMarketDataFailuresInWorker(
   onProgress: TMarketDataProgressListener,
 ): Promise<MarketDataSyncStatus> {
   return getMarketDataSyncWorker().runRepair(proxy(onProgress));
 }
 
-export function runHistoricalBackfillInWorker(
-  onProgress: TMarketDataProgressListener,
-): Promise<MarketDataSyncStatus> {
+export function runHistoricalBackfillInWorker(onProgress: TMarketDataProgressListener): Promise<MarketDataSyncStatus> {
   return getMarketDataSyncWorker().runHistoricalBackfill(proxy(onProgress));
 }
 

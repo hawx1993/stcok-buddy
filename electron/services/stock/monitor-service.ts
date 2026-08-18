@@ -65,7 +65,10 @@ const DEFAULT_MONITOR_UNIVERSE: FavoriteStock[] = [
   { code: '300274', name: '阳光电源', createdAt: new Date().toISOString() },
 ];
 
-const CATEGORY_META: Record<TMonitorCategory, { label: string; icon: string; tone: 'positive' | 'warning' | 'danger' | 'neutral' }> = {
+const CATEGORY_META: Record<
+  TMonitorCategory,
+  { label: string; icon: string; tone: 'positive' | 'warning' | 'danger' | 'neutral' }
+> = {
   'large-order': { label: '大单异动', icon: '💵', tone: 'positive' },
   chip: { label: '筹码变化', icon: '📊', tone: 'warning' },
   technical: { label: '技术信号', icon: '📈', tone: 'warning' },
@@ -245,9 +248,8 @@ function createQuoteEvents(
     if (enabledCategories.includes(event.category)) events.push(event);
   };
 
-  const intradayPosition = high !== undefined && low !== undefined && high > low
-    ? ((price - low) / (high - low)) * 100
-    : undefined;
+  const intradayPosition =
+    high !== undefined && low !== undefined && high > low ? ((price - low) / (high - low)) * 100 : undefined;
 
   const strongTurnover = turnoverRate !== undefined && turnoverRate >= 2;
 
@@ -259,13 +261,22 @@ function createQuoteEvents(
       badge: '实时行情',
       details: [
         `当前涨跌幅 ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
-        high !== undefined && low !== undefined ? `日内区间 ${low.toFixed(2)} - ${high.toFixed(2)}` : '行情区间数据暂缺',
+        high !== undefined && low !== undefined
+          ? `日内区间 ${low.toFixed(2)} - ${high.toFixed(2)}`
+          : '行情区间数据暂缺',
       ],
       aiAnalysis: '该信号仅基于实时行情与日内价格区间生成，不包含未经验证的突破前高或背离判断。',
     });
   }
 
-  if (changePercent >= 4 && open !== undefined && price >= open && intradayPosition !== undefined && intradayPosition >= 75 && strongTurnover) {
+  if (
+    changePercent >= 4 &&
+    open !== undefined &&
+    price >= open &&
+    intradayPosition !== undefined &&
+    intradayPosition >= 75 &&
+    strongTurnover
+  ) {
     add({
       ...base('ai-opportunity'),
       id: `mo-opp-quote-${stock.code}-${tradeDate}`,
@@ -279,7 +290,10 @@ function createQuoteEvents(
     });
   }
 
-  if (changePercent <= -4 && (intradayPosition === undefined || intradayPosition <= 35 || (open !== undefined && price <= open))) {
+  if (
+    changePercent <= -4 &&
+    (intradayPosition === undefined || intradayPosition <= 35 || (open !== undefined && price <= open))
+  ) {
     add({
       ...base('ai-warning'),
       id: `mo-warn-quote-${stock.code}-${tradeDate}`,
@@ -299,7 +313,10 @@ function createQuoteEvents(
       id: `mo-risk-turnover-${stock.code}-${tradeDate}`,
       title: '高换手波动风险',
       badge: '波动提示',
-      details: [`当前换手率 ${turnoverRate.toFixed(2)}%`, `当前涨跌幅 ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`],
+      details: [
+        `当前换手率 ${turnoverRate.toFixed(2)}%`,
+        `当前涨跌幅 ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
+      ],
       aiAnalysis: '高换手叠加价格波动通常意味着分歧加大，需结合成交额和K线位置判断。',
     });
   }
@@ -374,7 +391,12 @@ function createChipEvent(
     details,
     aiAnalysis: '该事件基于真实筹码分布数据生成，需结合价格是否站稳平均成本与量能变化继续验证。',
     chart: trendDetails.length
-      ? { type: 'line', data: chip.trend.map((item) => item.concentration70).filter((value): value is number => typeof value === 'number') }
+      ? {
+          type: 'line',
+          data: chip.trend
+            .map((item) => item.concentration70)
+            .filter((value): value is number => typeof value === 'number'),
+        }
       : undefined,
   };
 }
@@ -397,7 +419,9 @@ function createChipSignalEvents(
   const profitRatio = ratioPercent(latest.profitRatio);
   const marketCapYi = parseMarketCapYi(quote?.marketCap);
   const recentLimitUp = findRecentLimitUpEvent(surgeEvents);
-  const recentLargeBuy = findRecentLargeBuyEvent(surgeEvents.filter((event) => isWithinRecentDays(event.tradeDate, tradeDate, 7)));
+  const recentLargeBuy = findRecentLargeBuyEvent(
+    surgeEvents.filter((event) => isWithinRecentDays(event.tradeDate, tradeDate, 7)),
+  );
 
   if (marketCapYi !== undefined && marketCapYi >= 20 && marketCapYi <= 100) {
     events.push({
@@ -427,7 +451,11 @@ function createChipSignalEvents(
       id: `mo-chip-low-concentration-limitup-${stock.code}-${tradeDate}`,
       title: '低集中度叠加近月涨停',
       badge: '筹码+涨停',
-      details: [...baseDetails, `近月涨停：${recentLimitUp.tradeDate}${recentLimitUp.time ? ` ${recentLimitUp.time}` : ''}`, recentLimitUp.tag ?? recentLimitUp.description ?? recentLimitUp.title],
+      details: [
+        ...baseDetails,
+        `近月涨停：${recentLimitUp.tradeDate}${recentLimitUp.time ? ` ${recentLimitUp.time}` : ''}`,
+        recentLimitUp.tag ?? recentLimitUp.description ?? recentLimitUp.title,
+      ],
       aiAnalysis: '90%筹码集中度低且近一个月出现过涨停，说明曾有真实强势异动，需继续观察涨停后的承接和回撤。',
     });
   }
@@ -520,23 +548,29 @@ function createNewsEvents(
   result: { news: MarketNewsItem[]; announcements: AnnouncementItem[] },
   timestamp: string,
 ): IMonitorEvent[] {
-  const newsEvents = result.news.slice(0, 2).map((item) => ({
-    ...makeEventBase(stock, quote, 'news', parseNewsTime(item.time, timestamp)),
-    id: `mo-news-${stock.code}-${item.id}`,
-    title: item.title,
-    badge: item.source ?? '新闻',
-    details: [item.content, item.url ? '可查看原文' : ''].filter(isString),
-    aiAnalysis: '该事件来自个股新闻源，需结合公告正文、行情反应与资金面确认影响方向。',
-  } satisfies IMonitorEvent));
+  const newsEvents = result.news.slice(0, 2).map(
+    (item) =>
+      ({
+        ...makeEventBase(stock, quote, 'news', parseNewsTime(item.time, timestamp)),
+        id: `mo-news-${stock.code}-${item.id}`,
+        title: item.title,
+        badge: item.source ?? '新闻',
+        details: [item.content, item.url ? '可查看原文' : ''].filter(isString),
+        aiAnalysis: '该事件来自个股新闻源，需结合公告正文、行情反应与资金面确认影响方向。',
+      }) satisfies IMonitorEvent,
+  );
 
-  const announcementEvents = result.announcements.slice(0, 2).map((item, index) => ({
-    ...makeEventBase(stock, quote, 'news', parseNewsTime(item.date, timestamp)),
-    id: `mo-announcement-${stock.code}-${item.date}-${index}-${item.title}`,
-    title: item.title,
-    badge: item.type || '公告',
-    details: [item.date, item.content].filter(isString),
-    aiAnalysis: '该事件来自公司公告列表，需结合公告正文和后续经营数据验证实际影响。',
-  } satisfies IMonitorEvent));
+  const announcementEvents = result.announcements.slice(0, 2).map(
+    (item, index) =>
+      ({
+        ...makeEventBase(stock, quote, 'news', parseNewsTime(item.date, timestamp)),
+        id: `mo-announcement-${stock.code}-${item.date}-${index}-${item.title}`,
+        title: item.title,
+        badge: item.type || '公告',
+        details: [item.date, item.content].filter(isString),
+        aiAnalysis: '该事件来自公司公告列表，需结合公告正文和后续经营数据验证实际影响。',
+      }) satisfies IMonitorEvent,
+  );
 
   return [...newsEvents, ...announcementEvents];
 }
@@ -618,7 +652,9 @@ export async function captureMonitorEvents(now = new Date(), categories: TMonito
       const chipScanUniverse = await buildChipScanUniverse(monitorUniverse);
       chipScanStocks = chipScanUniverse.stocks;
       quoteByCode = mergeQuoteMaps(chipScanUniverse.quoteByCode, quoteByCode);
-      const missingQuoteCodes = chipScanStocks.filter((stock) => !quoteByCode.has(stock.code)).map((stock) => stock.code);
+      const missingQuoteCodes = chipScanStocks
+        .filter((stock) => !quoteByCode.has(stock.code))
+        .map((stock) => stock.code);
       if (missingQuoteCodes.length) {
         const chipQuotes = await getBatchQuotes(missingQuoteCodes).catch((error) => {
           console.warn('[monitor] failed to fetch chip scan quotes', error);
@@ -635,13 +671,15 @@ export async function captureMonitorEvents(now = new Date(), categories: TMonito
     if (chipEvents.length) {
       events.push(...limitChipEvents(chipEvents));
     } else {
-      const chipResults = await Promise.allSettled(detailStocks.map(async (stock) => {
-        const [chip, surgeEvents] = await Promise.all([
-          getChipDistribution(stock.code),
-          listRecentStockSurgeEvents(stock.code, 30),
-        ]);
-        return { stock, chip, surgeEvents };
-      }));
+      const chipResults = await Promise.allSettled(
+        detailStocks.map(async (stock) => {
+          const [chip, surgeEvents] = await Promise.all([
+            getChipDistribution(stock.code),
+            listRecentStockSurgeEvents(stock.code, 30),
+          ]);
+          return { stock, chip, surgeEvents };
+        }),
+      );
       warnSettledErrors('chip', chipResults);
       chipResults.forEach((result) => {
         if (result.status !== 'fulfilled') return;
@@ -655,7 +693,9 @@ export async function captureMonitorEvents(now = new Date(), categories: TMonito
   }
 
   if (categories.includes('news')) {
-    const newsResults = await Promise.allSettled(detailStocks.map((stock) => listStockNewsAnnouncements(stock.code, 4)));
+    const newsResults = await Promise.allSettled(
+      detailStocks.map((stock) => listStockNewsAnnouncements(stock.code, 4)),
+    );
     warnSettledErrors('news', newsResults);
     newsResults.forEach((result, index) => {
       if (result.status !== 'fulfilled') return;
@@ -727,9 +767,7 @@ export async function getMonitorFeed(options?: {
       ? await listMonitorHistory({ date: selectedDate, categories: enabledCategories, offset, limit })
       : [];
     const total = selectedDate ? await countMonitorHistory({ date: selectedDate, categories: enabledCategories }) : 0;
-    const categoryTotals = selectedDate
-      ? await countMonitorHistoryByCategory({ date: selectedDate })
-      : {};
+    const categoryTotals = selectedDate ? await countMonitorHistoryByCategory({ date: selectedDate }) : {};
     const sinceTime = options?.since ? new Date(options.since).getTime() : 0;
     return {
       updatedAt: timestamp,

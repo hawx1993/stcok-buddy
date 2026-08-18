@@ -10,5 +10,7 @@ for (const board of [
   assert(detail.constituents?.length, `${board.name} 成分股为空`);
   assert(detail.kline?.length, `${board.name} 日K线为空`);
   assert.match(detail.code, /^BK\d{4}$/i, `${board.name} 板块代码异常: ${detail.code}`);
-  console.log(`board-detail selfcheck passed: ${detail.name} (${detail.code}), ${detail.constituents.length} constituents, ${detail.kline.length} K-lines`);
+  console.log(
+    `board-detail selfcheck passed: ${detail.name} (${detail.code}), ${detail.constituents.length} constituents, ${detail.kline.length} K-lines`,
+  );
 }

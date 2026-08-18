@@ -92,7 +92,11 @@ import {
   uninstallStoreItem,
 } from './services/store-service.js';
 import { closeSurgeHistoryStore, resetSurgeHistoryStore } from './services/stock/surge-history-store.js';
-import { closeMonitorHistoryInstance, closeMonitorHistoryStore, resetMonitorHistoryStore } from './services/stock/monitor-history-store.js';
+import {
+  closeMonitorHistoryInstance,
+  closeMonitorHistoryStore,
+  resetMonitorHistoryStore,
+} from './services/stock/monitor-history-store.js';
 import {
   closeMarketDataStore,
   getMarketDataDatabasePath,
@@ -207,8 +211,10 @@ export function registerIpcHandlers() {
   ipcMain.handle('board:getDetail', (_event, symbol: string, forceRefresh?: boolean, boardName?: string) =>
     getBoardDetail(symbol, forceRefresh, boardName),
   );
-  ipcMain.handle('board:getDashboard', (_event, range?: Parameters<typeof getBoardDashboard>[0], forceRefresh?: boolean) =>
-    getBoardDashboard(range, forceRefresh),
+  ipcMain.handle(
+    'board:getDashboard',
+    (_event, range?: Parameters<typeof getBoardDashboard>[0], forceRefresh?: boolean) =>
+      getBoardDashboard(range, forceRefresh),
   );
   ipcMain.handle(
     'stock:getKline',
@@ -226,7 +232,9 @@ export function registerIpcHandlers() {
   ipcMain.handle('discovery:getSnapshot', (_event, options?: Parameters<typeof getDiscoverySnapshot>[0]) =>
     getDiscoverySnapshot(options),
   );
-  ipcMain.handle('monitor:getFeed', (_event, options?: Parameters<typeof getMonitorFeed>[0]) => getMonitorFeed(options));
+  ipcMain.handle('monitor:getFeed', (_event, options?: Parameters<typeof getMonitorFeed>[0]) =>
+    getMonitorFeed(options),
+  );
   ipcMain.handle('trading-advice:get', (_event, options?: ITradingAdviceOptions) => getTradingAdvice(options));
   const removeMarketPageListener = onMarketPageSnapshotUpdated((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('market:pageSnapshotUpdated', snapshot);
@@ -451,7 +459,7 @@ function userDataDir() {
 
 function getStorageStats(): IStorageStats {
   const chatPath = path.join(userDataDir(), 'stocksense-chat.sqlite');
-  const configPath = path.join(userDataDir(), 'stocksense-store.json');
+  const configPath = path.join(userDataDir(), 'stocksense-storeon');
   const surgeDb = app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb';
   const surgePath = path.join(userDataDir(), surgeDb);
   const monitorDb = app.isPackaged ? 'stocksense-monitor.duckdb' : 'stocksense-monitor-dev.duckdb';
@@ -469,7 +477,8 @@ function getStorageStats(): IStorageStats {
 
 function getDiskInfo(): IDiskInfo {
   const stats = getStorageStats();
-  const usedByAppBytes = stats.chat.bytes + stats.config.bytes + stats.market.bytes + stats.surge.bytes + stats.monitor.bytes;
+  const usedByAppBytes =
+    stats.chat.bytes + stats.config.bytes + stats.market.bytes + stats.surge.bytes + stats.monitor.bytes;
   let totalBytes = 0;
   let freeBytes = 0;
   try {

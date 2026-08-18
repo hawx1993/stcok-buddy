@@ -10,6 +10,7 @@ const comlinkMocks = vi.hoisted(() => {
   };
   const api = {
     runSync: vi.fn(() => Promise.resolve(status)),
+    runCoverageSync: vi.fn(() => Promise.resolve(status)),
     runRepair: vi.fn(() => Promise.resolve(status)),
     runHistoricalBackfill: vi.fn(() => Promise.resolve(status)),
     requestStop: vi.fn(() => Promise.resolve()),
@@ -48,17 +49,18 @@ vi.mock('comlink', () => ({
   wrap: comlinkMocks.wrap,
 }));
 
-vi.mock('../../stock/comlink-node-endpoint.js', () => ({
+vi.mock('../../stock/comlink-node-endpoint', () => ({
   nodeEndpoint: vi.fn(() => ({})),
 }));
 
-vi.mock('../market-data-store.js', () => ({
+vi.mock('../market-data-store', () => ({
   getMarketDataDatabasePath: () => '/tmp/stocksense-market-worker-test.duckdb',
 }));
 
 import {
   disposeMarketDataSyncWorker,
   runHistoricalBackfillInWorker,
+  runMarketDataCoverageSyncInWorker,
   runMarketDataSyncInWorker,
 } from '../market-data-sync-worker-client.js';
 
@@ -74,12 +76,24 @@ describe('market data sync worker client', () => {
 
     await runMarketDataSyncInWorker(true, listener);
 
-    expect(workerMocks.instances[0]?.options?.env?.STOCKSENSE_MARKET_DB_PATH).toBe('/tmp/stocksense-market-worker-test.duckdb');
+    expect(workerMocks.instances[0]?.options?.env?.STOCKSENSE_MARKET_DB_PATH).toBe(
+      '/tmp/stocksense-market-worker-test.duckdb',
+    );
     expect(comlinkMocks.proxy).toHaveBeenCalledWith(listener);
     expect(comlinkMocks.api.runSync).toHaveBeenCalledWith(true, listener);
     expect(comlinkMocks.api.runSync).not.toHaveBeenCalledWith(
       expect.objectContaining({ force: true, onProgress: listener }),
     );
+  });
+
+  it('passes target-date coverage options and the progress callback to the worker', async () => {
+    const listener = vi.fn();
+    const options = { targetTradeDate: '2026-08-17', minCoverage: 5000 };
+
+    await runMarketDataCoverageSyncInWorker(options, listener);
+
+    expect(comlinkMocks.proxy).toHaveBeenCalledWith(listener);
+    expect(comlinkMocks.api.runCoverageSync).toHaveBeenCalledWith(options, listener);
   });
 
   it('passes the historical backfill callback as a top-level Comlink proxy argument', async () => {
