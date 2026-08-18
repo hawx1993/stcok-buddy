@@ -50,6 +50,7 @@ import {
 } from './market-indices.js';
 
 import { deriveStockRating, toStockDetail } from './stock-rating.js';
+import { hasCompleteSearchStockMetrics, mergeSearchStockQuoteMetrics } from './search-result-enrichment.js';
 
 type AnyRecord = Record<string, unknown>;
 type TTimelinePointRecord = Partial<IStockTimelinePoint> & { time?: unknown; price?: unknown };
@@ -664,8 +665,7 @@ async function searchFallbackStocks(text: string, q: string): Promise<MarketSear
 
 async function enrichSearchStockRows(rows: MarketSearchResult[]): Promise<MarketSearchResult[]> {
   const stockRows = rows.filter((row): row is MarketQuoteRow & { kind?: 'stock' } => row.kind !== 'board');
-  const rowsWithMetrics = stockRows.filter((row) => hasValue(row.price) && hasValue(row.changePercent));
-  if (rowsWithMetrics.length === stockRows.length) return rows;
+  if (stockRows.every(hasCompleteSearchStockMetrics)) return rows;
 
   const quotes = await getBatchQuotes(stockRows.map((row) => row.code)).catch(() => []);
   if (!quotes.length) return rows;
@@ -673,15 +673,9 @@ async function enrichSearchStockRows(rows: MarketSearchResult[]): Promise<Market
   const quoteByCode = new Map(quotes.map((quote) => [normalizeASymbol(quote.code), quote]));
   return rows.map((row) => {
     if (row.kind === 'board') return row;
-    const quote = quoteByCode.get(normalizeASymbol(row.code));
-    if (!quote) return row;
-    return {
-      ...row,
-      code: normalizeASymbol(row.code),
-      name: row.name || quote.name,
-      price: row.price ?? quote.price,
-      changePercent: row.changePercent ?? quote.changePercent,
-    };
+    const normalizedCode = normalizeASymbol(row.code);
+    const quote = quoteByCode.get(normalizedCode);
+    return quote ? mergeSearchStockQuoteMetrics(row, quote, normalizedCode) : row;
   });
 }
 

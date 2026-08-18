@@ -69,6 +69,8 @@ electron/services/**
 
 需要先读：`.claude/knowledge/market-data-services.md`。
 
+- `electron/services/market-data/**` 负责 provider、同步、筛选和调度；DuckDB 物理存储位于 `electron/services/stock-db/market-data-store.ts`。
+
 当前注意点：
 
 - 手动 UI 同步仍走 `marketData:*` / `dataSync:*`，受冷却和调度约束。
@@ -143,7 +145,7 @@ compliance + final answer
 
 1. `electron/services/market-data/condition-screener-types.ts`
 2. `electron/services/market-data/condition-screener-service.ts`
-3. `electron/services/agent/tools/screen-a-shares-by-conditions.ts`
-4. `electron/services/agent/condition-screener-agent.ts`
-5. `electron/services/agent/agent-tool-runtime.ts` 的数据状态特殊判断（如空结果不是缺口）
+3. `electron/services/agents/tools/screen-a-shares-by-conditions.ts`
+4. `electron/services/agents/condition-screener-agent.ts`
+5. `electron/services/agents/agent-tool-runtime.ts` 的数据状态特殊判断（如空结果不是缺口）
 6. 相邻 `__tests__` 或 selfcheck

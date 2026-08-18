@@ -59,7 +59,7 @@ import { generateReport } from '../llm/index.js';
 import { agenticAStockDataAnswer } from './a-stock-data-agent.js';
 import { agenticStockPickerAnswer } from './stock-picker-agent.js';
 import { runConditionScreenerAgent } from './condition-screener-agent.js';
-import { runDataCoverageAgent } from './data-coverage-agent.js';
+import { runDataCoverageAgent, type TChipCoverageMode } from './data-coverage-agent.js';
 import { isStockRelatedQuestion } from './intent-routing.js';
 import { createMarketReviewMessages } from './market-review-prompt.js';
 import { createDirectAnswerMessages, createPlainQuestionMessages } from './plain-question-prompt.js';
@@ -75,25 +75,45 @@ function isSymbolResult(value: unknown): value is { symbol?: string } {
   return typeof value === 'object' && value !== null;
 }
 
+const CHIP_QUERY_PATTERN = /筹码|集中度|获利比例|控盘|单峰|concentration70|concentration90/;
+const MARKET_CHIP_QUERY_PATTERN =
+  /全市场|A股|沪深|筛|选|找|排名|排行|条件|小于|大于|低于|超过|不超过|不低于|concentration70|concentration90/i;
+const EXPLICIT_MARKET_CHIP_QUERY_PATTERN = /全市场|A股|沪深|筛选|选出|找出|排名|排行|条件选股/i;
+
+function resolveChipCoverageMode(context: IAgentContext, isConditionScreener: boolean): TChipCoverageMode {
+  if (!CHIP_QUERY_PATTERN.test(context.query)) return 'none';
+  if (isConditionScreener || context.intent === 'stock-picker') return 'market';
+  if (context.symbol && !EXPLICIT_MARKET_CHIP_QUERY_PATTERN.test(context.query)) return 'symbol';
+  if (MARKET_CHIP_QUERY_PATTERN.test(context.query)) return 'market';
+  return context.symbol ? 'symbol' : 'none';
+}
+
 function buildDataCoverageNode(context: IAgentContext): DagNode<IAgentContext> {
   const isConditionScreener = context.intent === 'condition-screener';
-  // 条件选股立即复用本地筹码，缺失部分由筛选服务限量后台补齐，不把全市场筹码作为阻塞前置条件。
-  const needsChips =
-    !isConditionScreener && /筹码|集中度|获利比例|控盘|单峰|concentration70|concentration90/.test(context.query);
+  const chipCoverageMode = resolveChipCoverageMode(context, isConditionScreener);
+  const chipSymbol = chipCoverageMode === 'symbol' ? context.symbol : undefined;
+  const chipDescription = formatChipCoverageDescription(chipCoverageMode, chipSymbol);
   // 条件选股基于实时快照+筹码缓存筛选，不依赖本地日K，跳过日K覆盖检查避免每次提问触发全量同步。
   const requireDailyBars = !isConditionScreener;
   return {
     id: 'data-coverage',
     agent: 'DataCoverage',
-    description: `检查并补齐本地 DuckDB 市场数据覆盖度（目标 5000 只${needsChips ? '，含筹码' : ''}${requireDailyBars ? '' : '，不含日K'}）`,
+    description: `检查并补齐本地 DuckDB 市场数据覆盖度（目标 5000 只${chipDescription}${requireDailyBars ? '' : '，不含日K'}）`,
     run: async (ctx) => {
       ctx.dataCoverage = await runDataCoverageAgent(ctx, {
         minCoverage: 5000,
-        needsChips,
+        chipCoverageMode,
+        chipSymbol,
         requireDailyBars,
       });
     },
   };
+}
+
+function formatChipCoverageDescription(mode: TChipCoverageMode, symbol?: string): string {
+  if (mode === 'market') return '，含A股全市场筹码';
+  if (mode === 'symbol') return `，含单股筹码${symbol ? ` ${symbol}` : ''}`;
+  return '';
 }
 
 function emitReflectionEvents(ctx: IAgentContext, nodes: DagNode<IAgentContext>[], reason: string) {

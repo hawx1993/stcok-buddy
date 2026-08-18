@@ -2,7 +2,9 @@ import type { IConditionScreenerState } from './condition-screener-compiler.js';
 
 const sessionStateByConversation = new Map<string, IConditionScreenerState>();
 
-export function getConditionScreenerSessionState(conversationId: string | undefined): IConditionScreenerState | undefined {
+export function getConditionScreenerSessionState(
+  conversationId: string | undefined,
+): IConditionScreenerState | undefined {
   return conversationId ? sessionStateByConversation.get(conversationId) : undefined;
 }
 

@@ -16,7 +16,6 @@ argument-hint: '[开发任务描述]'
 
 - `.claude/rules/typescript-react.md`
 - `.claude/rules/data.md`
-- `.claude/rules/emoji.md`（涉及 Agent 投研输出时）
 - `.claude/rules/bug-fix.md`（任务包含 Bug 修复时）
 
 规则文件优先于本技能。以下红线不可突破：
@@ -47,14 +46,14 @@ argument-hint: '[开发任务描述]'
 3. 当直接代码不足以决定设计时，按需读取对应 Knowledge。跨进程或跨数据层任务可以读多份，但每一份都必须与当前问题直接相关。
 4. 实现前搜索是否已有同类 service、provider、shared type、组件、hook、测试和已安装依赖可复用。
 
-| 任务领域 | 优先入口 | 按需 Knowledge |
-| --- | --- | --- |
-| Renderer UI、组件、store、worker | `src/components/<feature>/`、`src/store/`、`src/workers/` | `.claude/knowledge/frontend-architecture.md` |
-| Renderer API、preload、IPC | `src/shared/stocksense-api.ts`、`src/shared/types.ts`、`electron/preload.cjs`、`electron/ipc.ts` | `.claude/knowledge/ipc-data-flow.md` |
-| 行情、搜索、K 线、板块、新闻、探索、监控 | `electron/services/stock/stock-client.ts` 与对应专项 service | `.claude/knowledge/stock-services.md` |
-| 市场同步、交易日、本地优先查询、DuckDB | `electron/services/market-data/` | `.claude/knowledge/market-data-services.md` |
-| Agent、投研报告、工具调用 | `electron/services/agent/orchestrator.ts`、`electron/services/agent/tools/` | `.claude/knowledge/agent-services.md`、`.claude/knowledge/agent-tools.md` |
-| 配置、会话、通知、升级 | `electron/services/` 对应 service | `.claude/knowledge/electron-services-overview.md` |
+| 任务领域                                 | 优先入口                                                                                         | 按需 Knowledge                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| Renderer UI、组件、store、worker         | `src/components/<feature>/`、`src/store/`、`src/workers/`                                        | `.claude/knowledge/frontend-architecture.md`                              |
+| Renderer API、preload、IPC               | `src/shared/stocksense-api.ts`、`src/shared/types.ts`、`electron/preload.cjs`、`electron/ipc.ts` | `.claude/knowledge/ipc-data-flow.md`                                      |
+| 行情、搜索、K 线、板块、新闻、探索、监控 | `electron/services/stock/stock-client.ts` 与对应专项 service                                     | `.claude/knowledge/stock-services.md`                                     |
+| 市场同步、交易日、本地优先查询、DuckDB   | `electron/services/market-data/`                                                                 | `.claude/knowledge/market-data-services.md`                               |
+| Agent、投研报告、工具调用                | `electron/services/agent/orchestrator.ts`、`electron/services/agent/tools/`                      | `.claude/knowledge/agent-services.md`、`.claude/knowledge/agent-tools.md` |
+| 配置、会话、通知、升级                   | `electron/services/` 对应 service                                                                | `.claude/knowledge/electron-services-overview.md`                         |
 
 ## 实现配方
 
@@ -87,7 +86,6 @@ argument-hint: '[开发任务描述]'
 ### Agent、投研输出与持久化
 
 - Agent 逻辑从 `electron/services/agent/orchestrator.ts` 和现有 agent/tool 边界接入，保留真实数据证据链、数据缺口和风险提示。
-- 投研 Markdown 遵守 Emoji 规则：专业、克制，每段最多 1–2 个 Emoji，不生成虚假市场数值。
 - 实时数据写入遵循 `Memory Cache → batch / queue / transaction → SQLite 或 DuckDB`；禁止每条行情即时写库。
 - 修改 schema、共享类型、IPC channel、service 方法、store action 或组件 props 时，必须搜索定义、导入、调用方和测试，逐一确认兼容性。
 

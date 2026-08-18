@@ -48,6 +48,7 @@ export const MessageBubble = memo(function MessageBubble({
               message.role === 'assistant' &&
               Boolean(message.result || message.evidence?.length || message.findings?.length || message.toolCalls?.length),
             stocks: message.result?.stocks,
+            emojiIcons: message.role === 'assistant',
           })
         : '',
     [message.content, message.evidence?.length, message.findings?.length, message.result, message.role, message.toolCalls?.length, slashItems],

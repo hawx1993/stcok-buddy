@@ -102,4 +102,39 @@ describe('结构化合规审查', () => {
     expect(result.revisedText).toContain('数据缺口与影响');
     expect(result.revisedText).toContain('新闻数据为空');
   });
+
+  it('综合投研报告存在数据缺口时不追加独立数据缺口小节', () => {
+    const result = reviewComplianceStructured({
+      text: '## 📊 测试股（600001）综合投研报告\n\n### 🚨 风险提示\n- 技术方向确定。\n\n不构成投资建议。',
+      evidence: [evidence('technical')],
+      findings: [finding],
+      dataGaps: [
+        {
+          id: 'gap-1',
+          dataName: '新闻',
+          status: 'empty',
+          reason: '新闻为空',
+          affectedPlanItemIds: ['event-risk'],
+          impact: 'medium',
+          userMessage: '新闻数据为空，事件风险不能视为已排除。',
+        },
+      ],
+    });
+
+    expect(result.revisedText).not.toContain('### ⚠️ 数据缺口与影响');
+    expect(result.revisedText).toContain('### 🚨 风险提示');
+    expect(result.revisedText).toContain('新闻数据为空');
+  });
+
+  it('综合投研报告不将操作建议替换为观察框架', () => {
+    const result = reviewComplianceStructured({
+      text: '## 📊 测试股（600001）综合投研报告\n\n### 操作建议\n- 需要关注波动。\n\n不构成投资建议。',
+      evidence: [],
+      findings: [finding],
+    });
+
+    expect(result.revisedText).not.toContain('操作建议');
+    expect(result.revisedText).not.toContain('观察框架');
+    expect(result.revisedText).toContain('风险提示');
+  });
 });

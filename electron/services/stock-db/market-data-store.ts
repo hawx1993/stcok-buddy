@@ -283,14 +283,40 @@ export function upsertStockSnapshots(
   });
 }
 
-export function upsertStockChip(symbol: string, data: unknown) {
-  const now = new Date().toISOString();
+export interface IStockChipUpsertItem {
+  symbol: string;
+  data: unknown;
+  fetchedAt?: string;
+}
+
+export function upsertStockChips(items: IStockChipUpsertItem[]) {
+  if (!items.length) return Promise.resolve();
   return write(async (connection) => {
-    await connection.run(
-      `INSERT OR REPLACE INTO stock_chips (symbol, data_json, fetched_at) VALUES ($symbol, $data, $now)`,
-      { symbol, data: JSON.stringify(data), now },
-    );
+    await connection.run('BEGIN TRANSACTION');
+    try {
+      const statement = await connection.prepare(`
+        INSERT OR REPLACE INTO stock_chips (symbol, data_json, fetched_at)
+        VALUES ($symbol, $data, $fetchedAt)
+      `);
+      const now = new Date().toISOString();
+      for (const item of items) {
+        statement.bind({
+          symbol: item.symbol,
+          data: JSON.stringify(item.data),
+          fetchedAt: item.fetchedAt ?? now,
+        });
+        await statement.run();
+      }
+      await connection.run('COMMIT');
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
   });
+}
+
+export function upsertStockChip(symbol: string, data: unknown) {
+  return upsertStockChips([{ symbol, data }]);
 }
 
 export async function getStockChipCacheRecord(symbol: string): Promise<StockChipCacheRecord | undefined> {
@@ -1225,6 +1251,29 @@ export function countStockSnapshots(): Promise<number> {
 export function countStockChips(): Promise<number> {
   return read(async (connection) => {
     const row = (await all<Record<string, unknown>>(connection, 'SELECT count(*) AS count FROM stock_chips'))[0];
+    return Number(row?.count ?? 0);
+  });
+}
+
+/** 统计本地仍在有效期内且对应上市 A 股的筹码缓存数量。 */
+export function countFreshListedStockChips(maxAgeMs: number): Promise<number> {
+  const minFetchedAt = new Date(Date.now() - maxAgeMs).toISOString();
+  return read(async (connection) => {
+    const row = (
+      await all<Record<string, unknown>>(
+        connection,
+        `
+        SELECT count(*) AS count
+        FROM stock_chips c
+        INNER JOIN securities s
+          ON s.symbol = c.symbol
+          AND s.status = 'listed'
+          AND s.security_type = 'stock'
+        WHERE c.fetched_at >= CAST($minFetchedAt AS TIMESTAMP)
+        `,
+        { minFetchedAt },
+      )
+    )[0];
     return Number(row?.count ?? 0);
   });
 }

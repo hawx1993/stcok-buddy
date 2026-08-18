@@ -16,7 +16,6 @@ argument-hint: '[工具接入或修改任务]'
 - [Agent 工具、数据状态与接入流程](../../knowledge/agent-tools.md)
 - [数据访问规则](../../rules/data.md)
 - [TypeScript / React 规则](../../rules/typescript-react.md)
-- 涉及投研文本时：[Emoji 展示规则](../../rules/emoji.md)
 
 以下为运行时的唯一事实来源：
 
@@ -44,7 +43,7 @@ LLM 文本响应
 标准请求：
 
 ```json
-{"tool":"getStockQuoteLocalFirst","input":{"symbol":"600519"}}
+{ "tool": "getStockQuoteLocalFirst", "input": { "symbol": "600519" } }
 ```
 
 关键约束：
@@ -59,10 +58,10 @@ LLM 文本响应
 
 数字是当前源码快照；每次工具增删改名后必须重新核对。
 
-| 集合 | 权威来源 | 当前数量 | 含义 |
-| --- | --- | ---: | --- |
-| 模型可选工具 | `A_STOCK_DATA_TOOLBOX` | 21 | 模型能以 JSON 文本自主请求的唯一白名单。 |
-| 已注册可执行工具 | `stockToolRegistry` / `agent/tools/index.ts` | 30 | 由 `callTool()` 执行的全部工具，包含 workflow 和预查询工具。 |
+| 集合             | 权威来源                                     | 当前数量 | 含义                                                         |
+| ---------------- | -------------------------------------------- | -------: | ------------------------------------------------------------ |
+| 模型可选工具     | `A_STOCK_DATA_TOOLBOX`                       |       21 | 模型能以 JSON 文本自主请求的唯一白名单。                     |
+| 已注册可执行工具 | `stockToolRegistry` / `agent/tools/index.ts` |       30 | 由 `callTool()` 执行的全部工具，包含 workflow 和预查询工具。 |
 
 **Registry 中存在不等于模型可调用。** 9 个 registry-only 工具不得因文件迁移而加入模型白名单。
 
@@ -70,45 +69,45 @@ LLM 文本响应
 
 每项工具均独立在 `electron/services/agent/tools/`，输入字段仍以 `A_STOCK_DATA_TOOLBOX` 为准。
 
-| 工具 | 文件 | 备注 / 适用场景 |
-| --- | --- | --- |
-| `resolveStockSymbol` | `resolve-stock-symbol.ts` | 将名称、简称或模糊代码解析为标准 A 股代码。 |
-| `getStockQuoteLocalFirst` | `get-stock-quote-local-first.ts` | 个股行情；DuckDB → stock-sdk → a-stock-data。 |
-| `getStockKlineLocalFirst` | `get-stock-kline-local-first.ts` | 个股日 K 线；本地优先并回退真实远程数据。 |
-| `screenLocalAStocks` | `screen-local-a-stocks.ts` | 用本地市场快照与筹码缓存进行全市场条件选股。 |
-| `screenASharesByMarketCap` | `screen-a-shares-by-market-cap.ts` | 按总市值或流通市值筛选；DuckDB → stock-sdk → a-stock-data。 |
-| `queryLocalMarketDuckDB` | `query-local-market-duckdb.ts` | 查询本地证券、日线、交易日、板块与筹码数据集。 |
-| `queryLocalMonitorDuckDB` | `query-local-monitor-duckdb.ts` | 查询 AI 监控历史与分类统计。 |
-| `queryLocalSurgeDuckDB` | `query-local-surge-duckdb.ts` | 查询异动、大单、买卖方向与手数历史。 |
-| `getStockChipDistributionLocalFirst` | `get-stock-chip-distribution-local-first.ts` | 筹码、成本区间和 70%/90% 集中度；缓存过期会刷新。 |
-| `getStockChipDistribution` | `get-stock-chip-distribution.ts` | 通用个股筹码路径；需既有输出契约时使用。 |
-| `getStockSurgeEventsLocalFirst` | `get-stock-surge-events-local-first.ts` | 个股异动、盘口和大单；优先右侧栏同源数据。 |
-| `getStockFundFlowLocalFirst` | `get-stock-fund-flow-local-first.ts` | 个股资金流，复用真实数据降级链路。 |
-| `getHolderNumberChange` | `get-holder-number-change.ts` | 股东户数变化与筹码集中信号。 |
-| `getDividendHistory` | `get-dividend-history.ts` | 分红与送转历史。 |
-| `getStockNewsAnnouncements` | `get-stock-news-announcements.ts` | 个股新闻与公告。 |
-| `getTechnicalIndicators` | `get-technical-indicators.ts` | MACD、KDJ、均线等技术指标摘要。 |
-| `getIndustryRanking` | `get-industry-ranking.ts` | 行业涨幅排名与行业资金流。 |
-| `getHotConcepts` | `get-hot-concepts.ts` | 热门股票和概念；同花顺热榜优先、东财人气榜降级。 |
-| `getHotFocus` | `get-hot-focus.ts` | 热点、异动、板块资金流；使用 `tab` 区分维度。 |
-| `getNorthboundFlow` | `get-northbound-flow.ts` | 北向、南向与沪深港通资金汇总。 |
-| `getMarketReview` | `get-market-review.ts` | 指数、涨停、情绪和热点的市场复盘原始数据。 |
+| 工具                                 | 文件                                         | 备注 / 适用场景                                             |
+| ------------------------------------ | -------------------------------------------- | ----------------------------------------------------------- |
+| `resolveStockSymbol`                 | `resolve-stock-symbol.ts`                    | 将名称、简称或模糊代码解析为标准 A 股代码。                 |
+| `getStockQuoteLocalFirst`            | `get-stock-quote-local-first.ts`             | 个股行情；DuckDB → stock-sdk → a-stock-data。               |
+| `getStockKlineLocalFirst`            | `get-stock-kline-local-first.ts`             | 个股日 K 线；本地优先并回退真实远程数据。                   |
+| `screenLocalAStocks`                 | `screen-local-a-stocks.ts`                   | 用本地市场快照与筹码缓存进行全市场条件选股。                |
+| `screenASharesByMarketCap`           | `screen-a-shares-by-market-cap.ts`           | 按总市值或流通市值筛选；DuckDB → stock-sdk → a-stock-data。 |
+| `queryLocalMarketDuckDB`             | `query-local-market-duckdb.ts`               | 查询本地证券、日线、交易日、板块与筹码数据集。              |
+| `queryLocalMonitorDuckDB`            | `query-local-monitor-duckdb.ts`              | 查询 AI 监控历史与分类统计。                                |
+| `queryLocalSurgeDuckDB`              | `query-local-surge-duckdb.ts`                | 查询异动、大单、买卖方向与手数历史。                        |
+| `getStockChipDistributionLocalFirst` | `get-stock-chip-distribution-local-first.ts` | 筹码、成本区间和 70%/90% 集中度；缓存过期会刷新。           |
+| `getStockChipDistribution`           | `get-stock-chip-distribution.ts`             | 通用个股筹码路径；需既有输出契约时使用。                    |
+| `getStockSurgeEventsLocalFirst`      | `get-stock-surge-events-local-first.ts`      | 个股异动、盘口和大单；优先右侧栏同源数据。                  |
+| `getStockFundFlowLocalFirst`         | `get-stock-fund-flow-local-first.ts`         | 个股资金流，复用真实数据降级链路。                          |
+| `getHolderNumberChange`              | `get-holder-number-change.ts`                | 股东户数变化与筹码集中信号。                                |
+| `getDividendHistory`                 | `get-dividend-history.ts`                    | 分红与送转历史。                                            |
+| `getStockNewsAnnouncements`          | `get-stock-news-announcements.ts`            | 个股新闻与公告。                                            |
+| `getTechnicalIndicators`             | `get-technical-indicators.ts`                | MACD、KDJ、均线等技术指标摘要。                             |
+| `getIndustryRanking`                 | `get-industry-ranking.ts`                    | 行业涨幅排名与行业资金流。                                  |
+| `getHotConcepts`                     | `get-hot-concepts.ts`                        | 热门股票和概念；同花顺热榜优先、东财人气榜降级。            |
+| `getHotFocus`                        | `get-hot-focus.ts`                           | 热点、异动、板块资金流；使用 `tab` 区分维度。               |
+| `getNorthboundFlow`                  | `get-northbound-flow.ts`                     | 北向、南向与沪深港通资金汇总。                              |
+| `getMarketReview`                    | `get-market-review.ts`                       | 指数、涨停、情绪和热点的市场复盘原始数据。                  |
 
 ## 5. Registry / workflow-only 工具（9 个）
 
 这些工具能被确定性工作流或预查询使用，但不得加入 `A_STOCK_DATA_TOOLBOX`，也不能由模型自由选择。
 
-| 工具 | 文件 | 备注 / 使用边界 |
-| --- | --- | --- |
-| `queryLocalDuckDBData` | `query-local-duckdb-data.ts` | 模型循环前或本地上下文预取，仅读取 DuckDB。 |
-| `getStockQuote` | `get-stock-quote.ts` | workflow 的既有基础行情输出契约。 |
-| `getStockFundFlowSnapshot` | `get-stock-fund-flow-snapshot.ts` | workflow 的个股资金流快照。 |
-| `getHistoricalDailyBars` | `get-historical-daily-bars.ts` | 本地日线及远程回补，供确定性分析使用。 |
-| `getDragonTiger` | `get-dragon-tiger.ts` | 每日龙虎榜工作流。 |
-| `readUrl` | `read-url.ts` | 用户带 URL 时读取正文；按真实读取器顺序尝试。 |
-| `getStockKline` | `get-stock-kline.ts` | 既有基础 K 线输出路径。 |
-| `getMarketDataStatus` | `get-market-data-status.ts` | 本地市场数据同步状态。 |
-| `getMarketNews` | `get-market-news.ts` | 既有市场新闻列表路径。 |
+| 工具                       | 文件                              | 备注 / 使用边界                               |
+| -------------------------- | --------------------------------- | --------------------------------------------- |
+| `queryLocalDuckDBData`     | `query-local-duckdb-data.ts`      | 模型循环前或本地上下文预取，仅读取 DuckDB。   |
+| `getStockQuote`            | `get-stock-quote.ts`              | workflow 的既有基础行情输出契约。             |
+| `getStockFundFlowSnapshot` | `get-stock-fund-flow-snapshot.ts` | workflow 的个股资金流快照。                   |
+| `getHistoricalDailyBars`   | `get-historical-daily-bars.ts`    | 本地日线及远程回补，供确定性分析使用。        |
+| `getDragonTiger`           | `get-dragon-tiger.ts`             | 每日龙虎榜工作流。                            |
+| `readUrl`                  | `read-url.ts`                     | 用户带 URL 时读取正文；按真实读取器顺序尝试。 |
+| `getStockKline`            | `get-stock-kline.ts`              | 既有基础 K 线输出路径。                       |
+| `getMarketDataStatus`      | `get-market-data-status.ts`       | 本地市场数据同步状态。                        |
+| `getMarketNews`            | `get-market-news.ts`              | 既有市场新闻列表路径。                        |
 
 ## 6. 真实数据与结果状态红线
 

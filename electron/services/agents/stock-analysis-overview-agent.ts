@@ -1,8 +1,8 @@
-import type { IAgentDataGap, IStockFundFlowSnapshot } from '../../../src/shared/types.js';
+import type { EvidenceItem, IAgentDataGap, IStockFundFlowSnapshot } from '../../../src/shared/types.js';
 import { generateReport } from '../llm/index.js';
 import { isLlmRequestError } from '../llm/openai-compatible-client.js';
 import { formatDataGapsForPrompt, formatPlanRevisionsForPrompt } from './agent-reflection.js';
-import type { StockAnalysisInput, StockAnalysisResult } from './stock-analysis-agents.js';
+import type { StockAnalysisAgentName, StockAnalysisInput, StockAnalysisResult } from './stock-analysis-agents.js';
 
 export async function runStockAnalysisOverview(
   input: StockAnalysisInput,
@@ -14,18 +14,19 @@ export async function runStockAnalysisOverview(
       [
         {
           role: 'system',
-          content: `你是一位精通A股的资深投研分析师。请只根据输入的 findings 和 evidence 输出综合投研报告，不得编造不存在的数据。
+          content: `你是一位精通A股的资深投研分析师。请只根据输入的 findings 和 evidence 输出最终综合投研报告，不得编造不存在的数据或用缺失数据外推。
 
 输出要求：
 1. 标题：## 📊 ${input.stockLabel}（${input.symbol}）综合投研报告
 2. 综合评分用 Markdown 表格：维度 | 权重 | 评分(0-100) | 加权得分 | 一句话总结。维度和权重固定为：📈 技术面 25%、📊 基本面 10%、💰 资金面 25%、🧩 筹码分析 25%、📰 消息面 15%、总分 100%。评分和加权得分必须用 HTML span 包裹：80-100 用 <span class="score-high">80</span>，60-79 用 <span class="score-mid">60</span>，低于60用 <span class="score-low">59</span>。
-3. 新增：### 📄 证据摘要，列出最关键 evidence。
-4. 标题使用：### 🎯 关键价位、### 💰 资金流向、### 🧭 观察框架、### 🚨 风险警示、### 🧩 各维度一句话总结。若输入中有 fundFlow 或资金流 evidence，必须输出”### 💰 资金流向”小节和超大单/大单/主力合计/中单/小单表格。资金流向正数用 <span class=”cn-up”>+X</span> 包裹，负数用 <span class=”cn-down”>-X</span> 包裹。
-5. 禁止输出建议买入、建议卖出、立即加仓、清仓、满仓、必涨、稳赚等直接投资建议。
-6. 禁止使用 🚀🔥💎🌙🤑🎉。
-7. 必须输出：### 🧭 分析计划回顾、### ⚠️ 数据缺口与影响、### 🚨 风险排除。若 dataGaps 覆盖某维度，该维度不得输出确定性评分或方向判断，需写明不可判断或置信度降低。
-8. 必须输出最终评级：🟢 偏利好 / 🟡 中性 / 🔴 偏利空。
-9. 必须提示仅供研究参考，不构成投资建议。`,
+3. 正文必须结果导向，优先使用以下结构：### 🎯 综合结论、### 📈 技术面分析、### 📊 基本面分析、### 💰 资金面分析、### 🧩 筹码分析、### 📰 消息面分析（仅当输入包含消息面结果或 evidence 时输出）、### 📄 证据摘要、### 🚨 风险提示。
+4. 技术面、基本面、资金面、筹码分析必须输出分析结果；若某维度受 dataGaps 影响，在该维度内用一句“数据状态/置信度”说明，写明暂不硬判断，不要单独成节。
+5. 若输入中有 fundFlow 或资金流 evidence，资金面分析需基于真实资金字段输出；缺失或不可用字段用 -- 或“暂无真实资金流数据”，不得把缺失展示为 +0.00 / +0.00%。
+6. 最终正文禁止输出以下过程型标题或同义独立小节：### 🧭 分析计划回顾、### ⚠️ 数据缺口与影响、### 🚨 风险排除、### 🧭 观察框架。
+7. 禁止输出建议买入、建议卖出、立即加仓、清仓、满仓、必涨、稳赚等直接投资建议。
+8. 禁止使用 🚀🔥💎🌙🤑🎉。
+9. 必须输出最终评级：🟢 偏利好 / 🟡 中性 / 🔴 偏利空。
+10. 必须提示仅供研究参考，不构成投资建议。`,
         },
         {
           role: 'user',
@@ -34,10 +35,7 @@ export async function runStockAnalysisOverview(
       ],
       onToken,
     );
-    return ensureRequiredOverviewSections(
-      ensureFundFlowSection(ensureScoredOverview(report, input, results), input),
-      input,
-    );
+    return ensureResultOrientedOverview(ensureScoredOverview(report, input, results), input, results);
   } catch (error) {
     if (isLlmRequestError(error)) throw error;
     return fallbackOverview(input, results);
@@ -60,70 +58,282 @@ function toOverviewInput(results: StockAnalysisResult[]) {
   }));
 }
 
-function ensureRequiredOverviewSections(report: string, input: StockAnalysisInput) {
-  let next = report;
-  if (!/###\s*🧭\s*分析计划回顾/.test(next)) {
-    const planText = input.plan?.items.length
-      ? input.plan.items.map((item) => `- ${item.title}：${item.status}`).join('\n')
-      : '- 本轮未生成详细计划项。';
-    next = `${next.trim()}\n\n### 🧭 分析计划回顾\n${planText}`;
+function ensureResultOrientedOverview(report: string, input: StockAnalysisInput, results: StockAnalysisResult[]) {
+  let next = ensureOverviewTitle(normalizeRiskHeading(stripProcessSections(report)), input);
+  next = replaceFundFlowSection(next, input, results);
+
+  const missingSections: string[] = [];
+  for (const dimension of overviewDimensions) {
+    if (dimension.name === 'sentiment' && !shouldIncludeSentimentSection(input, results)) continue;
+    if (!hasSection(next, dimension.sectionTitle))
+      missingSections.push(buildDimensionSection(dimension.name, input, results));
   }
-  if (!/###\s*⚠️\s*数据缺口与影响/.test(next)) {
-    next = `${next.trim()}\n\n### ⚠️ 数据缺口与影响\n${formatDataGapsForPrompt(input.dataGaps)}`;
+  if (missingSections.length) next = insertBeforeLateSections(next, missingSections.join('\n\n'));
+  if (!hasSection(next, '证据摘要')) next = insertBeforeRiskSection(next, evidenceSection(input, results));
+  if (!hasSection(next, '风险提示')) next = `${next.trim()}\n\n${riskSection(input)}`;
+  if (!hasFinalRating(next)) next = `${next.trim()}\n\n最终评级：${overviewConclusion(input, results)}`;
+  if (!next.includes('不构成投资建议')) {
+    next = `${next.trim()}\n\n以上内容基于当前可用公开数据自动生成，仅供研究参考，不构成投资建议。`;
   }
-  if (!/###\s*🚨\s*风险排除/.test(next)) {
-    next = `${next.trim()}\n\n### 🚨 风险排除\n- 新闻、公告、资金流或筹码存在缺口时，不能视为相关风险已排除。`;
-  }
-  return next;
+  return stripProcessSections(next).trim();
 }
 
-function ensureFundFlowSection(report: string, input: StockAnalysisInput) {
-  if (!input.fundFlow) return report;
-  const section = fundFlowSection(input.fundFlow);
-  if (/###\s*💰\s*资金流向/.test(report)) {
-    return report.replace(/###\s*💰\s*资金流向[\s\S]*?(?=\n###\s|\n##\s|$)/, section);
-  }
-  if (/###\s*🧭\s*观察框架/.test(report))
-    return report.replace(/\n###\s*🧭\s*观察框架/, `\n${section}\n\n### 🧭 观察框架`);
-  if (/###\s*🚨\s*风险警示/.test(report))
-    return report.replace(/\n###\s*🚨\s*风险警示/, `\n${section}\n\n### 🚨 风险警示`);
-  return `${report.trim()}\n\n${section}`;
+function stripProcessSections(report: string) {
+  return ['分析计划回顾', '数据缺口与影响', '风险排除', '观察框架'].reduce(
+    (next, title) =>
+      next.replace(new RegExp(`\n?#{3,6}\\s*(?:\\S+\\s+)?${escapeRegExp(title)}[\\s\\S]*?(?=\n#{2,6}\\s|$)`, 'g'), ''),
+    report,
+  );
 }
 
-function fundFlowSection(flow: IStockFundFlowSnapshot) {
-  const active = flow.activeSampleCount
-    ? `主动买占比：${formatPercentValue(flow.activeBuyRatio)}，主动卖占比：${formatPercentValue(flow.activeSellRatio)}（口径：${flow.activeRatioSource ?? '盘口异动样本'}，样本 ${flow.activeSampleCount} 条）`
-    : `主动买/主动卖比例：--（${flow.warnings?.find((item) => item.includes('主动买卖')) ?? '暂无盘口异动样本'}）`;
+function normalizeRiskHeading(report: string) {
+  return report.replace(/^###\s*(?:\S+\s+)?风险警示\s*$/gm, '### 🚨 风险提示');
+}
+
+function ensureOverviewTitle(report: string, input: StockAnalysisInput) {
+  if (/^##\s*(?:\S+\s+)?[^\n]*综合投研报告/m.test(report)) return report;
+  return `## 📊 ${input.stockLabel}（${input.symbol}）综合投研报告\n\n${report.trim()}`;
+}
+
+function replaceFundFlowSection(report: string, input: StockAnalysisInput, results: StockAnalysisResult[]) {
+  const replacement = buildDimensionSection('capital', input, results);
+  const pattern = /###\s*(?:\S+\s+)?资金(?:流向|面分析)\s*[\s\S]*?(?=\n###\s|\n##\s|$)/;
+  return pattern.test(report) ? report.replace(pattern, replacement) : report;
+}
+
+function hasSection(report: string, title: string) {
+  return new RegExp(`^###\\s*(?:\\S+\\s+)?${escapeRegExp(title)}\\s*$`, 'm').test(report);
+}
+
+function insertBeforeLateSections(report: string, section: string) {
+  const indexes = ['证据摘要', '风险提示']
+    .map((title) => report.search(new RegExp(`\n###\\s*(?:\\S+\\s+)?${escapeRegExp(title)}\\s*$`, 'm')))
+    .filter((index) => index >= 0);
+  if (!indexes.length) return `${report.trim()}\n\n${section}`;
+  const index = Math.min(...indexes);
+  return `${report.slice(0, index).trim()}\n\n${section}\n${report.slice(index)}`;
+}
+
+function insertBeforeRiskSection(report: string, section: string) {
+  const index = report.search(/\n###\s*(?:\S+\s+)?风险提示\s*$/m);
+  if (index < 0) return `${report.trim()}\n\n${section}`;
+  return `${report.slice(0, index).trim()}\n\n${section}\n${report.slice(index)}`;
+}
+
+function evidenceSection(input: StockAnalysisInput, results: StockAnalysisResult[]) {
+  const evidence = collectEvidence(input, results);
+  const lines = ['### 📄 证据摘要'];
+  lines.push(
+    evidence.length
+      ? evidence
+          .slice(0, 8)
+          .map((item) => `- ${item.title}：${item.summary ?? item.value ?? '已纳入分析。'}`)
+          .join('\n')
+      : '- 当前仅基于可用真实证据生成报告；缺失数据不用于外推。',
+  );
+  return lines.join('\n');
+}
+
+function collectEvidence(input: StockAnalysisInput, results: StockAnalysisResult[]) {
+  const seen = new Set<string>();
+  const evidence: EvidenceItem[] = [];
+  const allEvidence = [...(input.evidence ?? []), ...results.flatMap((result) => result.output.evidence)];
+  for (const item of allEvidence) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    evidence.push(item);
+  }
+  return evidence;
+}
+
+function riskSection(input: StockAnalysisInput) {
+  const lines = ['### 🚨 风险提示'];
+  if (input.dataGaps?.length) lines.push('- 部分维度存在真实数据缺口，相关结论置信度降低，不能据此作单向判断。');
+  lines.push('- 资金流、筹码、新闻和公告数据可能存在延迟、字段缺失或口径差异。');
+  lines.push('- 短期行情波动会放大技术信号误判，需结合后续公开数据持续验证。');
+  return lines.join('\n');
+}
+
+function hasFinalRating(report: string) {
+  return /🟢\s*偏利好|🟡\s*中性|🔴\s*偏利空/.test(report);
+}
+
+function shouldIncludeSentimentSection(input: StockAnalysisInput, results: StockAnalysisResult[]) {
+  return Boolean(
+    findResult(results, 'sentiment') ||
+    input.news?.length ||
+    input.evidence?.some((item) => item.source === 'news' || item.source === 'announcement'),
+  );
+}
+
+const overviewWeights: Record<StockAnalysisAgentName, number> = {
+  technical: 0.25,
+  fundamental: 0.1,
+  capital: 0.25,
+  chip: 0.25,
+  sentiment: 0.15,
+};
+
+const overviewDimensions: Array<{ name: StockAnalysisAgentName; label: string; sectionTitle: string }> = [
+  { name: 'technical', label: '📈 技术面分析', sectionTitle: '技术面分析' },
+  { name: 'fundamental', label: '📊 基本面分析', sectionTitle: '基本面分析' },
+  { name: 'capital', label: '💰 资金面分析', sectionTitle: '资金面分析' },
+  { name: 'chip', label: '🧩 筹码分析', sectionTitle: '筹码分析' },
+  { name: 'sentiment', label: '📰 消息面分析', sectionTitle: '消息面分析' },
+];
+
+function buildDimensionSection(
+  resultName: StockAnalysisAgentName,
+  input: StockAnalysisInput,
+  results: StockAnalysisResult[],
+) {
+  const result = findResult(results, resultName);
+  if (resultName === 'capital') return fundFlowSection(input.fundFlow, input, result);
+  const lines = [`### ${sectionLabel(resultName)}`, summaryForDimension(resultName, result, input)];
+  const dataStatus = dataStatusLine(input.dataGaps, resultName);
+  if (dataStatus) lines.push(dataStatus);
+  return lines.join('\n');
+}
+
+function sectionLabel(resultName: StockAnalysisAgentName) {
+  return overviewDimensions.find((dimension) => dimension.name === resultName)?.label ?? resultName;
+}
+
+function summaryForDimension(
+  resultName: StockAnalysisAgentName,
+  result: StockAnalysisResult | undefined,
+  input: StockAnalysisInput,
+) {
+  if (result) return summaryForResult(result);
+  switch (resultName) {
+    case 'technical':
+      return 'K线/指标真实数据不足，暂不硬判断技术趋势。';
+    case 'fundamental':
+      return `当前可用估值指标 PE=${input.quote?.pe ?? '--'}，PB=${input.quote?.pb ?? '--'}；财报细项不足，暂不硬判断基本面变化。`;
+    case 'capital':
+      return '资金流细项暂不可用，不能判断超大单/大单/中小单净流向。';
+    case 'chip':
+      return '真实筹码分布数据不足，暂不判断筹码结构和成本压力。';
+    case 'sentiment':
+      return '消息面样本不足，暂不判断事件驱动方向。';
+  }
+}
+
+function fundFlowSection(
+  flow: IStockFundFlowSnapshot | undefined,
+  input: StockAnalysisInput,
+  result: StockAnalysisResult | undefined,
+) {
+  const lines = ['### 💰 资金面分析'];
+  if (flow && hasUsableFundFlow(flow, input.dataGaps)) {
+    lines.push(formatFundFlowSummary(flow), '', '| 类型 | 净流入（亿元） | 净占比 |', '|---|---:|---:|');
+    for (const row of fundFlowRows(flow)) lines.push(`| ${row.label} | ${row.amount} | ${row.percent} |`);
+    lines.push('', activeFundFlowText(flow));
+    lines.push(
+      `口径：资金净流入来自 ${flow.source === 'a-stock-data' ? 'a-stock-data 东财资金流接口' : 'stock-sdk 个股资金流日线'}；主动买/卖比例来自盘口异动样本，不等同于全量逐笔成交主动买卖金额。`,
+    );
+  } else {
+    lines.push(
+      `暂无真实资金流数据，不能判断超大单/大单/中小单净流向。${fundFlowUnavailableReason(flow, input.dataGaps)}`,
+    );
+  }
+  const summary = result ? summaryForResult(result) : summaryForDimension('capital', undefined, input);
+  lines.push(`资金解读：${summary}`);
+  const dataStatus = dataStatusLine(input.dataGaps, 'capital');
+  if (dataStatus) lines.push(dataStatus);
+  return lines.join('\n');
+}
+
+function hasUsableFundFlow(flow: IStockFundFlowSnapshot, gaps: IAgentDataGap[] = []) {
+  const amounts = [
+    flow.mainNetInflow,
+    flow.superLargeNetInflow,
+    flow.largeNetInflow,
+    flow.mediumNetInflow,
+    flow.smallNetInflow,
+  ];
+  const finiteAmounts = amounts.filter(isFiniteNumber);
+  if (!finiteAmounts.length) return false;
+  const allZero = finiteAmounts.length === amounts.length && finiteAmounts.every((value) => value === 0);
+  if (!allZero) return true;
+  return !hasFundFlowUnavailableSignal(flow, gaps);
+}
+
+function hasFundFlowUnavailableSignal(flow: IStockFundFlowSnapshot, gaps: IAgentDataGap[] = []) {
+  return Boolean(
+    flow.warnings?.some((item) => /所有资金流数据源|未返回有效|暂无可用个股资金流|获取失败/.test(item)) ||
+    gaps.some(
+      (gap) => /资金流/.test(gap.dataName) && ['empty', 'failed', 'stale', 'partial', 'skipped'].includes(gap.status),
+    ),
+  );
+}
+
+function fundFlowUnavailableReason(flow: IStockFundFlowSnapshot | undefined, gaps: IAgentDataGap[] = []) {
+  const gap = gaps.find((item) => /资金流/.test(item.dataName));
+  const warning = flow?.warnings?.find((item) => /所有资金流数据源|未返回有效|暂无可用个股资金流|获取失败/.test(item));
+  const reason = warning ?? gap?.userMessage;
+  return reason ? `（${ensureChinesePeriod(reason)}）` : '';
+}
+
+function formatFundFlowSummary(flow: IStockFundFlowSnapshot) {
+  if (!isFiniteNumber(flow.mainNetInflow)) return `主力合计净流向：--（截至 ${flow.date}），分结构看：`;
+  const direction = flow.mainNetInflow > 0 ? '净流入' : flow.mainNetInflow < 0 ? '净流出' : '净流向持平';
+  return `今日主力资金 ${direction}约 ${formatMoneyInYi(flow.mainNetInflow)} 亿（截至 ${flow.date}），分结构看：`;
+}
+
+function fundFlowRows(flow: IStockFundFlowSnapshot) {
   return [
-    `### 💰 资金流向`,
-    `今日主力资金 ${flow.mainNetInflow === null ? '暂无净流入数据' : `${Number(flow.mainNetInflow) >= 0 ? '净流入' : '净流出'}约 ${formatMoneyInYi(flow.mainNetInflow)} 亿`}（截至 ${flow.date}），分结构看：`,
-    '',
-    '| 类型 | 净流入（亿元） | 净占比 |',
-    '|---|---:|---:|',
-    `| 超大单 | ${formatMoneyInYi(flow.superLargeNetInflow)} | ${formatPercentValue(flow.superLargeNetInflowPercent)} |`,
-    `| 大单 | ${formatMoneyInYi(flow.largeNetInflow)} | ${formatPercentValue(flow.largeNetInflowPercent)} |`,
-    `| 主力合计 | **${formatMoneyInYi(flow.mainNetInflow)}** | **${formatPercentValue(flow.mainNetInflowPercent)}** |`,
-    `| 中单 | ${formatMoneyInYi(flow.mediumNetInflow)} | ${formatPercentValue(flow.mediumNetInflowPercent)} |`,
-    `| 小单 | ${formatMoneyInYi(flow.smallNetInflow)} | ${formatPercentValue(flow.smallNetInflowPercent)} |`,
-    '',
-    active,
-    `口径：资金净流入来自 ${flow.source === 'a-stock-data' ? 'a-stock-data 东财资金流接口' : 'stock-sdk 个股资金流日线'}；主动买/卖比例来自盘口异动样本，不等同于全量逐笔成交主动买卖金额。`,
-  ].join('\n');
+    {
+      label: '超大单',
+      amount: formatMoneyInYi(flow.superLargeNetInflow),
+      percent: formatPercentValue(flow.superLargeNetInflowPercent),
+    },
+    {
+      label: '大单',
+      amount: formatMoneyInYi(flow.largeNetInflow),
+      percent: formatPercentValue(flow.largeNetInflowPercent),
+    },
+    {
+      label: '主力合计',
+      amount: `**${formatMoneyInYi(flow.mainNetInflow)}**`,
+      percent: `**${formatPercentValue(flow.mainNetInflowPercent)}**`,
+    },
+    {
+      label: '中单',
+      amount: formatMoneyInYi(flow.mediumNetInflow),
+      percent: formatPercentValue(flow.mediumNetInflowPercent),
+    },
+    {
+      label: '小单',
+      amount: formatMoneyInYi(flow.smallNetInflow),
+      percent: formatPercentValue(flow.smallNetInflowPercent),
+    },
+  ];
 }
 
-function formatMoneyInYi(value: unknown) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return '--';
-  const display = `${num >= 0 ? '+' : '-'}${(Math.abs(num) / 100000000).toFixed(2)}`;
-  const cls = num > 0 ? 'cn-up' : num < 0 ? 'cn-down' : '';
+function activeFundFlowText(flow: IStockFundFlowSnapshot) {
+  if (flow.activeSampleCount && flow.activeSampleCount > 0) {
+    return `主动买占比：${formatPercentValue(flow.activeBuyRatio)}，主动卖占比：${formatPercentValue(flow.activeSellRatio)}（口径：${flow.activeRatioSource ?? '盘口异动样本'}，样本 ${flow.activeSampleCount} 条）`;
+  }
+  return `主动买/主动卖比例：--（${flow.warnings?.find((item) => item.includes('主动买卖')) ?? '暂无盘口异动样本'}）`;
+}
+
+function isFiniteNumber(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function formatMoneyInYi(value: number | null | undefined) {
+  if (!isFiniteNumber(value)) return '--';
+  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+  const display = `${sign}${(Math.abs(value) / 100000000).toFixed(2)}`;
+  const cls = value > 0 ? 'cn-up' : value < 0 ? 'cn-down' : '';
   return cls ? `<span class="${cls}">${display}</span>` : display;
 }
 
-function formatPercentValue(value: unknown) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return '--';
-  const display = `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
-  const cls = num > 0 ? 'cn-up' : num < 0 ? 'cn-down' : '';
+function formatPercentValue(value: number | null | undefined) {
+  if (!isFiniteNumber(value)) return '--';
+  const display = `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+  const cls = value > 0 ? 'cn-up' : value < 0 ? 'cn-down' : '';
   return cls ? `<span class="${cls}">${display}</span>` : display;
 }
 
@@ -134,91 +344,95 @@ function ensureScoredOverview(report: string, input: StockAnalysisInput, results
   return report.replace(/\|\s*维度\s*\|[\s\S]*?(?=\n\n###|$)/, fallbackTable);
 }
 
-const overviewWeights: Record<string, number> = {
-  technical: 0.25,
-  fundamental: 0.1,
-  capital: 0.25,
-  chip: 0.25,
-  sentiment: 0.15,
-};
-
 function fallbackOverview(input: StockAnalysisInput, results: StockAnalysisResult[]) {
-  const findings = results.flatMap((result) => result.output.findings);
-  const scoredResults = results.filter((result) => !gapAffectsResult(input.dataGaps, result.name));
-  const weighted = scoredResults.reduce((sum, result) => {
-    const score = result.output.findings[0]?.score ?? 50;
-    return sum + score * (overviewWeights[result.name] ?? 0);
-  }, 0);
-  const totalWeight = scoredResults.reduce((sum, result) => sum + (overviewWeights[result.name] ?? 0), 0);
-  const avg = findings.length && totalWeight ? weighted / totalWeight : undefined;
-  const conclusion = avg === undefined ? '🟡 中性' : avg >= 65 ? '🟢 偏利好' : avg <= 45 ? '🔴 偏利空' : '🟡 中性';
-  const evidence = results
-    .flatMap((result) => result.output.evidence)
-    .filter((item, index, arr) => arr.findIndex((other) => other.id === item.id) === index);
+  const avg = overviewScore(input, results);
+  const conclusion = overviewConclusion(input, results);
   const lines = [`## 📊 ${input.stockLabel}（${input.symbol}）综合投研报告`, ''];
   lines.push(
     `当前价格：${input.quote?.price ?? '--'}，涨跌幅：${input.quote?.changePercent ?? '--'}，成交额：${input.quote?.turnover ?? '--'}。`,
   );
   lines.push('', '| 维度 | 权重 | 评分(0-100) | 加权得分 | 一句话总结 |');
   lines.push('|---|---:|---:|---:|---|');
-  for (const result of results) {
-    const finding = result.output.findings[0];
-    const hasGap = gapAffectsResult(input.dataGaps, result.name);
-    const score = hasGap ? undefined : finding?.score;
-    const weight = overviewWeights[result.name] ?? 0;
+  for (const dimension of overviewDimensions) {
+    const result = findResult(results, dimension.name);
+    const hasGap = gapAffectsResult(input.dataGaps, dimension.name);
+    const score = hasGap ? undefined : result?.output.findings[0]?.score;
+    const weight = overviewWeights[dimension.name];
     lines.push(
-      `| ${result.label} | ${formatWeight(weight)} | ${formatScore(score)} | ${formatScore(score === undefined ? undefined : score * weight)} | ${hasGap ? '存在数据缺口，暂不硬评分。' : summaryForResult(result)} |`,
+      `| ${dimension.label} | ${formatWeight(weight)} | ${formatScore(score)} | ${formatScore(score === undefined ? undefined : score * weight)} | ${hasGap ? '存在数据缺口，暂不硬评分。' : summaryForDimension(dimension.name, result, input)} |`,
     );
   }
   lines.push(`| **总分** | **100%** | **${formatScore(avg)}** | **--** | ${conclusion} |`);
-  lines.push('', '### 📄 证据摘要');
-  lines.push(
-    evidence.length
-      ? evidence
-          .slice(0, 8)
-          .map((item) => `- ${item.title}：${item.summary ?? item.value ?? '已纳入分析。'}`)
-          .join('\n')
-      : '- 数据缺口已记录，当前仅基于可用真实证据，不使用缺失数据外推。',
-  );
-  lines.push('', '### 🧭 分析计划回顾');
-  lines.push(
-    input.plan?.items.length
-      ? input.plan.items.map((item) => `- ${item.title}：${item.status}`).join('\n')
-      : '- 本轮未生成详细计划项。',
-  );
-  lines.push('', '### ⚠️ 数据缺口与影响');
-  lines.push(formatDataGapsForPrompt(input.dataGaps));
-  lines.push('', '### 🎯 关键价位');
-  lines.push('当前数据不足以精确判断支撑位/压力位，可结合右侧 K 线近期高低点观察。');
-  if (input.fundFlow) lines.push('', fundFlowSection(input.fundFlow));
-  lines.push('', '### 🧭 观察框架');
-  lines.push('- 偏强确认条件：价格、成交额与关键证据继续共振。');
-  lines.push('- 转弱风险条件：放量下跌、新闻/公告出现负面变化或特大单流出占比升高。');
-  lines.push('- 需要继续跟踪的数据：K线、成交额、公告、新闻与特大单流向。');
-  lines.push('', '### 🚨 风险排除');
-  lines.push('- 新闻、公告、资金流或筹码存在缺口时，不能视为相关风险已排除。');
-  lines.push('', '### 🚨 风险警示');
-  lines.push('- 资金流、特大单和财报细项数据可能不完整，判断置信度有限。');
-  lines.push('- 短期行情波动可能放大技术信号误判。');
-  lines.push('', '### 🧩 各维度一句话总结');
-  for (const result of results) lines.push(`- **${result.label}**：${summaryForResult(result)}`);
-  lines.push(
-    '',
-    `### 🎯 综合结论：${conclusion}\n以上内容基于当前可用公开数据自动生成，仅供研究参考，不构成投资建议。`,
-  );
+  lines.push('', `### 🎯 综合结论\n最终评级：${conclusion}。当前结论仅基于已取得的真实证据，缺失维度不做外推。`);
+  lines.push('', buildDimensionSection('technical', input, results));
+  lines.push('', buildDimensionSection('fundamental', input, results));
+  lines.push('', buildDimensionSection('capital', input, results));
+  lines.push('', buildDimensionSection('chip', input, results));
+  if (shouldIncludeSentimentSection(input, results)) lines.push('', buildDimensionSection('sentiment', input, results));
+  lines.push('', evidenceSection(input, results));
+  lines.push('', riskSection(input));
+  lines.push('', '以上内容基于当前可用公开数据自动生成，仅供研究参考，不构成投资建议。');
   return lines.join('\n');
 }
 
-function gapAffectsResult(gaps: IAgentDataGap[] = [], resultName: string) {
-  const namesByResult: Record<string, string[]> = {
+function overviewScore(input: StockAnalysisInput, results: StockAnalysisResult[]) {
+  let findingCount = 0;
+  let weighted = 0;
+  let totalWeight = 0;
+  for (const dimension of overviewDimensions) {
+    const result = findResult(results, dimension.name);
+    if (!result) continue;
+    findingCount += result.output.findings.length;
+    if (gapAffectsResult(input.dataGaps, dimension.name)) continue;
+    const score = result.output.findings[0]?.score ?? 50;
+    const weight = overviewWeights[dimension.name];
+    weighted += score * weight;
+    totalWeight += weight;
+  }
+  return findingCount && totalWeight ? weighted / totalWeight : undefined;
+}
+
+function overviewConclusion(input: StockAnalysisInput, results: StockAnalysisResult[]) {
+  const avg = overviewScore(input, results);
+  if (avg === undefined) return '🟡 中性';
+  if (avg >= 65) return '🟢 偏利好';
+  if (avg <= 45) return '🔴 偏利空';
+  return '🟡 中性';
+}
+
+function findResult(results: StockAnalysisResult[], resultName: StockAnalysisAgentName) {
+  return results.find((result) => result.name === resultName);
+}
+
+function gapAffectsResult(gaps: IAgentDataGap[] = [], resultName: StockAnalysisAgentName) {
+  return gapsForResult(gaps, resultName).length > 0;
+}
+
+function gapsForResult(gaps: IAgentDataGap[] = [], resultName: StockAnalysisAgentName) {
+  const namesByResult: Record<StockAnalysisAgentName, string[]> = {
     technical: ['K线', '技术指标'],
     fundamental: ['行情'],
     capital: ['资金流', '热点/特大单'],
     sentiment: ['新闻', '公告'],
     chip: ['筹码集中度'],
   };
-  const names = namesByResult[resultName] ?? [];
-  return gaps.some((gap) => names.some((name) => gap.dataName.includes(name) || name.includes(gap.dataName)));
+  const names = namesByResult[resultName];
+  return gaps.filter((gap) => names.some((name) => gap.dataName.includes(name) || name.includes(gap.dataName)));
+}
+
+function dataStatusLine(gaps: IAgentDataGap[] = [], resultName: StockAnalysisAgentName) {
+  const relatedGaps = gapsForResult(gaps, resultName);
+  if (!relatedGaps.length) return undefined;
+  const messages = relatedGaps
+    .slice(0, 2)
+    .map((gap) => ensureChinesePeriod(gap.userMessage || `${gap.dataName}数据暂不可用。`))
+    .join('');
+  return `数据状态：${messages}该维度结论置信度降低，暂不硬判断。`;
+}
+
+function ensureChinesePeriod(value: string) {
+  const trimmed = value.trim();
+  return /[。！？.!?]$/.test(trimmed) ? trimmed : `${trimmed}。`;
 }
 
 function formatWeight(weight: number) {
@@ -239,9 +453,9 @@ function stripRepeatedLabel(text: string | undefined, label: string) {
   const plainLabel = label.replace(/^\S+\s*/, '').trim();
   const emoji = label.match(/^\S+/)?.[0] ?? '';
   return text
-    .replace(new RegExp(`^${escapeRegExp(label)}[：:\s]*`), '')
+    .replace(new RegExp(`^${escapeRegExp(label)}[：:\\s]*`), '')
     .replace(
-      new RegExp(`^${escapeRegExp(emoji)}\\s*${escapeRegExp(plainLabel.replace(/分析$/, ''))}(?:分析)?[：:\s]*`),
+      new RegExp(`^${escapeRegExp(emoji)}\\s*${escapeRegExp(plainLabel.replace(/分析$/, ''))}(?:分析)?[：:\\s]*`),
       '',
     )
     .trim();

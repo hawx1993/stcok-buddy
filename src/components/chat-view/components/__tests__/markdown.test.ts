@@ -59,4 +59,25 @@ describe('renderMarkdownContent', () => {
     expect(msgText).toContain('<span class="up">+2.35%</span>');
     expect(msgText).toContain('<span class="down">-1.20%</span>');
   });
+
+  it('把 msg-text Markdown 中的 Emoji 替换为内联图标', () => {
+    const html = renderMarkdownContent('## 📰 核心事件\n- ✅ 利好因素\n- ⚠️ 风险提示\n- 👨🏻‍💻 自定义信号\n\n🟢 偏利好', {
+      disclaimer: false,
+      emojiIcons: true,
+    });
+    const msgText = renderToStaticMarkup(createElement('div', { className: 'msg-text', dangerouslySetInnerHTML: { __html: html } }));
+
+    expect(msgText).toContain('class="msg-inline-icon msg-icon-document msg-icon-tone-accent"');
+    expect(msgText).toContain('aria-label="新闻"');
+    expect(msgText).toContain('aria-label="利好"');
+    expect(msgText).toContain('aria-label="利空"');
+    expect(msgText).toContain('aria-label="图标"');
+    expect(msgText).toContain('aria-label="偏利好"');
+    expect(msgText).not.toContain('📰');
+    expect(msgText).not.toContain('✅');
+    expect(msgText).not.toContain('⚠');
+    expect(msgText).not.toContain('👨');
+    expect(msgText).not.toContain('💻');
+    expect(msgText).not.toContain('🟢');
+  });
 });

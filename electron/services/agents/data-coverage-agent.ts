@@ -1,31 +1,33 @@
 import type { IAgentContext } from './orchestrator-types.js';
 import {
   countDailyBarsForDate,
-  countStockChips,
+  countFreshListedStockChips,
   countStockSnapshots,
   getLatestSyncJob,
   getLatestTradeDate,
   getMarketDataStats,
-  listSecurities,
-  listStockChips,
-  upsertSecurities,
-  upsertStockSnapshots,
 } from '../stock-db/market-data-store.js';
-import { fetchStockSdkAllMarketSnapshotQuotes } from '../market-data/market-snapshot-provider.js';
-import { listRemoteSecurities } from '../market-data/providers.js';
 import { determineTargetTradeDate, ensureMarketDataCoverage } from '../market-data/market-data-sync.js';
+import {
+  hydrateAllMarketChipsInWorker,
+  hydrateAllMarketSnapshotsInWorker,
+  hydrateAllSecuritiesInWorker,
+} from '../market-data/market-data-hydration-worker-client.js';
+import type { IMarketDataHydrationStatus } from '../market-data/market-data-hydration-worker-types.js';
 import { getChipDistribution } from '../stock/chip-distribution-provider.js';
-import type { SecurityRecord } from '../market-data/types.js';
 
 const DEFAULT_MIN_COVERAGE = 5000;
 const DEFAULT_CHIP_TIMEOUT_MS = 120_000;
-const CHIP_HYDRATION_CONCURRENCY = 20;
-const CHIP_CHECK_INTERVAL = 50;
+const CHIP_DISTRIBUTION_MAX_AGE_MS = 5 * 24 * 60 * 60_000;
+
+export type TChipCoverageMode = 'none' | 'symbol' | 'market';
 
 export interface IDataCoverageResult {
   ok: boolean;
   minCoverage: number;
   needsChips: boolean;
+  chipCoverageMode: TChipCoverageMode;
+  chipSymbol?: string;
   before: {
     securities: number;
     snapshots: number;
@@ -60,13 +62,16 @@ export async function runDataCoverageAgent(
   options: {
     minCoverage?: number;
     needsChips?: boolean;
+    chipCoverageMode?: TChipCoverageMode;
+    chipSymbol?: string;
     chipTimeoutMs?: number;
     requireDailyBars?: boolean;
   } = {},
 ): Promise<IDataCoverageResult> {
   const start = Date.now();
   const minCoverage = options.minCoverage ?? DEFAULT_MIN_COVERAGE;
-  const needsChips = options.needsChips ?? false;
+  const chipCoverageMode = options.chipCoverageMode ?? (options.needsChips ? 'market' : 'none');
+  const needsChips = chipCoverageMode !== 'none';
   const requireDailyBars = options.requireDailyBars ?? true;
   const chipTimeoutMs = options.chipTimeoutMs ?? DEFAULT_CHIP_TIMEOUT_MS;
   const warnings: string[] = [];
@@ -81,73 +86,37 @@ export async function runDataCoverageAgent(
   const before = await readCoverageStats(targetTradeDate);
   let after = before;
 
-  // 1. 行情快照同时提供证券名称和交易所，先复用一次全市场批量请求完成两类缓存。
+  // 1. 行情快照同时提供证券名称和交易所，使用 worker 拉取全市场真实数据并在 DuckDB 批量写入。
   if (after.snapshots < minCoverage) {
-    emitProgress(ctx, `本地行情快照 ${after.snapshots} 只，不足 ${minCoverage}，正在获取全市场实时行情...`);
+    emitProgress(ctx, `本地行情快照 ${after.snapshots} 只，不足 ${minCoverage}，正在 worker 中获取全市场实时行情...`);
     try {
-      const result = await fetchStockSdkAllMarketSnapshotQuotes();
+      const result = await hydrateAllMarketSnapshotsInWorker((status) => {
+        emitHydrationProgress(ctx, status, '正在同步全市场行情快照...');
+      });
       warnings.push(...result.warnings);
-      if (result.quotes.length) {
-        await upsertStockSnapshots(
-          result.quotes.map((quote) => ({
-            symbol: quote.code,
-            name: quote.name,
-            price: quote.price,
-            change: quote.change,
-            changePercent: quote.changePercent,
-            open: quote.open,
-            high: quote.high,
-            low: quote.low,
-            prevClose: quote.prevClose,
-            volume: quote.volume,
-            amount: quote.amount,
-            turnoverRate: quote.turnoverRate,
-            pe: quote.pe,
-            pb: quote.pb,
-            totalMarketCap: quote.totalMarketCap,
-            circulatingMarketCap: quote.circulatingMarketCap,
-            amplitude: quote.amplitude,
-          })),
-        );
-        const updatedAt = new Date().toISOString();
-        await upsertSecurities(
-          result.quotes.map((quote) => ({
-            symbol: quote.code,
-            name: quote.name,
-            exchange: quote.exchange ?? inferExchange(quote.code),
-            securityType: 'stock' as const,
-            status: 'listed' as const,
-            isSt: /(?:^|\*)ST|退/i.test(quote.name),
-            source: 'stock-sdk',
-            updatedAt,
-          })),
-        );
-      } else {
-        warnings.push('stock-sdk 未返回全市场快照，行情快照覆盖度未提升');
-      }
+      if (!result.hydrated) warnings.push('stock-sdk 未返回全市场快照，行情快照覆盖度未提升');
     } catch (error) {
       warnings.push(`获取全市场行情快照失败：${formatError(error)}`);
     }
   }
 
-  // 2. 快照无法补足证券列表时才走名称补齐，避免冷启动重复遍历全市场。
+  // 2. 快照无法补足证券列表时才走名称补齐，使用 worker 避免主线程承担全市场远程遍历。
   after = await readCoverageStats(targetTradeDate);
   if (after.securities < minCoverage) {
-    emitProgress(ctx, `本地证券列表 ${after.securities} 只，不足 ${minCoverage}，正在同步全市场证券基础信息...`);
+    emitProgress(ctx, `本地证券列表 ${after.securities} 只，不足 ${minCoverage}，正在 worker 中同步全市场证券基础信息...`);
     try {
-      const remote = await listRemoteSecurities();
-      if (remote.length) {
-        await upsertSecurities(remote);
-      } else {
-        warnings.push('远程证券列表为空，无法补齐证券基础信息');
-      }
+      const result = await hydrateAllSecuritiesInWorker((status) => {
+        emitHydrationProgress(ctx, status, '正在同步证券基础信息...');
+      });
+      warnings.push(...result.warnings);
+      if (!result.hydrated) warnings.push('远程证券列表为空，无法补齐证券基础信息');
     } catch (error) {
       warnings.push(`同步证券基础信息失败：${formatError(error)}`);
     }
   }
 
   // 3. 日K：仅当本地落后于最近已收盘交易日且该交易日尚未尝试过同步时才增量补齐，
-  //    避免每次提问/重启后重复全量同步；缺失个股由实际查询时按需真实补齐。
+  //    避免每次提问/重启后重复全量同步；缺失个股由实际查询时按需补齐。
   //    条件选股等场景不依赖本地日K（requireDailyBars=false），跳过日K覆盖检查。
   after = await readCoverageStats(targetTradeDate);
   let dailyBarOk = !requireDailyBars || !targetTradeDate;
@@ -183,36 +152,59 @@ export async function runDataCoverageAgent(
     }
   }
 
-  // 4. 筹码：仅在用户查询涉及筹码条件时触发，避免不必要的全量远程调用
+  // 4. 筹码：单股查询只补目标股票；全市场筹码条件才触发 A 股全市场 worker 批量补齐。
   after = await readCoverageStats(targetTradeDate);
-  if (needsChips && after.chips < minCoverage) {
-    emitProgress(ctx, `本地筹码缓存 ${after.chips} 只，不足 ${minCoverage}，正在补齐缺失筹码...`);
-    try {
-      const hydratedChips = await hydrateMissingChips(minCoverage, chipTimeoutMs, ctx);
-      if (hydratedChips > 0) {
-        warnings.push(`已补齐 ${hydratedChips} 只股票的本地筹码缓存`);
+  let chipsOk = chipCoverageMode === 'none';
+  if (chipCoverageMode === 'symbol') {
+    if (!options.chipSymbol) {
+      warnings.push('单股筹码补齐缺少股票代码');
+    } else {
+      emitProgress(ctx, `正在补齐 ${options.chipSymbol} 单股筹码缓存...`);
+      try {
+        const result = await getChipDistribution(options.chipSymbol);
+        warnings.push(...(result.warnings ?? []));
+        chipsOk = true;
+        emitProgress(ctx, `${options.chipSymbol} 单股筹码缓存已就绪`);
+      } catch (error) {
+        warnings.push(`${options.chipSymbol} 筹码补齐失败：${formatError(error)}`);
       }
-    } catch (error) {
-      warnings.push(`筹码补齐失败：${formatError(error)}`);
     }
+  } else if (chipCoverageMode === 'market') {
+    const chipTarget = Math.max(minCoverage, after.securities);
+    if (after.chips < chipTarget) {
+      emitProgress(
+        ctx,
+        `本地有效筹码缓存 ${after.chips} 只，不足 A 股全市场目标 ${chipTarget}，正在 worker 中批量补齐...`,
+      );
+      try {
+        const result = await hydrateAllMarketChipsInWorker(
+          { timeoutMs: chipTimeoutMs, maxAgeMs: CHIP_DISTRIBUTION_MAX_AGE_MS },
+          (status) => {
+            emitHydrationProgress(ctx, status, '正在同步 A 股全市场筹码缓存...');
+          },
+        );
+        warnings.push(...result.warnings);
+        if (result.hydrated > 0) emitProgress(ctx, `已批量补齐 ${result.hydrated} 只股票的本地筹码缓存`);
+      } catch (error) {
+        warnings.push(`筹码补齐失败：${formatError(error)}`);
+      }
+    }
+    after = await readCoverageStats(targetTradeDate);
+    chipsOk = after.chips >= Math.max(minCoverage, after.securities);
   }
 
   after = await readCoverageStats(targetTradeDate);
   const elapsedMs = Date.now() - start;
-  const ok =
-    after.securities >= minCoverage &&
-    after.snapshots >= minCoverage &&
-    dailyBarOk &&
-    (!needsChips || after.chips >= minCoverage);
+  const ok = after.securities >= minCoverage && after.snapshots >= minCoverage && dailyBarOk && chipsOk;
 
   if (!ok) {
     warnings.push(
-      `数据覆盖度仍未达标（目标 ${minCoverage} 只）：证券 ${after.securities}、快照 ${after.snapshots}${requireDailyBars ? `、日K ${after.dailyBarSymbols}` : ''}${needsChips ? `、筹码 ${after.chips}` : ''}，后续筛选可能仍存在数据缺口。`,
+      `数据覆盖度仍未达标（目标 ${minCoverage} 只）：证券 ${after.securities}、快照 ${after.snapshots}${requireDailyBars ? `、日K ${after.dailyBarSymbols}` : ''}${formatChipStatus(chipCoverageMode, after, minCoverage, chipsOk)}，后续筛选可能仍存在数据缺口。`,
     );
   } else {
     emitProgress(
       ctx,
-      `本地数据覆盖度已达标：证券 ${after.securities}、快照 ${after.snapshots}${requireDailyBars ? `、日K ${after.dailyBarSymbols}` : ''}${needsChips ? `、筹码 ${after.chips}` : ''}`,
+      `本地数据覆盖度已达标：证券 ${after.securities}、快照 ${after.snapshots}${requireDailyBars ? `、日K ${after.dailyBarSymbols}` : ''}${formatChipStatus(chipCoverageMode, after, minCoverage, chipsOk)}`,
     );
   }
 
@@ -220,6 +212,8 @@ export async function runDataCoverageAgent(
     ok,
     minCoverage,
     needsChips,
+    chipCoverageMode,
+    chipSymbol: options.chipSymbol,
     before,
     after,
     hydrated: calcHydrated(before, after),
@@ -233,7 +227,7 @@ async function readCoverageStats(targetTradeDate?: string): Promise<ICoverageSta
     getMarketDataStats(),
     countStockSnapshots(),
     targetTradeDate ? countDailyBarsForDate(targetTradeDate) : Promise.resolve(0),
-    countStockChips(),
+    countFreshListedStockChips(CHIP_DISTRIBUTION_MAX_AGE_MS),
   ]);
   return {
     securities: stats.securityCount,
@@ -252,68 +246,24 @@ function calcHydrated(before: ICoverageStats, after: ICoverageStats): ICoverageS
   };
 }
 
-async function hydrateMissingChips(targetCount: number, timeoutMs: number, ctx: IAgentContext): Promise<number> {
-  const [securities, chips] = await Promise.all([listSecurities(), listStockChips(10000)]);
-  const chipSymbols = new Set(chips.map((chip) => chip.symbol));
-  const missingSymbols = securities
-    .filter((security) => security.status === 'listed' && !chipSymbols.has(security.symbol))
-    .map((security) => security.symbol);
-
-  if (!missingSymbols.length) return 0;
-
-  const startChipCount = chips.length;
-  let hydrated = 0;
-  let stop = false;
-  const start = Date.now();
-  const timeoutAt = start + timeoutMs;
-
-  const checkTarget = async () => {
-    const current = await countStockChips();
-    if (current >= targetCount) {
-      stop = true;
-    }
-  };
-
-  await runWithConcurrency(missingSymbols, CHIP_HYDRATION_CONCURRENCY, async (symbol, index) => {
-    if (stop || Date.now() >= timeoutAt) return;
-    try {
-      await getChipDistribution(symbol);
-      hydrated += 1;
-      if (hydrated % CHIP_CHECK_INTERVAL === 0) {
-        emitProgress(ctx, `已补齐 ${hydrated} 只股票筹码缓存，继续中...`);
-        await checkTarget();
-      }
-    } catch (error) {
-      // 单只股票筹码失败不影响整体流程
-      console.warn(`[data-coverage] 筹码补齐失败 ${symbol}:`, formatError(error));
-    }
-  });
-
-  // 最终统计实际新增（可能包含并发时其他写入）
-  const finalChipCount = await countStockChips();
-  return Math.max(0, finalChipCount - startChipCount);
+function emitHydrationProgress(
+  ctx: IAgentContext,
+  status: IMarketDataHydrationStatus,
+  fallbackMessage: string,
+): void {
+  emitProgress(ctx, status.message ?? fallbackMessage);
 }
 
-async function runWithConcurrency<T>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T, index: number) => Promise<void>,
-): Promise<void> {
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      await worker(items[index], index);
-    }
-  });
-  await Promise.all(workers);
-}
-
-function inferExchange(code: string): SecurityRecord['exchange'] {
-  if (code.startsWith('6')) return 'SH';
-  if (code.startsWith('4') || code.startsWith('8') || code.startsWith('92')) return 'BJ';
-  return 'SZ';
+function formatChipStatus(
+  mode: TChipCoverageMode,
+  stats: ICoverageStats,
+  minCoverage: number,
+  symbolChipOk: boolean,
+): string {
+  if (mode === 'none') return '';
+  if (mode === 'symbol') return `、单股筹码${symbolChipOk ? '已就绪' : '未就绪'}`;
+  const target = Math.max(minCoverage, stats.securities);
+  return `、有效筹码 ${stats.chips}/${target}`;
 }
 
 function emitProgress(ctx: IAgentContext, message: string): void {

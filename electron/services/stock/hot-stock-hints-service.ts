@@ -4,10 +4,7 @@ import {
   toShanghaiDate,
   type IHotStockHintLoaders,
 } from '../../../src/shared/hot-stock-hints-service.js';
-import {
-  getLatestHotStockHintSnapshot,
-  saveHotStockHintSnapshot,
-} from '../stock-db/quote-store.js';
+import { getLatestHotStockHintSnapshot, saveHotStockHintSnapshot } from '../stock-db/quote-store.js';
 import { isRemoteTradingDay, previousRemoteTradingDay } from '../market-data/providers.js';
 import { listHotFocus } from './stock-client.js';
 import { listSurgeHistoryWithBackfill } from './surge-history-service.js';

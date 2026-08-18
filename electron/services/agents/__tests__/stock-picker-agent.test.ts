@@ -123,7 +123,11 @@ describe('选股智能体取数流程', () => {
     expect(mockedCallTool).toHaveBeenCalledWith('getTechnicalIndicators', { symbol: '600001' });
     expect(answer).toContain('强势样本');
     const reportMessages = mockedGenerateReport.mock.calls.at(0)?.[0] ?? [];
-    expect(JSON.stringify(reportMessages)).toContain('趋势强势');
+    const serializedMessages = JSON.stringify(reportMessages);
+    expect(serializedMessages).toContain('趋势强势');
+    expect(serializedMessages).toContain('| 排名 | 代码 | 名称 | 涨幅% | 换手% | 筹码90% | 评分 | 一句话理由 |');
+    expect(serializedMessages).toContain('候选清单表格不得展示量比、MACD、主力净流入三列');
+    expect(serializedMessages).not.toContain('| 排名 | 代码 | 名称 | 涨幅% | 换手% | 量比 | MACD |');
   });
 
   it('最终回答暴露内部执行约束时会重写清洗', async () => {

@@ -1,7 +1,4 @@
-import {
-  conditionScreenerParameters,
-  type IConditionScreenerParameter,
-} from '../../../src/shared/condition-screener.js';
+import { conditionScreenerParameters, type IConditionScreenerParameter } from '../../../src/shared/condition-screener.js';
 import type {
   IConditionScreenerInput,
   TConditionScreenerMarketScope,
@@ -31,7 +28,7 @@ const orderedCriterionKeys = [
   'limit',
 ] as const;
 
-type TCriterionKey = typeof orderedCriterionKeys[number];
+type TCriterionKey = (typeof orderedCriterionKeys)[number];
 type TCriteriaByKey = Partial<Record<TCriterionKey, string>>;
 
 export interface IConditionScreenerState {
@@ -126,7 +123,12 @@ export function formatConditionScreenerCriteria(state: IConditionScreenerState):
 
 function createWorkingState(previousState?: IConditionScreenerState): IWorkingState {
   return {
-    input: previousState ? { ...previousState.input, marketScopes: previousState.input.marketScopes ? [...previousState.input.marketScopes] : undefined } : {},
+    input: previousState
+      ? {
+          ...previousState.input,
+          marketScopes: previousState.input.marketScopes ? [...previousState.input.marketScopes] : undefined,
+        }
+      : {},
     criteriaByKey: previousState ? { ...previousState.criteriaByKey } : {},
     touchedKeys: new Set<TCriterionKey>(),
     warnings: [],
@@ -334,12 +336,7 @@ function damerauLevenshteinDistance(leftValue: string, rightValue: string): numb
         matrix[row][column - 1] + 1,
         matrix[row - 1][column - 1] + substitutionCost,
       );
-      if (
-        row > 1 &&
-        column > 1 &&
-        left[row - 1] === right[column - 2] &&
-        left[row - 2] === right[column - 1]
-      ) {
+      if (row > 1 && column > 1 && left[row - 1] === right[column - 2] && left[row - 2] === right[column - 1]) {
         matrix[row][column] = Math.min(matrix[row][column], matrix[row - 2][column - 2] + 1);
       }
     }
@@ -467,24 +464,33 @@ function clearCriterionInput(input: IConditionScreenerInput, key: TCriterionKey)
   }
 }
 
-function applyCapText(text: string, state: IWorkingState, label: '市值' | '总市值' | '流通市值', key: 'total-market-cap' | 'circulating-market-cap'): boolean {
-  const range = new RegExp(`${label}(?:改成|放宽到|设为|为|在|是)?(\\d+(?:\\.\\d+)?)(?:到|-|~|至)(\\d+(?:\\.\\d+)?)亿`).exec(text);
+function applyCapText(
+  text: string,
+  state: IWorkingState,
+  label: '市值' | '总市值' | '流通市值',
+  key: 'total-market-cap' | 'circulating-market-cap',
+): boolean {
+  const range = new RegExp(
+    `${label}(?:改成|放宽到|设为|为|在|是)?(\\d+(?:\\.\\d+)?)(?:到|-|~|至)(\\d+(?:\\.\\d+)?)亿`,
+  ).exec(text);
   if (range) {
     return key === 'circulating-market-cap'
       ? setCirculatingMarketCapRange(state, range[1], range[2])
       : setTotalMarketCapRange(state, range[1], range[2]);
   }
 
-  const max = new RegExp(`${label}(?:小于|低于|不超过|不高于|以内|少于|<)(\\d+(?:\\.\\d+)?)亿`).exec(text)
-    ?? new RegExp(`${label}(?:改成|放宽到|设为|为)?(\\d+(?:\\.\\d+)?)亿(?:以下|以内)`).exec(text);
+  const max =
+    new RegExp(`${label}(?:小于|低于|不超过|不高于|以内|少于|<)(\\d+(?:\\.\\d+)?)亿`).exec(text) ??
+    new RegExp(`${label}(?:改成|放宽到|设为|为)?(\\d+(?:\\.\\d+)?)亿(?:以下|以内)`).exec(text);
   if (max) {
     return key === 'circulating-market-cap'
       ? setCirculatingMarketCapMaxExclusive(state, max[1])
       : setTotalMarketCapMaxExclusive(state, max[1]);
   }
 
-  const min = new RegExp(`${label}(?:大于|高于|超过|不少于|不低于|>)(\\d+(?:\\.\\d+)?)亿`).exec(text)
-    ?? new RegExp(`${label}(?:改成|放宽到|设为|为)?(\\d+(?:\\.\\d+)?)亿(?:以上)`).exec(text);
+  const min =
+    new RegExp(`${label}(?:大于|高于|超过|不少于|不低于|>)(\\d+(?:\\.\\d+)?)亿`).exec(text) ??
+    new RegExp(`${label}(?:改成|放宽到|设为|为)?(\\d+(?:\\.\\d+)?)亿(?:以上)`).exec(text);
   if (min) {
     return key === 'circulating-market-cap'
       ? setCirculatingMarketCapMin(state, min[1])
@@ -496,23 +502,29 @@ function applyCapText(text: string, state: IWorkingState, label: '市值' | '总
 function applyAmountText(text: string, state: IWorkingState): boolean {
   const range = /成交额(?:为|在|是)?(\d+(?:\.\d+)?)(?:到|-|~|至)(\d+(?:\.\d+)?)亿/.exec(text);
   if (range) return setAmountRange(state, range[1], range[2]);
-  const min = /成交额(?:大于|高于|超过|不少于|不低于|>)(\d+(?:\.\d+)?)亿/.exec(text)
-    ?? /成交额(\d+(?:\.\d+)?)亿(?:以上)/.exec(text);
+  const min =
+    /成交额(?:大于|高于|超过|不少于|不低于|>)(\d+(?:\.\d+)?)亿/.exec(text) ??
+    /成交额(\d+(?:\.\d+)?)亿(?:以上)/.exec(text);
   if (min) return setAmountMinExclusive(state, min[1]);
-  const max = /成交额(?:小于|低于|不超过|不高于|以内|<)(\d+(?:\.\d+)?)亿/.exec(text)
-    ?? /成交额(\d+(?:\.\d+)?)亿(?:以下|以内)/.exec(text);
+  const max =
+    /成交额(?:小于|低于|不超过|不高于|以内|<)(\d+(?:\.\d+)?)亿/.exec(text) ??
+    /成交额(\d+(?:\.\d+)?)亿(?:以下|以内)/.exec(text);
   if (max) return setAmountMax(state, max[1]);
   return false;
 }
 
 function applyVolumeText(text: string, state: IWorkingState): boolean {
-  const range = /成交量(?:为|在|是)?(\d+(?:\.\d+)?)(万手|亿手|手)?(?:到|-|~|至)(\d+(?:\.\d+)?)(万手|亿手|手)?/.exec(text);
+  const range = /成交量(?:为|在|是)?(\d+(?:\.\d+)?)(万手|亿手|手)?(?:到|-|~|至)(\d+(?:\.\d+)?)(万手|亿手|手)?/.exec(
+    text,
+  );
   if (range) return setVolumeRange(state, range[1], range[3], range[2] ?? range[4], range[4] ?? range[2]);
-  const min = /成交量(?:大于|高于|超过|不少于|不低于|>)(\d+(?:\.\d+)?)(万手|亿手|手)?/.exec(text)
-    ?? /成交量(\d+(?:\.\d+)?)(万手|亿手|手)?(?:以上)/.exec(text);
+  const min =
+    /成交量(?:大于|高于|超过|不少于|不低于|>)(\d+(?:\.\d+)?)(万手|亿手|手)?/.exec(text) ??
+    /成交量(\d+(?:\.\d+)?)(万手|亿手|手)?(?:以上)/.exec(text);
   if (min) return setVolumeMinExclusive(state, min[1], min[2]);
-  const max = /成交量(?:小于|低于|不超过|不高于|以内|<)(\d+(?:\.\d+)?)(万手|亿手|手)?/.exec(text)
-    ?? /成交量(\d+(?:\.\d+)?)(万手|亿手|手)?(?:以下|以内)/.exec(text);
+  const max =
+    /成交量(?:小于|低于|不超过|不高于|以内|<)(\d+(?:\.\d+)?)(万手|亿手|手)?/.exec(text) ??
+    /成交量(\d+(?:\.\d+)?)(万手|亿手|手)?(?:以下|以内)/.exec(text);
   if (max) return setVolumeMax(state, max[1], max[2]);
   return false;
 }
@@ -520,11 +532,13 @@ function applyVolumeText(text: string, state: IWorkingState): boolean {
 function applyTurnoverRateText(text: string, state: IWorkingState): boolean {
   const range = /换手率?(?:为|在|是)?(\d+(?:\.\d+)?)%?(?:到|-|~|至)(\d+(?:\.\d+)?)%/.exec(text);
   if (range) return setTurnoverRateRange(state, range[1], range[2]);
-  const min = /换手率?(?:大于|高于|超过|不少于|不低于|>)(\d+(?:\.\d+)?)%?/.exec(text)
-    ?? /换手率?(\d+(?:\.\d+)?)%?(?:以上)/.exec(text);
+  const min =
+    /换手率?(?:大于|高于|超过|不少于|不低于|>)(\d+(?:\.\d+)?)%?/.exec(text) ??
+    /换手率?(\d+(?:\.\d+)?)%?(?:以上)/.exec(text);
   if (min) return setTurnoverRateMinExclusive(state, min[1]);
-  const max = /换手率?(?:小于|低于|不超过|不高于|以内|<)(\d+(?:\.\d+)?)%?/.exec(text)
-    ?? /换手率?(\d+(?:\.\d+)?)%?(?:以下|以内)/.exec(text);
+  const max =
+    /换手率?(?:小于|低于|不超过|不高于|以内|<)(\d+(?:\.\d+)?)%?/.exec(text) ??
+    /换手率?(\d+(?:\.\d+)?)%?(?:以下|以内)/.exec(text);
   if (max) return setTurnoverRateMax(state, max[1]);
   return false;
 }
@@ -543,12 +557,16 @@ function applyChipText(text: string, state: IWorkingState): boolean {
   let parsed = false;
   const concentration90Max = /(?:90%筹码集中度|筹码90%集中度)(?:小于|低于|不超过|不高于|<)(\d+(?:\.\d+)?)%?/.exec(text);
   if (concentration90Max) parsed = setConcentration90MaxExclusive(state, concentration90Max[1]) || parsed;
-  const concentration90Range = /(?:90%筹码集中度|筹码90%集中度)(?:为|在|是)?(\d+(?:\.\d+)?)%?(?:到|-|~|至)(\d+(?:\.\d+)?)%/.exec(text);
-  if (concentration90Range) parsed = setConcentration90Range(state, concentration90Range[1], concentration90Range[2]) || parsed;
+  const concentration90Range =
+    /(?:90%筹码集中度|筹码90%集中度)(?:为|在|是)?(\d+(?:\.\d+)?)%?(?:到|-|~|至)(\d+(?:\.\d+)?)%/.exec(text);
+  if (concentration90Range)
+    parsed = setConcentration90Range(state, concentration90Range[1], concentration90Range[2]) || parsed;
   const concentration70Max = /(?:70%筹码集中度|筹码70%集中度)(?:小于|低于|不超过|不高于|<)(\d+(?:\.\d+)?)%?/.exec(text);
   if (concentration70Max) parsed = setConcentration70MaxExclusive(state, concentration70Max[1]) || parsed;
-  const concentration70Range = /(?:70%筹码集中度|筹码70%集中度)(?:为|在|是)?(\d+(?:\.\d+)?)%?(?:到|-|~|至)(\d+(?:\.\d+)?)%/.exec(text);
-  if (concentration70Range) parsed = setConcentration70Range(state, concentration70Range[1], concentration70Range[2]) || parsed;
+  const concentration70Range =
+    /(?:70%筹码集中度|筹码70%集中度)(?:为|在|是)?(\d+(?:\.\d+)?)%?(?:到|-|~|至)(\d+(?:\.\d+)?)%/.exec(text);
+  if (concentration70Range)
+    parsed = setConcentration70Range(state, concentration70Range[1], concentration70Range[2]) || parsed;
   const profitRatio = /获利比例(?:大于|高于|超过|不少于|不低于|>)(\d+(?:\.\d+)?)%?/.exec(text);
   if (profitRatio) parsed = setProfitRatioMinExclusive(state, profitRatio[1]) || parsed;
   return parsed;
@@ -706,7 +724,13 @@ function setAmountMax(state: IWorkingState, rawMax: string): boolean {
   return true;
 }
 
-function setVolumeRange(state: IWorkingState, rawMin: string, rawMax: string, minUnit?: string, maxUnit?: string): boolean {
+function setVolumeRange(
+  state: IWorkingState,
+  rawMin: string,
+  rawMax: string,
+  minUnit?: string,
+  maxUnit?: string,
+): boolean {
   const min = toVolume(rawMin, minUnit);
   const max = toVolume(rawMax, maxUnit);
   if (!isValidRange(min, max)) return false;
@@ -896,17 +920,38 @@ function dataRequirementsForInput(input: IConditionScreenerInput): string[] {
     input.maxTotalMarketCapYuan !== undefined ||
     input.maxTotalMarketCapYuanExclusive !== undefined ||
     input.sortBy === 'totalMarketCap'
-  ) requirements.push('总市值');
+  )
+    requirements.push('总市值');
   if (
     input.minCirculatingMarketCapYuan !== undefined ||
     input.maxCirculatingMarketCapYuan !== undefined ||
     input.maxCirculatingMarketCapYuanExclusive !== undefined ||
     input.sortBy === 'circulatingMarketCap'
-  ) requirements.push('流通市值');
-  if (input.minAmountYuan !== undefined || input.maxAmountYuan !== undefined || input.amountMinYuanExclusive !== undefined || input.sortBy === 'amount') requirements.push('成交额');
-  if (input.minVolume !== undefined || input.maxVolume !== undefined || input.volumeMinExclusive !== undefined || input.sortBy === 'volume') requirements.push('成交量');
-  if (input.turnoverRateMin !== undefined || input.turnoverRateMax !== undefined || input.turnoverRateMinExclusive !== undefined || input.sortBy === 'turnoverRate') requirements.push('换手率');
-  if (input.changePercentMin !== undefined || input.changePercentMax !== undefined || input.sortBy === 'changePercent') requirements.push('涨跌幅');
+  )
+    requirements.push('流通市值');
+  if (
+    input.minAmountYuan !== undefined ||
+    input.maxAmountYuan !== undefined ||
+    input.amountMinYuanExclusive !== undefined ||
+    input.sortBy === 'amount'
+  )
+    requirements.push('成交额');
+  if (
+    input.minVolume !== undefined ||
+    input.maxVolume !== undefined ||
+    input.volumeMinExclusive !== undefined ||
+    input.sortBy === 'volume'
+  )
+    requirements.push('成交量');
+  if (
+    input.turnoverRateMin !== undefined ||
+    input.turnoverRateMax !== undefined ||
+    input.turnoverRateMinExclusive !== undefined ||
+    input.sortBy === 'turnoverRate'
+  )
+    requirements.push('换手率');
+  if (input.changePercentMin !== undefined || input.changePercentMax !== undefined || input.sortBy === 'changePercent')
+    requirements.push('涨跌幅');
   if (
     input.concentration90Min !== undefined ||
     input.concentration90Max !== undefined ||
@@ -919,7 +964,8 @@ function dataRequirementsForInput(input: IConditionScreenerInput): string[] {
     input.profitRatioMinExclusive !== undefined ||
     input.sortBy === 'concentration90' ||
     input.sortBy === 'concentration70'
-  ) requirements.push('筹码分布');
+  )
+    requirements.push('筹码分布');
   if (input.leadingBoards) requirements.push('板块成分股');
   return unique(requirements);
 }
@@ -942,7 +988,10 @@ function normalizeCommandSegment(segment: string): string {
 }
 
 function normalizeText(text: string): string {
-  return text.trim().replace(/^\/条件选股\s*/, '').trim();
+  return text
+    .trim()
+    .replace(/^\/条件选股\s*/, '')
+    .trim();
 }
 
 function normalizeNaturalText(text: string): string {
@@ -956,7 +1005,10 @@ function normalizeNaturalText(text: string): string {
 }
 
 function trimPunctuation(text: string): string {
-  return text.trim().replace(/[，,。；;]+$/g, '').trim();
+  return text
+    .trim()
+    .replace(/[，,。；;]+$/g, '')
+    .trim();
 }
 
 function isContinuationText(text: string): boolean {

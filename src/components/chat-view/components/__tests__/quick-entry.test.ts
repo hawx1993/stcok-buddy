@@ -1,5 +1,14 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { getQuickEntrySearchKeyword, getQuickEntryValueAfterSearchSelection } from '../quick-entry';
+import {
+  getQuickEntrySearchKeyword,
+  getQuickEntryValueAfterSearchSelection,
+  QuickEntry,
+  QUICK_ENTRY_TREND_PATH,
+  QUICK_ENTRY_WHALE_MOTION,
+  QUICK_ENTRY_WHALE_SIZE,
+} from '../quick-entry';
 
 describe('QuickEntry 搜索关键词提取', () => {
   it('忽略 slash 命令前缀并使用命令参数搜索', () => {
@@ -24,5 +33,39 @@ describe('QuickEntry 搜索关键词提取', () => {
   it('选择搜索建议时保留已选 slash 命令', () => {
     expect(getQuickEntryValueAfterSearchSelection('/筹码分析 600', '600519')).toBe('/筹码分析 600519');
     expect(getQuickEntryValueAfterSearchSelection('600', '600519')).toBe('600519');
+  });
+});
+
+describe('QuickEntry 鲸鱼动画', () => {
+  it('复用趋势曲线路径、限制尺寸并在最后一段双倍冲刺', () => {
+    const markup = renderToStaticMarkup(
+      createElement(QuickEntry, {
+        activeModelName: 'test-model',
+        onOpenModelSettings: () => undefined,
+        onOpenStore: () => undefined,
+        onSubmit: () => undefined,
+        slashItems: [],
+      }),
+    );
+    const steadySpeed =
+      QUICK_ENTRY_WHALE_MOTION.sprintStartPoint /
+      (QUICK_ENTRY_WHALE_MOTION.sprintStartTime * QUICK_ENTRY_WHALE_MOTION.durationSeconds);
+    const sprintSpeed =
+      (1 - QUICK_ENTRY_WHALE_MOTION.sprintStartPoint) /
+      ((1 - QUICK_ENTRY_WHALE_MOTION.sprintStartTime) * QUICK_ENTRY_WHALE_MOTION.durationSeconds);
+
+    expect(QUICK_ENTRY_WHALE_SIZE.width).toBeLessThanOrEqual(30);
+    expect(sprintSpeed / steadySpeed).toBeCloseTo(2, 2);
+    expect(markup).toContain(`d="${QUICK_ENTRY_TREND_PATH}"`);
+    expect(markup).toContain(`path="${QUICK_ENTRY_TREND_PATH}"`);
+    expect(markup).toContain(`keyPoints="0;${QUICK_ENTRY_WHALE_MOTION.sprintStartPoint};1"`);
+    expect(markup).toContain(`keyTimes="0;${QUICK_ENTRY_WHALE_MOTION.sprintStartTime};1"`);
+    expect(markup).toContain('transform="translate(-15 -30)"');
+    expect(markup).toContain(
+      `viewBox="0 0 352 294" width="${QUICK_ENTRY_WHALE_SIZE.width}" height="${QUICK_ENTRY_WHALE_SIZE.height}"`,
+    );
+    expect(markup).toContain(
+      `style="width:${QUICK_ENTRY_WHALE_SIZE.width}px;height:${QUICK_ENTRY_WHALE_SIZE.height}px"`,
+    );
   });
 });

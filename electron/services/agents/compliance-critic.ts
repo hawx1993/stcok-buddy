@@ -40,8 +40,9 @@ export function reviewComplianceStructured(input: {
   }
 
   if (revisedText.includes('操作建议')) {
-    revisedText = revisedText.replace(/操作建议/g, '观察框架');
-    issues.push({ type: 'investment-advice', severity: 'medium', message: '已将“操作建议”替换为“观察框架”。' });
+    const replacement = revisedText.includes('综合投研报告') ? '风险提示' : '观察框架';
+    revisedText = revisedText.replace(/操作建议/g, replacement);
+    issues.push({ type: 'investment-advice', severity: 'medium', message: `已将“操作建议”替换为“${replacement}”。` });
   }
 
   const sources = new Set(input.evidence.map((item) => item.source));
@@ -58,7 +59,8 @@ export function reviewComplianceStructured(input: {
   }
 
   if (input.dataGaps?.length && /无风险|风险已排除|确定|必然|明确看多|明确看空/.test(revisedText)) {
-    revisedText = `${revisedText.trim()}\n\n### ⚠️ 数据缺口与影响\n${input.dataGaps.map((gap) => `- ${gap.userMessage}`).join('\n')}`;
+    const gapLines = input.dataGaps.map((gap) => `- ${gap.userMessage}`).join('\n');
+    revisedText = appendDataGapUncertainty(revisedText, gapLines);
     issues.push({ type: 'unsupported-claim', severity: 'medium', message: '存在数据缺口时已补充不确定性说明。' });
   }
 
@@ -74,4 +76,12 @@ export function reviewComplianceStructured(input: {
 
   void input.findings;
   return { passed: issues.every((issue) => issue.severity !== 'high'), issues, revisedText };
+}
+
+function appendDataGapUncertainty(text: string, gapLines: string) {
+  if (!/综合投研报告/.test(text)) return `${text.trim()}\n\n### ⚠️ 数据缺口与影响\n${gapLines}`;
+  if (/^###\s*(?:\S+\s+)?风险提示\s*$/m.test(text)) {
+    return text.replace(/(###\s*(?:\S+\s+)?风险提示\s*\n)/, `$1${gapLines}\n`);
+  }
+  return `${text.trim()}\n\n### 🚨 风险提示\n${gapLines}`;
 }

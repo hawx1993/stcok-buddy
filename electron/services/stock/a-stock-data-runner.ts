@@ -197,32 +197,22 @@ function pythonExecutable(): string {
   return existsSync(venvPython) ? venvPython : process.platform === 'win32' ? 'python' : 'python3';
 }
 
-export async function runAStockDataFn<T>(
-  fnName: AStockDataFnName,
-  args: Record<string, string | number>,
-): Promise<T> {
+export async function runAStockDataFn<T>(fnName: AStockDataFnName, args: Record<string, string | number>): Promise<T> {
   const argv = [scriptPath(), fnName];
   for (const [key, value] of Object.entries(args)) {
     argv.push(`--${key}`, String(value));
   }
   return new Promise<T>((resolve, reject) => {
-    execFile(
-      pythonExecutable(),
-      argv,
-      { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(`a-stock-data ${fnName} 运行失败: ${(stderr || error.message).trim()}`));
-          return;
-        }
-        try {
-          resolve(JSON.parse(stdout) as T);
-        } catch {
-          reject(
-            new Error(`a-stock-data ${fnName} 输出非 JSON: ${stderr.trim() || stdout.slice(0, 300)}`),
-          );
-        }
-      },
-    );
+    execFile(pythonExecutable(), argv, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(`a-stock-data ${fnName} 运行失败: ${(stderr || error.message).trim()}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout) as T);
+      } catch {
+        reject(new Error(`a-stock-data ${fnName} 输出非 JSON: ${stderr.trim() || stdout.slice(0, 300)}`));
+      }
+    });
   });
 }

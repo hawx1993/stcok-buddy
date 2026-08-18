@@ -110,6 +110,38 @@
   color: var(--fg);
   flex-shrink: 0;
 }
+.msg-inline-icon {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  margin: 0 0.16em;
+  color: var(--fg-secondary);
+  vertical-align: -0.14em;
+}
+.msg-icon-tone-accent {
+  color: var(--accent);
+}
+.msg-icon-tone-success {
+  color: var(--success);
+}
+.msg-icon-tone-warning {
+  color: var(--warning);
+}
+.msg-icon-tone-danger {
+  color: var(--danger);
+}
+.msg-icon-tone-up {
+  color: var(--market-up);
+}
+.msg-icon-tone-down {
+  color: var(--market-down);
+}
+.msg-icon-tone-muted {
+  color: var(--muted);
+}
+.msg.user .msg-inline-icon {
+  color: #fff;
+}
 .msg-text p {
   margin: 0 0 6px;
 }

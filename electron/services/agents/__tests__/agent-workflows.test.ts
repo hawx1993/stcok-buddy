@@ -48,6 +48,7 @@ const coverageMocks = vi.hoisted(() => ({
       ok: true,
       minCoverage: 5000,
       needsChips: false,
+      chipCoverageMode: 'none',
       before: { securities: 5000, snapshots: 5000, dailyBarSymbols: 0, chips: 1152 },
       after: { securities: 5000, snapshots: 5000, dailyBarSymbols: 0, chips: 1152 },
       hydrated: { securities: 0, snapshots: 0, dailyBarSymbols: 0, chips: 0 },
@@ -173,7 +174,7 @@ describe('agent workflow market-data', () => {
 });
 
 describe('条件选股工作流', () => {
-  it('筹码条件不把全市场筹码补齐作为 DataCoverage 阻塞前置条件', async () => {
+  it('筹码条件选股把 A 股全市场筹码补齐作为 DataCoverage 前置条件', async () => {
     coverageMocks.runDataCoverageAgent.mockClear();
     const context = createContext();
     context.query = '查找90%筹码集中度小于18%、70%筹码集中度小于14%的个股';
@@ -185,11 +186,55 @@ describe('条件选股工作流', () => {
 
     await coverageNode.run(context);
 
-    expect(coverageNode.description).not.toContain('含筹码');
+    expect(coverageNode.description).toContain('含A股全市场筹码');
     expect(coverageMocks.runDataCoverageAgent).toHaveBeenCalledWith(context, {
       minCoverage: 5000,
-      needsChips: false,
+      chipCoverageMode: 'market',
+      chipSymbol: undefined,
       requireDailyBars: false,
+    });
+  });
+
+  it('单股筹码分析只要求目标股票筹码，不触发全市场筹码补齐', async () => {
+    coverageMocks.runDataCoverageAgent.mockClear();
+    const context = createContext();
+    context.query = '找一下 600519 的筹码结构';
+    context.intent = 'a-stock-data-agent';
+    context.symbol = '600519';
+    context.plan = createInitialAgentPlan(context);
+    const coverageNode = buildAgentWorkflow(context).find((item) => item.id === 'data-coverage');
+    if (!coverageNode) throw new Error('data-coverage node missing');
+
+    await coverageNode.run(context);
+
+    expect(coverageNode.description).toContain('含单股筹码 600519');
+    expect(coverageNode.description).not.toContain('含A股全市场筹码');
+    expect(coverageMocks.runDataCoverageAgent).toHaveBeenCalledWith(context, {
+      minCoverage: 5000,
+      chipCoverageMode: 'symbol',
+      chipSymbol: '600519',
+      requireDailyBars: true,
+    });
+  });
+
+  it('无筹码条件时不要求筹码覆盖', async () => {
+    coverageMocks.runDataCoverageAgent.mockClear();
+    const context = createContext();
+    context.query = '分析 600519 有没有超大买入手数';
+    context.intent = 'a-stock-data-agent';
+    context.symbol = '600519';
+    context.plan = createInitialAgentPlan(context);
+    const coverageNode = buildAgentWorkflow(context).find((item) => item.id === 'data-coverage');
+    if (!coverageNode) throw new Error('data-coverage node missing');
+
+    await coverageNode.run(context);
+
+    expect(coverageNode.description).not.toContain('筹码');
+    expect(coverageMocks.runDataCoverageAgent).toHaveBeenCalledWith(context, {
+      minCoverage: 5000,
+      chipCoverageMode: 'none',
+      chipSymbol: undefined,
+      requireDailyBars: true,
     });
   });
 

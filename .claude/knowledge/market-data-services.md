@@ -1,6 +1,6 @@
 # Market Data Services 知识
 
-适用范围：`electron/services/market-data/**`。
+适用范围：`electron/services/market-data/**`，以及其依赖的物理 DuckDB 存储 `electron/services/stock-db/market-data-store.ts`。
 
 ## 职责
 
@@ -8,7 +8,7 @@ market-data 层负责 A 股基础市场数据的本地持久化、查询、同�
 
 ## 数据库
 
-`electron/services/market-data/market-data-store.ts` 使用 DuckDB：
+`electron/services/stock-db/market-data-store.ts` 使用 DuckDB。`market-data/**` 负责调用它完成 provider 查询、同步、筛选和调度，不承载 DuckDB 实例实现：
 
 - 默认路径来自 `app.getPath('userData')`，开发环境为 `stocksense-market-dev.duckdb`，打包环境为 `stocksense-market.duckdb`。
 - 可通过 `STOCKSENSE_MARKET_DB_PATH` 覆盖。
@@ -126,7 +126,7 @@ market-data 层负责 A 股基础市场数据的本地持久化、查询、同�
 5. 如启用 `leadingBoards`，调用 `loadConditionScreenerLeadingBoardScope()`：先读 `market_boards`；本地无可用领涨板块时调用 `refreshMarketBoardRows()` 获取 stock-sdk 真实板块；仍无有效板块时再走 `fetchConditionScreenerSinaBoards()` 的 a-stock-data 新浪板块排行；取涨幅 Top 5。
 6. 领涨板块成分股优先读本地 `board_constituents`，其次 `getBoardDetail()`；若板块来源为 a-stock-data 新浪，则调用 `fetchConditionScreenerSinaConstituents()` 批量获取成分股。
 7. 如启用筹码条件，仅读取本地 `stock_chips` 完成本轮筛选；缺筹码的股票不纳入当前命中，并后台补齐前 20 只缺失候选。
-7. 输出 `sourceStats`、`warnings`、`isComplete`、`freshness`、`storage`、`leadingBoards` 和命中行，供 Agent 数据状态和证据使用。
+8. 输出 `sourceStats`、`warnings`、`isComplete`、`freshness`、`storage`、`leadingBoards` 和命中行，供 Agent 数据状态和证据使用。
 
 注意：
 
@@ -138,7 +138,7 @@ market-data 层负责 A 股基础市场数据的本地持久化、查询、同�
 
 - `screenASharesByConditions`：调用 `condition-screener-service.ts`，用于 slash 命令的确定性条件选股。
 - `screenASharesByMarketCap`：调用 `market-cap-screener.ts`，支持总市值/流通市值和换手率范围。
-- `screenLocalAStocks`：位于 `electron/services/agent/tools/screen-local-a-stocks.ts`，只读本地 `listLatestMarketRows()`、`listStockChips()`、`getMarketDataStats()` 做超短线宽筛。
+- `screenLocalAStocks`：位于 `electron/services/agents/tools/screen-local-a-stocks.ts`，只读本地 `listLatestMarketRows()`、`listStockChips()`、`getMarketDataStats()` 做超短线宽筛。
 - `data-coverage-agent.ts` 会在相关 Agent 节点前调用覆盖度统计与补齐，避免选股时只覆盖少量股票。
 
 ## 运行时与调度
@@ -150,7 +150,7 @@ market-data 层负责 A 股基础市场数据的本地持久化、查询、同�
 - `shouldAutoSyncMarketData()` 在最新成功目标交易日缺失、成功数量为 0、日期无效，或超过 `STALE_DAILY_BAR_DAYS = 31` 天时返回 true。
 - `stopMarketDataScheduler()` 会设置 stopped、请求同步停止并清理 timer。
 - `shutdownMarketDataScheduler()` 会停止 scheduler，并调用 `disposeMarketDataSyncWorker()`。
-- `main.ts` 启动时会异步 `ensureMarketDataRuntime()`，退出/更新安装前会停止或 shutdown scheduler。
+- `app-main.ts` 启动时会异步 `ensureMarketDataRuntime()`，退出/更新安装前会停止或 shutdown scheduler。
 
 ## `marketData:*` 与 `dataSync:*`
 

@@ -3,11 +3,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { IHotStockHint } from './hot-stock-hints';
 import { SlashCommandMenu } from './slash-command-menu';
 import { useHotStockHints } from './use-hot-stock-hints';
+import { useRotatingQuickEntryPrompt } from './use-rotating-quick-entry-prompt';
 import { isConditionScreenerCommand } from '../../../shared/condition-screener';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { MarketSearchResult } from '../../../shared/types';
 import { ConditionScreenerPicker } from './condition-screener-picker';
+import { QuickEntrySearchSuggestions } from './quick-entry-search-suggestions';
 import { QuickEntryToolbar } from './quick-entry-toolbar';
+import { WhaleLogo } from './whale-logo';
 import styles from '../index.module.scss';
 
 export type TSlashItem = {
@@ -18,6 +21,14 @@ export type TSlashItem = {
   description: string;
   argPlaceholder: string;
 };
+
+export const QUICK_ENTRY_TREND_PATH = 'M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70';
+export const QUICK_ENTRY_WHALE_SIZE = { width: 30, height: 25 } as const;
+export const QUICK_ENTRY_WHALE_MOTION = {
+  durationSeconds: 5.29,
+  sprintStartPoint: 0.707,
+  sprintStartTime: 0.828,
+} as const;
 
 export function getQuickEntrySearchKeyword(input: string) {
   const trimmed = input.trim();
@@ -48,6 +59,7 @@ export function QuickEntry({
   slashItems: TSlashItem[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const suggestionAnchorRef = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -56,6 +68,7 @@ export function QuickEntry({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string>();
   const { hints, loading, error, isPreviousTradeDay, tradeDate, refresh } = useHotStockHints(conversationId);
+  const quickEntryPrompt = useRotatingQuickEntryPrompt();
   const slashOpen = value.startsWith('/') && !value.includes(' ');
   const activeCommand = slashItems.find((item) => value.startsWith(`${item.command} `));
   const commandArg = activeCommand ? value.slice(activeCommand.command.length + 1) : '';
@@ -141,12 +154,12 @@ export function QuickEntry({
           </g>
           <path
             className={styles['qe-wave']}
-            d='M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70 L 360 150 Z'
+            d={`${QUICK_ENTRY_TREND_PATH} L 360 150 Z`}
             fill='rgba(59,130,246,0.08)'
           />
           <path
             className={styles['qe-trend']}
-            d='M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70'
+            d={QUICK_ENTRY_TREND_PATH}
             stroke='var(--accent)'
             strokeWidth='2'
             fill='none'
@@ -175,10 +188,31 @@ export function QuickEntry({
             </g>
           ))}
           <line x1='40' y1='150' x2='380' y2='150' stroke='var(--border)' strokeWidth='1' />
+          <g className={styles['qe-whale-sprint']}>
+            <g transform='translate(-15 -30)'>
+              <WhaleLogo width={QUICK_ENTRY_WHALE_SIZE.width} height={QUICK_ENTRY_WHALE_SIZE.height} />
+            </g>
+            <animateMotion
+              calcMode='linear'
+              dur={`${QUICK_ENTRY_WHALE_MOTION.durationSeconds}s`}
+              keyPoints={`0;${QUICK_ENTRY_WHALE_MOTION.sprintStartPoint};1`}
+              keyTimes={`0;${QUICK_ENTRY_WHALE_MOTION.sprintStartTime};1`}
+              path={QUICK_ENTRY_TREND_PATH}
+              repeatCount='indefinite'
+              rotate='auto'
+            />
+            <animate
+              attributeName='opacity'
+              dur={`${QUICK_ENTRY_WHALE_MOTION.durationSeconds}s`}
+              keyTimes='0;0.04;0.92;1'
+              repeatCount='indefinite'
+              values='0;1;1;0'
+            />
+          </g>
         </svg>
       </div>
       <div className={styles['qe-title']}>开始新的投研分析</div>
-      <div className={styles['qe-sub']}>输入A股股票名称或代码，AI 将为你深度解读</div>
+      <div className={styles['qe-sub']}>{quickEntryPrompt}</div>
       <div className={styles['qe-entry-controls']}>
         <div className={styles['composer-stack']}>
           {slashOpen ? (
@@ -196,7 +230,7 @@ export function QuickEntry({
               onRequestInputFocus={() => inputRef.current?.focus()}
             />
             <div className={styles['qe-composer-input']}>
-              <div className={styles['input-row']}>
+              <div ref={suggestionAnchorRef} className={styles['input-row']}>
                 {activeCommand ? (
                   <div className={styles['command-input-wrap']}>
                     <button
@@ -263,35 +297,15 @@ export function QuickEntry({
                   />
                 )}
               </div>
-              {canShowSuggestions ? (
-                <div className={styles['qe-suggestions']}>
-                  {searching ? (
-                    <div className={styles['qe-suggestion-empty']}>搜索中…</div>
-                  ) : searchError ? (
-                    <div className={styles['qe-suggestion-empty']}>搜索暂不可用</div>
-                  ) : suggestions.length ? (
-                    suggestions.map((item) => (
-                      <button
-                        key={`${item.kind ?? 'stock'}-${item.code}`}
-                        className={styles['qe-suggestion-item']}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          selectSearchResult(item);
-                        }}
-                        type='button'
-                      >
-                        <span>
-                          {item.name}
-                          <em>{item.kind === 'board' ? '板块' : '股票'}</em>
-                        </span>
-                        <code>{item.code}</code>
-                      </button>
-                    ))
-                  ) : debouncedSearch ? (
-                    <div className={styles['qe-suggestion-empty']}>无匹配结果</div>
-                  ) : null}
-                </div>
-              ) : null}
+              <QuickEntrySearchSuggestions
+                anchorRef={suggestionAnchorRef}
+                debouncedSearch={debouncedSearch}
+                error={searchError}
+                isOpen={canShowSuggestions}
+                onSelect={selectSearchResult}
+                searching={searching}
+                suggestions={suggestions}
+              />
             </div>
             <QuickEntryToolbar
               activeModelName={activeModelName}

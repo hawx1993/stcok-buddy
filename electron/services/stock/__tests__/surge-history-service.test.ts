@@ -21,7 +21,11 @@ vi.mock('../../stock-db/surge-history-store', () => ({
 
 import { isRemoteTradingDay } from '../../market-data/providers.js';
 import { listEastmoneySurgeByDate } from '../stock-client.js';
-import { isSurgeHistoryClearMarkerActive, listSurgeHistory, saveSurgeSnapshot } from '../../stock-db/surge-history-store.js';
+import {
+  isSurgeHistoryClearMarkerActive,
+  listSurgeHistory,
+  saveSurgeSnapshot,
+} from '../../stock-db/surge-history-store.js';
 import { listSurgeHistoryWithBackfill } from '../surge-history-service.js';
 
 const mockedIsRemoteTradingDay = vi.mocked(isRemoteTradingDay);

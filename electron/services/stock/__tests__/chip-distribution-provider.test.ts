@@ -15,10 +15,10 @@ const aStockDataMocks = vi.hoisted(() => ({
   runAStockDataFn: vi.fn(),
 }));
 
-vi.mock('../../stock-db/market-data-store.js', () => storeMocks);
-vi.mock('../chip-distribution-worker-client.js', () => workerMocks);
-vi.mock('../a-stock-data-runner.js', () => aStockDataMocks);
-vi.mock('../symbols.js', () => ({
+vi.mock('../../stock-db/market-data-store', () => storeMocks);
+vi.mock('../chip-distribution-worker-client', () => workerMocks);
+vi.mock('../a-stock-data-runner', () => aStockDataMocks);
+vi.mock('../symbols', () => ({
   normalizeASymbol: (symbol: string) => symbol,
 }));
 
@@ -48,9 +48,12 @@ beforeEach(() => {
 describe('chip distribution provider persistence', () => {
   it('does not resolve a remote chip result before the DuckDB upsert completes', async () => {
     let resolveWrite: (() => void) | undefined;
-    storeMocks.upsertStockChip.mockImplementationOnce(() => new Promise<void>((resolve) => {
-      resolveWrite = resolve;
-    }));
+    storeMocks.upsertStockChip.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveWrite = resolve;
+        }),
+    );
     const { getChipDistribution } = await import('../chip-distribution-provider.js');
     let settled = false;
 
@@ -88,9 +91,7 @@ describe('chip distribution provider persistence', () => {
   });
 
   it('surfaces a DuckDB write failure and retries instead of keeping a memory-only result', async () => {
-    storeMocks.upsertStockChip
-      .mockRejectedValueOnce(new Error('disk full'))
-      .mockResolvedValueOnce(undefined);
+    storeMocks.upsertStockChip.mockRejectedValueOnce(new Error('disk full')).mockResolvedValueOnce(undefined);
     const { getChipDistribution } = await import('../chip-distribution-provider.js');
 
     await expect(getChipDistribution('600519')).rejects.toThrow('DuckDB 筹码缓存写入失败（600519）：disk full');

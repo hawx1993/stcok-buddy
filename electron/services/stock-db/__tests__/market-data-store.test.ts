@@ -447,6 +447,42 @@ describe('市场数据 DuckDB 存储', () => {
     ]);
   });
 
+  it('可以批量写入筹码缓存，并只统计仍有效的上市 A 股筹码', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('market data store not loaded');
+
+    const freshFetchedAt = new Date().toISOString();
+    const staleFetchedAt = new Date(Date.now() - 10 * 24 * 60 * 60_000).toISOString();
+    const maxAgeMs = 5 * 24 * 60 * 60_000;
+    const freshChip = { latest: { date: '2026-07-09', profitRatio: 0.62 }, source: 'vitest' };
+    const staleChip = { latest: { date: '2026-07-08', profitRatio: 0.52 }, source: 'vitest' };
+
+    await currentStore.upsertSecurities([
+      createSecurity({ symbol: '600519', name: '贵州茅台', status: 'listed' }),
+      createSecurity({ symbol: '000001', name: '平安银行', exchange: 'SZ', status: 'listed' }),
+      createSecurity({ symbol: '300001', name: '退市样本', exchange: 'SZ', status: 'delisted' }),
+      createSecurity({ symbol: '600001', name: '停牌样本', status: 'suspended' }),
+    ]);
+    await currentStore.upsertStockChips([
+      { symbol: '600519', data: freshChip, fetchedAt: freshFetchedAt },
+      { symbol: '000001', data: staleChip, fetchedAt: staleFetchedAt },
+      { symbol: '300001', data: freshChip, fetchedAt: freshFetchedAt },
+      { symbol: '600001', data: freshChip, fetchedAt: freshFetchedAt },
+      { symbol: '688001', data: freshChip, fetchedAt: freshFetchedAt },
+    ]);
+
+    expect(await currentStore.getStockChip('600519')).toEqual(freshChip);
+    expect(await currentStore.getStockChip('000001')).toEqual(staleChip);
+    expect(await currentStore.countStockChips()).toBe(5);
+    expect(await currentStore.countFreshListedStockChips(maxAgeMs)).toBe(1);
+
+    const updatedChip = { latest: { date: '2026-07-10', profitRatio: 0.7 }, source: 'vitest' };
+    await currentStore.upsertStockChips([{ symbol: '000001', data: updatedChip, fetchedAt: freshFetchedAt }]);
+
+    expect(await currentStore.getStockChip('000001')).toEqual(updatedChip);
+    expect(await currentStore.countFreshListedStockChips(maxAgeMs)).toBe(2);
+  });
+
   it('可以记录同步任务、失败项和统计信息', async () => {
     const currentStore = store;
     if (!currentStore) throw new Error('market data store not loaded');
