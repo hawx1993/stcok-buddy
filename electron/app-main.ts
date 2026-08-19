@@ -30,6 +30,7 @@ import { closeMonitorHistoryInstance, closeMonitorHistoryStore } from './service
 import { syncSurgeHistoryIfNeeded } from './services/market-data/data-sync-handlers.js';
 import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
 import { checkAppUpdate, setInstallUpdateHandler } from './services/update-service.js';
+import { disposeChipDistributionWorker } from './services/stock/chip-distribution-worker-client.js';
 import { app, BrowserWindow, shell } from './electron-runtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +88,7 @@ function prepareForUpdateInstall() {
   stopDiscoveryRefreshLoop();
   stopSurgeHistoryScheduler();
   stopMonitorHistoryScheduler();
+  void disposeChipDistributionWorker();
 }
 
 function finishQuit() {
@@ -140,6 +142,7 @@ async function cleanupAndQuit() {
     await closeMonitorHistoryStore(500);
     await closeMonitorHistoryInstance();
   });
+  await runCleanupStep('chip-distribution-worker', () => disposeChipDistributionWorker());
   await runCleanupStep('posthog', () => waitWithTimeout('posthog', shutdownPostHog(), QUIT_POSTHOG_WAIT_MS));
   finishQuit();
 }
@@ -178,6 +181,16 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
 }
+
+function focusMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
+
+app.on('second-instance', () => {
+  focusMainWindow();
+});
 
 app.whenReady().then(() => {
   sessionStartedAt = Date.now();

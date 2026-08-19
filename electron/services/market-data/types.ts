@@ -4,6 +4,7 @@ import type {
   KlinePoint,
   MarketBoardRow,
   StockDetail,
+  TChipDistributionPeriod,
 } from '../../../src/shared/types.js';
 
 export type AdjustType = 'qfq' | 'none' | 'qfq_weekly' | 'qfq_monthly';
@@ -67,6 +68,7 @@ export interface TradeCalendarQueryOptions {
 
 export interface StockChipCacheRecord {
   symbol: string;
+  period: TChipDistributionPeriod;
   data: unknown;
   fetchedAt: string;
 }

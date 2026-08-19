@@ -4,7 +4,11 @@ import { existsSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { isMainThread } from 'node:worker_threads';
 import { probeMarketDatabaseCorruption } from './market-data-integrity.js';
-import type { IBoardDashboardSnapshot, TBoardDashboardRange } from '../../../src/shared/types.js';
+import type {
+  IBoardDashboardSnapshot,
+  TBoardDashboardRange,
+  TChipDistributionPeriod,
+} from '../../../src/shared/types.js';
 import type {
   AdjustType,
   BoardConstituentRecord,
@@ -107,8 +111,12 @@ const schemaSql = `
     updated_at TIMESTAMP NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS stock_chips (
-    symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TIMESTAMP NOT NULL
+  CREATE TABLE IF NOT EXISTS stock_chip_distributions (
+    symbol TEXT NOT NULL,
+    period TEXT NOT NULL DEFAULT '1d',
+    data_json TEXT NOT NULL,
+    fetched_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (symbol, period)
   );
 
   CREATE TABLE IF NOT EXISTS stock_snapshots (
@@ -285,6 +293,7 @@ export function upsertStockSnapshots(
 
 export interface IStockChipUpsertItem {
   symbol: string;
+  period?: TChipDistributionPeriod;
   data: unknown;
   fetchedAt?: string;
 }
@@ -295,14 +304,15 @@ export function upsertStockChips(items: IStockChipUpsertItem[]) {
     await connection.run('BEGIN TRANSACTION');
     try {
       const statement = await connection.prepare(`
-        INSERT OR REPLACE INTO stock_chips (symbol, data_json, fetched_at)
-        VALUES ($symbol, $data, $fetchedAt)
+        INSERT OR REPLACE INTO stock_chip_distributions (symbol, period, data_json, fetched_at)
+        VALUES ($symbol, $period, $data, $fetchedAt)
       `);
       const now = new Date().toISOString();
       for (const item of items) {
         statement.bind({
           symbol: item.symbol,
-          data: JSON.stringify(item.data),
+          period: item.period ?? '1d',
+          data: JSON.stringify(toPersistedStockChipData(item.data)),
           fetchedAt: item.fetchedAt ?? now,
         });
         await statement.run();
@@ -315,40 +325,49 @@ export function upsertStockChips(items: IStockChipUpsertItem[]) {
   });
 }
 
-export function upsertStockChip(symbol: string, data: unknown) {
-  return upsertStockChips([{ symbol, data }]);
+export function upsertStockChip(symbol: string, data: unknown, period: TChipDistributionPeriod = '1d') {
+  return upsertStockChips([{ symbol, period, data }]);
 }
 
-export async function getStockChipCacheRecord(symbol: string): Promise<StockChipCacheRecord | undefined> {
+export async function getStockChipCacheRecord(
+  symbol: string,
+  period: TChipDistributionPeriod = '1d',
+): Promise<StockChipCacheRecord | undefined> {
   await ensureReady();
   return read(async (connection) => {
     const reader = await connection.runAndReadAll(
-      `SELECT data_json, fetched_at::VARCHAR AS fetched_at FROM stock_chips WHERE symbol = $symbol`,
-      { symbol },
+      `SELECT data_json, fetched_at::VARCHAR AS fetched_at FROM stock_chip_distributions WHERE symbol = $symbol AND period = $period`,
+      { symbol, period },
     );
     const rows = reader.getRowObjectsJS() as Array<{ data_json: string; fetched_at: string }>;
     if (!rows.length) return undefined;
     return {
       symbol,
+      period,
       data: JSON.parse(rows[0].data_json),
       fetchedAt: String(rows[0].fetched_at),
     };
   });
 }
 
-export async function getStockChip(symbol: string): Promise<unknown | undefined> {
-  return (await getStockChipCacheRecord(symbol))?.data;
+export async function getStockChip(symbol: string, period: TChipDistributionPeriod = '1d'): Promise<unknown | undefined> {
+  return (await getStockChipCacheRecord(symbol, period))?.data;
 }
 
-export async function listStockChips(limit = 5000): Promise<StockChipCacheRecord[]> {
+export async function listStockChips(
+  limit = 5000,
+  period: TChipDistributionPeriod = '1d',
+): Promise<StockChipCacheRecord[]> {
   return read(async (connection) => {
     const safeLimit = Math.max(1, Math.min(10000, Math.floor(limit)));
-    const rows = await all<{ symbol: string; data_json: string; fetched_at: string }>(
+    const rows = await all<{ symbol: string; period: string; data_json: string; fetched_at: string }>(
       connection,
-      `SELECT symbol, data_json, fetched_at::VARCHAR AS fetched_at FROM stock_chips ORDER BY symbol LIMIT ${safeLimit}`,
+      `SELECT symbol, period, data_json, fetched_at::VARCHAR AS fetched_at FROM stock_chip_distributions WHERE period = $period ORDER BY symbol LIMIT ${safeLimit}`,
+      { period },
     );
     return rows.map((row) => ({
       symbol: String(row.symbol),
+      period: toChipDistributionPeriod(row.period),
       data: JSON.parse(row.data_json),
       fetchedAt: String(row.fetched_at),
     }));
@@ -1247,10 +1266,10 @@ export function countStockSnapshots(): Promise<number> {
   });
 }
 
-/** 统计本地 stock_chips 记录数。 */
+/** 统计本地筹码缓存记录数。 */
 export function countStockChips(): Promise<number> {
   return read(async (connection) => {
-    const row = (await all<Record<string, unknown>>(connection, 'SELECT count(*) AS count FROM stock_chips'))[0];
+    const row = (await all<Record<string, unknown>>(connection, 'SELECT count(*) AS count FROM stock_chip_distributions'))[0];
     return Number(row?.count ?? 0);
   });
 }
@@ -1264,12 +1283,13 @@ export function countFreshListedStockChips(maxAgeMs: number): Promise<number> {
         connection,
         `
         SELECT count(*) AS count
-        FROM stock_chips c
+        FROM stock_chip_distributions c
         INNER JOIN securities s
           ON s.symbol = c.symbol
           AND s.status = 'listed'
           AND s.security_type = 'stock'
         WHERE c.fetched_at >= CAST($minFetchedAt AS TIMESTAMP)
+          AND c.period = '1d'
         `,
         { minFetchedAt },
       )
@@ -1477,6 +1497,25 @@ async function withConnection<T>(work: (connection: DuckDBConnection) => Promise
 async function all<T>(connection: DuckDBConnection, sql: string, values?: Record<string, DuckDBValue>) {
   const reader = await connection.runAndReadAll(sql, values);
   return reader.getRowObjectsJS() as T[];
+}
+
+function toPersistedStockChipData(value: unknown): unknown {
+  if (!isRecord(value) || !Array.isArray(value.distributions)) return value;
+  const latest = value.latest ?? value.distributions.at(-1);
+  return {
+    ...value,
+    ...(latest === undefined ? {} : { latest }),
+    distributions: latest === undefined ? [] : [latest],
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object';
+}
+
+function toChipDistributionPeriod(value: string): TChipDistributionPeriod {
+  if (value === '15m' || value === '1h' || value === '1d' || value === '1w' || value === '1mo') return value;
+  return '1d';
 }
 
 function toDbValues(item: DailyBarRecord): Record<string, DuckDBValue> {

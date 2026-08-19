@@ -13,11 +13,11 @@ const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 const api: IChipDistributionWorkerApi = {
   async loadStockSdkChipDistribution(symbol: string) {
     const rows = await sdk.chips.cn(symbol, { days: 360, range: 120, includeHistogram: 'all' });
-    return chipRowsToResult(rows, 'stock-sdk');
+    return chipRowsToResult(rows, 'stock-sdk', undefined, '1d');
   },
 
-  async calculateChipDistribution({ klines, source, warnings }: ICalculateChipDistributionInput) {
-    return calculateChipDistribution(klines, source, warnings);
+  async calculateChipDistribution({ klines, source, period, warnings }: ICalculateChipDistributionInput) {
+    return calculateChipDistribution(klines, source, warnings, period);
   },
 };
 

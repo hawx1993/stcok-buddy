@@ -52,17 +52,37 @@ const localEvent: StockSurgeEvent = {
 
 function createChipResult(source: IChipDistributionResult['source']): IChipDistributionResult {
   return {
+    period: '1d',
     latest: {
       date: '2026-08-05',
+      period: '1d',
       concentration90: 0.18,
       concentration70: 0.12,
       profitRatio: 0.66,
       points: [{ price: 10, weight: 1 }],
     },
     distributions: [
-      { date: '2026-08-01', concentration90: 0.22, concentration70: 0.14, points: [{ price: 9.8, weight: 1 }] },
-      { date: '2026-08-04', concentration90: 0.19, concentration70: 0.13, points: [{ price: 10.2, weight: 1 }] },
-      { date: '2026-08-05', concentration90: 0.18, concentration70: 0.12, points: [{ price: 10, weight: 1 }] },
+      {
+        date: '2026-08-01',
+        period: '1d',
+        concentration90: 0.22,
+        concentration70: 0.14,
+        points: [{ price: 9.8, weight: 1 }],
+      },
+      {
+        date: '2026-08-04',
+        period: '1d',
+        concentration90: 0.19,
+        concentration70: 0.13,
+        points: [{ price: 10.2, weight: 1 }],
+      },
+      {
+        date: '2026-08-05',
+        period: '1d',
+        concentration90: 0.18,
+        concentration70: 0.12,
+        points: [{ price: 10, weight: 1 }],
+      },
     ],
     trend: [{ days: 5, concentration90: 0.18, concentration70: 0.12 }],
     source,

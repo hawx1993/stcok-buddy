@@ -521,7 +521,7 @@ const webFallbackApi: StocksenseApi = {
   async getKline(_symbol: string, _limit = 120, _period = '1d', _beforeTimestamp?: number) {
     return [];
   },
-  async getChipDistribution(_symbol: string) {
+  async getChipDistribution(_symbol: string, _period = '1d') {
     throw new Error('筹码分布仅在 Electron 桌面端可用。');
   },
   async getBatchQuotes(_codes: string[]) {

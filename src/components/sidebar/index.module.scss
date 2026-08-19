@@ -162,6 +162,10 @@
   top: 0;
   left: 0;
   width: 100%;
+  z-index: 0;
+}
+.conversation-virtual-row-menu-open {
+  z-index: 30;
 }
 .conversation-group + .conversation-group {
   margin-top: 14px;
@@ -327,11 +331,14 @@
   min-width: 128px;
   padding: 5px;
   border-radius: 10px;
-  background: var(--dropdown-bg);
+  background: linear-gradient(180deg, var(--glass-bg) 0%, var(--dropdown-bg) 100%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  backdrop-filter: blur(28px) saturate(160%);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.36);
+}
+:global(:root[data-theme='light']) .conversation-menu {
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
 }
 .conversation-action {
   width: 100%;
@@ -347,7 +354,10 @@
   text-align: left;
 }
 .conversation-action:hover {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+:global(:root[data-theme='light']) .conversation-action:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .conversation-action.danger {
   color: var(--danger);

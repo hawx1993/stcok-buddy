@@ -56,8 +56,10 @@ function row(
 
 function chipResult(concentration90: number, profitRatio: number, concentration70 = 0.08): IChipDistributionResult {
   return {
+    period: '1d',
     latest: {
       date: '2026-08-17',
+      period: '1d',
       concentration90,
       concentration70,
       profitRatio,
@@ -77,6 +79,7 @@ function chip(
 ): StockChipCacheRecord {
   return {
     symbol,
+    period: '1d',
     fetchedAt: '2026-08-17T09:30:00.000Z',
     data: chipResult(concentration90, profitRatio, concentration70),
   };
@@ -474,6 +477,7 @@ describe('条件选股真实数据服务', () => {
       const result = chipResult(0.13, 0.7);
       cachedChips.push({
         symbol,
+        period: '1d',
         fetchedAt: '2026-08-17T09:31:00.000Z',
         data: result,
       });

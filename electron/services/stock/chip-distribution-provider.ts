@@ -1,4 +1,11 @@
-import type { IChipDistributionResult, KlinePoint } from '../../../src/shared/types.js';
+import type {
+  ChipDistribution,
+  ChipPoint,
+  IChipDistributionResult,
+  KlinePoint,
+  TChipDistributionPeriod,
+  TChipDistributionSource,
+} from '../../../src/shared/types.js';
 import { getStockChipCacheRecord, upsertStockChip } from '../stock-db/market-data-store.js';
 import type { IBaiduKline } from './a-stock-data-runner.js';
 import { runAStockDataFn } from './a-stock-data-runner.js';
@@ -19,13 +26,32 @@ const chipDistributionCache = new Map<
 >();
 const CHIP_DISTRIBUTION_CACHE_TTL_MS = 5 * 60_000;
 const CHIP_DISTRIBUTION_MAX_AGE_MS = 5 * 24 * 60 * 60_000;
+const CHIP_KLINE_LIMIT_BY_PERIOD: Record<TChipDistributionPeriod, number> = {
+  '15m': 240,
+  '1h': 240,
+  '1d': 360,
+  '1w': 240,
+  '1mo': 120,
+};
+const CHIP_PERIOD_LABELS: Record<TChipDistributionPeriod, string> = {
+  '15m': '15分钟',
+  '1h': '1小时',
+  '1d': '日K',
+  '1w': '周K',
+  '1mo': '月K',
+};
 
-export async function getChipDistribution(symbolInput: string): Promise<IChipDistributionResult> {
+export async function getChipDistribution(
+  symbolInput: string,
+  periodInput: unknown = '1d',
+): Promise<IChipDistributionResult> {
   const symbol = normalizeASymbol(symbolInput);
-  const cached = chipDistributionCache.get(symbol);
+  const period = normalizeChipPeriod(periodInput);
+  const cacheKey = getChipCacheKey(symbol, period);
+  const cached = chipDistributionCache.get(cacheKey);
   const now = Date.now();
   if (
-    cached?.result &&
+    cached?.result?.period === period &&
     now - cached.updatedAt < CHIP_DISTRIBUTION_CACHE_TTL_MS &&
     (!cached.fetchedAt || isFreshChipCache(cached.fetchedAt, now))
   ) {
@@ -35,37 +61,42 @@ export async function getChipDistribution(symbolInput: string): Promise<IChipDis
 
   const localWarnings: string[] = [];
   try {
-    const cacheRecord = await getStockChipCacheRecord(symbol);
+    const cacheRecord = await getStockChipCacheRecord(symbol, period);
     if (cacheRecord && isFreshChipCache(cacheRecord.fetchedAt, now)) {
-      const localResult = asChipDistributionResult(cacheRecord.data);
-      chipDistributionCache.set(symbol, {
+      const localResult = asChipDistributionResult(cacheRecord.data, period);
+      chipDistributionCache.set(cacheKey, {
         result: localResult,
         updatedAt: Date.now(),
         fetchedAt: cacheRecord.fetchedAt,
       });
       return localResult;
     }
-    if (cacheRecord) localWarnings.push(`DuckDB 筹码缓存已超过 5 天（${cacheRecord.fetchedAt}）`);
+    if (cacheRecord) localWarnings.push(`DuckDB ${CHIP_PERIOD_LABELS[period]}筹码缓存已超过 5 天（${cacheRecord.fetchedAt}）`);
   } catch (error) {
-    localWarnings.push(`DuckDB 筹码缓存读取失败：${formatError(error)}`);
+    localWarnings.push(`DuckDB ${CHIP_PERIOD_LABELS[period]}筹码缓存读取失败：${formatError(error)}`);
   }
 
-  const promise = loadChipDistribution(symbol, localWarnings)
+  const promise = loadChipDistribution(symbol, period, localWarnings)
     .then(async (result) => {
-      const fetchedAt = new Date().toISOString();
+      const checkedResult = asChipDistributionResult(result, period);
+      let resultWithWarnings = checkedResult;
+      let fetchedAt: string | undefined = new Date().toISOString();
       try {
-        await upsertStockChip(symbol, result);
+        await upsertStockChip(symbol, checkedResult, period);
       } catch (error) {
-        throw new Error(`DuckDB 筹码缓存写入失败（${symbol}）：${formatError(error)}`);
+        const warning = `DuckDB ${CHIP_PERIOD_LABELS[period]}筹码缓存写入失败（${symbol}）：${formatError(error)}`;
+        console.warn(`[chip-distribution] ${warning}`);
+        resultWithWarnings = withChipWarnings(checkedResult, [warning]);
+        fetchedAt = undefined;
       }
-      chipDistributionCache.set(symbol, { result, updatedAt: Date.now(), fetchedAt });
-      return result;
+      chipDistributionCache.set(cacheKey, { result: resultWithWarnings, updatedAt: Date.now(), fetchedAt });
+      return resultWithWarnings;
     })
     .catch((error: unknown) => {
-      chipDistributionCache.delete(symbol);
+      chipDistributionCache.delete(cacheKey);
       throw error;
     });
-  chipDistributionCache.set(symbol, {
+  chipDistributionCache.set(cacheKey, {
     result: cached?.result,
     updatedAt: cached?.updatedAt ?? 0,
     fetchedAt: cached?.fetchedAt,
@@ -74,23 +105,63 @@ export async function getChipDistribution(symbolInput: string): Promise<IChipDis
   return promise;
 }
 
-async function loadChipDistribution(symbol: string, warnings: string[] = []): Promise<IChipDistributionResult> {
+async function loadChipDistribution(
+  symbol: string,
+  period: TChipDistributionPeriod,
+  warnings: string[] = [],
+): Promise<IChipDistributionResult> {
+  const dailyResult = await loadDailyChipDistribution(symbol, warnings);
+  return period === '1d' ? dailyResult : adaptDailyChipDistributionPeriod(dailyResult, period);
+}
+
+async function loadDailyChipDistribution(
+  symbol: string,
+  warnings: string[],
+): Promise<IChipDistributionResult> {
   try {
     const result = await loadStockSdkChipDistributionInWorker(symbol);
-    return withChipWarnings(result, warnings);
+    return withChipWarnings(asChipDistributionResult(result, '1d'), warnings);
   } catch (stockSdkError) {
     const stockSdkMessage = formatError(stockSdkError);
     const fallbackWarnings = [...warnings, `stock-sdk 筹码数据获取失败：${stockSdkMessage}`];
     try {
       const baidu = await runAStockDataFn<IBaiduKline>('baidu_kline_with_ma', { code: symbol });
-      const klines = parseAStockDataBaiduKline(baidu).slice(-360);
+      const klines = parseAStockDataBaiduKline(baidu).slice(-CHIP_KLINE_LIMIT_BY_PERIOD['1d']);
       if (!klines.length) throw new Error('a-stock-data 百度日 K 未返回有效数据');
-      return await calculateChipDistributionInWorker(klines, 'a-stock-data', fallbackWarnings);
+      const result = await calculateChipDistributionInWorker(klines, 'a-stock-data', fallbackWarnings, '1d');
+      return withChipWarnings(asChipDistributionResult(result, '1d'), fallbackWarnings);
     } catch (fallbackError) {
       const fallbackMessage = formatError(fallbackError);
       throw new Error(`筹码分布数据获取失败。stock-sdk：${stockSdkMessage}；a-stock-data 百度日 K：${fallbackMessage}`);
     }
   }
+}
+
+function adaptDailyChipDistributionPeriod(
+  result: IChipDistributionResult,
+  period: Exclude<TChipDistributionPeriod, '1d'>,
+): IChipDistributionResult {
+  const sourceLabel = result.source === 'a-stock-data' ? 'a-stock-data 百度' : 'stock-sdk';
+  return {
+    ...result,
+    period,
+    latest: result.latest ? { ...result.latest, period } : undefined,
+    distributions: result.distributions.map((distribution) => ({ ...distribution, period })),
+    warnings: [
+      ...(result.warnings ?? []),
+      `数据说明：${CHIP_PERIOD_LABELS[period]}视图展示${sourceLabel}日K筹码分布`,
+    ],
+  };
+}
+
+function getChipCacheKey(symbol: string, period: TChipDistributionPeriod): string {
+  return `${symbol}|${period}`;
+}
+
+function normalizeChipPeriod(value: unknown): TChipDistributionPeriod {
+  if (value === undefined || value === null || value === '') return '1d';
+  if (value === '15m' || value === '1h' || value === '1d' || value === '1w' || value === '1mo') return value;
+  throw new Error(`不支持的筹码分布周期：${String(value)}`);
 }
 
 function isFreshChipCache(fetchedAt: string, now: number): boolean {
@@ -100,18 +171,103 @@ function isFreshChipCache(fetchedAt: string, now: number): boolean {
   return age >= 0 && age < CHIP_DISTRIBUTION_MAX_AGE_MS;
 }
 
-function asChipDistributionResult(value: unknown): IChipDistributionResult {
-  if (!value || typeof value !== 'object') throw new Error('DuckDB 筹码缓存格式无效');
-  const result = value as Partial<IChipDistributionResult>;
-  if (!Array.isArray(result.distributions) || !Array.isArray(result.trend)) {
+function asChipDistributionResult(value: unknown, expectedPeriod: TChipDistributionPeriod): IChipDistributionResult {
+  if (!isRecord(value)) throw new Error('DuckDB 筹码缓存格式无效');
+  const resultPeriod = typeof value.period === 'string' ? value.period : expectedPeriod;
+  if (resultPeriod !== expectedPeriod) {
+    throw new Error(`筹码分布缓存周期不匹配：期望 ${expectedPeriod}，实际 ${resultPeriod}`);
+  }
+  if (!Array.isArray(value.distributions) || !Array.isArray(value.trend)) {
     throw new Error('DuckDB 筹码缓存缺少 distributions/trend');
   }
-  return result as IChipDistributionResult;
+  const distributions = value.distributions.flatMap((item) => {
+    const distribution = normalizeCachedDistribution(item, expectedPeriod);
+    return distribution ? [distribution] : [];
+  });
+  const latest = normalizeCachedDistribution(value.latest, expectedPeriod) ?? distributions.at(-1);
+  return {
+    period: expectedPeriod,
+    latest,
+    distributions,
+    trend: normalizeChipTrend(value.trend),
+    source: normalizeChipSource(value.source),
+    warnings: normalizeWarnings(value.warnings),
+  };
+}
+
+function normalizeCachedDistribution(
+  value: unknown,
+  expectedPeriod: TChipDistributionPeriod,
+): ChipDistribution | undefined {
+  if (!isRecord(value) || typeof value.date !== 'string') return undefined;
+  const period = typeof value.period === 'string' ? value.period : expectedPeriod;
+  if (period !== expectedPeriod) return undefined;
+  const points = normalizeChipPoints(value.points);
+  if (!points.length) return undefined;
+  return {
+    date: value.date,
+    ...(isFiniteNumber(value.timestamp) ? { timestamp: value.timestamp } : {}),
+    period,
+    profitRatio: optionalNumber(value.profitRatio),
+    avgCost: optionalNumber(value.avgCost),
+    cost90: optionalString(value.cost90),
+    cost70: optionalString(value.cost70),
+    concentration90: optionalNumber(value.concentration90),
+    concentration70: optionalNumber(value.concentration70),
+    points,
+  };
+}
+
+function normalizeChipPoints(value: unknown): ChipPoint[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item) || !isFiniteNumber(item.price) || !isFiniteNumber(item.weight)) return [];
+    return [{ price: item.price, weight: item.weight, profit: optionalNumber(item.profit) }];
+  });
+}
+
+function normalizeChipTrend(value: unknown[]): IChipDistributionResult['trend'] {
+  return value.flatMap((item) => {
+    if (!isRecord(item) || !isFiniteNumber(item.days)) return [];
+    return [
+      {
+        days: item.days,
+        concentration70: optionalNumber(item.concentration70),
+        concentration90: optionalNumber(item.concentration90),
+      },
+    ];
+  });
+}
+
+function normalizeChipSource(value: unknown): TChipDistributionSource {
+  return value === 'a-stock-data' ? 'a-stock-data' : 'stock-sdk';
+}
+
+function normalizeWarnings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const warnings = value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()));
+  return warnings.length ? warnings : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object';
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return isFiniteNumber(value) ? value : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
 function withChipWarnings(result: IChipDistributionResult, warnings: string[]): IChipDistributionResult {
   if (!warnings.length) return result;
-  return { ...result, warnings: [...warnings, ...(result.warnings ?? [])] };
+  return { ...result, warnings: [...new Set([...warnings, ...(result.warnings ?? [])])] };
 }
 
 function parseAStockDataBaiduKline(data: IBaiduKline | null): KlinePoint[] {

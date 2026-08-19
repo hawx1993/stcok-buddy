@@ -76,8 +76,10 @@ describe('AI 监控筹码信号', () => {
     vi.mocked(getAllMarketQuoteRows).mockResolvedValue([]);
     vi.mocked(getStockChip).mockResolvedValue(undefined);
     vi.mocked(getChipDistribution).mockResolvedValue({
+      period: '1d',
       latest: {
         date: '2026-08-03',
+        period: '1d',
         avgCost: 1490,
         profitRatio: 0.42,
         concentration90: 0.145,

@@ -915,11 +915,9 @@
     radial-gradient(ellipse at 86% 7%, color-mix(in srgb, var(--surface-hover) 14%, transparent), transparent 58%),
     linear-gradient(
       145deg,
-      color-mix(in srgb, var(--glass-bg) 82%, transparent),
-      color-mix(in srgb, var(--surface) 62%, transparent)
+      color-mix(in srgb, var(--surface) 96%, var(--bg)),
+      color-mix(in srgb, var(--surface) 92%, var(--card-bg))
     );
-  backdrop-filter: blur(38px) saturate(1.5);
-  -webkit-backdrop-filter: blur(38px) saturate(1.5);
 }
 .condition-screener-panel::before {
   content: '';
@@ -1730,14 +1728,19 @@
   background: var(--surface);
 }
 .qe-hints-status {
+  flex: 0 0 100%;
   color: var(--muted);
   font-size: 12px;
+  line-height: 1;
+  text-align: center;
 }
 .qe-hints {
   display: flex;
-  gap: 4px;
+  column-gap: 6px;
+  row-gap: 8px;
   margin-top: 12px;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: center;
   max-width: 500px;
 }

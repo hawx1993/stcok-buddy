@@ -105,12 +105,14 @@ function createChip(concentration90: number, concentrations90?: number[]): IChip
   const values = concentrations90 ?? [concentration90];
   const distributions = values.map((value, index) => ({
     date: `2026-07-${String(9 - values.length + index + 1).padStart(2, '0')}`,
+    period: '1d' as const,
     concentration90: value,
     concentration70: 0.08,
     profitRatio: 0.72,
     points: [{ price: 10, weight: 1 }],
   }));
   return {
+    period: '1d',
     latest: distributions.at(-1),
     distributions,
     trend: [],

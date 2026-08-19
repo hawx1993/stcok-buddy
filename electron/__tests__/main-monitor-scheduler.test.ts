@@ -40,8 +40,11 @@ const electronRuntime = vi.hoisted(() => {
       setWindowOpenHandler: ReturnType<typeof vi.fn>;
     };
     destroy: ReturnType<typeof vi.fn>;
+    focus: ReturnType<typeof vi.fn>;
+    isMinimized: ReturnType<typeof vi.fn>;
     loadFile: ReturnType<typeof vi.fn>;
     loadURL: ReturnType<typeof vi.fn>;
+    restore: ReturnType<typeof vi.fn>;
   }
 
   const createMockWindow = (): IMockWindow => ({
@@ -50,8 +53,11 @@ const electronRuntime = vi.hoisted(() => {
       setWindowOpenHandler: vi.fn(),
     },
     destroy: vi.fn(),
+    focus: vi.fn(),
+    isMinimized: vi.fn(() => false),
     loadFile: vi.fn(),
     loadURL: vi.fn(),
+    restore: vi.fn(),
   });
   const BrowserWindow = vi.fn(function MockBrowserWindow() {
     return createMockWindow();
@@ -65,6 +71,7 @@ const electronRuntime = vi.hoisted(() => {
       isPackaged: false,
       on: vi.fn(),
       quit: vi.fn(),
+      requestSingleInstanceLock: vi.fn(() => true),
       setAboutPanelOptions: vi.fn(),
       whenReady: vi.fn(() => Promise.resolve()),
     },
@@ -133,6 +140,7 @@ vi.mock('../services/update-service', () => ({
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  electronRuntime.app.requestSingleInstanceLock.mockReturnValue(true);
   Object.defineProperty(process, 'resourcesPath', { value: process.cwd(), configurable: true });
 });
 
@@ -141,10 +149,25 @@ describe('Electron 主进程启动', () => {
     await import('../main.js');
     await Promise.resolve();
 
+    expect(electronRuntime.app.requestSingleInstanceLock).toHaveBeenCalledTimes(1);
     expect(lifecycle.initializeQuoteStore).toHaveBeenCalledTimes(1);
     expect(lifecycle.syncSurgeHistoryIfNeeded).toHaveBeenCalledTimes(1);
     expect(monitorScheduler.startMonitorHistoryScheduler).toHaveBeenCalledTimes(1);
     expect(lifecycle.ensureSurgeHistoryCapture).toHaveBeenCalledTimes(1);
     expect(lifecycle.registerIpcHandlers).toHaveBeenCalledTimes(1);
+  });
+
+  it('已有实例运行时提前退出且不初始化后台服务', async () => {
+    electronRuntime.app.requestSingleInstanceLock.mockReturnValue(false);
+
+    await import('../main.js');
+    await Promise.resolve();
+
+    expect(electronRuntime.app.quit).toHaveBeenCalledTimes(1);
+    expect(lifecycle.initializeQuoteStore).not.toHaveBeenCalled();
+    expect(lifecycle.ensureMarketDataRuntime).not.toHaveBeenCalled();
+    expect(monitorScheduler.startMonitorHistoryScheduler).not.toHaveBeenCalled();
+    expect(lifecycle.ensureSurgeHistoryCapture).not.toHaveBeenCalled();
+    expect(lifecycle.registerIpcHandlers).not.toHaveBeenCalled();
   });
 });

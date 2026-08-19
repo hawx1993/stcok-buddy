@@ -1,8 +1,14 @@
-import type { IChipDistributionResult, KlinePoint, TChipDistributionSource } from '../../../src/shared/types.js';
+import type {
+  IChipDistributionResult,
+  KlinePoint,
+  TChipDistributionPeriod,
+  TChipDistributionSource,
+} from '../../../src/shared/types.js';
 
 export interface ICalculateChipDistributionInput {
   klines: KlinePoint[];
   source: TChipDistributionSource;
+  period: TChipDistributionPeriod;
   warnings?: string[];
 }
 

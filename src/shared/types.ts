@@ -553,9 +553,12 @@ export interface ChipPoint {
 }
 
 export type TChipDistributionSource = 'stock-sdk' | 'a-stock-data';
+export type TChipDistributionPeriod = '15m' | '1h' | '1d' | '1w' | '1mo';
 
 export interface ChipDistribution {
   date: string;
+  timestamp?: number;
+  period: TChipDistributionPeriod;
   profitRatio?: number;
   avgCost?: number;
   cost90?: string;
@@ -566,6 +569,7 @@ export interface ChipDistribution {
 }
 
 export interface IChipDistributionResult {
+  period: TChipDistributionPeriod;
   latest?: ChipDistribution;
   distributions: ChipDistribution[];
   trend: Array<{ days: number; concentration70?: number; concentration90?: number }>;
@@ -1113,7 +1117,7 @@ export interface StocksenseApi {
   getBoardDetail(symbol: string, forceRefresh?: boolean, boardName?: string): Promise<BoardDetail>;
   getBoardDashboard(range?: TBoardDashboardRange, forceRefresh?: boolean): Promise<IBoardDashboardSnapshot>;
   getKline(symbol: string, limit?: number, period?: string, beforeTimestamp?: number): Promise<KlinePoint[]>;
-  getChipDistribution(symbol: string): Promise<IChipDistributionResult>;
+  getChipDistribution(symbol: string, period?: TChipDistributionPeriod): Promise<IChipDistributionResult>;
   getBatchQuotes(codes: string[]): Promise<StockDetail[]>;
   getStockTimelines(codes: string[]): Promise<Record<string, IStockTimelineSnapshot>>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;

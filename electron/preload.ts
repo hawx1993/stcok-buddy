@@ -17,6 +17,7 @@ import type {
   MarketPageSnapshot,
   MarketTab,
   StocksenseApi,
+  TChipDistributionPeriod,
   TDragonTigerRange,
 } from '../src/shared/types.js';
 
@@ -69,7 +70,8 @@ const api: StocksenseApi = {
   getBoardDashboard: (range, forceRefresh) => ipcRenderer.invoke('board:getDashboard', range, forceRefresh),
   getKline: (symbol: string, limit?: number, period?: string, beforeTimestamp?: number) =>
     ipcRenderer.invoke('stock:getKline', symbol, limit, period, beforeTimestamp),
-  getChipDistribution: (symbol: string) => ipcRenderer.invoke('stock:getChipDistribution', symbol),
+  getChipDistribution: (symbol: string, period?: TChipDistributionPeriod) =>
+    ipcRenderer.invoke('stock:getChipDistribution', symbol, period),
   getBatchQuotes: (codes: string[]) => ipcRenderer.invoke('stock:getBatchQuotes', codes),
   getStockTimelines: (codes: string[]) => ipcRenderer.invoke('stock:getTimelines', codes),
   listMarketNews: (query?: string, page?: number, pageSize?: number) =>

@@ -1,3 +1,4 @@
+import { DuckDBInstance } from '@duckdb/node-api';
 import { rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -70,10 +71,6 @@ function createSecurity(overrides: Partial<SecurityRecord> = {}): SecurityRecord
   };
 }
 
-beforeEach(async () => {
-  await loadStore();
-});
-
 afterEach(async () => {
   if (store) {
     await store.closeMarketDataStore(1000);
@@ -87,6 +84,10 @@ afterEach(async () => {
 });
 
 describe('市场数据 DuckDB 存储', () => {
+  beforeEach(async () => {
+    await loadStore();
+  });
+
   it('可以重复初始化并按股票日期复权类型写入日 K', async () => {
     const currentStore = store;
     expect(currentStore).toBeDefined();
@@ -376,6 +377,7 @@ describe('市场数据 DuckDB 存储', () => {
       constituents: [{ code: '600519', name: '贵州茅台' }],
     };
     const chip = { latest: { date: '2026-07-09', profitRatio: 0.62 }, source: 'vitest' };
+    const weeklyChip = { latest: { date: '2026-07-06', profitRatio: 0.58 }, source: 'vitest' };
     const dashboardSnapshot: IBoardDashboardSnapshot = {
       range: 'today',
       tradeDate: '2026-07-09',
@@ -413,6 +415,7 @@ describe('市场数据 DuckDB 存储', () => {
       },
     ]);
     await currentStore.upsertStockChip('600519', chip);
+    await currentStore.upsertStockChip('600519', weeklyChip, '1w');
 
     expect(await currentStore.readDiscoverySnapshot('home')).toMatchObject({
       snapshot: { rows: [{ code: '600519' }] },
@@ -435,15 +438,26 @@ describe('市场数据 DuckDB 存储', () => {
       expect.objectContaining({ tradeDate: '2026-07-09', mainNetInflow: -300 }),
     ]);
     expect(await currentStore.getStockChip('600519')).toEqual(chip);
+    expect(await currentStore.getStockChip('600519', '1w')).toEqual(weeklyChip);
     expect(await currentStore.getStockChipCacheRecord('600519')).toMatchObject({
       symbol: '600519',
+      period: '1d',
       data: chip,
+      fetchedAt: expect.any(String),
+    });
+    expect(await currentStore.getStockChipCacheRecord('600519', '1w')).toMatchObject({
+      symbol: '600519',
+      period: '1w',
+      data: weeklyChip,
       fetchedAt: expect.any(String),
     });
     expect(await currentStore.getStockChip('000001')).toBeUndefined();
     expect(await currentStore.getStockChipCacheRecord('000001')).toBeUndefined();
     expect(await currentStore.listStockChips()).toEqual([
-      expect.objectContaining({ symbol: '600519', data: chip, fetchedAt: expect.any(String) }),
+      expect.objectContaining({ symbol: '600519', period: '1d', data: chip, fetchedAt: expect.any(String) }),
+    ]);
+    expect(await currentStore.listStockChips(5000, '1w')).toEqual([
+      expect.objectContaining({ symbol: '600519', period: '1w', data: weeklyChip, fetchedAt: expect.any(String) }),
     ]);
   });
 
@@ -465,6 +479,7 @@ describe('市场数据 DuckDB 存储', () => {
     ]);
     await currentStore.upsertStockChips([
       { symbol: '600519', data: freshChip, fetchedAt: freshFetchedAt },
+      { symbol: '600519', period: '1w', data: freshChip, fetchedAt: freshFetchedAt },
       { symbol: '000001', data: staleChip, fetchedAt: staleFetchedAt },
       { symbol: '300001', data: freshChip, fetchedAt: freshFetchedAt },
       { symbol: '600001', data: freshChip, fetchedAt: freshFetchedAt },
@@ -472,8 +487,9 @@ describe('市场数据 DuckDB 存储', () => {
     ]);
 
     expect(await currentStore.getStockChip('600519')).toEqual(freshChip);
+    expect(await currentStore.getStockChip('600519', '1w')).toEqual(freshChip);
     expect(await currentStore.getStockChip('000001')).toEqual(staleChip);
-    expect(await currentStore.countStockChips()).toBe(5);
+    expect(await currentStore.countStockChips()).toBe(6);
     expect(await currentStore.countFreshListedStockChips(maxAgeMs)).toBe(1);
 
     const updatedChip = { latest: { date: '2026-07-10', profitRatio: 0.7 }, source: 'vitest' };
@@ -481,6 +497,28 @@ describe('市场数据 DuckDB 存储', () => {
 
     expect(await currentStore.getStockChip('000001')).toEqual(updatedChip);
     expect(await currentStore.countFreshListedStockChips(maxAgeMs)).toBe(2);
+  });
+
+  it('仅持久化最新筹码分布，避免历史直方图放大 DuckDB WAL', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('market data store not loaded');
+
+    const earlierDistribution = { date: '2026-07-08', period: '1d', points: [{ price: 10, weight: 1 }] };
+    const latestDistribution = { date: '2026-07-09', period: '1d', points: [{ price: 11, weight: 1 }] };
+    const chip = {
+      period: '1d',
+      latest: latestDistribution,
+      distributions: [earlierDistribution, latestDistribution],
+      trend: [],
+      source: 'stock-sdk',
+    };
+
+    await currentStore.upsertStockChip('600519', chip);
+
+    expect(await currentStore.getStockChip('600519')).toEqual({
+      ...chip,
+      distributions: [latestDistribution],
+    });
   });
 
   it('可以记录同步任务、失败项和统计信息', async () => {
@@ -530,5 +568,66 @@ describe('市场数据 DuckDB 存储', () => {
 
     await currentStore.clearSyncFailure('job-1', '000001', 'daily');
     expect(await currentStore.listLatestSyncFailures()).toEqual([]);
+  });
+});
+
+describe('旧版筹码缓存兼容', () => {
+  it('不复制可能过大的旧缓存，并保留原表数据', async () => {
+    dbPath = path.join(os.tmpdir(), `stocksense-market-legacy-chip-vitest-${process.pid}-${Date.now()}-${Math.random()}.duckdb`);
+    process.env.STOCKSENSE_MARKET_DB_PATH = dbPath;
+    const legacyChip = { latest: { date: '2026-07-09', profitRatio: 0.62 }, source: 'vitest' };
+    const instance = await DuckDBInstance.create(dbPath);
+    const connection = await instance.connect();
+    try {
+      await connection.run(`
+        CREATE TABLE stock_chips (
+          symbol TEXT PRIMARY KEY,
+          data_json TEXT NOT NULL,
+          fetched_at TIMESTAMP NOT NULL
+        )
+      `);
+      const statement = await connection.prepare(`
+        INSERT INTO stock_chips (symbol, data_json, fetched_at)
+        VALUES ($symbol, $data, $fetchedAt)
+      `);
+      statement.bind({
+        symbol: '600519',
+        data: JSON.stringify(legacyChip),
+        fetchedAt: '2026-07-09T10:00:00.000Z',
+      });
+      await statement.run();
+    } finally {
+      connection.closeSync();
+      instance.closeSync();
+    }
+
+    vi.resetModules();
+    store = await import('../market-data-store.js');
+    await store.initializeMarketDataStore();
+
+    const currentStore = store;
+    expect(await currentStore.getStockChip('600519')).toBeUndefined();
+
+    const weeklyChip = { latest: { date: '2026-07-06', profitRatio: 0.58 }, source: 'vitest' };
+    await currentStore.upsertStockChip('600519', weeklyChip, '1w');
+    expect(await currentStore.getStockChip('600519', '1w')).toEqual(weeklyChip);
+    expect(await currentStore.listStockChips()).toEqual([]);
+
+    await currentStore.closeMarketDataStore();
+    await currentStore.closeMarketDataInstance();
+    const legacyInstance = await DuckDBInstance.create(dbPath);
+    const legacyConnection = await legacyInstance.connect();
+    try {
+      const columns = await legacyConnection.runAndReadAll('DESCRIBE stock_chips');
+      const rows = await legacyConnection.runAndReadAll(
+        'SELECT data_json FROM stock_chips WHERE symbol = $symbol',
+        { symbol: '600519' },
+      );
+      expect(columns.getRowObjectsJS().map((row) => String(row.column_name))).not.toContain('period');
+      expect(rows.getRowObjectsJS()).toEqual([{ data_json: JSON.stringify(legacyChip) }]);
+    } finally {
+      legacyConnection.closeSync();
+      legacyInstance.closeSync();
+    }
   });
 });

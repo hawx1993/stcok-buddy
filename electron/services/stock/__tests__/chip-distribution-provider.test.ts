@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { IChipDistributionResult } from '../../../../src/shared/types.js';
+import type { IChipDistributionResult, TChipDistributionPeriod } from '../../../../src/shared/types.js';
 
 const storeMocks = vi.hoisted(() => ({
   getStockChipCacheRecord: vi.fn(),
@@ -22,16 +22,19 @@ vi.mock('../symbols', () => ({
   normalizeASymbol: (symbol: string) => symbol,
 }));
 
-function chipResult(): IChipDistributionResult {
+function chipResult(period: TChipDistributionPeriod = '1d'): IChipDistributionResult {
+  const latest = {
+    date: '2026-08-17',
+    period,
+    concentration70: 0.08,
+    concentration90: 0.13,
+    profitRatio: 0.6,
+    points: [{ price: 10, weight: 1 }],
+  };
   return {
-    latest: {
-      date: '2026-08-17',
-      concentration70: 0.08,
-      concentration90: 0.13,
-      profitRatio: 0.6,
-      points: [{ price: 10, weight: 1 }],
-    },
-    distributions: [],
+    period,
+    latest,
+    distributions: [latest],
     trend: [],
     source: 'stock-sdk',
   };
@@ -67,15 +70,17 @@ describe('chip distribution provider persistence', () => {
     resolveWrite?.();
 
     await expect(resultPromise).resolves.toEqual(chipResult());
-    expect(storeMocks.upsertStockChip).toHaveBeenCalledWith('600519', chipResult());
+    expect(storeMocks.upsertStockChip).toHaveBeenCalledWith('600519', chipResult(), '1d');
   });
 
   it('reuses the persisted DuckDB record after the provider module is reloaded', async () => {
-    let persistedRecord: { symbol: string; data: IChipDistributionResult; fetchedAt: string } | undefined;
+    let persistedRecord: { symbol: string; period: TChipDistributionPeriod; data: IChipDistributionResult; fetchedAt: string } | undefined;
     storeMocks.getStockChipCacheRecord.mockImplementation(async () => persistedRecord);
-    storeMocks.upsertStockChip.mockImplementation(async (symbol: string, data: IChipDistributionResult) => {
-      persistedRecord = { symbol, data, fetchedAt: new Date().toISOString() };
-    });
+    storeMocks.upsertStockChip.mockImplementation(
+      async (symbol: string, data: IChipDistributionResult, period: TChipDistributionPeriod) => {
+        persistedRecord = { symbol, period, data, fetchedAt: new Date().toISOString() };
+      },
+    );
 
     const firstProvider = await import('../chip-distribution-provider.js');
     await firstProvider.getChipDistribution('600519');
@@ -90,14 +95,88 @@ describe('chip distribution provider persistence', () => {
     expect(storeMocks.upsertStockChip).toHaveBeenCalledTimes(1);
   });
 
-  it('surfaces a DuckDB write failure and retries instead of keeping a memory-only result', async () => {
-    storeMocks.upsertStockChip.mockRejectedValueOnce(new Error('disk full')).mockResolvedValueOnce(undefined);
+  it('keeps the real chip result visible when DuckDB cache write fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    storeMocks.upsertStockChip.mockRejectedValueOnce(new Error('disk full'));
     const { getChipDistribution } = await import('../chip-distribution-provider.js');
 
-    await expect(getChipDistribution('600519')).rejects.toThrow('DuckDB 筹码缓存写入失败（600519）：disk full');
-    await expect(getChipDistribution('600519')).resolves.toEqual(chipResult());
+    await expect(getChipDistribution('600519')).resolves.toEqual({
+      ...chipResult(),
+      warnings: ['DuckDB 日K筹码缓存写入失败（600519）：disk full'],
+    });
 
-    expect(workerMocks.loadStockSdkChipDistributionInWorker).toHaveBeenCalledTimes(2);
-    expect(storeMocks.upsertStockChip).toHaveBeenCalledTimes(2);
+    expect(workerMocks.loadStockSdkChipDistributionInWorker).toHaveBeenCalledTimes(1);
+    expect(storeMocks.upsertStockChip).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[chip-distribution] DuckDB 日K筹码缓存写入失败（600519）：disk full',
+    );
+    warnSpy.mockRestore();
+  });
+
+  it.each([
+    ['15m', '15分钟'],
+    ['1h', '1小时'],
+    ['1w', '周K'],
+    ['1mo', '月K'],
+  ] as const)('uses the daily chip data path for %s', async (period, label) => {
+    const { getChipDistribution } = await import('../chip-distribution-provider.js');
+
+    await expect(getChipDistribution('600519', period)).resolves.toEqual({
+      ...chipResult(period),
+      warnings: [`数据说明：${label}视图展示stock-sdk日K筹码分布`],
+    });
+
+    expect(storeMocks.getStockChipCacheRecord).toHaveBeenCalledWith('600519', period);
+    expect(storeMocks.upsertStockChip).toHaveBeenCalledWith(
+      '600519',
+      {
+        ...chipResult(period),
+        warnings: [`数据说明：${label}视图展示stock-sdk日K筹码分布`],
+      },
+      period,
+    );
+    expect(workerMocks.loadStockSdkChipDistributionInWorker).toHaveBeenCalledWith('600519');
+    expect(workerMocks.calculateChipDistributionInWorker).not.toHaveBeenCalled();
+  });
+
+  it('uses the daily a-stock-data fallback for non-daily views when stock-sdk chips fail', async () => {
+    workerMocks.loadStockSdkChipDistributionInWorker.mockRejectedValueOnce(new Error('daily chip endpoint unavailable'));
+    aStockDataMocks.runAStockDataFn.mockResolvedValueOnce({
+      keys: ['time', 'open', 'high', 'low', 'close', 'volume', 'turnoverratio'],
+      rows: ['2026-08-17,10,11,9,10.5,1000,1.2'],
+    });
+    workerMocks.calculateChipDistributionInWorker.mockResolvedValueOnce({
+      ...chipResult(),
+      source: 'a-stock-data',
+    });
+    const { getChipDistribution } = await import('../chip-distribution-provider.js');
+
+    await expect(getChipDistribution('600519', '1h')).resolves.toEqual({
+      ...chipResult('1h'),
+      source: 'a-stock-data',
+      warnings: [
+        'stock-sdk 筹码数据获取失败：daily chip endpoint unavailable',
+        '数据说明：1小时视图展示a-stock-data 百度日K筹码分布',
+      ],
+    });
+
+    expect(aStockDataMocks.runAStockDataFn).toHaveBeenCalledWith('baidu_kline_with_ma', { code: '600519' });
+    expect(workerMocks.calculateChipDistributionInWorker).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          time: '2026-08-17',
+          turnoverRate: 1.2,
+        }),
+      ],
+      'a-stock-data',
+      ['stock-sdk 筹码数据获取失败：daily chip endpoint unavailable'],
+      '1d',
+    );
+  });
+
+  it('rejects unsupported chip distribution periods', async () => {
+    const { getChipDistribution } = await import('../chip-distribution-provider.js');
+
+    await expect(getChipDistribution('600519', 'timeline')).rejects.toThrow('不支持的筹码分布周期：timeline');
   });
 });

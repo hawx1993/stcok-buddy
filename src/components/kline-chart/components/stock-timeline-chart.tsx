@@ -20,6 +20,7 @@ interface IStockTimelineChartProps {
 
 const VIEWBOX_WIDTH = 960;
 const VIEWBOX_HEIGHT = 360;
+const PADDING_X = 58;
 const PADDING_Y = 34;
 const TIMELINE_REFRESH_INTERVAL_MS = 15_000;
 
@@ -30,6 +31,7 @@ export function StockTimelineChart({ stock, height = '100%', className }: IStock
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [hoverIndex, setHoverIndex] = useState<number>();
+  const [hoverY, setHoverY] = useState<number>();
   const [chart, setChart] = useState<IStockTimelineChartPath>();
 
   useEffect(() => {
@@ -87,12 +89,16 @@ export function StockTimelineChart({ stock, height = '100%', className }: IStock
   const isUp = latest && snapshot?.preClose ? latest.price >= snapshot.preClose : true;
   const hoverPoint = hoverIndex === undefined ? latest : chart?.rows[hoverIndex];
   const hoverCoordinate = hoverIndex === undefined ? undefined : chart?.coordinates[hoverIndex];
+  const timelineScale = getTimelinePriceScale(chart?.rows, snapshot?.preClose);
+  const hoverCrosshair = resolveTimelineHoverCrosshair(hoverCoordinate, hoverY);
+  const hoverChangePercent = getTimelineYChangePercent(hoverCrosshair?.percentLabelY, snapshot?.preClose, timelineScale);
   const style: TTimelineStyle = { height, '--timeline-price-color': isUp ? marketColors.upColor : marketColors.downColor };
 
   const updateHover = (event: MouseEvent<SVGSVGElement>) => {
     if (!chart?.coordinates.length) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const mouseX = ((event.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
+    const mouseY = clampTimelineHoverY(((event.clientY - rect.top) / rect.height) * VIEWBOX_HEIGHT);
     let closestIndex = 0;
     let closestDistance = Number.POSITIVE_INFINITY;
     chart.coordinates.forEach((point, index) => {
@@ -103,6 +109,12 @@ export function StockTimelineChart({ stock, height = '100%', className }: IStock
       }
     });
     setHoverIndex(closestIndex);
+    setHoverY(mouseY);
+  };
+
+  const clearHover = () => {
+    setHoverIndex(undefined);
+    setHoverY(undefined);
   };
 
   return (
@@ -114,7 +126,7 @@ export function StockTimelineChart({ stock, height = '100%', className }: IStock
             viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
             preserveAspectRatio='xMidYMid meet'
             onMouseMove={updateHover}
-            onMouseLeave={() => setHoverIndex(undefined)}
+            onMouseLeave={clearHover}
           >
             <path d={chart.priceArea} className={styles['timeline-price-area']} />
             {chart.yLabels.map((label) => (
@@ -130,11 +142,24 @@ export function StockTimelineChart({ stock, height = '100%', className }: IStock
             {chart.preCloseLine ? <path d={chart.preCloseLine} className={styles['timeline-preclose-line']} /> : null}
             {chart.averageLine ? <path d={chart.averageLine} className={styles['timeline-average-line']} /> : null}
             <path d={chart.priceLine} className={styles['timeline-price-line']} />
-            {hoverCoordinate ? (
-              <path
-                d={`M ${hoverCoordinate.x},${PADDING_Y} L ${hoverCoordinate.x},${VIEWBOX_HEIGHT - PADDING_Y}`}
-                className={styles['timeline-crosshair-line']}
-              />
+            {hoverCrosshair ? (
+              <>
+                <path d={hoverCrosshair.verticalPath} className={styles['timeline-crosshair-line']} />
+                <path d={hoverCrosshair.horizontalPath} className={styles['timeline-crosshair-line']} />
+                {hoverChangePercent !== undefined ? (
+                  <text
+                    x={hoverCrosshair.percentLabelX}
+                    y={hoverCrosshair.percentLabelY}
+                    className={cx(
+                      styles['timeline-y-label'],
+                      styles['timeline-hover-percent'],
+                      hoverChangePercent >= 0 ? styles.up : styles.down,
+                    )}
+                  >
+                    {formatSigned(hoverChangePercent)}%
+                  </text>
+                ) : null}
+              </>
             ) : null}
           </svg>
           {hoverPoint ? <TimelineTooltip point={hoverPoint} preClose={snapshot?.preClose} /> : null}
@@ -147,8 +172,7 @@ export function StockTimelineChart({ stock, height = '100%', className }: IStock
 }
 
 function TimelineTooltip({ point, preClose }: { point: IStockTimelinePoint; preClose?: number }) {
-  const change = preClose ? point.price - preClose : undefined;
-  const changePercent = change !== undefined && preClose ? (change / preClose) * 100 : undefined;
+  const changePercent = getTimelineChangePercent(point, preClose);
   return (
     <div className={styles['timeline-tooltip']}>
       <span>{point.time || '--'}</span>
@@ -157,6 +181,52 @@ function TimelineTooltip({ point, preClose }: { point: IStockTimelinePoint; preC
       {changePercent !== undefined ? <em className={changePercent >= 0 ? styles.up : styles.down}>{formatSigned(changePercent)}%</em> : null}
     </div>
   );
+}
+
+export function getTimelineChangePercent(point: Pick<IStockTimelinePoint, 'price'> | undefined, preClose: number | undefined) {
+  if (!point || preClose === undefined || preClose <= 0 || !Number.isFinite(preClose) || !Number.isFinite(point.price)) return undefined;
+  return ((point.price - preClose) / preClose) * 100;
+}
+
+export function getTimelinePriceScale(
+  rows: ReadonlyArray<Pick<IStockTimelinePoint, 'price' | 'avgPrice'>> | undefined,
+  preClose: number | undefined,
+) {
+  const priceValues = (rows ?? []).map((point) => point.price).filter(Number.isFinite);
+  const averageValues = (rows ?? []).map((point) => point.avgPrice).filter((value): value is number => Number.isFinite(value));
+  const preCloseValues = preClose === undefined || !Number.isFinite(preClose) ? [] : [preClose];
+  const values = [...priceValues, ...averageValues, ...preCloseValues];
+  if (!values.length) return undefined;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return { min, max, range: max - min || 1 };
+}
+
+export function getTimelineYChangePercent(
+  y: number | undefined,
+  preClose: number | undefined,
+  scale: ReturnType<typeof getTimelinePriceScale>,
+) {
+  if (y === undefined || !scale || preClose === undefined || preClose <= 0 || !Number.isFinite(preClose) || !Number.isFinite(y)) return undefined;
+  const chartHeight = VIEWBOX_HEIGHT - PADDING_Y * 2;
+  const price = scale.max - ((clampTimelineHoverY(y) - PADDING_Y) / chartHeight) * scale.range;
+  return ((price - preClose) / preClose) * 100;
+}
+
+export function resolveTimelineHoverCrosshair(coordinate: { x: number; y: number } | undefined, horizontalY: number | undefined) {
+  if (!coordinate || horizontalY === undefined) return undefined;
+  const y = clampTimelineHoverY(horizontalY);
+  return {
+    verticalPath: `M ${coordinate.x},${PADDING_Y} L ${coordinate.x},${VIEWBOX_HEIGHT - PADDING_Y}`,
+    horizontalPath: `M ${PADDING_X},${y} L ${VIEWBOX_WIDTH - PADDING_X},${y}`,
+    percentLabelX: VIEWBOX_WIDTH - 8,
+    percentLabelY: y,
+  };
+}
+
+export function clampTimelineHoverY(y: number) {
+  if (!Number.isFinite(y)) return PADDING_Y;
+  return Math.min(VIEWBOX_HEIGHT - PADDING_Y, Math.max(PADDING_Y, y));
 }
 
 function formatPrice(value: number) {

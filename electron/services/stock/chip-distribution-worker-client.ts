@@ -2,7 +2,12 @@ import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { wrap, type Remote } from 'comlink';
 import { nodeEndpoint } from './comlink-node-endpoint.js';
-import type { IChipDistributionResult, KlinePoint, TChipDistributionSource } from '../../../src/shared/types.js';
+import type {
+  IChipDistributionResult,
+  KlinePoint,
+  TChipDistributionPeriod,
+  TChipDistributionSource,
+} from '../../../src/shared/types.js';
 import type { IChipDistributionWorkerApi } from './chip-distribution-worker-types.js';
 
 let worker: Worker | undefined;
@@ -28,12 +33,14 @@ export function calculateChipDistributionInWorker(
   klines: KlinePoint[],
   source: TChipDistributionSource,
   warnings?: string[],
+  period: TChipDistributionPeriod = '1d',
 ): Promise<IChipDistributionResult> {
-  return getChipDistributionWorker().calculateChipDistribution({ klines, source, warnings });
+  return getChipDistributionWorker().calculateChipDistribution({ klines, source, period, warnings });
 }
 
-export function disposeChipDistributionWorker(): void {
+export async function disposeChipDistributionWorker(): Promise<void> {
+  const currentWorker = worker;
   api = undefined;
-  worker?.terminate();
   worker = undefined;
+  if (currentWorker) await currentWorker.terminate();
 }

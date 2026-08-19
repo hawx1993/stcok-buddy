@@ -15,6 +15,7 @@ import type {
   MarketIndexPeriod,
   MarketNewsItem,
   MarketTab,
+  TChipDistributionPeriod,
   TDragonTigerRange,
 } from '../src/shared/types.js';
 import {
@@ -221,7 +222,9 @@ export function registerIpcHandlers() {
     (_event, symbol: string, limit?: number, period?: string, beforeTimestamp?: number) =>
       getKline(symbol, limit, period, beforeTimestamp),
   );
-  ipcMain.handle('stock:getChipDistribution', (_event, symbol: string) => getChipDistribution(symbol));
+  ipcMain.handle('stock:getChipDistribution', (_event, symbol: string, period?: TChipDistributionPeriod) =>
+    getChipDistribution(symbol, period),
+  );
   ipcMain.handle('stock:getBatchQuotes', (_event, codes: string[]) => getBatchQuotes(codes));
   ipcMain.handle('stock:getTimelines', (_event, codes: string[]) => getStockTimelines(codes));
   ipcMain.handle('market:getPageSnapshot', async (_event, tab: MarketTab, period?: MarketIndexPeriod) => {

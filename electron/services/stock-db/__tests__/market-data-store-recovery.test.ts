@@ -6,22 +6,6 @@ import type { DailyBarRecord } from '../../market-data/types.js';
 type TBoundValue = string | number | boolean | null;
 type TBoundValues = Record<string, TBoundValue>;
 
-interface IMockDuckDbState {
-  createCalls: number;
-  fromCacheCalls: number;
-  instanceCloseCalls: number;
-  connectionCloseCalls: number;
-  statementRunCalls: number;
-  failNextStatementRun: boolean;
-  activeReaders: number;
-  maxActiveReaders: number;
-  blockReads: boolean;
-  readResolvers: Array<() => void>;
-  runSql: string[];
-  preparedSql: string[];
-  boundRows: TBoundValues[];
-}
-
 const duckDbMock = vi.hoisted(() => {
   type THoistedBoundValue = string | number | boolean | null;
   type THoistedBoundValues = Record<string, THoistedBoundValue>;
@@ -87,7 +71,10 @@ const duckDbMock = vi.hoisted(() => {
       return new MockStatement();
     }
 
-    async runAndReadAll() {
+    async runAndReadAll(sql?: string) {
+      if (sql === 'DESCRIBE stock_chips') {
+        return { getRowObjectsJS: () => [{ column_name: 'period' }] };
+      }
       state.activeReaders += 1;
       state.maxActiveReaders = Math.max(state.maxActiveReaders, state.activeReaders);
       if (state.blockReads) await new Promise<void>((resolve) => state.readResolvers.push(resolve));
