@@ -380,43 +380,20 @@ function browserHotStockLoaders(): IHotStockHintLoaders {
       return items;
     },
     listPreviousSurge: async (date) => {
-      const [ztPool, sector] = await Promise.allSettled([
-        sdk.marketEvent.ztPool('zt', date),
-        sdk.fundFlow.sectorRank({ indicator: 'today' }),
-      ]);
-      const items: HotFocusItem[] = [];
-      if (ztPool.status === 'fulfilled') {
-        for (const item of ztPool.value) {
-          if (item.code && item.name) {
-            items.push({
-              id: `browser-prev-zt-${date}-${item.code}`,
-              title: `${item.name} ${item.code}`,
-              code: item.code,
-              name: item.name,
-              description: item.ztStatistics ?? '涨停',
-              tag: '封涨停板',
-              type: 'surge',
-            });
-          }
-        }
-      }
-      if (sector.status === 'fulfilled' && sector.value.length) {
-        for (const item of sector.value.slice(0, 10)) {
-          if (item.topStockCode && item.topStockName && !items.some((existing) => existing.code === item.topStockCode)) {
-            items.push({
-              id: `browser-prev-sector-${date}-${item.code}-${item.topStockCode}`,
-              title: `${item.topStockName} ${item.topStockCode}`,
-              code: item.topStockCode,
-              name: item.topStockName,
-              description: `领涨板块：${item.name}`,
-              tag: item.name,
-              type: 'surge',
-            });
-          }
-        }
-      }
-      return items;
+      const ztPool = await sdk.marketEvent.ztPool('zt', date);
+      return ztPool
+        .filter((item) => item.code && item.name)
+        .map((item): HotFocusItem => ({
+          id: `browser-prev-zt-${date}-${item.code}`,
+          title: `${item.name} ${item.code}`,
+          code: item.code,
+          name: item.name,
+          description: item.ztStatistics ?? '涨停',
+          tag: '封涨停板',
+          type: 'surge',
+        }));
     },
+    listLimitUpPool: (date) => sdk.marketEvent.ztPool('zt', date),
   };
 }
 

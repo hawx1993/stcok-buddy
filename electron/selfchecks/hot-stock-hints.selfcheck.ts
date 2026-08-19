@@ -52,6 +52,9 @@ const previousTradeSource = await listHotStockHintSource(new Date('2026-07-25T01
     assert.equal(date, '2026-07-24');
     return previousTradeItems;
   },
+  async listLimitUpPool() {
+    throw new Error('已有历史热点时不应获取涨停池');
+  },
 });
 assert.equal(previousTradeSource.isPreviousTradeDay, true);
 assert.equal(previousTradeSource.tradeDate, '2026-07-24');
@@ -61,8 +64,17 @@ const emptyPreviousTradeSource = await listHotStockHintSource(new Date('2026-07-
   async isTradingDay() {
     return false;
   },
-  async previousTradingDay() {
-    return '2026-07-24';
+  async previousTradingDay(date) {
+    const dates: Record<string, string> = {
+      '2026-07-25': '2026-07-24',
+      '2026-07-24': '2026-07-23',
+      '2026-07-23': '2026-07-22',
+      '2026-07-22': '2026-07-21',
+      '2026-07-21': '2026-07-20',
+    };
+    const previousDate = dates[date];
+    if (!previousDate) throw new Error(`缺少 ${date} 的上一交易日`);
+    return previousDate;
   },
   async listCurrentHotFocus() {
     throw new Error('非交易日不应获取当日热点');
@@ -70,26 +82,62 @@ const emptyPreviousTradeSource = await listHotStockHintSource(new Date('2026-07-
   async listPreviousSurge() {
     return [];
   },
+  async listLimitUpPool() {
+    return [];
+  },
 });
 assert.equal(emptyPreviousTradeSource.items.length, 0);
 
-await assert.rejects(
-  () =>
-    listHotStockHintSource(new Date('2026-07-25T01:30:00.000Z'), {
-      async isTradingDay() {
-        return false;
-      },
-      async previousTradingDay() {
-        return '2026-07-24';
-      },
-      async listCurrentHotFocus() {
-        throw new Error('非交易日不应获取当日热点');
-      },
-      async listPreviousSurge() {
-        throw new Error('历史热点数据源不可用');
-      },
-    }),
-  /历史热点数据源不可用/,
-);
+const recoveredSource = await listHotStockHintSource(new Date('2026-07-25T01:30:00.000Z'), {
+  async isTradingDay() {
+    return false;
+  },
+  async previousTradingDay(date) {
+    const dates: Record<string, string> = {
+      '2026-07-25': '2026-07-24',
+      '2026-07-24': '2026-07-23',
+      '2026-07-23': '2026-07-22',
+      '2026-07-22': '2026-07-21',
+      '2026-07-21': '2026-07-20',
+    };
+    const previousDate = dates[date];
+    if (!previousDate) throw new Error(`缺少 ${date} 的上一交易日`);
+    return previousDate;
+  },
+  async listCurrentHotFocus() {
+    throw new Error('非交易日不应获取当日热点');
+  },
+  async listPreviousSurge() {
+    throw new Error('历史热点数据源不可用');
+  },
+  async listLimitUpPool(date) {
+    if (date !== '2026-07-24') return [];
+    return [{ code: '600519', name: '贵州茅台', totalMarketValue: 1_000_000_000_000 }];
+  },
+});
+assert.equal(recoveredSource.items.length, 1);
+assert.equal(recoveredSource.items[0]?.code, '600519');
+
+const calendarRecoveredSource = await listHotStockHintSource(new Date('2026-07-24T01:30:00.000Z'), {
+  async isTradingDay() {
+    throw new Error('交易日历不可用');
+  },
+  async previousTradingDay() {
+    throw new Error('上一交易日不可用');
+  },
+  async listCurrentHotFocus() {
+    throw new Error('当日热点不可用');
+  },
+  async listPreviousSurge() {
+    throw new Error('历史热点不可用');
+  },
+  async listLimitUpPool(date) {
+    assert.equal(date, '2026-07-24');
+    return [{ code: '600313', name: '农发种业', totalMarketValue: 8_000_000_000, continuousBoardCount: 3 }];
+  },
+});
+assert.equal(calendarRecoveredSource.tradeDate, '2026-07-24');
+assert.equal(calendarRecoveredSource.isPreviousTradeDay, false);
+assert.equal(calendarRecoveredSource.items[0]?.code, '600313');
 
 console.log('hot-stock-hints selfcheck passed');

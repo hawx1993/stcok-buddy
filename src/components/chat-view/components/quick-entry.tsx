@@ -353,7 +353,7 @@ function HintList({
   if (loading) {
     return (
       <div className={styles['qe-hints']}>
-        <span className={styles['qe-hints-status']}>正在加载今日热点…</span>
+        <span className={styles['qe-hints-status']}>正在加载热点…</span>
       </div>
     );
   }
@@ -367,16 +367,14 @@ function HintList({
   if (!hints.length) {
     return (
       <div className={styles['qe-hints']}>
-        <span className={styles['qe-hints-status']}>
-          {isPreviousTradeDay ? `上一交易日暂无热点数据（${tradeDate ?? '--'}）` : '今日暂无热点数据'}
-        </span>
+        <span className={styles['qe-hints-status']}>近期暂无可用热点数据</span>
       </div>
     );
   }
   return (
     <div className={styles['qe-hints']}>
       <span className={styles['qe-hints-status']}>
-        {isPreviousTradeDay && tradeDate ? `上一交易日热点（${tradeDate}）` : '今日热点'}
+        {isPreviousTradeDay ? (tradeDate ? `历史热点（${tradeDate}）` : '近期热点') : '今日热点'}
       </span>
       {hints.map((hint) => (
         <button key={hint.code} className={styles['qe-hint']} onClick={() => onSelect(hint)} type='button'>

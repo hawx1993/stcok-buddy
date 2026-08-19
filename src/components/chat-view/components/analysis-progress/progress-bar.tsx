@@ -1,22 +1,15 @@
-import { BarChart3 } from 'lucide-react';
 import type { IStep } from './types';
 import cx from '../../../../shared/cx';
 import styles from './index.module.scss';
 import { normalizeProgressLabel } from './presentation';
 import { STEP_STATUS_ICONS } from './status-icons';
 
-export function ProgressBar({ stockName, steps }: { stockName?: string; steps: IStep[] }) {
+export function ProgressBar({ steps }: { steps: IStep[] }) {
   const terminal = steps.filter((s) => s.status === 'completed' || s.status === 'skipped' || s.status === 'error').length;
   const percent = steps.length ? Math.round((terminal / steps.length) * 100) : 0;
 
   return (
     <div className={styles['progress-bar']}>
-      {stockName ? (
-        <div className={styles['stock-label']}>
-          <BarChart3 aria-hidden='true' size={14} strokeWidth={1.8} />
-          <span>正在分析 {stockName}</span>
-        </div>
-      ) : null}
       <div className={styles['bar-row']}>
         <div className={styles['bar-track']}>
           <div className={styles['bar-fill']} style={{ width: `${percent}%` }} />

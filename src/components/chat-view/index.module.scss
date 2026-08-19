@@ -1016,7 +1016,7 @@
 .condition-screener-grid {
   display: grid;
   gap: 8px;
-  max-height: min(412px, calc(100vh - 204px));
+  max-height: min(292px, calc(100vh - 204px));
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -1573,9 +1573,6 @@
   .condition-screener-parameter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .qe-entry-controls .composer-shell .condition-screener-panel {
-    width: min(680px, calc(100vw - 40px));
-  }
 }
 @media (max-width: 640px) {
   .chat-input {
@@ -1605,13 +1602,6 @@
     padding: 12px;
     border-radius: 18px;
   }
-  .qe-entry-controls .composer-shell .condition-screener-panel {
-    right: 0;
-    bottom: calc(100% - 1px);
-    left: 0;
-    width: 100%;
-    transform: none;
-  }
   .condition-screener-parameter-grid,
   .condition-screener-grid {
     grid-template-columns: 1fr;
@@ -1634,9 +1624,10 @@
   user-select: text;
 }
 .qe-entry-controls {
+  --qe-composer-edge-offset: 15px;
   position: relative;
   width: 100%;
-  max-width: 560px;
+  max-width: 660px;
 }
 .qe-entry-controls .composer-stack {
   width: 100%;
@@ -1649,13 +1640,6 @@
 }
 .qe-entry-controls .condition-screener-picker {
   margin-bottom: 8px;
-}
-.qe-entry-controls .composer-shell .condition-screener-panel {
-  right: auto;
-  bottom: calc(100% - 1px);
-  left: 50%;
-  width: min(920px, calc(100vw - 48px));
-  transform: translateX(-50%);
 }
 .qe-entry-controls .slash-menu {
   right: 0;
@@ -1691,9 +1675,18 @@
   backdrop-filter: blur(28px) saturate(155%);
   -webkit-backdrop-filter: blur(28px) saturate(155%);
 }
+.qe-entry-controls .qe-suggestions {
+  right: calc(0px - var(--qe-composer-edge-offset));
+  left: calc(0px - var(--qe-composer-edge-offset));
+}
 .qe-suggestions-above {
   top: auto;
   bottom: calc(100% + 8px);
+}
+@media (max-width: 640px) {
+  .qe-entry-controls {
+    --qe-composer-edge-offset: 13px;
+  }
 }
 .qe-suggestions::-webkit-scrollbar {
   width: 6px;

@@ -67,5 +67,6 @@ describe('QuickEntry 鲸鱼动画', () => {
     expect(markup).toContain(
       `style="width:${QUICK_ENTRY_WHALE_SIZE.width}px;height:${QUICK_ENTRY_WHALE_SIZE.height}px"`,
     );
+    expect(markup).toContain('近期暂无可用热点数据');
   });
 });

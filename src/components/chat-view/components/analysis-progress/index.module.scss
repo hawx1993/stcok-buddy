@@ -115,16 +115,6 @@
   margin-bottom: 6px;
 }
 
-.stock-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg);
-  margin-bottom: 6px;
-}
-
 .bar-row {
   display: flex;
   align-items: center;
@@ -261,8 +251,10 @@
 }
 
 .agent-dot {
+  box-sizing: border-box;
   width: 10px;
   height: 10px;
+  border: 2px solid transparent;
   border-radius: 50%;
   flex-shrink: 0;
   transition:
@@ -271,22 +263,26 @@
     box-shadow 0.2s;
 
   &.completed {
-    background: var(--muted);
+    background: var(--success);
+    border-color: var(--success);
   }
   &.running {
-    background: var(--accent);
+    background: transparent;
+    border-color: var(--accent);
   }
   &.error {
-    background: var(--danger);
+    background: transparent;
+    border-color: var(--danger);
   }
   &.pending {
-    background: var(--muted);
+    background: transparent;
+    border-color: var(--muted);
   }
 
-  // Expandable: ring style — clearly signals "click me"
+  // Expandable: keep the completed fill and add a subtle interaction halo
   &.expandable {
-    background: transparent;
-    border: 2px solid var(--success);
+    background: var(--success);
+    border-color: var(--success);
     box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.15);
 
     &:hover {

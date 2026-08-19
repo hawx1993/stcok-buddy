@@ -97,7 +97,7 @@ export function AnalysisProgress({ events, toolCalls }: { events: AgentRunEvent[
             </div>
           ) : (
             <>
-              <ProgressBar stockName={stockName} steps={steps} />
+              <ProgressBar steps={steps} />
               <AgentCollaboration agents={agentStatuses} intermediateResults={intermediateResults} />
               <DataSources sources={dataSources} />
               <TimelineView entries={timeline} />
