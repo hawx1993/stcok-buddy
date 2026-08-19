@@ -2,7 +2,7 @@ import { Dropdown, message as antdMessage } from 'antd';
 import type { MenuProps } from 'antd';
 import { BarChart3, CloudDownload, Compass, Database, FileText, HelpCircle, Info, RefreshCw, Settings } from 'lucide-react';
 import { useCallback, useDeferredValue, useEffect, type ReactNode, useMemo, useRef, useState } from 'react';
-import { useAppDataStore, useAppUiStore } from '../../store/app-store';
+import { useAppDataStore, useAppUiStore, type MainView } from '../../store/app-store';
 import { usePanelResize } from '../../hooks/use-panel-resize';
 import { ThemeToggle } from '../theme-toggle';
 import { createChatConversation } from './components/create-chat-conversation';
@@ -47,6 +47,18 @@ function isMacPlatform() {
   return typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 }
 
+export function getVisibleActiveConversationId(mainView: MainView, activeConversationId?: string) {
+  return mainView === 'chat' ? activeConversationId : undefined;
+}
+
+export function shouldSkipConversationSelection(
+  mainView: MainView,
+  activeConversationId: string | undefined,
+  conversationId: string,
+) {
+  return mainView === 'chat' && activeConversationId === conversationId;
+}
+
 export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
   const searchRef = useRef<HTMLInputElement>(null);
   const [conversationMenuId, setConversationMenuId] = useState<string>();
@@ -76,10 +88,10 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
     (item: ConversationSummary) => {
       trackButtonClick('select_conversation');
       setConversationMenuId(undefined);
-      if (activeConversationId === item.id) return;
+      if (shouldSkipConversationSelection(mainView, activeConversationId, item.id)) return;
       setActiveConversation(item.id);
     },
-    [activeConversationId, setActiveConversation],
+    [activeConversationId, mainView, setActiveConversation],
   );
 
   const deleteConversation = useCallback(
@@ -279,7 +291,7 @@ export function Sidebar({ searchOpen }: { searchOpen: boolean }) {
       <ConversationList
         conversationGroups={conversationGroups}
         emptyText={query ? '无匹配对话' : '暂无会话'}
-        activeConversationId={activeConversationId}
+        activeConversationId={getVisibleActiveConversationId(mainView, activeConversationId)}
         respondingConversationId={respondingConversationId}
         conversationMenuId={conversationMenuId}
         editingConversationId={editingConversationId}

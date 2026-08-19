@@ -28,6 +28,14 @@ export async function getMarketDataSyncStatus(): Promise<MarketDataSyncStatus> {
   if (currentSync) return memoryStatus;
   const latest = await getLatestSyncJob();
   const latestLocalTradeDate = await getLatestTradeDate();
+  if (latest?.status === 'running') {
+    return {
+      ...idleStatus(),
+      failedSymbols: latest.failedSymbols,
+      latestLocalTradeDate,
+      message: '上次同步未完成，请点击立即同步继续',
+    };
+  }
   return latest
     ? { ...latest, latestLocalTradeDate, message: latest.errorMessage ?? latest.message }
     : { ...idleStatus(), latestLocalTradeDate };

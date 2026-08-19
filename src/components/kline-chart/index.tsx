@@ -421,7 +421,7 @@ export function StockKlineChart({
 
   if (isTimeline) {
     return (
-      <div className={cx(styles.wrap, className)} style={{ height }}>
+      <div className={cx(styles.wrap, styles['timeline-wrap'], className)} style={{ height }}>
         <StockTimelineChart stock={stock} height='100%' />
         {showSwitcher ? (
           <div className={styles.timeframes}>

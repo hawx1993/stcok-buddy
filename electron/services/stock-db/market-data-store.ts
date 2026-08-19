@@ -1,6 +1,6 @@
 import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from '@duckdb/node-api';
-import { existsSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { isMainThread } from 'node:worker_threads';
 import { probeMarketDatabaseCorruption } from './market-data-integrity.js';
@@ -1370,9 +1370,9 @@ export async function resetMarketDataStore() {
 }
 
 function ensureReady() {
-  ready ??= ensureDatabaseIntegrity().then(() =>
-    withConnection((connection) => connection.run(schemaSql).then(() => undefined)),
-  );
+  ready ??= ensureDatabaseIntegrity()
+    .then(() => withConnection((connection) => connection.run(schemaSql).then(() => undefined)))
+    .then(() => cleanupLegacyStockChipsTable());
   return ready;
 }
 
@@ -1409,6 +1409,120 @@ async function ensureDatabaseIntegrity() {
     }
   })();
   return integrityReady;
+}
+
+const COMPACT_FREE_BLOCK_THRESHOLD = 512;
+
+interface IDatabaseSizeRow {
+  database_name?: string;
+  used_blocks?: number;
+  free_blocks?: number;
+}
+
+async function cleanupLegacyStockChipsTable() {
+  if (!isMainThread || !existsSync(dbPath)) return;
+  let compactPath: string | undefined;
+  try {
+    await withConnection(async (connection) => {
+      const legacyRows = await countLegacyStockChipsRows(connection);
+      if (legacyRows > 0) {
+        await connection.run('DROP TABLE IF EXISTS stock_chips');
+        await connection.run('CHECKPOINT');
+      }
+      const size = await readDatabaseSize(connection);
+      const shouldCompact = legacyRows > 0 || shouldCompactDatabase(size);
+      if (!shouldCompact) return;
+      compactPath = await copyDatabaseToCompactFile(connection);
+      const freeBlocks = size?.free_blocks ?? 0;
+      console.warn(
+        `[market-data] compacted local market database after removing legacy stock_chips (${legacyRows} row(s), ${freeBlocks} free block(s))`,
+      );
+    });
+    if (compactPath) await replaceDatabaseWithCompactCopy(compactPath);
+  } catch (error) {
+    console.warn('[market-data] legacy stock_chips cleanup failed', error);
+    if (compactPath) removeDatabaseFiles(compactPath);
+  }
+}
+
+async function countLegacyStockChipsRows(connection: DuckDBConnection) {
+  const exists = await all<Record<string, unknown>>(
+    connection,
+    "SELECT count(*) AS count FROM information_schema.tables WHERE table_schema = 'main' AND table_name = 'stock_chips'",
+  );
+  if (Number(exists[0]?.count ?? 0) === 0) return 0;
+  const rows = await all<Record<string, unknown>>(connection, 'SELECT count(*) AS count FROM stock_chips');
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function readDatabaseSize(connection: DuckDBConnection): Promise<IDatabaseSizeRow | undefined> {
+  return (await all<IDatabaseSizeRow>(connection, 'PRAGMA database_size'))[0];
+}
+
+function shouldCompactDatabase(size: IDatabaseSizeRow | undefined) {
+  const usedBlocks = Number(size?.used_blocks ?? 0);
+  const freeBlocks = Number(size?.free_blocks ?? 0);
+  return freeBlocks >= COMPACT_FREE_BLOCK_THRESHOLD && freeBlocks > usedBlocks;
+}
+
+async function copyDatabaseToCompactFile(connection: DuckDBConnection) {
+  const compactPath = `${dbPath}.compact-${process.pid}.duckdb`;
+  removeDatabaseFiles(compactPath);
+  const currentDatabase = await currentDatabaseName(connection);
+  await connection.run(`ATTACH ${sqlString(compactPath)} AS compact_market_data`);
+  try {
+    await connection.run(`COPY FROM DATABASE ${quoteIdentifier(currentDatabase)} TO compact_market_data`);
+  } finally {
+    await connection.run('DETACH compact_market_data').catch((error) =>
+      console.warn('[market-data] detach compact database failed', error),
+    );
+  }
+  return compactPath;
+}
+
+async function currentDatabaseName(connection: DuckDBConnection) {
+  const row = (await all<Record<string, unknown>>(connection, 'SELECT current_database() AS database_name'))[0];
+  const name = String(row?.database_name || '');
+  if (!name) throw new Error('无法读取当前 DuckDB 数据库名称');
+  return name;
+}
+
+async function replaceDatabaseWithCompactCopy(compactPath: string) {
+  const backupPath = `${dbPath}.precompact-${process.pid}.duckdb`;
+  removeDatabaseFiles(backupPath);
+  const oldInstance = await getDbReady();
+  oldInstance.closeSync();
+  const originalExists = existsSync(dbPath);
+  try {
+    if (originalExists) renameSync(dbPath, backupPath);
+    const walPath = `${dbPath}.wal`;
+    if (existsSync(walPath)) unlinkSync(walPath);
+    renameSync(compactPath, dbPath);
+    removeDatabaseFiles(backupPath);
+    dbReady = DuckDBInstance.create(dbPath);
+  } catch (error) {
+    if (originalExists && existsSync(backupPath) && !existsSync(dbPath)) renameSync(backupPath, dbPath);
+    removeDatabaseFiles(compactPath);
+    throw error;
+  }
+}
+
+function removeDatabaseFiles(basePath: string) {
+  for (const filePath of [basePath, `${basePath}.wal`]) {
+    try {
+      if (existsSync(filePath)) unlinkSync(filePath);
+    } catch (error) {
+      console.warn(`[market-data] failed to remove ${filePath}`, error);
+    }
+  }
+}
+
+function sqlString(value: string) {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function quoteIdentifier(value: string) {
+  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function read<T>(work: (connection: DuckDBConnection) => Promise<T>) {

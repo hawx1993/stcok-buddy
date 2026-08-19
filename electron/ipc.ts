@@ -476,7 +476,7 @@ function userDataDir() {
 
 function getStorageStats(): IStorageStats {
   const chatPath = path.join(userDataDir(), 'stocksense-chat.sqlite');
-  const configPath = path.join(userDataDir(), 'stocksense-storeon');
+  const configPath = path.join(userDataDir(), 'stocksense-store.json');
   const surgeDb = app.isPackaged ? 'stocksense-surge.duckdb' : 'stocksense-surge-dev.duckdb';
   const surgePath = path.join(userDataDir(), surgeDb);
   const monitorDb = app.isPackaged ? 'stocksense-monitor.duckdb' : 'stocksense-monitor-dev.duckdb';

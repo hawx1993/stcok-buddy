@@ -10,15 +10,31 @@ const defaultCalendarClient: ITradingCalendarClient = {
   previousTradingDay: previousRemoteTradingDay,
 };
 
+const TRADING_CALENDAR_REQUEST_TIMEOUT_MS = 20_000;
+
 export async function resolveTradingDate(
   cutoffMinutes: number,
   now = new Date(),
   calendar: ITradingCalendarClient = defaultCalendarClient,
 ): Promise<string> {
   const marketTime = toShanghaiMarketTime(now);
-  const isTradingDay = await calendar.isTradingDay(marketTime.date);
+  const isTradingDay = await withTradingCalendarTimeout(calendar.isTradingDay(marketTime.date));
   if (isTradingDay && marketTime.minutes >= cutoffMinutes) return marketTime.date;
-  return calendar.previousTradingDay(marketTime.date);
+  return withTradingCalendarTimeout(calendar.previousTradingDay(marketTime.date));
+}
+
+async function withTradingCalendarTimeout<T>(request: Promise<T>): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      request,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('交易日历请求超时，请稍后重试')), TRADING_CALENDAR_REQUEST_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 export function isBeforeShanghaiCutoff(cutoffMinutes: number, now = new Date()): boolean {

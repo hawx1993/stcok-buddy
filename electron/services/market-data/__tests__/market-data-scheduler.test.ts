@@ -1,51 +1,38 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const latestJob = vi.hoisted(() => ({
-  value: undefined as { targetTradeDate?: string; succeededSymbols: number } | undefined,
+const marketDataStore = vi.hoisted(() => ({
+  initializeMarketDataStore: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../../stock-db/market-data-store', () => ({
-  getLatestSyncJob: vi.fn(() => Promise.resolve(latestJob.value)),
-  initializeMarketDataStore: vi.fn(() => Promise.resolve()),
+vi.mock('../../stock-db/market-data-store', () => marketDataStore);
+
+const marketDataSync = vi.hoisted(() => ({
+  requestMarketDataSyncStop: vi.fn(),
+  startMarketDataSync: vi.fn(() => Promise.resolve()),
+  waitForMarketDataSync: vi.fn(() => Promise.resolve()),
 }));
 
 const workerClient = vi.hoisted(() => ({
   disposeMarketDataSyncWorker: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../market-data-sync', () => ({
-  requestMarketDataSyncStop: vi.fn(),
-  startMarketDataSync: vi.fn(() => Promise.resolve()),
-  waitForMarketDataSync: vi.fn(() => Promise.resolve()),
-}));
-
+vi.mock('../market-data-sync', () => marketDataSync);
 vi.mock('../market-data-sync-worker-client', () => workerClient);
 
-import { shouldAutoSyncMarketDataForTest, shutdownMarketDataScheduler } from '../market-data-scheduler.js';
+import { ensureMarketDataRuntime, shutdownMarketDataScheduler } from '../market-data-scheduler.js';
 
-describe('市场数据自动同步调度器', () => {
-  it('没有历史同步记录时需要自动同步', async () => {
-    latestJob.value = undefined;
+describe('市场数据运行时', () => {
+  it('只初始化本地库，不自动启动同步', async () => {
+    vi.useFakeTimers();
+    try {
+      await ensureMarketDataRuntime();
+      await vi.advanceTimersByTimeAsync(15_000);
 
-    await expect(shouldAutoSyncMarketDataForTest(new Date('2026-08-03T10:00:00+08:00'))).resolves.toBe(true);
-  });
-
-  it('最近同步没有成功标的时需要自动同步', async () => {
-    latestJob.value = { targetTradeDate: '2026-08-01', succeededSymbols: 0 };
-
-    await expect(shouldAutoSyncMarketDataForTest(new Date('2026-08-03T10:00:00+08:00'))).resolves.toBe(true);
-  });
-
-  it('最近成功同步日期在31天内时不自动同步', async () => {
-    latestJob.value = { targetTradeDate: '2026-07-20', succeededSymbols: 100 };
-
-    await expect(shouldAutoSyncMarketDataForTest(new Date('2026-08-03T10:00:00+08:00'))).resolves.toBe(false);
-  });
-
-  it('最近成功同步日期超过31天时需要自动同步', async () => {
-    latestJob.value = { targetTradeDate: '2026-06-01', succeededSymbols: 100 };
-
-    await expect(shouldAutoSyncMarketDataForTest(new Date('2026-08-03T10:00:00+08:00'))).resolves.toBe(true);
+      expect(marketDataStore.initializeMarketDataStore).toHaveBeenCalledTimes(1);
+      expect(marketDataSync.startMarketDataSync).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('退出调度器时会等待 worker 释放', async () => {

@@ -61,4 +61,23 @@ describe('交易日解析', () => {
     );
     expect(calendar.previousTradingDay).toHaveBeenCalledWith('2026-08-01');
   });
+
+  it('交易日历请求未结算时超时并暴露错误', async () => {
+    vi.useFakeTimers();
+    try {
+      const calendar: ITradingCalendarClient = {
+        isTradingDay: vi.fn(() => new Promise<boolean>(() => undefined)),
+        previousTradingDay: vi.fn(),
+      };
+      const result = resolveTradingDate(9 * 60 + 30, new Date('2026-07-31T01:30:00.000Z'), calendar);
+      const assertion = expect(result).rejects.toThrow('交易日历请求超时，请稍后重试');
+
+      await vi.advanceTimersByTimeAsync(20_000);
+      await assertion;
+
+      expect(calendar.previousTradingDay).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

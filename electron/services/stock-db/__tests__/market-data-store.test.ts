@@ -572,7 +572,7 @@ describe('市场数据 DuckDB 存储', () => {
 });
 
 describe('旧版筹码缓存兼容', () => {
-  it('不复制可能过大的旧缓存，并保留原表数据', async () => {
+  it('清理不再读取且可能过大的旧缓存表，并保持新版缓存可写入', async () => {
     dbPath = path.join(os.tmpdir(), `stocksense-market-legacy-chip-vitest-${process.pid}-${Date.now()}-${Math.random()}.duckdb`);
     process.env.STOCKSENSE_MARKET_DB_PATH = dbPath;
     const legacyChip = { latest: { date: '2026-07-09', profitRatio: 0.62 }, source: 'vitest' };
@@ -618,13 +618,10 @@ describe('旧版筹码缓存兼容', () => {
     const legacyInstance = await DuckDBInstance.create(dbPath);
     const legacyConnection = await legacyInstance.connect();
     try {
-      const columns = await legacyConnection.runAndReadAll('DESCRIBE stock_chips');
-      const rows = await legacyConnection.runAndReadAll(
-        'SELECT data_json FROM stock_chips WHERE symbol = $symbol',
-        { symbol: '600519' },
+      const tables = await legacyConnection.runAndReadAll(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main' AND table_name = 'stock_chips'",
       );
-      expect(columns.getRowObjectsJS().map((row) => String(row.column_name))).not.toContain('period');
-      expect(rows.getRowObjectsJS()).toEqual([{ data_json: JSON.stringify(legacyChip) }]);
+      expect(tables.getRowObjectsJS()).toEqual([]);
     } finally {
       legacyConnection.closeSync();
       legacyInstance.closeSync();
