@@ -8,6 +8,13 @@ export interface IHotStockHint {
 }
 
 export const HOT_STOCK_HINT_GROUP_SIZE = 5;
+export const DEFAULT_STOCK_ENTRY_HINTS: readonly IHotStockHint[] = [
+  { code: '600519', name: '贵州茅台', priority: 0 },
+  { code: '000001', name: '平安银行', priority: 0 },
+  { code: '300750', name: '宁德时代', priority: 0 },
+  { code: '601318', name: '中国平安', priority: 0 },
+  { code: '600036', name: '招商银行', priority: 0 },
+];
 const HOT_STOCK_HINT_BASE_GROUPS = 5;
 const HOT_STOCK_HINT_MIXED_GROUPS = 10;
 

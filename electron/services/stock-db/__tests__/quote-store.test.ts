@@ -82,6 +82,12 @@ function readRow(sql: string) {
 }
 
 function writeRow(sql: string, params: unknown[]) {
+  if (sql.includes('DELETE FROM hot_stock_hint_snapshots WHERE cache_date = ?')) {
+    const cacheDate = params[0];
+    if (typeof cacheDate !== 'string') throw new Error('热点快照删除参数无效');
+    database.snapshots = database.snapshots.filter((snapshot) => snapshot.cache_date !== cacheDate);
+    return;
+  }
   if (!sql.includes('INSERT INTO hot_stock_hint_snapshots')) return;
   const input = params[0];
   if (!isHotSnapshotInput(input)) throw new Error('热点快照写入参数无效');
@@ -135,6 +141,21 @@ describe('热点 SQLite 快照', () => {
         items: [expect.objectContaining({ code: '600519', name: '贵州茅台', tag: '封涨停板' })],
       },
     });
+  });
+
+  it('遗留快照包含空可选字段时删除缓存而非向 IPC 抛错', () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('quote store 未初始化');
+    database.snapshots.push({
+      cache_date: '2026-08-18',
+      trade_date: '2026-08-18',
+      is_previous_trade_day: 0,
+      items_json: JSON.stringify([{ id: 'hot-600519', title: '贵州茅台 600519', price: null }]),
+      updated_at: '2026-08-18T01:00:00.000Z',
+    });
+
+    expect(currentStore.getLatestHotStockHintSnapshot()).toBeUndefined();
+    expect(database.snapshots).toEqual([]);
   });
 
   it('按缓存日期覆盖并读取最新日期快照', () => {

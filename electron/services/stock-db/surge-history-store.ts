@@ -7,17 +7,17 @@ import type { HotFocusItem, StockSurgeEvent } from '../../../src/shared/types.js
 interface SurgeRow {
   trade_date: string;
   id: string;
-  code?: string;
-  name?: string;
+  code?: string | null;
+  name?: string | null;
   title: string;
-  time?: string;
-  price?: string;
-  change_percent?: string;
-  turnover?: string;
-  amount?: string;
-  description?: string;
-  tag?: string;
-  type?: HotFocusItem['type'];
+  time?: string | null;
+  price?: string | null;
+  change_percent?: string | null;
+  turnover?: string | null;
+  amount?: string | null;
+  description?: string | null;
+  tag?: string | null;
+  type?: string | null;
 }
 
 export interface ISurgeHistoryFreshness {
@@ -359,17 +359,26 @@ function mapSurgeRowToHotFocusItem(row: SurgeRow): HotFocusItem {
   return {
     id: row.id,
     title: row.title,
-    code: row.code,
-    name: row.name,
-    time: row.time,
-    price: row.price,
-    changePercent: row.change_percent,
-    turnover: row.turnover,
-    amount: row.amount,
-    description: row.description,
-    tag: row.tag,
-    type: row.type,
+    code: optionalString(row.code),
+    name: optionalString(row.name),
+    time: optionalString(row.time),
+    price: optionalString(row.price),
+    changePercent: optionalString(row.change_percent),
+    turnover: optionalString(row.turnover),
+    amount: optionalString(row.amount),
+    description: optionalString(row.description),
+    tag: optionalString(row.tag),
+    type: toHotFocusItemType(row.type),
   };
+}
+
+function optionalString(value: string | null | undefined) {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function toHotFocusItemType(value: string | null | undefined): HotFocusItem['type'] {
+  if (value === 'surge' || value === 'plummet' || value === 'volume' || value === 'neutral') return value;
+  return undefined;
 }
 
 function surgeItemContentKey(item: HotFocusItem): string {

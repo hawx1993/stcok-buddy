@@ -1,6 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { IHotStockHint } from './hot-stock-hints';
+import { DEFAULT_STOCK_ENTRY_HINTS, type IHotStockHint } from './hot-stock-hints';
 import { SlashCommandMenu } from './slash-command-menu';
 import { useHotStockHints } from './use-hot-stock-hints';
 import { useRotatingQuickEntryPrompt } from './use-rotating-quick-entry-prompt';
@@ -357,26 +357,14 @@ function HintList({
       </div>
     );
   }
-  if (error) {
-    return (
-      <div className={styles['qe-hints']}>
-        <span className={styles['qe-hints-status']}>热点数据暂不可用</span>
-      </div>
-    );
-  }
-  if (!hints.length) {
-    return (
-      <div className={styles['qe-hints']}>
-        <span className={styles['qe-hints-status']}>近期暂无可用热点数据</span>
-      </div>
-    );
-  }
+  const hasHotStockHints = hints.length > 0;
+  const displayHints = hasHotStockHints ? hints : DEFAULT_STOCK_ENTRY_HINTS;
+  const hintStatus = getHintStatus(hasHotStockHints, error, isPreviousTradeDay, tradeDate);
+
   return (
     <div className={styles['qe-hints']}>
-      <span className={styles['qe-hints-status']}>
-        {isPreviousTradeDay ? (tradeDate ? `历史热点（${tradeDate}）` : '近期热点') : '今日热点'}
-      </span>
-      {hints.map((hint) => (
+      <span className={styles['qe-hints-status']}>{hintStatus}</span>
+      {displayHints.map((hint) => (
         <button key={hint.code} className={styles['qe-hint']} onClick={() => onSelect(hint)} type='button'>
           {hint.name}（{hint.code}）{hint.label ? ` · ${hint.label}` : ''}
         </button>
@@ -387,4 +375,17 @@ function HintList({
       </button>
     </div>
   );
+}
+
+function getHintStatus(
+  hasHotStockHints: boolean,
+  error: string | undefined,
+  isPreviousTradeDay: boolean,
+  tradeDate: string | undefined,
+) {
+  if (!hasHotStockHints) {
+    return error ? '常用股票（固定入口 · 热点数据暂不可用）' : '常用股票（固定入口）';
+  }
+  if (!isPreviousTradeDay) return '今日热点';
+  return tradeDate ? `历史热点（${tradeDate}）` : '近期热点';
 }

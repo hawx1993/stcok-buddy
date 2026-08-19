@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_STOCK_ENTRY_HINTS } from '../hot-stock-hints';
 import {
   getQuickEntrySearchKeyword,
   getQuickEntryValueAfterSearchSelection,
@@ -67,6 +68,9 @@ describe('QuickEntry 鲸鱼动画', () => {
     expect(markup).toContain(
       `style="width:${QUICK_ENTRY_WHALE_SIZE.width}px;height:${QUICK_ENTRY_WHALE_SIZE.height}px"`,
     );
-    expect(markup).toContain('近期暂无可用热点数据');
+    expect(markup).toContain('常用股票（固定入口）');
+    for (const hint of DEFAULT_STOCK_ENTRY_HINTS) {
+      expect(markup).toContain(`${hint.name}（${hint.code}）`);
+    }
   });
 });

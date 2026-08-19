@@ -118,7 +118,8 @@ export function getStoredQuoteRowsByTab(tab: MarketTab) {
 }
 
 export function getLatestHotStockHintSnapshot(): IStoredHotStockHintSnapshot | undefined {
-  const row = getDb()
+  const store = getDb();
+  const row = store
     .prepare(
       `SELECT cache_date, trade_date, is_previous_trade_day, items_json, updated_at
        FROM hot_stock_hint_snapshots
@@ -128,15 +129,25 @@ export function getLatestHotStockHintSnapshot(): IStoredHotStockHintSnapshot | u
     .get() as IHotStockHintSnapshotRow | undefined;
   if (!row) return undefined;
 
-  return {
-    cacheDate: row.cache_date,
-    source: {
-      items: parseHotFocusItems(row.items_json),
-      tradeDate: row.trade_date ?? undefined,
-      isPreviousTradeDay: row.is_previous_trade_day === 1,
-    },
-    updatedAt: row.updated_at,
-  };
+  try {
+    return {
+      cacheDate: row.cache_date,
+      source: {
+        items: parseHotFocusItems(row.items_json),
+        tradeDate: row.trade_date ?? undefined,
+        isPreviousTradeDay: row.is_previous_trade_day === 1,
+      },
+      updatedAt: row.updated_at,
+    };
+  } catch (error) {
+    if (!(error instanceof InvalidHotStockHintSnapshotError)) throw error;
+    store.prepare('DELETE FROM hot_stock_hint_snapshots WHERE cache_date = ?').run(row.cache_date);
+    console.warn('[quote-store] discarded invalid hot stock hint snapshot', {
+      cacheDate: row.cache_date,
+      message: error.message,
+    });
+    return undefined;
+  }
 }
 
 export function saveHotStockHintSnapshot(cacheDate: string, source: IHotStockHintSource) {
@@ -305,13 +316,25 @@ function quoteMatchesTab(code: string, tab: MarketTab) {
   return true;
 }
 
+class InvalidHotStockHintSnapshotError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidHotStockHintSnapshotError';
+  }
+}
+
 function parseHotFocusItems(value: string): HotFocusItem[] {
-  const parsed: unknown = JSON.parse(value);
-  if (!Array.isArray(parsed)) throw new Error('热点缓存格式无效');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new InvalidHotStockHintSnapshotError('热点缓存格式无效');
+  }
+  if (!Array.isArray(parsed)) throw new InvalidHotStockHintSnapshotError('热点缓存格式无效');
 
   const items: HotFocusItem[] = [];
   for (const item of parsed) {
-    if (!isHotFocusItem(item)) throw new Error('热点缓存包含无效项目');
+    if (!isHotFocusItem(item)) throw new InvalidHotStockHintSnapshotError('热点缓存包含无效项目');
     items.push(item);
   }
   return items;

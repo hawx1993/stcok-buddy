@@ -79,6 +79,21 @@ describe('异动历史 DuckDB 存储', () => {
     ]);
   });
 
+  it('读取可空字段时转换为 undefined，避免写入无效热点快照', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('surge history store not loaded');
+
+    await currentStore.saveSurgeSnapshot(
+      [createItem({ id: 'nullable-price', price: undefined })],
+      new Date('2026-07-24T02:30:00.000Z'),
+      '2026-07-24',
+    );
+
+    await expect(currentStore.listSurgeHistory('2026-07-24')).resolves.toEqual([
+      expect.objectContaining({ id: 'nullable-price', price: undefined }),
+    ]);
+  });
+
   it('空库 freshness 返回零记录且没有更新时间', async () => {
     const currentStore = store;
     if (!currentStore) throw new Error('surge history store not loaded');
