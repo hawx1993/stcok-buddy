@@ -151,14 +151,12 @@
   flex-wrap: wrap;
   gap: 2px 10px;
 }
-
 .step-item {
   display: inline-flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 3px;
   font-size: 10px;
   min-width: 0;
-
   &.completed {
     color: var(--success);
   }
