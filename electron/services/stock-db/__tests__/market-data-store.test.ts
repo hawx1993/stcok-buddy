@@ -502,12 +502,28 @@ describe('市场数据 DuckDB 存储', () => {
     expect(await currentStore.countFreshListedStockChips(maxAgeMs)).toBe(2);
   });
 
-  it('仅持久化最新筹码分布，避免历史直方图放大 DuckDB WAL', async () => {
+  it('持久化完整的历史筹码快照，供悬浮 K 线切换筹码摘要', async () => {
     const currentStore = store;
     if (!currentStore) throw new Error('market data store not loaded');
 
-    const earlierDistribution = { date: '2026-07-08', period: '1d', points: [{ price: 10, weight: 1 }] };
-    const latestDistribution = { date: '2026-07-09', period: '1d', points: [{ price: 11, weight: 1 }] };
+    const earlierDistribution = {
+      date: '2026-07-08',
+      period: '1d',
+      profitRatio: 0.4,
+      avgCost: 10,
+      cost70: '9.50-10.50',
+      concentration70: 0.05,
+      points: [{ price: 10, weight: 1 }],
+    };
+    const latestDistribution = {
+      date: '2026-07-09',
+      period: '1d',
+      profitRatio: 0.6,
+      avgCost: 11,
+      cost90: '10.00-12.00',
+      concentration90: 0.1,
+      points: [{ price: 11, weight: 1 }],
+    };
     const chip = {
       period: '1d',
       latest: latestDistribution,
@@ -520,7 +536,7 @@ describe('市场数据 DuckDB 存储', () => {
 
     expect(await currentStore.getStockChip('600519')).toEqual({
       ...chip,
-      distributions: [latestDistribution],
+      chipSnapshotVersion: 2,
     });
   });
 

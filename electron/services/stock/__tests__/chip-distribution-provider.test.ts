@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IChipDistributionResult, TChipDistributionPeriod } from '../../../../src/shared/types.js';
 
+interface IPersistedChipDistributionResult extends IChipDistributionResult {
+  chipSnapshotVersion: number;
+}
+
 const storeMocks = vi.hoisted(() => ({
   getStockChipCacheRecord: vi.fn(),
   upsertStockChip: vi.fn(),
@@ -23,18 +27,32 @@ vi.mock('../symbols', () => ({
 }));
 
 function chipResult(period: TChipDistributionPeriod = '1d'): IChipDistributionResult {
+  const earlier = {
+    date: '2026-08-16',
+    period,
+    concentration70: 0.05,
+    concentration90: 0.1,
+    profitRatio: 0.4,
+    avgCost: 9.8,
+    cost70: '9.50-10.10',
+    cost90: '9.20-10.40',
+    points: [{ price: 9.8, weight: 1 }],
+  };
   const latest = {
     date: '2026-08-17',
     period,
     concentration70: 0.08,
     concentration90: 0.13,
     profitRatio: 0.6,
-    points: [{ price: 10, weight: 1 }],
+    avgCost: 10.2,
+    cost70: '9.80-10.60',
+    cost90: '9.50-10.90',
+    points: [{ price: 10.2, weight: 1 }],
   };
   return {
     period,
     latest,
-    distributions: [latest],
+    distributions: [earlier, latest],
     trend: [],
     source: 'stock-sdk',
   };
@@ -74,11 +92,18 @@ describe('chip distribution provider persistence', () => {
   });
 
   it('reuses the persisted DuckDB record after the provider module is reloaded', async () => {
-    let persistedRecord: { symbol: string; period: TChipDistributionPeriod; data: IChipDistributionResult; fetchedAt: string } | undefined;
+    let persistedRecord:
+      | { symbol: string; period: TChipDistributionPeriod; data: IPersistedChipDistributionResult; fetchedAt: string }
+      | undefined;
     storeMocks.getStockChipCacheRecord.mockImplementation(async () => persistedRecord);
     storeMocks.upsertStockChip.mockImplementation(
       async (symbol: string, data: IChipDistributionResult, period: TChipDistributionPeriod) => {
-        persistedRecord = { symbol, period, data, fetchedAt: new Date().toISOString() };
+        persistedRecord = {
+          symbol,
+          period,
+          data: { ...data, chipSnapshotVersion: 2 },
+          fetchedAt: new Date().toISOString(),
+        };
       },
     );
 
@@ -93,6 +118,21 @@ describe('chip distribution provider persistence', () => {
     expect(storeMocks.getStockChipCacheRecord).toHaveBeenCalledTimes(2);
     expect(workerMocks.loadStockSdkChipDistributionInWorker).toHaveBeenCalledTimes(1);
     expect(storeMocks.upsertStockChip).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes a fresh legacy cache that lacks historical snapshots', async () => {
+    storeMocks.getStockChipCacheRecord.mockResolvedValueOnce({
+      symbol: '600519',
+      period: '1d',
+      data: chipResult(),
+      fetchedAt: new Date().toISOString(),
+    });
+    const { getChipDistribution } = await import('../chip-distribution-provider.js');
+
+    await expect(getChipDistribution('600519')).resolves.toEqual(chipResult());
+
+    expect(workerMocks.loadStockSdkChipDistributionInWorker).toHaveBeenCalledTimes(1);
+    expect(storeMocks.upsertStockChip).toHaveBeenCalledWith('600519', chipResult(), '1d');
   });
 
   it('keeps the real chip result visible when DuckDB cache write fails', async () => {

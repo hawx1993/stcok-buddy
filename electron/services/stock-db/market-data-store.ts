@@ -1661,13 +1661,15 @@ async function all<T>(connection: DuckDBConnection, sql: string, values?: Record
   return reader.getRowObjectsJS() as T[];
 }
 
+const CHIP_SNAPSHOT_VERSION = 2;
+
 function toPersistedStockChipData(value: unknown): unknown {
   if (!isRecord(value) || !Array.isArray(value.distributions)) return value;
   const latest = value.latest ?? value.distributions.at(-1);
   return {
     ...value,
     ...(latest === undefined ? {} : { latest }),
-    distributions: latest === undefined ? [] : [latest],
+    chipSnapshotVersion: CHIP_SNAPSHOT_VERSION,
   };
 }
 

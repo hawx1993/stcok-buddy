@@ -103,8 +103,24 @@ describe('按日期查找筹码分布', () => {
     firstHover,
     secondHover,
   }) => {
-    const first = distribution(firstSnapshot, period);
-    const second = distribution(secondSnapshot, period);
+    const first = {
+      ...distribution(firstSnapshot, period),
+      profitRatio: 0.35,
+      avgCost: 9.6,
+      cost70: '9.20-10.00',
+      cost90: '8.90-10.30',
+      concentration70: 0.04,
+      concentration90: 0.07,
+    };
+    const second = {
+      ...distribution(secondSnapshot, period),
+      profitRatio: 0.65,
+      avgCost: 10.4,
+      cost70: '10.00-10.80',
+      cost90: '9.70-11.10',
+      concentration70: 0.08,
+      concentration90: 0.12,
+    };
 
     expect(selectChipDistributionForKline([first, second], second, firstHover, period)).toEqual({
       distribution: first,

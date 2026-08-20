@@ -26,6 +26,7 @@ const chipDistributionCache = new Map<
 >();
 const CHIP_DISTRIBUTION_CACHE_TTL_MS = 5 * 60_000;
 const CHIP_DISTRIBUTION_MAX_AGE_MS = 5 * 24 * 60 * 60_000;
+const CHIP_SNAPSHOT_VERSION = 2;
 const CHIP_KLINE_LIMIT_BY_PERIOD: Record<TChipDistributionPeriod, number> = {
   '15m': 240,
   '1h': 240,
@@ -63,15 +64,18 @@ export async function getChipDistribution(
   try {
     const cacheRecord = await getStockChipCacheRecord(symbol, period);
     if (cacheRecord && isFreshChipCache(cacheRecord.fetchedAt, now)) {
-      const localResult = asChipDistributionResult(cacheRecord.data, period);
-      chipDistributionCache.set(cacheKey, {
-        result: localResult,
-        updatedAt: Date.now(),
-        fetchedAt: cacheRecord.fetchedAt,
-      });
-      return localResult;
+      if (hasCurrentChipSnapshotVersion(cacheRecord.data)) {
+        const localResult = asChipDistributionResult(cacheRecord.data, period);
+        chipDistributionCache.set(cacheKey, {
+          result: localResult,
+          updatedAt: Date.now(),
+          fetchedAt: cacheRecord.fetchedAt,
+        });
+        return localResult;
+      }
+    } else if (cacheRecord) {
+      localWarnings.push(`DuckDB ${CHIP_PERIOD_LABELS[period]}筹码缓存已超过 5 天（${cacheRecord.fetchedAt}）`);
     }
-    if (cacheRecord) localWarnings.push(`DuckDB ${CHIP_PERIOD_LABELS[period]}筹码缓存已超过 5 天（${cacheRecord.fetchedAt}）`);
   } catch (error) {
     localWarnings.push(`DuckDB ${CHIP_PERIOD_LABELS[period]}筹码缓存读取失败：${formatError(error)}`);
   }
@@ -169,6 +173,10 @@ function isFreshChipCache(fetchedAt: string, now: number): boolean {
   if (!Number.isFinite(fetchedAtMs)) return false;
   const age = now - fetchedAtMs;
   return age >= 0 && age < CHIP_DISTRIBUTION_MAX_AGE_MS;
+}
+
+function hasCurrentChipSnapshotVersion(value: unknown): boolean {
+  return isRecord(value) && value.chipSnapshotVersion === CHIP_SNAPSHOT_VERSION;
 }
 
 function asChipDistributionResult(value: unknown, expectedPeriod: TChipDistributionPeriod): IChipDistributionResult {
