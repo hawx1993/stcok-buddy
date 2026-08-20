@@ -1,9 +1,13 @@
 <p align="center">
   <video controls playsinline poster="public/assets/readme/hero.gif" width="100%" aria-label="StockBuddy 产品介绍视频">
-    <source src="public/images/preview-video-introduce.mp4" type="video/mp4">
+    <source src="https://github.com/user-attachments/assets/ef5212b8-e23b-452a-bd92-105b8f2d2fa8" type="video/mp4">
     您的浏览器不支持内嵌视频播放。
   </video>
 </p>
+
+
+https://github.com/user-attachments/assets/ef5212b8-e23b-452a-bd92-105b8f2d2fa8
+
 
 > StockBuddy 仅用于公开数据研究与信息辅助，不构成任何投资建议。
 
