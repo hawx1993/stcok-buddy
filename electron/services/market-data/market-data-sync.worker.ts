@@ -8,8 +8,8 @@ import {
   clearSyncFailure,
   countDailyBarsForDate,
   createSyncJob,
-  getLatestSyncJob,
   getLatestTradeDate,
+  getResumableDailySyncJob,
   listDailyBarCoverageCandidates,
   listDailyBars,
   listLatestSyncFailures,
@@ -28,6 +28,7 @@ import {
   isValidDateRange,
   recentStartDate,
   sortSecuritiesForSync,
+  splitSyncBatches,
   yearsAgo,
 } from './market-data-sync-plan.js';
 import type {
@@ -35,21 +36,28 @@ import type {
   IMarketDataSyncWorkerApi,
   TMarketDataProgressListener,
 } from './market-data-sync-worker-types.js';
-import type { DailyBarRecord, IDailyBarCoverageCandidate, MarketDataSyncStatus, SyncJobType } from './types.js';
+import type {
+  DailyBarRecord,
+  IDailyBarCoverageCandidate,
+  MarketDataSyncStatus,
+  SyncJobRecord,
+  SyncJobType,
+} from './types.js';
 
 if (!parentPort) throw new Error('market data sync worker requires parentPort');
 
-const SYNC_CONCURRENCY = 20;
 const SYNC_BATCH_SIZE = 10;
-const SYNC_JOB_PERSIST_EVERY = 10;
+const RESUME_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 let stopRequested = false;
 let memoryStatus: MarketDataSyncStatus = idleStatus();
 
+type TUnresolvedFailureStages = Map<string, Set<string>>;
+
 const api: IMarketDataSyncWorkerApi = {
-  async runSync(force, onProgress) {
+  async runSync(onProgress) {
     stopRequested = false;
-    return runSync(force, onProgress);
+    return runSync(onProgress);
   },
 
   async runCoverageSync(options, onProgress) {
@@ -76,39 +84,72 @@ async function determineTargetTradeDate(now = new Date()) {
   return resolveTradingDate(15 * 60 + 30, now);
 }
 
-async function runSync(force: boolean, onProgress: TMarketDataProgressListener): Promise<MarketDataSyncStatus> {
+async function runSync(onProgress: TMarketDataProgressListener): Promise<MarketDataSyncStatus> {
   const { targetTradeDate, securities, calendar, latestTradeDate } = await prepareSync(onProgress);
   if (stopRequested) return cancelledStatus(onProgress, '同步已安全停止，下次启动将继续');
 
-  if (!force && latestTradeDate && latestTradeDate >= targetTradeDate) {
+  const candidates = await listDailyBarCoverageCandidates(targetTradeDate);
+  const resumeJob = await getResumableDailySyncJob(targetTradeDate, resumeCheckpointAfter());
+  if (!candidates.length) {
+    if (resumeJob) {
+      const finishedAt = new Date().toISOString();
+      await updateSyncJob(resumeJob.id, {
+        status: 'completed',
+        finishedAt,
+        checkpointAt: finishedAt,
+        errorMessage: '',
+      });
+    }
     const done = {
       ...idleStatus(),
       state: 'completed' as const,
       targetTradeDate,
       latestLocalTradeDate: latestTradeDate,
-      message: '本地行情已是最新',
+      message: '没有可更新的数据，本地日K已是最新',
     };
     updateMemory(done, onProgress);
     return done;
   }
 
+  const resumeCandidates = resumeJob?.checkpointSymbol
+    ? await listDailyBarCoverageCandidates(targetTradeDate, resumeJob.checkpointSymbol)
+    : candidates;
+  if (!resumeCandidates.length) {
+    const finishedAt = new Date().toISOString();
+    if (resumeJob) {
+      await updateSyncJob(resumeJob.id, {
+        status: 'partial',
+        finishedAt,
+        checkpointAt: finishedAt,
+        errorMessage: '检查点前仍有未补齐日K，请重试失败股票',
+      });
+    }
+    const partial = {
+      ...idleStatus(),
+      state: 'partial' as const,
+      targetTradeDate,
+      latestLocalTradeDate: latestTradeDate,
+      message: '检查点后没有可更新的数据，检查点前仍有未补齐日K',
+    };
+    updateMemory(partial, onProgress);
+    return partial;
+  }
+
   const recentStart = recentStartDate(calendar, targetTradeDate, RECENT_TRADING_DAYS);
-  const isInitial = !latestTradeDate;
+  const isInitial = resumeJob?.jobType === 'recent_initial' || !latestTradeDate;
   const jobType: SyncJobType = isInitial ? 'recent_initial' : 'daily_incremental';
-  const startDate = isInitial
-    ? recentStart
-    : latestTradeDate < targetTradeDate
-      ? dayAfter(latestTradeDate)
-      : targetTradeDate;
   const result = await runSyncWindow({
     jobType,
     phase: isInitial ? 'recent' : undefined,
     targetTradeDate,
     latestTradeDate,
-    securities,
-    startDate,
+    securities: resumeCandidates,
+    totalSymbols: resumeJob?.totalSymbols ?? candidates.length,
+    expectedCoverage: securities.length,
+    resumeJob,
+    startDate: recentStart,
     endDate: targetTradeDate,
-    forceDownload: isInitial || force,
+    forceDownload: false,
     initialState: isInitial ? 'initializing' : 'syncing',
     startMessage: isInitial ? '正在同步近期日K线，历史数据稍后后台补齐' : '正在同步最新交易日数据',
     progressMessage: isInitial ? '正在同步近期日K线' : '正在同步最新日K线',
@@ -292,6 +333,9 @@ async function runSyncWindow(options: {
   targetTradeDate: string;
   latestTradeDate?: string;
   securities: IDailyBarCoverageCandidate[];
+  totalSymbols?: number;
+  expectedCoverage?: number;
+  resumeJob?: SyncJobRecord;
   startDate: string;
   endDate: string;
   forceDownload: boolean;
@@ -302,29 +346,25 @@ async function runSyncWindow(options: {
   initialCoverage?: number;
   onProgress: TMarketDataProgressListener;
 }): Promise<MarketDataSyncStatus> {
-  const previous = await getLatestSyncJob();
-  const checkpoint =
-    previous?.status === 'running' &&
-    previous.jobType === options.jobType &&
-    previous.targetTradeDate === options.targetTradeDate
-      ? previous.checkpointSymbol
-      : undefined;
-  const checkpointIndex = checkpoint ? options.securities.findIndex((item) => item.symbol === checkpoint) : -1;
-  const symbols = checkpointIndex >= 0 ? options.securities.slice(checkpointIndex + 1) : options.securities;
-  const jobId = `market-sync-${Date.now()}`;
-  await createSyncJob({
-    id: jobId,
-    jobType: options.jobType,
-    targetTradeDate: options.targetTradeDate,
-    totalSymbols: options.securities.length,
-    checkpointSymbol: checkpoint,
-  });
+  const totalSymbols = options.totalSymbols ?? options.securities.length;
+  const jobId = options.resumeJob?.id ?? `market-sync-${Date.now()}`;
+  if (options.resumeJob) {
+    await updateSyncJob(jobId, { status: 'running', errorMessage: '' });
+  } else {
+    await createSyncJob({
+      id: jobId,
+      jobType: options.jobType,
+      targetTradeDate: options.targetTradeDate,
+      totalSymbols,
+    });
+  }
 
-  const baseProcessed = options.securities.length - symbols.length;
-  let processed = baseProcessed;
-  let succeeded = 0;
-  let failed = 0;
-  let lastPersistAt = 0;
+  const unresolvedFailureStages = createUnresolvedFailureStages(
+    options.resumeJob ? await listLatestSyncFailures() : [],
+  );
+  let processed = Math.min(options.resumeJob?.processedSymbols ?? 0, totalSymbols);
+  let succeeded = options.resumeJob?.succeededSymbols ?? 0;
+  let failed = unresolvedFailureStages.size;
   const initialCoverage = options.initialCoverage ?? 0;
   const newlyCoveredSymbols = new Set<string>();
   let coverageTargetReached = false;
@@ -335,20 +375,17 @@ async function runSyncWindow(options: {
       phase: options.phase,
       targetTradeDate: options.targetTradeDate,
       processedSymbols: processed,
-      totalSymbols: options.securities.length,
-      succeededSymbols: 0,
-      failedSymbols: 0,
-      startedAt: new Date().toISOString(),
+      totalSymbols,
+      succeededSymbols: succeeded,
+      failedSymbols: failed,
+      startedAt: options.resumeJob?.startedAt ?? new Date().toISOString(),
       latestLocalTradeDate: options.latestTradeDate,
       message: options.startMessage,
     },
     options.onProgress,
   );
 
-  const batches: IDailyBarCoverageCandidate[][] = [];
-  for (let i = 0; i < symbols.length; i += SYNC_BATCH_SIZE) {
-    batches.push(symbols.slice(i, i + SYNC_BATCH_SIZE));
-  }
+  const batches = splitSyncBatches(options.securities, SYNC_BATCH_SIZE);
 
   const processBatch = async (batch: IDailyBarCoverageCandidate[]) => {
     if (stopRequested || coverageTargetReached) return;
@@ -417,27 +454,26 @@ async function runSyncWindow(options: {
 
     for (const { symbol, message } of batchFailures) {
       await recordSyncFailure(jobId, symbol, 'daily-bars', message);
+      addUnresolvedFailureStage(unresolvedFailureStages, symbol, 'daily-bars');
+    }
+    for (const symbol of batchSuccesses) {
+      if (!unresolvedFailureStages.has(symbol)) continue;
+      await clearSyncFailure(jobId, symbol, 'daily-bars');
+      clearUnresolvedFailureStage(unresolvedFailureStages, symbol, 'daily-bars');
     }
 
     succeeded += batchSuccesses.length;
-    failed += batchFailures.length;
+    failed = unresolvedFailureStages.size;
     processed += batch.length;
 
     const lastSymbol = batch.at(-1)?.symbol;
-    const now = Date.now();
-    if (
-      processed >= options.securities.length ||
-      processed % SYNC_JOB_PERSIST_EVERY === 0 ||
-      now - lastPersistAt >= 1000
-    ) {
-      lastPersistAt = now;
-      await updateSyncJob(jobId, {
-        processedSymbols: processed,
-        succeededSymbols: succeeded,
-        failedSymbols: failed,
-        checkpointSymbol: lastSymbol,
-      });
-    }
+    await updateSyncJob(jobId, {
+      processedSymbols: processed,
+      succeededSymbols: succeeded,
+      failedSymbols: failed,
+      checkpointSymbol: lastSymbol,
+      checkpointAt: new Date().toISOString(),
+    });
     updateMemory(
       {
         ...memoryStatus,
@@ -451,12 +487,17 @@ async function runSyncWindow(options: {
     );
   };
 
-  await runPool(batches, SYNC_CONCURRENCY, processBatch, () => !coverageTargetReached);
+  for (const batch of batches) {
+    if (stopRequested || coverageTargetReached) break;
+    await processBatch(batch);
+  }
 
   if (stopRequested) {
+    const finishedAt = new Date().toISOString();
     await updateSyncJob(jobId, {
       status: 'cancelled',
-      finishedAt: new Date().toISOString(),
+      finishedAt,
+      checkpointAt: finishedAt,
       errorMessage: '应用退出，同步已在当前批次后停止',
     });
     return cancelledStatus(options.onProgress, '同步已安全停止，下次启动将继续');
@@ -465,7 +506,7 @@ async function runSyncWindow(options: {
   let covered = 0;
   let coverage = 0;
   let status: MarketDataSyncStatus['state'];
-  const requiredCoverage = options.minCoverage ?? options.securities.length;
+  const requiredCoverage = options.minCoverage ?? options.expectedCoverage ?? totalSymbols;
   try {
     covered = await withTimeout(countDailyBarsForDate(options.targetTradeDate), 10000);
     coverage = requiredCoverage ? Math.min(1, covered / requiredCoverage) : 1;
@@ -516,13 +557,25 @@ async function runSyncWindow(options: {
 
 async function runRepair(onProgress: TMarketDataProgressListener): Promise<MarketDataSyncStatus> {
   const failures = await listLatestSyncFailures();
-  if (!failures.length) return memoryStatus;
+  const unresolvedFailureStages = createUnresolvedFailureStages(failures);
+  if (!failures.length) {
+    const result: MarketDataSyncStatus = {
+      ...idleStatus(),
+      state: 'completed',
+      finishedAt: new Date().toISOString(),
+      latestLocalTradeDate: await getLatestTradeDate(),
+      message: '没有需要重试的失败股票',
+    };
+    updateMemory(result, onProgress);
+    return result;
+  }
   updateMemory(
     {
       ...idleStatus(),
       state: 'syncing',
       jobType: 'repair',
       totalSymbols: failures.length,
+      failedSymbols: unresolvedFailureStages.size,
       message: '正在重试失败股票',
     },
     onProgress,
@@ -530,7 +583,6 @@ async function runRepair(onProgress: TMarketDataProgressListener): Promise<Marke
   const target = await determineTargetTradeDate();
   let processed = 0;
   let succeeded = 0;
-  let failed = 0;
   for (const item of failures) {
     if (stopRequested) break;
     try {
@@ -543,23 +595,41 @@ async function runRepair(onProgress: TMarketDataProgressListener): Promise<Marke
       const { valid } = partitionValidDailyBars(rows);
       if (valid.length) await upsertDailyBars(valid);
       await clearSyncFailure(item.jobId, item.symbol, item.stage);
+      clearUnresolvedFailureStage(unresolvedFailureStages, item.symbol, item.stage);
       succeeded += 1;
-    } catch {
-      failed += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await recordSyncFailure(item.jobId, item.symbol, item.stage, message);
+      console.warn(`[market-data] retry failed for ${item.symbol}`, error);
     }
     processed += 1;
+    await updateSyncJob(item.jobId, { failedSymbols: unresolvedFailureStages.size });
     updateMemory(
-      { ...memoryStatus, processedSymbols: processed, succeededSymbols: succeeded, failedSymbols: failed },
+      {
+        ...memoryStatus,
+        processedSymbols: processed,
+        succeededSymbols: succeeded,
+        failedSymbols: unresolvedFailureStages.size,
+      },
       onProgress,
     );
   }
   if (stopRequested) return cancelledStatus(onProgress, '同步已取消，当前批次将安全停止');
-  const result = {
+  const finishedAt = new Date().toISOString();
+  const state = unresolvedFailureStages.size ? ('partial' as const) : ('completed' as const);
+  await updateSyncJob(failures[0].jobId, {
+    status: state,
+    failedSymbols: unresolvedFailureStages.size,
+    finishedAt,
+    errorMessage: unresolvedFailureStages.size ? '部分失败股票仍未补齐' : '',
+  });
+  const result: MarketDataSyncStatus = {
     ...memoryStatus,
-    state: failed ? ('partial' as const) : ('completed' as const),
-    finishedAt: new Date().toISOString(),
+    state,
+    failedSymbols: unresolvedFailureStages.size,
+    finishedAt,
     latestLocalTradeDate: await getLatestTradeDate(),
-    message: failed ? '部分失败股票仍未补齐' : '失败股票已重试完成',
+    message: unresolvedFailureStages.size ? '部分失败股票仍未补齐' : '失败股票已重试完成',
   };
   updateMemory(result, onProgress);
   return result;
@@ -583,22 +653,39 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-async function runPool<T>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>,
-  shouldContinue: () => boolean = () => true,
+function resumeCheckpointAfter(now = Date.now()) {
+  return new Date(now - RESUME_WINDOW_MS).toISOString();
+}
+
+function createUnresolvedFailureStages(
+  failures: Array<{ symbol: string; stage: string }>,
+): TUnresolvedFailureStages {
+  const unresolvedFailureStages: TUnresolvedFailureStages = new Map();
+  for (const failure of failures) {
+    addUnresolvedFailureStage(unresolvedFailureStages, failure.symbol, failure.stage);
+  }
+  return unresolvedFailureStages;
+}
+
+function addUnresolvedFailureStage(
+  unresolvedFailureStages: TUnresolvedFailureStages,
+  symbol: string,
+  stage: string,
 ) {
-  let index = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-      while (!stopRequested && shouldContinue()) {
-        const current = index++;
-        if (current >= items.length) break;
-        await worker(items[current]);
-      }
-    }),
-  );
+  const stages = unresolvedFailureStages.get(symbol) ?? new Set<string>();
+  stages.add(stage);
+  unresolvedFailureStages.set(symbol, stages);
+}
+
+function clearUnresolvedFailureStage(
+  unresolvedFailureStages: TUnresolvedFailureStages,
+  symbol: string,
+  stage: string,
+) {
+  const stages = unresolvedFailureStages.get(symbol);
+  if (!stages) return;
+  stages.delete(stage);
+  if (!stages.size) unresolvedFailureStages.delete(symbol);
 }
 
 function updateMemory(status: MarketDataSyncStatus, onProgress: TMarketDataProgressListener) {

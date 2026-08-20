@@ -577,10 +577,10 @@
     linear-gradient(to bottom, color-mix(in srgb, var(--border) 22%, transparent) 1px, transparent 1px) 0 0 / 100% 25%;
   box-shadow: none;
 }
-.header + .wrap:has(.modal-chip-overlay) .chart {
+.header + .modal-chip-reserved .chart {
   width: calc(100% - 172px);
 }
-.header + .wrap:has(.modal-chip-overlay) {
+.header + .modal-chip-reserved {
   background: var(--bg);
 }
 .modal-chip-plot {

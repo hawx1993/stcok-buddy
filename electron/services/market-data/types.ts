@@ -138,6 +138,7 @@ export interface SyncJobRecord extends MarketDataSyncStatus {
   id: string;
   status: SyncJobStatus;
   checkpointSymbol?: string;
+  checkpointAt?: string;
   errorMessage?: string;
 }
 

@@ -8,7 +8,7 @@ export interface IMarketDataCoverageSyncOptions {
 }
 
 export interface IMarketDataSyncWorkerApi {
-  runSync(force: boolean, onProgress: TMarketDataProgressListener): Promise<MarketDataSyncStatus>;
+  runSync(onProgress: TMarketDataProgressListener): Promise<MarketDataSyncStatus>;
   runCoverageSync(
     options: IMarketDataCoverageSyncOptions,
     onProgress: TMarketDataProgressListener,

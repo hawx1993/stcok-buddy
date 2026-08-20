@@ -84,8 +84,9 @@ const schemaSql = `
     target_trade_date DATE, started_at TIMESTAMP NOT NULL, finished_at TIMESTAMP,
     total_symbols INTEGER NOT NULL DEFAULT 0, processed_symbols INTEGER NOT NULL DEFAULT 0,
     succeeded_symbols INTEGER NOT NULL DEFAULT 0, failed_symbols INTEGER NOT NULL DEFAULT 0,
-    checkpoint_symbol TEXT, error_message TEXT, metadata_json TEXT
+    checkpoint_symbol TEXT, checkpoint_at TIMESTAMP, error_message TEXT, metadata_json TEXT
   );
+  ALTER TABLE sync_jobs ADD COLUMN IF NOT EXISTS checkpoint_at TIMESTAMP;
   CREATE INDEX IF NOT EXISTS idx_sync_jobs_type_started ON sync_jobs(job_type, started_at);
 
   CREATE TABLE IF NOT EXISTS sync_failures (
@@ -1083,7 +1084,10 @@ export function countDailyBarsForDate(tradeDate: string, adjustType: AdjustType 
   });
 }
 
-export function listDailyBarCoverageCandidates(targetTradeDate: string): Promise<IDailyBarCoverageCandidate[]> {
+export function listDailyBarCoverageCandidates(
+  targetTradeDate: string,
+  afterSymbol?: string,
+): Promise<IDailyBarCoverageCandidate[]> {
   return read(async (connection) => {
     const rows = await all<Record<string, unknown>>(
       connection,
@@ -1105,9 +1109,10 @@ export function listDailyBarCoverageCandidates(targetTradeDate: string): Promise
       WHERE s.status = 'listed'
         AND s.security_type = 'stock'
         AND target_bar.symbol IS NULL
+        AND ($afterSymbol IS NULL OR s.symbol > $afterSymbol)
       ORDER BY s.symbol
       `,
-      { targetTradeDate },
+      { targetTradeDate, afterSymbol: afterSymbol ?? null },
     );
     return rows.map((row) => ({
       ...toSecurityRecord(row),
@@ -1123,18 +1128,20 @@ export function createSyncJob(job: {
   totalSymbols: number;
   checkpointSymbol?: string;
 }) {
+  const now = new Date().toISOString();
   const values: Record<string, DuckDBValue> = {
     ...job,
     checkpointSymbol: job.checkpointSymbol ?? null,
-    startedAt: new Date().toISOString(),
+    checkpointAt: now,
+    startedAt: now,
   };
   return write((connection) =>
     connection
       .run(
         `
     INSERT INTO sync_jobs
-    (id, job_type, status, target_trade_date, started_at, total_symbols, checkpoint_symbol)
-    VALUES ($id, $jobType, 'running', $targetTradeDate, $startedAt, $totalSymbols, $checkpointSymbol)
+    (id, job_type, status, target_trade_date, started_at, total_symbols, checkpoint_symbol, checkpoint_at)
+    VALUES ($id, $jobType, 'running', $targetTradeDate, $startedAt, $totalSymbols, $checkpointSymbol, $checkpointAt)
   `,
         values,
       )
@@ -1150,6 +1157,7 @@ export function updateSyncJob(
     succeededSymbols: number;
     failedSymbols: number;
     checkpointSymbol: string;
+    checkpointAt: string;
     errorMessage: string;
     finishedAt: string;
     metadataJson: string;
@@ -1163,6 +1171,7 @@ export function updateSyncJob(
     succeededSymbols: 'succeeded_symbols',
     failedSymbols: 'failed_symbols',
     checkpointSymbol: 'checkpoint_symbol',
+    checkpointAt: 'checkpoint_at',
     errorMessage: 'error_message',
     finishedAt: 'finished_at',
     metadataJson: 'metadata_json',
@@ -1224,10 +1233,49 @@ export function listLatestSyncFailures() {
   });
 }
 
+export function getResumableDailySyncJob(
+  targetTradeDate: string,
+  checkpointAfter: string,
+): Promise<SyncJobRecord | undefined> {
+  return read(async (connection) => {
+    const row = (
+      await all<Record<string, unknown>>(
+        connection,
+        `
+        SELECT *
+        FROM sync_jobs
+        WHERE target_trade_date = CAST($targetTradeDate AS DATE)
+          AND job_type IN ('recent_initial', 'daily_incremental')
+          AND status IN ('running', 'cancelled')
+          AND COALESCE(checkpoint_at, started_at) >= CAST($checkpointAfter AS TIMESTAMP)
+        ORDER BY COALESCE(checkpoint_at, started_at) DESC, started_at DESC
+        LIMIT 1
+        `,
+        { targetTradeDate, checkpointAfter },
+      )
+    )[0];
+    return row ? toSyncJob(row) : undefined;
+  });
+}
+
 export function getLatestSyncJob(): Promise<SyncJobRecord | undefined> {
   return read(async (connection) => {
     const row = (
-      await all<Record<string, unknown>>(connection, 'SELECT * FROM sync_jobs ORDER BY started_at DESC LIMIT 1')
+      await all<Record<string, unknown>>(
+        connection,
+        `
+        SELECT
+          sync_jobs.*,
+          (
+            SELECT count(DISTINCT symbol)
+            FROM sync_failures
+            WHERE job_id = sync_jobs.id
+          ) AS unresolved_failed_symbols
+        FROM sync_jobs
+        ORDER BY started_at DESC
+        LIMIT 1
+        `,
+      )
     )[0];
     return row ? toSyncJob(row) : undefined;
   });
@@ -1244,7 +1292,7 @@ export function getMarketDataStats(): Promise<MarketDataStats> {
         (SELECT count(*) FROM securities) AS security_count,
         (SELECT count(*) FROM daily_bars) AS daily_bar_count,
         (SELECT max(trade_date)::VARCHAR FROM daily_bars) AS latest_trade_date,
-        (SELECT count(*) FROM sync_failures WHERE job_id = (SELECT id FROM sync_jobs ORDER BY started_at DESC LIMIT 1)) AS failed_symbols
+        (SELECT count(DISTINCT symbol) FROM sync_failures WHERE job_id = (SELECT id FROM sync_jobs ORDER BY started_at DESC LIMIT 1)) AS failed_symbols
     `,
         )
       )[0] ?? {};
@@ -1739,10 +1787,11 @@ function toSyncJob(row: Record<string, unknown>): SyncJobRecord {
     processedSymbols: Number(row.processed_symbols),
     totalSymbols: Number(row.total_symbols),
     succeededSymbols: Number(row.succeeded_symbols),
-    failedSymbols: Number(row.failed_symbols),
-    startedAt: optionalString(row.started_at),
-    finishedAt: optionalString(row.finished_at),
+    failedSymbols: Number(row.unresolved_failed_symbols ?? row.failed_symbols),
+    startedAt: optionalTimestamp(row.started_at),
+    finishedAt: optionalTimestamp(row.finished_at),
     checkpointSymbol: optionalString(row.checkpoint_symbol),
+    checkpointAt: optionalTimestamp(row.checkpoint_at),
     errorMessage: optionalString(row.error_message),
     message: optionalString(row.error_message),
   };
@@ -1766,6 +1815,10 @@ function nullableNumber(value: unknown): number | null {
 function optionalNumber(value: unknown) {
   return value === null || value === undefined ? undefined : Number(value);
 }
+function optionalTimestamp(value: unknown) {
+  return value instanceof Date ? value.toISOString() : optionalString(value);
+}
+
 function optionalString(value: unknown) {
   return value === null || value === undefined || value === '' ? undefined : String(value);
 }

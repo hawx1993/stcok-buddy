@@ -61,6 +61,14 @@ export function yearsAgo(target: string, years: number) {
   return isoDate(date);
 }
 
+export function splitSyncBatches<T>(items: readonly T[], batchSize: number): T[][] {
+  const batches: T[][] = [];
+  for (let index = 0; index < items.length; index += batchSize) {
+    batches.push(items.slice(index, index + batchSize));
+  }
+  return batches;
+}
+
 export function dayAfter(value: string) {
   const date = new Date(`${value}T12:00:00+08:00`);
   date.setDate(date.getDate() + 1);

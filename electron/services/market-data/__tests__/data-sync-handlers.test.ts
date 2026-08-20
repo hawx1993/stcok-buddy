@@ -138,7 +138,7 @@ describe('syncSurgeHistory', () => {
 
     await syncSurgeHistory();
 
-    expect(mocks.startMarketDataSync).toHaveBeenCalledWith(false);
+    expect(mocks.startMarketDataSync).toHaveBeenCalledWith();
     expect(mocks.individualChangesHistory).toHaveBeenCalledWith('600519', { days: 7 });
   });
 
@@ -148,7 +148,7 @@ describe('syncSurgeHistory', () => {
 
     await expect(syncSurgeHistory()).rejects.toThrow('本地证券列表为空');
 
-    expect(mocks.startMarketDataSync).toHaveBeenCalledWith(false);
+    expect(mocks.startMarketDataSync).toHaveBeenCalledWith();
     expect(mocks.individualChangesHistory).not.toHaveBeenCalled();
     expect(mocks.saveIndividualSurgeHistory).not.toHaveBeenCalled();
   });

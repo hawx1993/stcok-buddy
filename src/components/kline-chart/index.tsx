@@ -4,7 +4,7 @@ import { dispose, init } from 'klinecharts';
 import type { Chart, Crosshair, KLineData, Period, VisibleRange } from 'klinecharts';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { useAppDataStore } from '../../store/app-store';
-import type { KlinePoint, StockDetail, TChipDistributionPeriod } from '../../shared/types';
+import type { ChipDistribution, KlinePoint, StockDetail, TChipDistributionPeriod, TChipDistributionSource } from '../../shared/types';
 import { getMarketColors } from '../../shared/market-color';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
@@ -14,8 +14,17 @@ import { KlineHoverInfo } from './components/kline-hover-info';
 import { KlineModalFrame } from './components/kline-modal-frame';
 import { StockTimelineChart } from './components/stock-timeline-chart';
 import { getStockComputeWorker } from '../../workers/stock-compute-client';
-import { klineTimeframes } from './constants';
-import type { TimeframeId, TLoadOlderKline } from './constants';
+import {
+  getChipStateCacheKey,
+  klineTimeframes,
+  resolveChipOverlayDistribution,
+  resolveChipStateCacheEntry,
+  shouldKeepPreviousChipOverlay,
+  shouldReserveModalChipColumn,
+  shouldUseCachedChipState,
+  supportsChipDistribution,
+} from './constants';
+import type { IChipStateCacheEntry, TimeframeId, TLoadOlderKline } from './constants';
 
 type KlineStock = Pick<StockDetail, 'code' | 'name' | 'pe' | 'price'>;
 
@@ -56,6 +65,12 @@ export function StockKlineChart({
 }: StockKlineChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
+  const chipStateCacheRef = useRef<Map<string, IChipStateCacheEntry>>(new Map());
+  const lastChipOverlayRef = useRef<{
+    symbol: string;
+    distribution: ChipDistribution;
+    source?: TChipDistributionSource;
+  }>();
   const loadingMoreRef = useRef(false);
   const loadedLimitRef = useRef(0);
   const hasMoreOlderDataRef = useRef(true);
@@ -70,6 +85,7 @@ export function StockKlineChart({
   const displayedTfRef = useRef<TimeframeId>(requestedTf);
   const [displayedTf, setDisplayedTf] = useState<TimeframeId>(requestedTf);
   const isTimeline = tf === 'timeline';
+  const reserveModalChipColumn = shouldReserveModalChipColumn(tf, showIndicators, showChips, chipsOpen);
   const usesProvidedData = data.length > 0 && staticData;
   const [loadedData, setLoadedData] = useState<KlinePoint[]>(() => {
     if (usesProvidedData || (data.length > 0 && !staticData)) {
@@ -91,20 +107,40 @@ export function StockKlineChart({
   const [klineData, setKlineData] = useState<KLineData[]>([]);
   const chipPeriod = toChipPeriod(displayedTf);
   const chipsEnabled = Boolean(chipPeriod && showChips && chipsOpen);
+  const chipRequestSymbol = chipsEnabled && stock ? toKlineRequestSymbol(stock) : undefined;
   const {
+    period: chipStatePeriod,
     distribution: latestChipDistribution,
     distributions: chipDistributions,
     source: chipSource,
     loading: chipLoading,
     empty: chipEmpty,
     error: chipError,
-  } = useChipDistribution(chipsEnabled && stock ? toKlineRequestSymbol(stock) : undefined, chipPeriod, chipsEnabled);
+  } = useChipDistribution(chipRequestSymbol, chipPeriod, chipsEnabled);
   const activeKlinePoint = hoverPoint ?? chartData[chartData.length - 1];
+  const chipCacheKey = chipRequestSymbol && chipPeriod ? getChipStateCacheKey(chipRequestSymbol, chipPeriod) : undefined;
+  const cachedChipState = chipRequestSymbol && chipPeriod
+    ? resolveChipStateCacheEntry(chipStateCacheRef.current, chipRequestSymbol, chipPeriod)
+    : undefined;
+  const hasLoadedCurrentChipData = Boolean(
+    chipPeriod &&
+      (latestChipDistribution?.period === chipPeriod ||
+        chipDistributions.some((item) => item.period === chipPeriod && item.points.length)),
+  );
+  const useCachedChipState = shouldUseCachedChipState(
+    chipLoading,
+    chipPeriod,
+    chipStatePeriod,
+    hasLoadedCurrentChipData,
+  );
+  const activeChipDistributions = useCachedChipState ? (cachedChipState?.distributions ?? []) : chipDistributions;
+  const activeLatestChipDistribution = useCachedChipState ? cachedChipState?.distribution : latestChipDistribution;
+  const activeChipSource = useCachedChipState ? cachedChipState?.source : chipSource;
   const periodChipDistributions = chipPeriod
-    ? chipDistributions.filter((item) => item.period === chipPeriod && item.points.length)
+    ? activeChipDistributions.filter((item) => item.period === chipPeriod && item.points.length)
     : [];
   const latestPeriodChipDistribution =
-    chipPeriod && latestChipDistribution?.period === chipPeriod ? latestChipDistribution : undefined;
+    chipPeriod && activeLatestChipDistribution?.period === chipPeriod ? activeLatestChipDistribution : undefined;
   const chipSelection =
     hoverPoint && chipPeriod
       ? selectChipDistributionForKline(
@@ -120,6 +156,29 @@ export function StockKlineChart({
     chipSelection.matchesHoveredKline && hoverPoint
       ? hoverPoint.close
       : chartData[chartData.length - 1]?.close ?? activeKlinePoint?.close;
+  const previousChipOverlay =
+    lastChipOverlayRef.current?.symbol === chipRequestSymbol ? lastChipOverlayRef.current : undefined;
+  const chipOverlayLoading = shouldKeepPreviousChipOverlay(chipLoading, chipsEnabled, chipPeriod, chipStatePeriod);
+  const displayedChipDistribution = resolveChipOverlayDistribution(
+    chipDistribution,
+    previousChipOverlay?.distribution,
+    chipOverlayLoading,
+  );
+  const displayedChipSource = chipDistribution ? activeChipSource : previousChipOverlay?.source;
+
+  useEffect(() => {
+    if (!chipCacheKey || chipStatePeriod !== chipPeriod || !hasLoadedCurrentChipData) return;
+    chipStateCacheRef.current.set(chipCacheKey, {
+      distribution: latestPeriodChipDistribution,
+      distributions: periodChipDistributions,
+      source: chipSource,
+    });
+  }, [chipCacheKey, chipPeriod, chipSource, chipStatePeriod, hasLoadedCurrentChipData, latestPeriodChipDistribution, periodChipDistributions]);
+
+  useEffect(() => {
+    if (!chipDistribution || !chipRequestSymbol) return;
+    lastChipOverlayRef.current = { symbol: chipRequestSymbol, distribution: chipDistribution, source: activeChipSource };
+  }, [activeChipSource, chipDistribution, chipRequestSymbol]);
 
   useEffect(() => {
     const preparedData = preparedKlineDataRef.current;
@@ -298,7 +357,7 @@ export function StockKlineChart({
           tickLine: { show: false },
           tickText: { show: true, color: 'rgba(148, 163, 184, 0.78)', size: 10, marginStart: 4, marginEnd: 4 },
         },
-        yAxis: getYAxisStyles(showIndicators && chipsEnabled),
+        yAxis: getYAxisStyles(reserveModalChipColumn),
         separator: { size: 1, color: 'rgba(148, 163, 184, 0.12)' },
       },
     });
@@ -367,18 +426,18 @@ export function StockKlineChart({
       chartRef.current = null;
       setChartInstance(null);
     };
-  }, [isTimeline, requestOlderData, showLegend, showIndicators, chipsEnabled]);
+  }, [isTimeline, requestOlderData, reserveModalChipColumn, showLegend]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     chart.setStyles({
       ...getKlineStyles(marketColors),
-      yAxis: getYAxisStyles(showIndicators && chipsEnabled),
+      yAxis: getYAxisStyles(reserveModalChipColumn),
     });
     chart.setRightMinVisibleBarCount(2);
     chart.resize();
-  }, [marketColors, showIndicators, chipsEnabled]);
+  }, [marketColors, reserveModalChipColumn]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -407,12 +466,12 @@ export function StockKlineChart({
     chart.removeIndicator();
     chart.createIndicator('MA', { isStack: true, pane: { id: 'candle_pane' } });
     if (showIndicators) {
-      chart.createIndicator('VOL', { pane: { height: 96 } });
+      chart.createIndicator({ name: 'VOL', styles: getVolumeIndicatorStyles(marketColors) }, { pane: { height: 96 } });
       chart.createIndicator('MACD', { pane: { height: 96 } });
     }
     chart.resize();
     setChipLayoutVersion((value) => value + 1);
-  }, [frame.period, klineData, showIndicators, staticData, stock?.code, stock?.name]);
+  }, [frame.period, klineData, marketColors, showIndicators, staticData, stock?.code, stock?.name]);
 
   const setTimeframe = (next: TimeframeId) => {
     setLocalTf(next);
@@ -442,7 +501,7 @@ export function StockKlineChart({
   }
 
   return (
-    <div className={cx(styles.wrap, className)} style={{ height }}>
+    <div className={cx(styles.wrap, reserveModalChipColumn && styles['modal-chip-reserved'], className)} style={{ height }}>
       <div className={styles.chart} ref={hostRef} />
       {hoverPoint ? (
         <KlineHoverInfo
@@ -453,22 +512,22 @@ export function StockKlineChart({
           period={frame.period}
         />
       ) : null}
-      {chipDistribution && chartInstance && activeKlinePoint ? (
+      {displayedChipDistribution && chartInstance && activeKlinePoint ? (
         <ChipOverlay
-          chips={chipDistribution}
+          chips={displayedChipDistribution}
           chart={chartInstance}
           currentPrice={chipCurrentPrice ?? activeKlinePoint.close}
           layoutVersion={chipLayoutVersion}
           profitColor={marketColors.upColor}
           trappedColor={marketColors.downColor}
-          source={chipSource}
+          source={displayedChipSource}
           showSummary={showIndicators}
           showPriceAxis={showIndicators}
         />
       ) : null}
-      {chipsEnabled && hoverPoint && !chipDistribution && !chipLoading ? (
+      {chipsEnabled && hoverPoint && !chipDistribution && !chipOverlayLoading ? (
         <div className={styles['chip-state']}>该K线暂无筹码数据</div>
-      ) : chipsEnabled && !latestPeriodChipDistribution && !chipLoading ? (
+      ) : chipsEnabled && !latestPeriodChipDistribution && !chipOverlayLoading ? (
         <div className={styles['chip-state']} title={chipError}>
           {chipError ? '筹码数据暂不可用' : chipEmpty ? '暂无筹码数据' : '暂无筹码数据'}
         </div>
@@ -537,10 +596,7 @@ function toKlineRequestSymbol(stock: KlineStock) {
 }
 
 function toChipPeriod(timeframe: TimeframeId): TChipDistributionPeriod | undefined {
-  if (timeframe === '15m' || timeframe === '1h' || timeframe === '1d' || timeframe === '1w' || timeframe === '1mo') {
-    return timeframe;
-  }
-  return undefined;
+  return supportsChipDistribution(timeframe) ? timeframe : undefined;
 }
 
 function resolveMouseIndex(chart: Chart, host: HTMLDivElement | null, event: MouseEvent) {
@@ -602,5 +658,17 @@ function getKlineStyles({ upColor, downColor }: ReturnType<typeof getMarketColor
       priceMark: { last: { upColor, downColor, noChangeColor: upColor } },
     },
     indicator: { ohlc: { upColor, downColor, noChangeColor: upColor } },
+  };
+}
+
+function getVolumeIndicatorStyles({ upColor, downColor }: ReturnType<typeof getMarketColors>) {
+  return {
+    bars: [
+      {
+        upColor,
+        downColor,
+        noChangeColor: upColor,
+      },
+    ],
   };
 }

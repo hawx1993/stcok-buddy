@@ -97,7 +97,7 @@ async function runSurgeHistorySync() {
     // Phase 2: sync individual stock surge history for every listed stock.
     let securities = await listSecurities();
     if (!securities.length) {
-      await startMarketDataSync(false);
+      await startMarketDataSync();
       securities = await listSecurities();
     }
     if (!securities.length) {

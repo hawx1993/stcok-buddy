@@ -87,24 +87,33 @@ export function findChipDistributionByDate(
       if (matched) return matched;
     }
     const targetMinute = normalizeChipMinute(value);
-    const matched = targetMinute ? distributions.find((item) => normalizeChipMinute(item.date) === targetMinute) : undefined;
+    const matched = targetMinute
+      ? distributions.find((item) => normalizeChipMinute(item.date) === targetMinute)
+      : undefined;
     if (matched) return matched;
-    const dailyMatched = findDailyChipDistribution(distributions, value);
-    if (dailyMatched || period === '1h') return dailyMatched;
-    const comparableTimestamp = targetTimestamp ?? parseChipMinuteTimestamp(value);
-    return comparableTimestamp === undefined
-      ? undefined
-      : findNearestMinuteChipDistribution(distributions, comparableTimestamp, 15 * 60_000);
+    const targetDate = normalizeChipDate(value) ?? normalizeChipDateFromTimestamp(targetTimestamp);
+    const dailyMatched = findDailyChipDistribution(distributions, targetDate);
+    if (dailyMatched) return dailyMatched;
+    const comparableTimestamp = targetTimestamp ?? parseChipMinuteTimestamp(value) ?? parseChipDateTimestamp(targetDate);
+    if (comparableTimestamp === undefined) return undefined;
+    const nearestMinuteMatched = period === '15m' ? findNearestMinuteChipDistribution(distributions, comparableTimestamp, 15 * 60_000) : undefined;
+    return nearestMinuteMatched ?? findLatestChipDistributionAtOrBefore(distributions, comparableTimestamp);
   }
-  const target = normalizeChipDate(value);
+  const target = normalizeChipDate(value) ?? normalizeChipDateFromTimestamp(timestamp);
   if (!target) return undefined;
   const matched = distributions.find((item) => normalizeChipDate(item.date) === target);
   if (matched) return matched;
   if (period === '1w') {
-    const targetWeek = normalizeChipWeek(value);
-    return targetWeek ? findChipDistributionByWeek(distributions, targetWeek) : undefined;
+    const targetWeek = normalizeChipWeek(target);
+    const weekMatched = targetWeek ? findChipDistributionByWeek(distributions, targetWeek, target) : undefined;
+    if (weekMatched) return weekMatched;
   }
-  return period === '1mo' ? findChipDistributionByMonth(distributions, target) : undefined;
+  if (period === '1mo') {
+    const monthMatched = findChipDistributionByMonth(distributions, target);
+    if (monthMatched) return monthMatched;
+  }
+  const comparableTimestamp = normalizeChipTimestamp(timestamp) ?? parseChipDateTimestamp(target);
+  return comparableTimestamp === undefined ? undefined : findLatestChipDistributionAtOrBefore(distributions, comparableTimestamp);
 }
 
 export function selectChipDistributionForKline(
@@ -121,16 +130,16 @@ export function selectChipDistributionForKline(
   };
 }
 
-function findDailyChipDistribution(distributions: ChipDistribution[], value: string | undefined) {
-  const target = normalizeChipDate(value);
+function findDailyChipDistribution(distributions: ChipDistribution[], target: string | undefined) {
   return target
     ? distributions.find((item) => !normalizeChipMinute(item.date) && normalizeChipDate(item.date) === target)
     : undefined;
 }
 
-function findChipDistributionByWeek(distributions: ChipDistribution[], targetWeek: string) {
+function findChipDistributionByWeek(distributions: ChipDistribution[], targetWeek: string, target: string) {
   for (let index = distributions.length - 1; index >= 0; index -= 1) {
-    if (normalizeChipWeek(distributions[index].date) === targetWeek) return distributions[index];
+    const distributionDate = normalizeChipDate(distributions[index].date);
+    if (distributionDate && distributionDate <= target && normalizeChipWeek(distributionDate) === targetWeek) return distributions[index];
   }
   return undefined;
 }
@@ -139,7 +148,7 @@ function findChipDistributionByMonth(distributions: ChipDistribution[], target: 
   const month = target.slice(0, 6);
   for (let index = distributions.length - 1; index >= 0; index -= 1) {
     const distributionDate = normalizeChipDate(distributions[index].date);
-    if (distributionDate?.slice(0, 6) === month) return distributions[index];
+    if (distributionDate && distributionDate <= target && distributionDate.slice(0, 6) === month) return distributions[index];
   }
   return undefined;
 }
@@ -151,7 +160,7 @@ function findNearestMinuteChipDistribution(
 ) {
   let nearest: { distribution: ChipDistribution; distance: number } | undefined;
   for (const distribution of distributions) {
-    const distributionTimestamp = normalizeChipTimestamp(distribution.timestamp) ?? parseChipMinuteTimestamp(distribution.date);
+    const distributionTimestamp = getChipDistributionTimestamp(distribution);
     if (distributionTimestamp === undefined) continue;
     const distance = Math.abs(distributionTimestamp - targetTimestamp);
     if (!nearest || distance < nearest.distance) nearest = { distribution, distance };
@@ -159,12 +168,34 @@ function findNearestMinuteChipDistribution(
   return nearest && nearest.distance <= maxDistanceMs ? nearest.distribution : undefined;
 }
 
+function findLatestChipDistributionAtOrBefore(distributions: ChipDistribution[], targetTimestamp: number) {
+  let latest: { distribution: ChipDistribution; timestamp: number } | undefined;
+  for (const distribution of distributions) {
+    const distributionTimestamp = getChipDistributionTimestamp(distribution);
+    if (distributionTimestamp === undefined || distributionTimestamp > targetTimestamp) continue;
+    if (!latest || distributionTimestamp > latest.timestamp) latest = { distribution, timestamp: distributionTimestamp };
+  }
+  return latest?.distribution;
+}
+
+function getChipDistributionTimestamp(distribution: ChipDistribution) {
+  return normalizeChipTimestamp(distribution.timestamp) ?? parseChipMinuteTimestamp(distribution.date) ?? parseChipDateTimestamp(distribution.date);
+}
+
 function normalizeChipTimestamp(value: number | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function normalizeChipDateFromTimestamp(value: number | undefined) {
+  const timestamp = normalizeChipTimestamp(value);
+  if (timestamp === undefined) return undefined;
+  return new Date(timestamp + 8 * 60 * 60_000).toISOString().slice(0, 10).replace(/-/g, '');
+}
+
 function normalizeChipMinute(value: string | undefined) {
-  const digits = String(value ?? '').replace(/\D/g, '').slice(0, 12);
+  const digits = String(value ?? '')
+    .replace(/\D/g, '')
+    .slice(0, 12);
   return digits.length === 12 ? digits : undefined;
 }
 
@@ -189,6 +220,18 @@ function parseChipMinuteTimestamp(value: string | undefined) {
   return utcTimestamp - 8 * 60 * 60_000;
 }
 
+function parseChipDateTimestamp(value: string | undefined) {
+  const target = normalizeChipDate(value);
+  if (!target) return undefined;
+  const year = Number(target.slice(0, 4));
+  const month = Number(target.slice(4, 6));
+  const day = Number(target.slice(6, 8));
+  const utcTimestamp = Date.UTC(year, month - 1, day);
+  const date = new Date(utcTimestamp);
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return undefined;
+  return utcTimestamp - 8 * 60 * 60_000;
+}
+
 function normalizeChipWeek(value: string | undefined) {
   const date = normalizeChipDate(value);
   if (!date) return undefined;
@@ -196,12 +239,15 @@ function normalizeChipWeek(value: string | undefined) {
   const month = Number(date.slice(4, 6));
   const day = Number(date.slice(6, 8));
   const monday = new Date(Date.UTC(year, month - 1, day));
-  if (monday.getUTCFullYear() !== year || monday.getUTCMonth() !== month - 1 || monday.getUTCDate() !== day) return undefined;
+  if (monday.getUTCFullYear() !== year || monday.getUTCMonth() !== month - 1 || monday.getUTCDate() !== day)
+    return undefined;
   monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
   return monday.toISOString().slice(0, 10);
 }
 
 function normalizeChipDate(value: string | undefined) {
-  const digits = String(value ?? '').replace(/\D/g, '').slice(0, 8);
+  const digits = String(value ?? '')
+    .replace(/\D/g, '')
+    .slice(0, 8);
   return digits.length === 8 ? digits : undefined;
 }

@@ -74,13 +74,14 @@ describe('market data sync worker client', () => {
   it('passes the progress callback and market database path to the worker', async () => {
     const listener = vi.fn();
 
-    await runMarketDataSyncInWorker(true, listener);
+    await runMarketDataSyncInWorker(listener);
 
+    expect(workerMocks.instances[0]?.filename).toMatch(/market-data-sync\.worker\.js$/);
     expect(workerMocks.instances[0]?.options?.env?.STOCKSENSE_MARKET_DB_PATH).toBe(
       '/tmp/stocksense-market-worker-test.duckdb',
     );
     expect(comlinkMocks.proxy).toHaveBeenCalledWith(listener);
-    expect(comlinkMocks.api.runSync).toHaveBeenCalledWith(true, listener);
+    expect(comlinkMocks.api.runSync).toHaveBeenCalledWith(listener);
     expect(comlinkMocks.api.runSync).not.toHaveBeenCalledWith(
       expect.objectContaining({ force: true, onProgress: listener }),
     );

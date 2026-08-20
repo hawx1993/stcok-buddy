@@ -148,6 +148,9 @@ describe('市场数据 DuckDB 存储', () => {
       expect.objectContaining({ symbol: '000001', latestTradeDate: '2026-07-09' }),
       expect.objectContaining({ symbol: '300001', latestTradeDate: undefined }),
     ]);
+    expect(await currentStore.listDailyBarCoverageCandidates('2026-07-10', '000001')).toEqual([
+      expect.objectContaining({ symbol: '300001', latestTradeDate: undefined }),
+    ]);
   });
 
   it('可以按日期范围读取交易日历', async () => {
@@ -539,6 +542,7 @@ describe('市场数据 DuckDB 存储', () => {
       succeededSymbols: 1,
       failedSymbols: 1,
       checkpointSymbol: '600519',
+      checkpointAt: '2026-07-09T10:10:00.000Z',
       errorMessage: 'offline',
       finishedAt: '2026-07-09T10:10:00.000Z',
     });
@@ -553,6 +557,7 @@ describe('市场数据 DuckDB 存储', () => {
       succeededSymbols: 1,
       failedSymbols: 1,
       checkpointSymbol: '600519',
+      checkpointAt: '2026-07-09T10:10:00.000Z',
       errorMessage: 'offline',
     });
     expect(await currentStore.listLatestSyncFailures()).toEqual([{ jobId: 'job-1', symbol: '000001', stage: 'daily' }]);
@@ -568,6 +573,105 @@ describe('市场数据 DuckDB 存储', () => {
 
     await currentStore.clearSyncFailure('job-1', '000001', 'daily');
     expect(await currentStore.listLatestSyncFailures()).toEqual([]);
+  });
+
+  it('按未解决唯一股票数统计同步失败', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('market data store not loaded');
+
+    await currentStore.createSyncJob({
+      id: 'job-failures',
+      jobType: 'daily_incremental',
+      targetTradeDate: '2026-07-10',
+      totalSymbols: 2,
+    });
+    await currentStore.updateSyncJob('job-failures', { status: 'partial', failedSymbols: 3 });
+    await currentStore.recordSyncFailure('job-failures', '000001', 'daily-bars', 'daily bars offline');
+    await currentStore.recordSyncFailure('job-failures', '000001', 'fund-flow', 'fund flow offline');
+    await currentStore.recordSyncFailure('job-failures', '600519', 'daily-bars', 'daily bars offline');
+
+    expect(await currentStore.getLatestSyncJob()).toMatchObject({
+      id: 'job-failures',
+      failedSymbols: 2,
+    });
+    await expect(currentStore.getMarketDataStats()).resolves.toMatchObject({ failedSymbols: 2 });
+
+    await currentStore.clearSyncFailure('job-failures', '000001', 'daily-bars');
+    expect(await currentStore.getLatestSyncJob()).toMatchObject({ failedSymbols: 2 });
+    await expect(currentStore.getMarketDataStats()).resolves.toMatchObject({ failedSymbols: 2 });
+
+    await currentStore.clearSyncFailure('job-failures', '000001', 'fund-flow');
+    expect(await currentStore.getLatestSyncJob()).toMatchObject({ failedSymbols: 1 });
+    await expect(currentStore.getMarketDataStats()).resolves.toMatchObject({ failedSymbols: 1 });
+  });
+
+  it('只返回目标交易日内 24 小时安全检查点后的可恢复任务', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('market data store not loaded');
+
+    const now = Date.now();
+    const checkpointAfter = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+    const currentCheckpoint = new Date(now - 60_000).toISOString();
+    const expiredCheckpoint = new Date(now - 25 * 60 * 60 * 1000).toISOString();
+
+    await currentStore.createSyncJob({
+      id: 'expired-job',
+      jobType: 'daily_incremental',
+      targetTradeDate: '2026-07-10',
+      totalSymbols: 10,
+    });
+    await currentStore.updateSyncJob('expired-job', {
+      status: 'cancelled',
+      checkpointSymbol: '000010',
+      checkpointAt: expiredCheckpoint,
+    });
+    await currentStore.createSyncJob({
+      id: 'other-day-job',
+      jobType: 'daily_incremental',
+      targetTradeDate: '2026-07-09',
+      totalSymbols: 10,
+    });
+    await currentStore.updateSyncJob('other-day-job', {
+      status: 'cancelled',
+      checkpointSymbol: '000010',
+      checkpointAt: currentCheckpoint,
+    });
+
+    expect(await currentStore.getResumableDailySyncJob('2026-07-10', checkpointAfter)).toBeUndefined();
+
+    await currentStore.createSyncJob({
+      id: 'running-job',
+      jobType: 'recent_initial',
+      targetTradeDate: '2026-07-10',
+      totalSymbols: 10,
+    });
+    await currentStore.updateSyncJob('running-job', {
+      checkpointSymbol: '000020',
+      checkpointAt: currentCheckpoint,
+    });
+    expect(await currentStore.getResumableDailySyncJob('2026-07-10', checkpointAfter)).toMatchObject({
+      id: 'running-job',
+      status: 'running',
+      checkpointSymbol: '000020',
+    });
+
+    await currentStore.updateSyncJob('running-job', { status: 'completed' });
+    await currentStore.createSyncJob({
+      id: 'cancelled-job',
+      jobType: 'daily_incremental',
+      targetTradeDate: '2026-07-10',
+      totalSymbols: 10,
+    });
+    await currentStore.updateSyncJob('cancelled-job', {
+      status: 'cancelled',
+      checkpointSymbol: '000030',
+      checkpointAt: currentCheckpoint,
+    });
+    expect(await currentStore.getResumableDailySyncJob('2026-07-10', checkpointAfter)).toMatchObject({
+      id: 'cancelled-job',
+      status: 'cancelled',
+      checkpointSymbol: '000030',
+    });
   });
 });
 

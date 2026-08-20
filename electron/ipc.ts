@@ -284,7 +284,7 @@ export function registerIpcHandlers() {
   });
   ipcMain.handle('marketData:startSync', async () => {
     await ensureMarketDataRuntime();
-    return startMarketDataSync(true);
+    return startMarketDataSync();
   });
   ipcMain.handle('marketData:retryFailures', async () => {
     await ensureMarketDataRuntime();
@@ -298,11 +298,7 @@ export function registerIpcHandlers() {
   // Data sync handlers
   ipcMain.handle('dataSync:syncKlines', async () => {
     await ensureMarketDataRuntime();
-    const status = await getMarketDataSyncStatus();
-    if (status.state === 'checking' || status.state === 'initializing' || status.state === 'syncing') {
-      return startMarketDataSync(false);
-    }
-    return startMarketDataSync(true);
+    return startMarketDataSync();
   });
   ipcMain.handle('dataSync:syncSurgeHistory', () => syncSurgeHistory());
   ipcMain.handle('dataSync:syncStockDetails', () => syncStockDetails());

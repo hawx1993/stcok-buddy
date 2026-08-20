@@ -9,9 +9,9 @@ import {
   runMarketDataSyncInWorker,
 } from './market-data-sync-worker-client.js';
 import type { IMarketDataCoverageSyncOptions } from './market-data-sync-worker-types.js';
-import type { MarketDataSyncStatus } from './types.js';
+import type { MarketDataSyncStatus, SyncJobRecord } from './types.js';
 
-const FORCE_SYNC_COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12h
+const RESUME_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 let currentSync: Promise<MarketDataSyncStatus> | undefined;
 let stopRequested = false;
@@ -28,6 +28,16 @@ export async function getMarketDataSyncStatus(): Promise<MarketDataSyncStatus> {
   if (currentSync) return memoryStatus;
   const latest = await getLatestSyncJob();
   const latestLocalTradeDate = await getLatestTradeDate();
+  if (latest && isInterruptedDailySyncJob(latest)) {
+    return {
+      ...idleStatus(),
+      failedSymbols: latest.failedSymbols,
+      latestLocalTradeDate,
+      message: isCheckpointResumable(latest)
+        ? '上次同步未完成，点击立即同步将从检查点继续'
+        : '上次同步已超过 24 小时，本次将重新检查缺口',
+    };
+  }
   if (latest?.status === 'running') {
     return {
       ...idleStatus(),
@@ -41,49 +51,17 @@ export async function getMarketDataSyncStatus(): Promise<MarketDataSyncStatus> {
     : { ...idleStatus(), latestLocalTradeDate };
 }
 
-export async function startMarketDataSync(force = false) {
-  // 手动强制同步 12h 冷却，防止频繁触发被上游限频。自动同步 force=false 不受冷却影响。
-  if (force) {
-    const lastJob = await getLatestSyncJob();
-    if (lastJob?.finishedAt) {
-      const elapsed = Date.now() - new Date(lastJob.finishedAt).getTime();
-      if (elapsed < FORCE_SYNC_COOLDOWN_MS) {
-        const remaining = Math.ceil((FORCE_SYNC_COOLDOWN_MS - elapsed) / 3600_000);
-        const msg = `日K线同步已完成，${remaining} 小时后可再次同步`;
-        const status: MarketDataSyncStatus = {
-          ...memoryStatus,
-          state: 'idle' as const,
-          message: msg,
-        };
-        updateMemory(status);
-        return status;
-      }
-    }
-  }
-
-  if (currentSync) {
-    if (!force) return currentSync;
-    const chained = currentSync
-      .catch(() => undefined)
-      .then(() => {
-        if (currentSync) return currentSync;
-        stopRequested = false;
-        currentSync = runSyncInWorker(true).finally(() => {
-          currentSync = undefined;
-        });
-        return currentSync;
-      });
-    return chained;
-  }
+export function startMarketDataSync() {
+  if (currentSync) return currentSync;
   stopRequested = false;
-  currentSync = runSyncInWorker(force).finally(() => {
+  currentSync = runSyncInWorker().finally(() => {
     currentSync = undefined;
   });
   return currentSync;
 }
 
 /**
- * 为 Agent 补齐指定已收盘交易日的数据覆盖度。与手动强制全量同步不同，
+ * 为 Agent 补齐指定已收盘交易日的数据覆盖度。与手动增量同步一致，
  * 此路径只处理 DuckDB 中缺少目标日 qfq 日K的股票。
  */
 export async function ensureMarketDataCoverage(
@@ -146,7 +124,7 @@ export async function determineTargetTradeDate(now = new Date()) {
   return resolveTradingDate(15 * 60 + 30, now);
 }
 
-async function runSyncInWorker(force: boolean): Promise<MarketDataSyncStatus> {
+async function runSyncInWorker(): Promise<MarketDataSyncStatus> {
   updateMemory({
     ...idleStatus(),
     state: 'checking',
@@ -154,7 +132,7 @@ async function runSyncInWorker(force: boolean): Promise<MarketDataSyncStatus> {
     message: '正在确定目标交易日…',
   });
   try {
-    const result = await runMarketDataSyncInWorker(force, updateMemory);
+    const result = await runMarketDataSyncInWorker(updateMemory);
     if (stopRequested) return memoryStatus;
     if (result.backfillPending) queueHistoricalBackfill();
     return result;
@@ -234,6 +212,20 @@ async function runRepairInWorker(): Promise<MarketDataSyncStatus> {
     updateMemory(failed);
     throw error;
   }
+}
+
+function isInterruptedDailySyncJob(job: SyncJobRecord) {
+  return (
+    (job.status === 'running' || job.status === 'cancelled') &&
+    (job.jobType === 'recent_initial' || job.jobType === 'daily_incremental')
+  );
+}
+
+function isCheckpointResumable(job: SyncJobRecord) {
+  const checkpointAt = job.checkpointAt ?? job.startedAt;
+  if (!checkpointAt) return false;
+  const checkpointTime = Date.parse(checkpointAt);
+  return Number.isFinite(checkpointTime) && Date.now() - checkpointTime <= RESUME_WINDOW_MS;
 }
 
 function updateMemory(status: MarketDataSyncStatus) {

@@ -15,7 +15,7 @@ let api: Remote<IMarketDataSyncWorkerApi> | undefined;
 
 function getMarketDataSyncWorker(): Remote<IMarketDataSyncWorkerApi> {
   if (!api) {
-    worker = new Worker(fileURLToPath(new URL('./market-data-sync.worker', import.meta.url)), {
+    worker = new Worker(fileURLToPath(new URL('./market-data-sync.worker.js', import.meta.url)), {
       env: {
         ...process.env,
         STOCKSENSE_MARKET_DB_PATH: getMarketDataDatabasePath(),
@@ -31,10 +31,9 @@ function getMarketDataSyncWorker(): Remote<IMarketDataSyncWorkerApi> {
 }
 
 export function runMarketDataSyncInWorker(
-  force: boolean,
   onProgress: TMarketDataProgressListener,
 ): Promise<MarketDataSyncStatus> {
-  return getMarketDataSyncWorker().runSync(force, proxy(onProgress));
+  return getMarketDataSyncWorker().runSync(proxy(onProgress));
 }
 
 export function runMarketDataCoverageSyncInWorker(
