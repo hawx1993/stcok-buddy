@@ -8,7 +8,7 @@ import { setBuiltInSlashItems } from './components/thinking-steps';
 import { MessageBubble } from './components/message-bubble';
 import { QuickEntry } from './components/quick-entry';
 import { ConditionScreenerPicker } from './components/condition-screener-picker';
-import { SlashCommandMenu } from './components/slash-command-menu';
+import { getNextSlashIndex, SlashCommandMenu } from './components/slash-command-menu';
 import { findSearchTargetMessageId } from './components/search-highlight';
 import { AppStoreBar } from './components/app-store-bar';
 import { AppStoreModal } from './components/app-store-modal';
@@ -140,7 +140,7 @@ export function ChatView() {
   const rootRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
-  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState<number>();
   const [storeOpen, setStoreOpen] = useState(false);
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [installedStoreItems, setInstalledStoreItems] = useState<string[]>([]);
@@ -303,11 +303,11 @@ export function ChatView() {
   const activeCommand = slashItems.find((item) => input.startsWith(`${item.command} `));
   const commandArg = activeCommand ? input.slice(activeCommand.command.length + 1) : '';
 
-  const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
-    if (item) {
-      trackButtonClick('select_slash_command', { command: item.command });
-      setInput(`${item.command} `);
-    }
+  const selectSlashItem = (item: (typeof slashItems)[number] | undefined) => {
+    if (!item) return;
+    trackButtonClick('select_slash_command', { command: item.command });
+    setInput(`${item.command} `);
+    setSelectedSlashIndex(undefined);
   };
 
   const submitComposerInput = useCallback(
@@ -315,7 +315,7 @@ export function ChatView() {
       const trimmed = text.trim();
       if (!trimmed || isSending) return;
       setInput('');
-      setSelectedSlashIndex(0);
+      setSelectedSlashIndex(undefined);
       void send(trimmed);
     },
     [isSending, send],
@@ -415,7 +415,7 @@ export function ChatView() {
                 value={input}
                 onCommandChange={(command) => {
                   setInput(command);
-                  setSelectedSlashIndex(0);
+                  setSelectedSlashIndex(undefined);
                 }}
                 onRequestInputFocus={() => composerInputRef.current?.focus()}
               />
@@ -425,7 +425,10 @@ export function ChatView() {
                     <button
                       className='command-chip'
                       title={activeCommand.description}
-                      onClick={() => setInput('/')}
+                      onClick={() => {
+                        setInput('/');
+                        setSelectedSlashIndex(undefined);
+                      }}
                       type='button'
                     >
                       <span className='slash-icon'>/</span>
@@ -451,21 +454,26 @@ export function ChatView() {
                   <input
                     ref={composerInputRef}
                     value={input}
-                    onChange={(event) => setInput(event.target.value)}
+                    onChange={(event) => {
+                      setInput(event.target.value);
+                      setSelectedSlashIndex(undefined);
+                    }}
                     onKeyDown={(event) => {
                       if (slashOpen && event.key === 'Enter') {
                         event.preventDefault();
-                        selectSlashItem();
+                        selectSlashItem(
+                          selectedSlashIndex === undefined ? undefined : slashItems[selectedSlashIndex],
+                        );
                         return;
                       }
                       if (slashOpen && event.key === 'ArrowDown') {
                         event.preventDefault();
-                        setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1));
+                        setSelectedSlashIndex((value) => getNextSlashIndex(value, slashItems.length, 'next'));
                         return;
                       }
                       if (slashOpen && event.key === 'ArrowUp') {
                         event.preventDefault();
-                        setSelectedSlashIndex((value) => Math.max(value - 1, 0));
+                        setSelectedSlashIndex((value) => getNextSlashIndex(value, slashItems.length, 'previous'));
                         return;
                       }
                       if (event.key === 'Enter') submitComposerInput(input);

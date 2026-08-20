@@ -18,6 +18,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import {
   conditionScreenerParameters,
@@ -39,6 +40,126 @@ interface IConditionScreenerPickerProps {
 }
 
 type TConditionScreenerPanelTab = 'parameters' | 'presets';
+
+const conditionScreenerParticles = [
+  'north',
+  'east',
+  'cursor-a',
+  'south',
+  'cursor-b',
+  'soft',
+  'west',
+  'cursor-c',
+  'upper',
+  'ember',
+  'cursor-d',
+  'lower',
+  'tiny',
+  'cursor-e',
+  'deep',
+  'cursor-f',
+] as const;
+
+interface IConditionScreenerPointerState {
+  currentX: number;
+  currentY: number;
+  targetX: number;
+  targetY: number;
+  rafId: number | null;
+  isLeaving: boolean;
+}
+
+const conditionScreenerPointerStates = new WeakMap<HTMLButtonElement, IConditionScreenerPointerState>();
+
+const renderConditionScreenerParticles = () => (
+  <span aria-hidden='true' className={styles['condition-screener-particles']}>
+    {conditionScreenerParticles.map((particle) => (
+      <span className={styles['condition-screener-particle']} key={particle} />
+    ))}
+  </span>
+);
+
+const setConditionScreenerPointerVars = (element: HTMLButtonElement, x: number, y: number) => {
+  element.style.setProperty('--condition-screener-pointer-x', `${x.toFixed(1)}px`);
+  element.style.setProperty('--condition-screener-pointer-y', `${y.toFixed(1)}px`);
+};
+
+const scheduleConditionScreenerPointerFrame = (
+  element: HTMLButtonElement,
+  state: IConditionScreenerPointerState,
+) => {
+  if (state.rafId !== null) return;
+
+  const animate = () => {
+    state.rafId = null;
+    if (!element.isConnected) {
+      conditionScreenerPointerStates.delete(element);
+      return;
+    }
+
+    const deltaX = state.targetX - state.currentX;
+    const deltaY = state.targetY - state.currentY;
+    if (Math.abs(deltaX) <= 0.35 && Math.abs(deltaY) <= 0.35) {
+      state.currentX = state.targetX;
+      state.currentY = state.targetY;
+      setConditionScreenerPointerVars(element, state.currentX, state.currentY);
+      if (state.isLeaving) {
+        element.style.removeProperty('--condition-screener-pointer-x');
+        element.style.removeProperty('--condition-screener-pointer-y');
+        conditionScreenerPointerStates.delete(element);
+      }
+      return;
+    }
+
+    state.currentX += deltaX * 0.16;
+    state.currentY += deltaY * 0.16;
+    setConditionScreenerPointerVars(element, state.currentX, state.currentY);
+    state.rafId = window.requestAnimationFrame(animate);
+  };
+
+  state.rafId = window.requestAnimationFrame(animate);
+};
+
+const setConditionScreenerParticlePointer = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const { clientX, clientY, currentTarget } = event;
+  const rect = currentTarget.getBoundingClientRect();
+  const targetX = clientX - rect.left;
+  const targetY = clientY - rect.top;
+  let state = conditionScreenerPointerStates.get(currentTarget);
+
+  if (!state) {
+    state = {
+      currentX: rect.width / 2,
+      currentY: rect.height / 2,
+      targetX,
+      targetY,
+      rafId: null,
+      isLeaving: false,
+    };
+    conditionScreenerPointerStates.set(currentTarget, state);
+  }
+
+  state.targetX = targetX;
+  state.targetY = targetY;
+  state.isLeaving = false;
+  scheduleConditionScreenerPointerFrame(currentTarget, state);
+};
+
+const resetConditionScreenerParticlePointer = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const { currentTarget } = event;
+  const state = conditionScreenerPointerStates.get(currentTarget);
+  if (!state) {
+    currentTarget.style.removeProperty('--condition-screener-pointer-x');
+    currentTarget.style.removeProperty('--condition-screener-pointer-y');
+    return;
+  }
+
+  const rect = currentTarget.getBoundingClientRect();
+  state.targetX = rect.width / 2;
+  state.targetY = rect.height / 2;
+  state.isLeaving = true;
+  scheduleConditionScreenerPointerFrame(currentTarget, state);
+};
 
 const parameterIcons: Record<TConditionScreenerParameterId, LucideIcon> = {
   'market-scope': MapIcon,
@@ -190,8 +311,12 @@ export function ConditionScreenerPicker({
                     className={styles['condition-screener-parameter-card']}
                     key={parameter.id}
                     onClick={() => selectParameter(parameter.example)}
+                    onPointerEnter={setConditionScreenerParticlePointer}
+                    onPointerLeave={resetConditionScreenerParticlePointer}
+                    onPointerMove={setConditionScreenerParticlePointer}
                     type='button'
                   >
+                    {renderConditionScreenerParticles()}
                     <span className={styles['condition-screener-parameter-title']}>
                       <span aria-hidden='true' className={styles['condition-screener-parameter-icon']}>
                         <ParameterIcon size={16} strokeWidth={1.8} />
@@ -217,8 +342,12 @@ export function ConditionScreenerPicker({
                     className={cx(styles['condition-screener-card'], isSelected && styles.active)}
                     key={preset.id}
                     onClick={() => togglePreset(preset.id)}
+                    onPointerEnter={setConditionScreenerParticlePointer}
+                    onPointerLeave={resetConditionScreenerParticlePointer}
+                    onPointerMove={setConditionScreenerParticlePointer}
                     type='button'
                   >
+                    {renderConditionScreenerParticles()}
                     <span className={styles['condition-screener-card-title']}>
                       <span className={styles['condition-screener-card-heading']}>
                         <span aria-hidden='true' className={styles['condition-screener-preset-icon']}>

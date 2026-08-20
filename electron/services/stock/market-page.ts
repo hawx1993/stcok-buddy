@@ -364,11 +364,8 @@ export async function getMarketPageSnapshot(
   period: MarketIndexPeriod = '1d',
 ): Promise<MarketPageSnapshot> {
   const snapshot = await getMarketPageSnapshotCore(tab, period);
-  const rows = await enrichMarketPageRowsFast(snapshot.rows, tab);
-  const enrichedSnapshot = rows === snapshot.rows ? snapshot : { ...snapshot, rows };
-  if (rows !== snapshot.rows) marketPageCache.set(marketPageKey(tab, period), { snapshot: enrichedSnapshot });
-  scheduleMarketPageIndustryRefresh(enrichedSnapshot);
-  return enrichedSnapshot;
+  scheduleMarketPageIndustryRefresh(snapshot);
+  return snapshot;
 }
 
 function getCachedMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod): MarketPageSnapshot {

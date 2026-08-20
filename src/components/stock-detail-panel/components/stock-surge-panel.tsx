@@ -1,6 +1,6 @@
 import { ConfigProvider, Select } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Filter } from 'lucide-react';
+import { Activity, Filter, RefreshCw } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { HotFocusItem, StockDetail } from '../../../shared/types';
@@ -336,7 +336,7 @@ export function StockSurgePanel({ isActive, returnCode, returnId, onOpenStock, o
 
   return (
     <>
-      <div className={styles['right-panel-header']}>
+      <div className={cx(styles['right-panel-header'], styles['surge-panel-header'])}>
         <div className={styles['surge-title-row']}>
           <span className={styles.title}>
             <Activity className={styles['panel-title-icon']} size={16} />
@@ -397,10 +397,12 @@ export function StockSurgePanel({ isActive, returnCode, returnId, onOpenStock, o
                 }}
                 type='button'
               >
+                <RefreshCw aria-hidden='true' size={13} />
                 刷新
               </button>
               <MarketPhasePill
                 active={isMonitoring}
+                className={cx(styles['surge-monitor-button'], isMonitoring && styles['surge-monitor-button-active'])}
                 ariaLabel={isMonitoring ? '关闭监控' : '开启监控'}
                 label={isMonitoring ? '监控中' : '监控'}
                 onClick={toggleMonitor}
@@ -470,7 +472,12 @@ export function StockSurgePanel({ isActive, returnCode, returnId, onOpenStock, o
 function SurgeItem({ item, highlight, onClick }: { item: HotFocusItem; highlight: boolean; onClick(): void }) {
   const isDown = String(item.changePercent).startsWith('-');
   return (
-    <button className={cx(styles['surge-item'], highlight && styles.highlight)} data-surge-code={item.code} onClick={onClick} type='button'>
+    <button
+      className={cx(styles['surge-item'], isDown && styles['surge-item-down'], highlight && styles.highlight)}
+      data-surge-code={item.code}
+      onClick={onClick}
+      type='button'
+    >
       <span className={styles['surge-time']}>{item.time ?? '--'}</span>
       <span className={styles['surge-card']}>
         <span className={styles['surge-main']}>

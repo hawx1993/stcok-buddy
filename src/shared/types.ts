@@ -1146,7 +1146,15 @@ export interface StocksenseApi {
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
   getDragonTigerSnapshot(range?: TDragonTigerRange): Promise<IDragonTigerSnapshot>;
   getDiscoverySnapshot(options?: IDiscoverySnapshotOptions): Promise<Record<string, unknown>>;
-  getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number; offset?: number; date?: string; mode?: TMonitorMode }): Promise<IMonitorFeed>;
+  getMonitorFeed(options?: {
+    categories?: TMonitorCategory[];
+    since?: string;
+    query?: string;
+    limit?: number;
+    offset?: number;
+    date?: string;
+    mode?: TMonitorMode;
+  }): Promise<IMonitorFeed>;
   getTradingAdvice(options?: ITradingAdviceOptions): Promise<ITradingAdvice>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;

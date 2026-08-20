@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { GlobalStockSearch } from '../index';
 import { MarketSearchSuggestionList } from '../components/market-search-suggestion-list';
 import {
   formatSearchChangePercent,
@@ -73,6 +74,51 @@ describe('全局搜索会话结果辅助函数', () => {
     expect(getConversationRoleLabel('user')).toBe('用户');
     expect(getConversationRoleLabel('assistant')).toBe('AI');
     expect(getConversationRoleLabel()).toBe('会话');
+  });
+});
+
+describe('全局行情搜索弹层', () => {
+  it('渲染可访问的实体搜索对话框', () => {
+    const markup = renderToStaticMarkup(
+      createElement(GlobalStockSearch, {
+        open: true,
+        onOpenChange: () => undefined,
+      }),
+    );
+
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain('aria-modal="true"');
+    expect(markup).toContain('aria-label="全局搜索"');
+    expect(markup).toContain('aria-label="关闭全局搜索"');
+    expect(markup).not.toContain('data-particle-field');
+    expect(markup).not.toContain('data-particle-light');
+  });
+
+  it('支持入口传入的自定义 placeholder', () => {
+    const markup = renderToStaticMarkup(
+      createElement(GlobalStockSearch, {
+        open: true,
+        onOpenChange: () => undefined,
+        placeholder: '搜索代码 / 名称 / 事件',
+      }),
+    );
+
+    expect(markup).toContain('placeholder="搜索代码 / 名称 / 事件"');
+  });
+
+  it('AI监控模式只展示AI监控搜索语境', () => {
+    const markup = renderToStaticMarkup(
+      createElement(GlobalStockSearch, {
+        open: true,
+        mode: 'ai-monitor',
+        onOpenChange: () => undefined,
+      }),
+    );
+
+    expect(markup).toContain('aria-label="AI监控搜索"');
+    expect(markup).toContain('仅搜索AI监控列表');
+    expect(markup).not.toContain('行情 / 板块');
+    expect(markup).not.toContain('会话 / 消息');
   });
 });
 

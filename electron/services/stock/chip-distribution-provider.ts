@@ -81,20 +81,15 @@ export async function getChipDistribution(
   }
 
   const promise = loadChipDistribution(symbol, period, localWarnings)
-    .then(async (result) => {
+    .then((result) => {
       const checkedResult = asChipDistributionResult(result, period);
-      let resultWithWarnings = checkedResult;
-      let fetchedAt: string | undefined = new Date().toISOString();
-      try {
-        await upsertStockChip(symbol, checkedResult, period);
-      } catch (error) {
+      const fetchedAt = new Date().toISOString();
+      chipDistributionCache.set(cacheKey, { result: checkedResult, updatedAt: Date.now(), fetchedAt });
+      void upsertStockChip(symbol, checkedResult, period).catch((error: unknown) => {
         const warning = `DuckDB ${CHIP_PERIOD_LABELS[period]}筹码缓存写入失败（${symbol}）：${formatError(error)}`;
         console.warn(`[chip-distribution] ${warning}`);
-        resultWithWarnings = withChipWarnings(checkedResult, [warning]);
-        fetchedAt = undefined;
-      }
-      chipDistributionCache.set(cacheKey, { result: resultWithWarnings, updatedAt: Date.now(), fetchedAt });
-      return resultWithWarnings;
+      });
+      return checkedResult;
     })
     .catch((error: unknown) => {
       chipDistributionCache.delete(cacheKey);

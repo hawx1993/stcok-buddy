@@ -368,7 +368,7 @@ function getMarketValueTone(header: string, cellContent: string) {
   return value > 0 ? 'up' : 'down';
 }
 
-function replaceEmojiWithIcons(html: string) {
+export function replaceEmojiWithIcons(html: string) {
   return html
     .split(/(<[^>]+>)/g)
     .map((part) => (part.startsWith('<') ? part : replaceEmojiInText(part)))

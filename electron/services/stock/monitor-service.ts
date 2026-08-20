@@ -745,6 +745,7 @@ export async function persistMonitorCapture(events: IMonitorEvent[], now = new D
 export async function getMonitorFeed(options?: {
   categories?: TMonitorCategory[];
   since?: string;
+  query?: string;
   limit?: number;
   offset?: number;
   date?: string;
@@ -756,7 +757,7 @@ export async function getMonitorFeed(options?: {
   const now = new Date();
   const timestamp = now.toISOString();
   const isTradingTime = isChinaMarketOpen(now);
-  const requestedHistory = options?.mode === 'history' || Boolean(options?.date);
+  const requestedHistory = options?.mode === 'history' || Boolean(options?.date) || Boolean(options?.query?.trim());
 
   await flushMonitorEventQueue();
 
@@ -764,9 +765,11 @@ export async function getMonitorFeed(options?: {
     const availableDates = await listMonitorDates(7);
     const selectedDate = options?.date && /^\d{4}-\d{2}-\d{2}$/.test(options.date) ? options.date : availableDates[0];
     const events = selectedDate
-      ? await listMonitorHistory({ date: selectedDate, categories: enabledCategories, offset, limit })
+      ? await listMonitorHistory({ date: selectedDate, categories: enabledCategories, query: options?.query, offset, limit })
       : [];
-    const total = selectedDate ? await countMonitorHistory({ date: selectedDate, categories: enabledCategories }) : 0;
+    const total = selectedDate
+      ? await countMonitorHistory({ date: selectedDate, categories: enabledCategories, query: options?.query })
+      : 0;
     const categoryTotals = selectedDate ? await countMonitorHistoryByCategory({ date: selectedDate }) : {};
     const sinceTime = options?.since ? new Date(options.since).getTime() : 0;
     return {

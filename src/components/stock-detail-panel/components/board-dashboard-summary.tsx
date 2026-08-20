@@ -8,11 +8,11 @@ interface IBoardDashboardSummaryProps {
 
 export function BoardDashboardSummary({ snapshot, onOpenBoard }: IBoardDashboardSummaryProps) {
   const cards = [
-    { key: 'hottest', title: '热度最强板块', metric: snapshot.summary.hottest },
+    { key: 'hot', title: '热度最强板块', metric: snapshot.summary.hottest },
     { key: 'potential', title: '潜力最高板块', metric: snapshot.summary.potential },
-    { key: 'avoid', title: '风险最高板块', metric: snapshot.summary.avoid },
+    { key: 'risk', title: '风险最高板块', metric: snapshot.summary.avoid },
     { key: 'leader', title: '龙头最强板块', metric: snapshot.summary.strongestLeader },
-  ];
+  ] as const;
 
   return (
     <div className={styles['board-dashboard-summary']}>
@@ -21,6 +21,7 @@ export function BoardDashboardSummary({ snapshot, onOpenBoard }: IBoardDashboard
           key={card.key}
           type='button'
           className={styles['board-dashboard-kpi']}
+          data-summary-kind={card.key}
           disabled={!card.metric}
           onClick={() => card.metric && onOpenBoard(card.metric)}
         >

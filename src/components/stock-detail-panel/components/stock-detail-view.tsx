@@ -441,12 +441,8 @@ function StockSurgeEvents({ events, loading, requested, skeletonExpired, error }
             {date === today ? <em>今日</em> : null}
           </div>
           <div className={styles['stock-surge-date-body']}>
-            {items.map((item, index) => (
-              <StockSurgeEventItem
-                key={`${item.tradeDate}-${item.id}`}
-                item={item}
-                isLastInGroup={index === items.length - 1}
-              />
+            {items.map((item) => (
+              <StockSurgeEventItem key={`${item.tradeDate}-${item.id}`} item={item} />
             ))}
           </div>
         </div>
@@ -457,15 +453,19 @@ function StockSurgeEvents({ events, loading, requested, skeletonExpired, error }
 
 interface IStockSurgeEventItemProps {
   item: StockSurgeEvent;
-  isLastInGroup: boolean;
 }
 
-function StockSurgeEventItem({ item, isLastInGroup }: IStockSurgeEventItemProps) {
+function StockSurgeEventItem({ item }: IStockSurgeEventItemProps) {
   const isDown = String(item.changePercent).startsWith('-');
   const surgeReason = getSurgeReason(item);
   const showSurgeAction = surgeReason !== '--' || hasSurgeAmount(item.amount);
   return (
-    <div className={cx(styles['stock-surge-event'], isLastInGroup && styles['stock-surge-event-last'])}>
+    <div
+      className={cx(
+        styles['stock-surge-event'],
+        isDown ? styles['stock-surge-event-down'] : styles['stock-surge-event-up'],
+      )}
+    >
       <span className={styles['stock-surge-event-time']}>
         <small>{item.time ?? '--'}</small>
       </span>
@@ -475,11 +475,8 @@ function StockSurgeEventItem({ item, isLastInGroup }: IStockSurgeEventItemProps)
             {item.name ?? item.title}
             <em>{item.code}</em>
           </b>
-          <small
-            className={styles['stock-surge-event-quote']}
-            style={{ display: 'block', width: '100%', overflowX: 'auto', overflowY: 'hidden', whiteSpace: 'nowrap' }}
-          >
-            <span style={{ display: 'inline-flex', gap: 7, minWidth: 'max-content' }}>
+          <small className={styles['stock-surge-event-quote']}>
+            <span className={styles['stock-surge-event-quote-row']}>
               当前 <span>{item.price ?? '--'}</span>
               <span className={isDown ? 'down' : 'up'}>{item.changePercent ?? '--'}</span>
             </span>
@@ -539,11 +536,13 @@ function Rating({ label, score, tone }: IRatingProps) {
 }
 
 function getSurgeReason(event: StockSurgeEvent) {
-  const reason = event.tag ?? event.description?.split(' · ')[0] ?? '--';
+  const reason = event.tag?.trim() || event.description?.split(' · ')[0]?.trim() || '--';
   const labels: Record<string, string> = { 涨停池: '封涨停板', 炸板池: '涨停开板', 跌停池: '封跌停板' };
   return labels[reason] ?? reason;
 }
 
 function hasSurgeAmount(amount?: string) {
-  return Boolean(amount && !/^(?:封单|成交额)?[+-]?0(?:\.00)?(?:手|万|亿)?$/.test(amount));
+  const normalizedAmount = amount?.trim();
+  if (!normalizedAmount || normalizedAmount === '--' || normalizedAmount === '-' || normalizedAmount === '—') return false;
+  return !/^(?:封单|成交额)?[+-]?0(?:\.00)?(?:手|万|亿)?$/.test(normalizedAmount);
 }

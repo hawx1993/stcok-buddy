@@ -222,6 +222,45 @@ describe('AI 监控历史 DuckDB 存储', () => {
     expect(await currentStore.countMonitorHistoryByCategory({ date: '2026-07-23' })).toEqual({ news: 1, technical: 2 });
   });
 
+  it('可以按代码、名称和事件内容搜索监控历史', async () => {
+    const currentStore = store;
+    if (!currentStore) throw new Error('monitor history store not loaded');
+
+    await currentStore.saveMonitorEvents(
+      [
+        createEvent({ id: 'search-code', code: '600123', title: '普通事件' }),
+        createEvent({ id: 'search-name', name: '搜索名称', title: '普通事件' }),
+        createEvent({ id: 'search-title', title: '事件标题关键词' }),
+        createEvent({ id: 'search-detail', title: '详情事件', details: ['事件详情关键词'] }),
+        createEvent({ id: 'search-analysis', title: '分析事件', aiAnalysis: 'AI分析关键词' }),
+      ],
+      new Date('2026-07-23T02:30:00.000Z'),
+      '2026-07-23',
+    );
+
+    await currentStore.saveMonitorEvents(
+      [createEvent({ id: 'search-older-date', timestamp: '2026-07-22T02:30:00.000Z', title: '事件标题关键词' })],
+      new Date('2026-07-22T02:30:00.000Z'),
+      '2026-07-22',
+    );
+
+    for (const [query, expectedId] of [
+      ['600123', 'search-code'],
+      ['搜索名称', 'search-name'],
+      ['事件标题关键词', 'search-title'],
+      ['事件详情关键词', 'search-detail'],
+      ['AI分析关键词', 'search-analysis'],
+    ]) {
+      const rows = await currentStore.listMonitorHistory({ date: '2026-07-23', query, limit: 10 });
+      expect(rows.map((row) => row.id)).toContain(expectedId);
+    }
+
+    const titleRows = await currentStore.listMonitorHistory({ date: '2026-07-23', query: '事件标题关键词', limit: 10 });
+    expect(titleRows.map((row) => row.id)).toEqual(['search-title']);
+    expect(await currentStore.countMonitorHistory({ date: '2026-07-23', query: '事件标题关键词' })).toBe(1);
+    expect(await currentStore.listMonitorHistory({ date: '2026-07-23', query: '不存在', limit: 10 })).toEqual([]);
+  });
+
   it('可以裁剪旧日期并清理弱监控信号噪音', async () => {
     const currentStore = store;
     if (!currentStore) throw new Error('monitor history store not loaded');

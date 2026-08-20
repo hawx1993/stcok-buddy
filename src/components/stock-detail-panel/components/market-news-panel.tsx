@@ -3,6 +3,7 @@ import { marked, Renderer } from 'marked';
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import { useAppUiStore } from '../../../store/app-store';
+import { replaceEmojiWithIcons } from '../../chat-view/components/markdown';
 import cx from '../../../shared/cx';
 import type { IMarketNewsSummaryState, MarketNewsItem } from '../../../shared/types';
 import { StockNewsPanel } from './stock-news-panel';
@@ -15,11 +16,11 @@ type TNewsTab = 'hot' | 'stock' | 'summary';
 
 interface IMarketNewsPanelProps {
   isActive: boolean;
+  onOpenNewsSearch(): void;
 }
 
-export function MarketNewsPanel({ isActive }: IMarketNewsPanelProps) {
+export function MarketNewsPanel({ isActive, onOpenNewsSearch }: IMarketNewsPanelProps) {
   const [activeTab, setActiveTab] = useState<TNewsTab>('hot');
-  const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [refresh, setRefresh] = useState(0);
   const [total, setTotal] = useState(0);
@@ -34,7 +35,7 @@ export function MarketNewsPanel({ isActive }: IMarketNewsPanelProps) {
     setLoading(true);
     setError(undefined);
     getStocksenseApi()
-      .listMarketNews(query, page, NEWS_PAGE_SIZE)
+      .listMarketNews('', page, NEWS_PAGE_SIZE)
       .then((result) => {
         if (!alive) return;
         setItems(result.items);
@@ -51,7 +52,7 @@ export function MarketNewsPanel({ isActive }: IMarketNewsPanelProps) {
     return () => {
       alive = false;
     };
-  }, [activeTab, isActive, page, query, refresh]);
+  }, [activeTab, isActive, page, refresh]);
 
   useEffect(() => {
     if (!isActive || activeTab !== 'summary') return;
@@ -79,13 +80,39 @@ export function MarketNewsPanel({ isActive }: IMarketNewsPanelProps) {
   const totalPages = Math.max(1, Math.ceil(total / NEWS_PAGE_SIZE));
   return (
     <>
-      <div className={styles['right-panel-header']}>
+      <div className={cx(styles['right-panel-header'], styles['news-panel-header'])}>
         <div className={styles['news-title-row']}>
           <span className={styles.title}>
             <Newspaper className={styles['panel-title-icon']} size={16} />
             热点新闻
           </span>
-          {activeTab === 'hot' ? <span className={styles['news-count']}>{total} 条</span> : null}
+          <div className={styles['news-title-actions']}>
+            <div className={styles['news-search-row']}>
+              <button
+                aria-label='搜索新闻'
+                className={styles['news-icon-button']}
+                onClick={onOpenNewsSearch}
+                title='搜索新闻'
+                type='button'
+              >
+                <Search aria-hidden='true' size={13} />
+                <span>搜索</span>
+              </button>
+              {activeTab !== 'stock' ? (
+                <button
+                  aria-label={loading ? '正在刷新新闻' : '刷新新闻'}
+                  className={styles['news-refresh']}
+                  disabled={loading}
+                  onClick={() => setRefresh((value) => value + 1)}
+                  title={loading ? '正在刷新' : '刷新'}
+                  type='button'
+                >
+                  <RefreshCw aria-hidden='true' className={loading ? styles['refreshing-icon'] : undefined} size={14} />
+                  <span>{loading ? '刷新中' : '刷新'}</span>
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
         <div className={styles['news-tabs']} aria-label='新闻内容分类'>
           <button
@@ -113,43 +140,17 @@ export function MarketNewsPanel({ isActive }: IMarketNewsPanelProps) {
             AI 总结
           </button>
         </div>
-        {activeTab !== 'stock' ? (
-          <div className={styles['news-search-row']}>
-            {activeTab === 'hot' ? (
-              <label className={styles['rp-search-row']}>
-                <Search aria-hidden='true' size={14} />
-                <input
-                  aria-label='搜索新闻'
-                  value={query}
-                  onChange={(event) => {
-                    setQuery(event.target.value);
-                    setPage(1);
-                  }}
-                  placeholder='搜索新闻'
-                />
-              </label>
-            ) : null}
-            <button
-              aria-label={loading ? '正在刷新新闻' : '刷新新闻'}
-              className={styles['news-refresh']}
-              disabled={loading}
-              onClick={() => setRefresh((value) => value + 1)}
-              title={loading ? '正在刷新' : '刷新'}
-              type='button'
-            >
-              <RefreshCw aria-hidden='true' className={loading ? styles['refreshing-icon'] : undefined} size={14} />
-              <span>{loading ? '刷新中' : '刷新'}</span>
-            </button>
-          </div>
-        ) : null}
       </div>
       <div className={cx(styles['right-panel-body'], styles['news-panel-body'])}>
         {activeTab === 'hot' ? (
           <>
             <div className={styles['news-section-title']}>
               <span>实时资讯</span>
-              <span>
-                第 {page} / {totalPages} 页
+              <span className={styles['news-section-meta']}>
+                <span className={styles['news-section-page']}>
+                  第 {page} / {totalPages} 页
+                </span>
+                <span className={styles['news-count']}>{total} 条</span>
               </span>
             </div>
             <div className={styles['right-news-list']}>
@@ -158,7 +159,9 @@ export function MarketNewsPanel({ isActive }: IMarketNewsPanelProps) {
               ) : error ? (
                 <div className={styles['empty-list']}>{error}</div>
               ) : items.length ? (
-                items.map((item) => <NewsItem key={item.id} item={item} />)
+                items.map((item, index) => (
+                  <NewsItem key={item.id} item={item} rank={(page - 1) * NEWS_PAGE_SIZE + index + 1} />
+                ))
               ) : (
                 <div className={styles['empty-list']}>无匹配新闻</div>
               )}
@@ -206,7 +209,8 @@ function renderNewsSummaryMarkdown(content: string): string {
     const titleAttribute = title ? ` title="${escapeHtml(title)}"` : '';
     return `<a href="${escapeHtml(href)}"${titleAttribute} target="_blank" rel="noopener noreferrer">${text}</a>`;
   };
-  return marked.parse(content, { async: false, breaks: true, renderer }) as string;
+  const html = marked.parse(content, { async: false, breaks: true, renderer }) as string;
+  return replaceEmojiWithIcons(html);
 }
 
 function isSafeNewsSummaryUrl(value: string): boolean {
@@ -259,18 +263,21 @@ function NewsSummary({ state, loading, error }: { state?: IMarketNewsSummaryStat
         dangerouslySetInnerHTML={{ __html: renderNewsSummaryMarkdown(state.summary.content) }}
       />
       <div className={styles['news-summary-sources']}>
-        引用新闻：
-        {state.summary.sourceNews.map((item) => (
-          <button key={item.id} onClick={() => openNewsDetail(item)} type='button'>
-            {item.title}
-          </button>
-        ))}
+        <span className={styles['news-summary-sources-label']}>引用新闻</span>
+        <blockquote>
+          {state.summary.sourceNews.map((item) => (
+            <button key={item.id} onClick={() => openNewsDetail(item)} type='button'>
+              {item.title}
+            </button>
+          ))}
+        </blockquote>
       </div>
     </article>
   );
 }
 
-function NewsItem({ item }: { item: MarketNewsItem }) {
+function NewsItem({ item, rank }: { item: MarketNewsItem; rank: number }) {
+  const rankLabel = rank > 99 ? '99+' : String(rank).padStart(2, '0');
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -280,32 +287,37 @@ function NewsItem({ item }: { item: MarketNewsItem }) {
   return (
     <div
       aria-label={`打开新闻：${item.title}`}
-      className={styles['news-item']}
+      className={cx(styles['news-item'], styles['news-ranked-item'])}
       onClick={() => openNewsDetail(item)}
       onKeyDown={onKeyDown}
       role='button'
       tabIndex={0}
     >
-      <div className={styles['news-meta']}>
-        <span className={styles['news-time']}>{item.time || '--:--'}</span>
-        {item.source ? <span className={styles['news-source']}>{item.source}</span> : null}
-      </div>
-      <div className={styles['news-title-row']}>
-        <div className={styles['news-title']}>{item.title}</div>
-        <span className={styles['news-item-actions']}>
-          <NewsLinkCopyButton url={item.url} />
-          <SquareArrowOutUpRight aria-hidden='true' className={styles['news-open-icon']} size={13} />
-        </span>
-      </div>
-      {item.tags.length ? (
-        <div className={styles['news-tags']}>
-          {item.tags.map((tag) => (
-            <span className={cx(styles.nt, item.tagType ? styles[item.tagType] : undefined)} key={tag}>
-              {tag}
-            </span>
-          ))}
+      <span aria-hidden='true' className={styles['news-rank']}>
+        {rankLabel}
+      </span>
+      <div className={styles['news-item-content']}>
+        <div className={styles['news-meta']}>
+          <span className={styles['news-time']}>{item.time || '--:--'}</span>
+          {item.source ? <span className={styles['news-source']}>{item.source}</span> : null}
         </div>
-      ) : null}
+        <div className={styles['news-title-row']}>
+          <div className={styles['news-title']}>{item.title}</div>
+          <span className={styles['news-item-actions']}>
+            <NewsLinkCopyButton url={item.url} />
+            <SquareArrowOutUpRight aria-hidden='true' className={styles['news-open-icon']} size={13} />
+          </span>
+        </div>
+        {item.tags.length ? (
+          <div className={styles['news-tags']}>
+            {item.tags.map((tag) => (
+              <span className={cx(styles.nt, item.tagType ? styles[item.tagType] : undefined)} key={tag}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

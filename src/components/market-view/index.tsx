@@ -6,6 +6,7 @@ import { StockTable } from './components/stock-table';
 import type { TMarketCellField, TSortDirection } from './components/stock-table';
 import { parsePercent } from './market-format';
 import { applyMarketRowValueUpdate, sameMarketRows } from './market-row-updates';
+import { cacheMarketViewSnapshot, getCachedMarketViewState } from './market-view-snapshot-cache';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { getAshareMarketPhase } from '../../shared/market-time';
 import { MarketPhasePill } from '../market-phase-pill';
@@ -47,11 +48,12 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
   const [activeTab, setActiveTab] = useState<MarketTab>('sh-main');
   const [activeViewTab, setActiveViewTab] = useState<TMarketViewTab>('sh-main');
   const [indexPeriod, setIndexPeriod] = useState<MarketIndexPeriod>('1d');
-  const [indices, setIndices] = useState<MarketIndexSnapshot[]>([]);
-  const [rowsByTab, setRowsByTab] = useState<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
-  const rowsByTabRef = useRef<Partial<Record<MarketTab, MarketQuoteRow[]>>>({});
-  const [updatedAt, setUpdatedAt] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [initialSnapshot] = useState(() => getCachedMarketViewState('sh-main', '1d'));
+  const [indices, setIndices] = useState<MarketIndexSnapshot[]>(initialSnapshot.indices);
+  const [rowsByTab, setRowsByTab] = useState<Partial<Record<MarketTab, MarketQuoteRow[]>>>(initialSnapshot.rowsByTab);
+  const rowsByTabRef = useRef<Partial<Record<MarketTab, MarketQuoteRow[]>>>(initialSnapshot.rowsByTab);
+  const [updatedAt, setUpdatedAt] = useState(initialSnapshot.updatedAt);
+  const [loading, setLoading] = useState(() => !initialSnapshot.rowsByTab['sh-main']?.length);
   const [sortField, setSortField] = useState<TMarketCellField | undefined>('changePercent');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [expandedIndexCode, setExpandedIndexCode] = useState<string>();
@@ -161,6 +163,7 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
       const filteredRows = data.rows.filter((row) => quoteMatchesTab(row.code, data.tab));
       const sortedRows = sortRowsByDirection(filteredRows, sortFieldRef.current, sortDirectionRef.current);
       const currentRows = rowsByTabRef.current[data.tab] ?? [];
+      if (!sortedRows.length && currentRows.length) return;
       if (!currentRows.length) {
         const nextRowsByTab = { ...rowsByTabRef.current, [data.tab]: sortedRows };
         rowsByTabRef.current = nextRowsByTab;
@@ -185,6 +188,7 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
     const hasContent = (data: MarketPageSnapshot) => data.rows.length > 0;
     const applySnapshot = (data: MarketPageSnapshot, done = true) => {
       if (!alive) return;
+      cacheMarketViewSnapshot(data);
       if (data.indices.length) setIndices((current) => mergeMarketIndexSnapshots(current, data.indices));
       queueSnapshotRows(data);
       if (data.tab === activeTab) {
@@ -212,6 +216,7 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
     }
     const unsubscribe = api.onMarketPageSnapshotUpdated?.((data) => {
       if (!alive || (data.period ?? '1d') !== indexPeriod) return;
+      cacheMarketViewSnapshot(data);
       if (data.indices.length) setIndices((current) => mergeMarketIndexSnapshots(current, data.indices));
       queueSnapshotRows(data);
       if (data.tab === activeTab) {

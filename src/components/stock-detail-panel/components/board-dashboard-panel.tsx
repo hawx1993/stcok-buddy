@@ -81,62 +81,66 @@ export function BoardDashboardPanel({ isActive }: IBoardDashboardPanelProps) {
   const isBusy = loading || refreshing;
 
   return (
-    <div className={styles['board-dashboard']}>
-      <div className={cx(styles['stock-header'], styles['board-dashboard-header'])}>
-        <div className={cx(styles['stock-name'], styles['board-title'])}>
-          <Layers className={styles['panel-title-icon']} size={16} />
-          <span className={styles['board-title-text']}>板块 Dashboard</span>
-          <span className={styles.code}>{snapshot?.tradeDate ?? '真实数据'} · 总览</span>
+    <>
+      <div className={cx(styles['right-panel-header'], styles['board-dashboard-header'])}>
+        <div className={styles['board-dashboard-title-row']}>
+          <span className={styles.title}>
+            <Layers className={styles['panel-title-icon']} size={16} />
+            <span className={styles['board-title-text']}>板块 Dashboard</span>
+            <span className={styles['board-dashboard-meta']}>{snapshot?.tradeDate ?? '真实数据'} · 总览</span>
+          </span>
+          <button
+            className={cx(styles['board-refresh'], refreshing && styles.spinning)}
+            onClick={() => void refresh()}
+            disabled={isBusy}
+            title='刷新板块 Dashboard'
+            aria-label='刷新板块 Dashboard'
+            type='button'
+          >
+            <RefreshCw size={14} />
+          </button>
         </div>
-        <button
-          className={cx(styles['board-refresh'], refreshing && styles.spinning)}
-          onClick={() => void refresh()}
-          disabled={isBusy}
-          title='刷新板块 Dashboard'
-          aria-label='刷新板块 Dashboard'
-          type='button'
-        >
-          <RefreshCw size={14} />
-        </button>
+        <BoardDashboardTabs value={range} disabled={isBusy} onChange={setRange} />
       </div>
 
-      <BoardDashboardTabs value={range} disabled={isBusy} onChange={setRange} />
-      {error ? <div className={styles['board-dashboard-warning']}>{error}</div> : null}
+      <div className={cx(styles['right-panel-body'], styles['board-dashboard'])}>
+        {error ? <div className={styles['board-dashboard-warning']}>{error}</div> : null}
 
-      {loading && !snapshot ? (
-        <BoardDashboardSkeleton />
-      ) : snapshot && snapshot.rankings.length ? (
-        <>
-          <BoardDashboardSummary snapshot={snapshot} onOpenBoard={openBoard} />
-          <BoardDashboardRankListTab items={snapshot.rankings} range={snapshot.range} onOpenBoard={openBoard} />
-          <section className={styles['board-dashboard-section']}>
-            <div className={styles['section-title']}>板块四象限 · 资金强度 × 价格强度</div>
-            <BoardDashboardQuadrant
-              items={snapshot.rankings}
-              hotItems={snapshot.hot}
-              potentialItems={snapshot.potential}
-              avoidItems={snapshot.avoid}
-              leaderItems={snapshot.leaders}
-              variant='board'
-              onOpenBoard={openBoard}
-            />
-          </section>
-          <section className={styles['board-dashboard-section']}>
-            <div className={styles['section-title']}>个股四象限 · 龙头资金 × 个股涨幅</div>
-            <BoardDashboardQuadrant
-              items={snapshot.rankings}
-              hotItems={snapshot.hot}
-              potentialItems={snapshot.potential}
-              avoidItems={snapshot.avoid}
-              leaderItems={snapshot.leaders}
-              variant='stock'
-              onOpenBoard={openBoard}
-            />
-          </section>
-        </>
-      ) : (
-        <div className={styles['empty-list']}>暂无板块 Dashboard 数据</div>
-      )}
-    </div>
+        {loading && !snapshot ? (
+          <BoardDashboardSkeleton />
+        ) : snapshot && snapshot.rankings.length ? (
+          <>
+            <BoardDashboardSummary snapshot={snapshot} onOpenBoard={openBoard} />
+            <BoardDashboardRankListTab items={snapshot.rankings} range={snapshot.range} onOpenBoard={openBoard} />
+            <section className={styles['board-dashboard-section']}>
+              <div className={styles['section-title']}>板块四象限 · 资金强度 × 价格强度</div>
+              <BoardDashboardQuadrant
+                items={snapshot.rankings}
+                hotItems={snapshot.hot}
+                potentialItems={snapshot.potential}
+                avoidItems={snapshot.avoid}
+                leaderItems={snapshot.leaders}
+                variant='board'
+                onOpenBoard={openBoard}
+              />
+            </section>
+            <section className={styles['board-dashboard-section']}>
+              <div className={styles['section-title']}>个股四象限 · 龙头资金 × 个股涨幅</div>
+              <BoardDashboardQuadrant
+                items={snapshot.rankings}
+                hotItems={snapshot.hot}
+                potentialItems={snapshot.potential}
+                avoidItems={snapshot.avoid}
+                leaderItems={snapshot.leaders}
+                variant='stock'
+                onOpenBoard={openBoard}
+              />
+            </section>
+          </>
+        ) : (
+          <div className={styles['empty-list']}>暂无板块 Dashboard 数据</div>
+        )}
+      </div>
+    </>
   );
 }

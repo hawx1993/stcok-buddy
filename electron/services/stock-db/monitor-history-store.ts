@@ -24,6 +24,7 @@ interface IMonitorHistoryRow {
 interface IMonitorHistoryQuery {
   date: string;
   categories?: TMonitorCategory[];
+  query?: string;
   offset?: number;
   limit?: number;
 }
@@ -212,10 +213,11 @@ export function listMonitorHistory(options: IMonitorHistoryQuery) {
     const safeOffset = Math.max(0, Math.floor(options.offset ?? 0));
     const safeLimit = Math.max(1, Math.min(MAX_MONITOR_HISTORY_LIMIT, Math.floor(options.limit ?? 50)));
     const categorySql = monitorCategorySql(options.categories);
+    const searchSql = monitorSearchSql(options.query);
     const rows = await all<IMonitorHistoryRow>(
       `SELECT trade_date, captured_at, id, category, timestamp, code, name, price, change_percent, title, badge, details_json, ai_analysis, chart_json, score
        FROM ai_monitor_events
-       WHERE trade_date = ${sqlValue(options.date)}${categorySql}
+       WHERE trade_date = ${sqlValue(options.date)}${categorySql}${searchSql}
        ORDER BY timestamp DESC, id DESC
        LIMIT ${safeLimit} OFFSET ${safeOffset}`,
     );
@@ -223,12 +225,13 @@ export function listMonitorHistory(options: IMonitorHistoryQuery) {
   });
 }
 
-export function countMonitorHistory(options: Pick<IMonitorHistoryQuery, 'date' | 'categories'>) {
+export function countMonitorHistory(options: Pick<IMonitorHistoryQuery, 'date' | 'categories' | 'query'>) {
   return readDb(async () => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date)) return 0;
     const categorySql = monitorCategorySql(options.categories);
+    const searchSql = monitorSearchSql(options.query);
     const rows = await all<{ total: number }>(
-      `SELECT COUNT(*) AS total FROM ai_monitor_events WHERE trade_date = ${sqlValue(options.date)}${categorySql}`,
+      `SELECT COUNT(*) AS total FROM ai_monitor_events WHERE trade_date = ${sqlValue(options.date)}${categorySql}${searchSql}`,
     );
     return Number(rows[0]?.total ?? 0);
   });
@@ -473,6 +476,20 @@ function monitorSignalWhereSql(eventKey: string) {
 
 function monitorCategorySql(categories: TMonitorCategory[] | undefined) {
   return categories?.length ? ` AND category IN (${categories.map(sqlValue).join(', ')})` : '';
+}
+
+function monitorSearchSql(query: string | undefined) {
+  const normalized = query?.trim();
+  if (!normalized) return '';
+  const pattern = `%${normalized.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
+  const match = sqlValue(pattern);
+  return ` AND (
+    code ILIKE ${match} ESCAPE '\\'
+    OR name ILIKE ${match} ESCAPE '\\'
+    OR title ILIKE ${match} ESCAPE '\\'
+    OR details_json ILIKE ${match} ESCAPE '\\'
+    OR ai_analysis ILIKE ${match} ESCAPE '\\'
+  )`;
 }
 
 function toMonitorEvent(row: IMonitorHistoryRow): IMonitorEvent {

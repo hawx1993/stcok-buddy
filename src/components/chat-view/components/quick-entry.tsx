@@ -1,7 +1,7 @@
 import { RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_STOCK_ENTRY_HINTS, type IHotStockHint } from './hot-stock-hints';
-import { SlashCommandMenu } from './slash-command-menu';
+import { getNextSlashIndex, SlashCommandMenu } from './slash-command-menu';
 import { useHotStockHints } from './use-hot-stock-hints';
 import { useRotatingQuickEntryPrompt } from './use-rotating-quick-entry-prompt';
 import { isConditionScreenerCommand } from '../../../shared/condition-screener';
@@ -61,7 +61,7 @@ export function QuickEntry({
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionAnchorRef = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState('');
-  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState<number>();
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedSearchValue, setSelectedSearchValue] = useState('');
   const [suggestions, setSuggestions] = useState<MarketSearchResult[]>([]);
@@ -77,10 +77,11 @@ export function QuickEntry({
   const hasConditionScreenerInput = isConditionScreenerCommand(value);
   const canShowSuggestions = !slashOpen && hasSearchInput && !hasConditionScreenerInput;
 
-  const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
+  const selectSlashItem = (item: TSlashItem | undefined) => {
     if (!item) return;
     setValue(`${item.command} `);
     setSelectedSearchValue('');
+    setSelectedSlashIndex(undefined);
   };
 
   const selectSearchResult = (item: MarketSearchResult) => {
@@ -94,7 +95,9 @@ export function QuickEntry({
 
   const submit = () => {
     const text = value.trim();
-    if (text) onSubmit(text);
+    if (!text) return;
+    setSelectedSlashIndex(undefined);
+    onSubmit(text);
   };
 
   useEffect(() => {
@@ -226,6 +229,7 @@ export function QuickEntry({
                 setSelectedSearchValue('');
                 setSuggestions([]);
                 setDebouncedSearch('');
+                setSelectedSlashIndex(undefined);
               }}
               onRequestInputFocus={() => inputRef.current?.focus()}
             />
@@ -236,7 +240,10 @@ export function QuickEntry({
                     <button
                       className='command-chip'
                       title={activeCommand.description}
-                      onClick={() => setValue('/')}
+                      onClick={() => {
+                        setValue('/');
+                        setSelectedSlashIndex(undefined);
+                      }}
                       type='button'
                     >
                       <span className='slash-icon'>/</span>
@@ -268,21 +275,24 @@ export function QuickEntry({
                     onChange={(event) => {
                       setValue(event.target.value);
                       setSelectedSearchValue('');
+                      setSelectedSlashIndex(undefined);
                     }}
                     onKeyDown={(event) => {
                       if (slashOpen && event.key === 'Enter') {
                         event.preventDefault();
-                        selectSlashItem();
+                        selectSlashItem(
+                          selectedSlashIndex === undefined ? undefined : slashItems[selectedSlashIndex],
+                        );
                         return;
                       }
                       if (slashOpen && event.key === 'ArrowDown') {
                         event.preventDefault();
-                        setSelectedSlashIndex((current) => Math.min(current + 1, slashItems.length - 1));
+                        setSelectedSlashIndex((current) => getNextSlashIndex(current, slashItems.length, 'next'));
                         return;
                       }
                       if (slashOpen && event.key === 'ArrowUp') {
                         event.preventDefault();
-                        setSelectedSlashIndex((current) => Math.max(current - 1, 0));
+                        setSelectedSlashIndex((current) => getNextSlashIndex(current, slashItems.length, 'previous'));
                         return;
                       }
                       if (event.key === 'Escape') {

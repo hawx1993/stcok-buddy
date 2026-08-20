@@ -67,7 +67,7 @@ beforeEach(() => {
 });
 
 describe('chip distribution provider persistence', () => {
-  it('does not resolve a remote chip result before the DuckDB upsert completes', async () => {
+  it('resolves a remote chip result without waiting for the DuckDB upsert', async () => {
     let resolveWrite: (() => void) | undefined;
     storeMocks.upsertStockChip.mockImplementationOnce(
       () =>
@@ -76,19 +76,13 @@ describe('chip distribution provider persistence', () => {
         }),
     );
     const { getChipDistribution } = await import('../chip-distribution-provider.js');
-    let settled = false;
 
-    const resultPromise = getChipDistribution('600519').then((result) => {
-      settled = true;
-      return result;
-    });
+    const resultPromise = getChipDistribution('600519');
 
     await vi.waitFor(() => expect(storeMocks.upsertStockChip).toHaveBeenCalledTimes(1));
-    expect(settled).toBe(false);
-    resolveWrite?.();
-
     await expect(resultPromise).resolves.toEqual(chipResult());
     expect(storeMocks.upsertStockChip).toHaveBeenCalledWith('600519', chipResult(), '1d');
+    resolveWrite?.();
   });
 
   it('reuses the persisted DuckDB record after the provider module is reloaded', async () => {
@@ -110,6 +104,7 @@ describe('chip distribution provider persistence', () => {
     const firstProvider = await import('../chip-distribution-provider.js');
     await firstProvider.getChipDistribution('600519');
     expect(workerMocks.loadStockSdkChipDistributionInWorker).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(persistedRecord).toBeDefined());
 
     vi.resetModules();
     const reloadedProvider = await import('../chip-distribution-provider.js');
@@ -140,15 +135,14 @@ describe('chip distribution provider persistence', () => {
     storeMocks.upsertStockChip.mockRejectedValueOnce(new Error('disk full'));
     const { getChipDistribution } = await import('../chip-distribution-provider.js');
 
-    await expect(getChipDistribution('600519')).resolves.toEqual({
-      ...chipResult(),
-      warnings: ['DuckDB 日K筹码缓存写入失败（600519）：disk full'],
-    });
+    await expect(getChipDistribution('600519')).resolves.toEqual(chipResult());
 
     expect(workerMocks.loadStockSdkChipDistributionInWorker).toHaveBeenCalledTimes(1);
     expect(storeMocks.upsertStockChip).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[chip-distribution] DuckDB 日K筹码缓存写入失败（600519）：disk full',
+    await vi.waitFor(() =>
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[chip-distribution] DuckDB 日K筹码缓存写入失败（600519）：disk full',
+      ),
     );
     warnSpy.mockRestore();
   });
