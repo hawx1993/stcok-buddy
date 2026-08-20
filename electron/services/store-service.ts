@@ -1,13 +1,13 @@
 import { app } from '../electron-runtime.js';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentRunEvent, ChatMessage, ChatResponse, StoreItem } from '../../src/shared/types.js';
-import { installStoreItem, listInstalledStoreItems, uninstallStoreItem } from './config-store.js';
+import type { ChatResponse, StoreItem } from '../../src/shared/types.js';
+import { installStoreItem, listInstalledStoreItems, uninstallStoreItem } from './stock-db/config-store.js';
 import { generateReport } from './llm/index.js';
+import { getBuiltInStoreCommandRunner } from './store-commands/registry.js';
+import type { TStoreCommandRunner } from './store-commands/types.js';
 
 const categoryDirs = ['commands', 'skills', 'sub-agents'] as const;
-
-type StoreCommandResult = { content: string; result?: ChatMessage['result']; events?: AgentRunEvent[] };
 
 export async function listStoreItems(): Promise<StoreItem[]> {
   const roots = storeRoots();
@@ -19,7 +19,7 @@ export async function listStoreItems(): Promise<StoreItem[]> {
         const entries = await readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
           if (!entry.isDirectory()) continue;
-          items.push(await readStoreItem(path.join(dir, entry.name, 'index.json')));
+          items.push(await readStoreItem(path.join(dir, entry.name, 'indexon')));
         }
         break;
       } catch {
@@ -35,22 +35,13 @@ export async function runStoreCommand(query: string): Promise<ChatResponse | und
   const item = (await listStoreItems()).find(
     (candidate) => candidate.command && (text === candidate.command || text.startsWith(`${candidate.command} `)),
   );
-  if (!item?.handler) return undefined;
+  if (!item?.command) return undefined;
 
-  const args = text.slice(item.command!.length).trim();
-  const handlerPath = await resolveHandlerPath(item);
-  const source = await readFile(handlerPath, 'utf8');
-  const encoded = Buffer.from(`${source}\n//# sourceURL=${handlerPath}`).toString('base64');
-  const mod = (await import(`data:text/javascript;base64,${encoded}#${Date.now()}`)) as {
-    run?: (input: {
-      args: string;
-      query: string;
-      item: StoreItem;
-      llm?: { generate: typeof generateReport };
-    }) => Promise<StoreCommandResult>;
-  };
-  if (typeof mod.run !== 'function') throw new Error(`Store plugin ${item.id} missing run()`);
-  const output = await mod.run({ args, query, item, llm: { generate: generateReport } });
+  const args = text.slice(item.command.length).trim();
+  const runner = getBuiltInStoreCommandRunner(item.id) ?? (await loadDynamicStoreCommandRunner(item));
+  if (!runner) return undefined;
+
+  const output = await runner({ args, query, item, llm: { generate: generateReport } });
   const planAgents = [
     { id: 'understand', agent: '理解问题', description: `识别${item.name ?? '命令'}` },
     { id: 'collect', agent: '采集数据', description: item.description ?? '拉取数据' },
@@ -94,8 +85,21 @@ async function readStoreItem(file: string): Promise<StoreItem> {
   return JSON.parse(await readFile(file, 'utf8')) as StoreItem;
 }
 
+async function loadDynamicStoreCommandRunner(item: StoreItem): Promise<TStoreCommandRunner | undefined> {
+  if (!item.handler) return undefined;
+  const handlerPath = await resolveHandlerPath(item);
+  const source = await readFile(handlerPath, 'utf8');
+  const encoded = Buffer.from(`${source}\n//# sourceURL=${handlerPath}`).toString('base64');
+  const mod = (await import(`data:text/javascript;base64,${encoded}#${Date.now()}`)) as {
+    run?: TStoreCommandRunner;
+  };
+  if (typeof mod.run !== 'function') throw new Error(`Store plugin ${item.id} missing run()`);
+  return mod.run;
+}
+
 async function resolveHandlerPath(item: StoreItem) {
-  const handler = item.handler ?? 'index.js';
+  const handler = item.handler;
+  if (!handler) throw new Error(`Store plugin ${item.id} missing handler`);
   if (handler.includes('..') || path.isAbsolute(handler)) throw new Error(`Invalid store handler: ${handler}`);
   for (const root of storeRoots()) {
     const pluginDir = path.resolve(root, item.category, item.id);

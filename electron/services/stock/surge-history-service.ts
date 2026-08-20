@@ -3,7 +3,7 @@ import type { HotFocusItem } from '../../../src/shared/types.js';
 import { listEastmoneySurgeByDate } from './stock-client.js';
 import { withTimeoutReject } from './shared.js';
 import { shouldKeepSurgeItem } from './surge-large-order.js';
-import { isSurgeHistoryClearMarkerActive, listSurgeHistory, saveSurgeSnapshot } from './surge-history-store.js';
+import { isSurgeHistoryClearMarkerActive, listSurgeHistory, saveSurgeSnapshot } from '../stock-db/surge-history-store.js';
 
 const TRADING_DAY_CHECK_TIMEOUT_MS = 2_000;
 

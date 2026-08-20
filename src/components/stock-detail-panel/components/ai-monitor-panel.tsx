@@ -99,18 +99,6 @@ function isVisibleMonitorEvent(event: IMonitorEvent): event is TVisibleMonitorEv
   return event.category !== 'dragon-tiger';
 }
 
-function matchesMonitorQuery(event: TVisibleMonitorEvent, normalizedQuery: string) {
-  if (!normalizedQuery) return true;
-  return [
-    event.code,
-    event.name,
-    event.title,
-    event.badge,
-    event.aiAnalysis,
-    ...event.details,
-  ].some((value) => value?.toLowerCase().includes(normalizedQuery));
-}
-
 const PAGE_SIZE = 20;
 interface IAiMonitorFeedCache {
   activeTab: TVisibleMonitorCategory | 'all';
@@ -221,7 +209,19 @@ function AiMonitorSkeletonList() {
   );
 }
 
-export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; restoreState?: IAiMonitorReturnState }) {
+const AI_MONITOR_SEARCH_PLACEHOLDER = '搜索代码 / 名称 / 事件';
+
+interface IAiMonitorPanelProps {
+  isActive: boolean;
+  onOpenGlobalSearch(options?: {
+    placeholder?: string;
+    aiMonitorDate?: string;
+    onSelectAiMonitorEvent?(event: IMonitorEvent): void;
+  }): void;
+  restoreState?: IAiMonitorReturnState;
+}
+
+export function AiMonitorPanel({ isActive, onOpenGlobalSearch, restoreState }: IAiMonitorPanelProps) {
   const restoredFeedKey = restoreState
     ? makeMonitorFeedKey(restoreState.mode, restoreState.selectedDate, restoreState.currentPage, restoreState.activeTab)
     : undefined;
@@ -253,7 +253,6 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   const [selectedDate, setSelectedDate] = useState(() => initialFeedState?.selectedDate ?? makeMonitorDateOptions()[0]);
   const [lastUpdated, setLastUpdated] = useState<string | undefined>(initialCache?.lastUpdated);
   const [error, setError] = useState('');
-  const [query, setQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(initialFeedState?.currentPage ?? 1);
   const [totalCount, setTotalCount] = useState(initialCache?.totalCount ?? 0);
   const [categoryTotals, setCategoryTotals] = useState<Partial<Record<TMonitorCategory, number>>>(
@@ -399,11 +398,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
     return () => window.removeEventListener('monitor:historyCleared', handleMonitorHistoryCleared);
   }, [activeTab, isActive, loadFeed]);
 
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredEvents = useMemo(
-    () => events.filter(isVisibleMonitorEvent).filter((event) => matchesMonitorQuery(event, normalizedQuery)),
-    [events, normalizedQuery],
-  );
+  const filteredEvents = useMemo(() => events.filter(isVisibleMonitorEvent), [events]);
 
   const counts = useMemo(() => {
     const map = new Map<TMonitorCategory | 'all', number>();
@@ -416,7 +411,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
   }, [categoryTotals, totalCount]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  const displayTotalPages = normalizedQuery ? Math.max(1, Math.ceil(filteredEvents.length / PAGE_SIZE)) : totalPages;
+  const displayTotalPages = totalPages;
   const pageEvents = filteredEvents;
 
   useEffect(() => {
@@ -461,7 +456,6 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
     const next = Math.max(1, Math.min(displayTotalPages, page));
     setCurrentPage(next);
     setAiMonitorState({ activeTab, currentPage: next, selectedDate, mode });
-    if (normalizedQuery) return;
     setLoading(true);
     void loadFeed(mode, selectedDate, next, activeTab);
   };
@@ -519,7 +513,7 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
     void loadFeed(nextMode, selectedDate, 1, activeTab);
   };
 
-  const emptyText = normalizedQuery ? '当前日期未匹配到监控事件' : mode === 'history' ? '该交易日暂无此分类监控事件' : '暂无监控事件';
+  const emptyText = mode === 'history' ? '该交易日暂无此分类监控事件' : '暂无监控事件';
 
   return (
     <div className={styles['ai-monitor-panel']}>
@@ -530,6 +524,22 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
           </span>
           <span>AI监控</span>
         </span>
+        <button
+          aria-label='打开 AI 监控搜索'
+          className={styles['ai-monitor-global-search']}
+          onClick={() =>
+            onOpenGlobalSearch({
+              placeholder: AI_MONITOR_SEARCH_PLACEHOLDER,
+              aiMonitorDate: selectedDate,
+              onSelectAiMonitorEvent: (event) => handleStockClick(event.code, event.name),
+            })
+          }
+          title={AI_MONITOR_SEARCH_PLACEHOLDER}
+          type='button'
+        >
+          <Search aria-hidden='true' size={14} strokeWidth={1.9} />
+          <span>{AI_MONITOR_SEARCH_PLACEHOLDER}</span>
+        </button>
       </div>
 
       <div className={styles['surge-date-row']}>
@@ -578,21 +588,6 @@ export function AiMonitorPanel({ isActive, restoreState }: { isActive: boolean; 
           }}
           onPhaseChange={(phase) => setTradingTime(phase.isTrading)}
         />
-      </div>
-
-      <div className={styles['ai-monitor-search-row']}>
-        <label className={styles['rp-search-row']}>
-          <Search aria-hidden='true' size={14} />
-          <input
-            aria-label='搜索 AI 监控事件'
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setCurrentPage(1);
-            }}
-            placeholder='搜索代码 / 名称 / 事件'
-          />
-        </label>
       </div>
 
       <div className={styles['ai-monitor-panel-tabs']}>

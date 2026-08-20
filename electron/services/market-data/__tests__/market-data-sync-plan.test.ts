@@ -6,6 +6,7 @@ import {
   isValidDateRange,
   recentStartDate,
   sortSecuritiesForSync,
+  splitSyncBatches,
 } from '../market-data-sync-plan.js';
 
 function security(symbol: string): SecurityRecord {
@@ -41,14 +42,26 @@ describe('market data sync planning helpers', () => {
     expect(classifyMarketBoard('688001')).toBe('star');
     expect(classifyMarketBoard('835185')).toBe('bj');
 
-    expect(sortSecuritiesForSync([
-      security('835185'),
-      security('688001'),
-      security('300001'),
-      security('000001'),
-      security('600519'),
-      security('600000'),
-    ]).map((item) => item.symbol)).toEqual(['600000', '600519', '000001', '300001', '688001', '835185']);
+    expect(
+      sortSecuritiesForSync([
+        security('835185'),
+        security('688001'),
+        security('300001'),
+        security('000001'),
+        security('600519'),
+        security('600000'),
+      ]).map((item) => item.symbol),
+    ).toEqual(['600000', '600519', '000001', '300001', '688001', '835185']);
+  });
+
+  it('splits remote work into sequential batches of at most ten symbols', () => {
+    const batches = splitSyncBatches(
+      Array.from({ length: 23 }, (_, index) => String(index).padStart(6, '0')),
+      10,
+    );
+
+    expect(batches.map((batch) => batch.length)).toEqual([10, 10, 3]);
+    expect(batches.flat()).toHaveLength(23);
   });
 
   it('uses the trading calendar to choose a recent-first start date', () => {

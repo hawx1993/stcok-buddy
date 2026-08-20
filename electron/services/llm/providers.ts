@@ -48,7 +48,15 @@ export const providerPresets: ProviderPreset[] = [
     id: 'moonshot',
     name: 'Kimi',
     baseUrl: 'https://api.moonshot.cn/v1',
-    models: ['kimi-k3', 'kimi-k2.7-code-highspeed', 'kimi-k2.6', 'kimi-k2.5', 'moonshot-v1-128k', 'moonshot-v1-32k', 'moonshot-v1-8k'],
+    models: [
+      'kimi-k3',
+      'kimi-k2.7-code-highspeed',
+      'kimi-k2.6',
+      'kimi-k2.5',
+      'moonshot-v1-128k',
+      'moonshot-v1-32k',
+      'moonshot-v1-8k',
+    ],
     help: 'Kimi / Moonshot OpenAI 兼容接口。',
   },
   {

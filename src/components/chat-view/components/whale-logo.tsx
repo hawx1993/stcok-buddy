@@ -10,6 +10,8 @@ export function WhaleLogo({ width, height }: IWhaleLogoProps) {
     <svg
       className={styles['whale-logo']}
       viewBox='0 0 352 294'
+      width={width}
+      height={height}
       aria-hidden='true'
       style={width || height ? { width, height } : undefined}
     >

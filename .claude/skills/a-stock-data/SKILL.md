@@ -754,6 +754,25 @@ etf_quotes = tencent_quote(["510050", "510300"])
 ```python
 import requests
 
+def _extract_baidu_new_market_data(payload: dict) -> dict:
+    """兼容百度 Result 为对象或列表的真实返回形态。"""
+    result = payload.get("Result") if isinstance(payload, dict) else None
+    if isinstance(result, dict):
+        candidates = [result]
+    elif isinstance(result, list):
+        candidates = result
+    else:
+        candidates = []
+
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        md = item.get("newMarketData")
+        if isinstance(md, dict):
+            return md
+    return {}
+
+
 def baidu_kline_with_ma(code: str, start_time: str = "") -> dict:
     """百度股市通K线 — 独有能力: 返回时自带 ma5/ma10/ma20 均价"""
     url = "https://finance.pae.baidu.com/selfselect/getstockquotation"
@@ -770,12 +789,15 @@ def baidu_kline_with_ma(code: str, start_time: str = "") -> dict:
         "Referer": "https://gushitong.baidu.com/",
     }
     r = requests.get(url, params=params, headers=headers, timeout=10)
+    r.raise_for_status()
     d = r.json()
-    result = d.get("Result", {})
-    md = result.get("newMarketData", {})
+    md = _extract_baidu_new_market_data(d)
     keys = md.get("keys", [])  # includes: ma5avgprice, ma10avgprice, ma20avgprice
-    rows = md.get("marketData", "").split(";")
-    return {"keys": keys, "rows": rows}
+    market_data = md.get("marketData", "")
+    return {
+        "keys": keys if isinstance(keys, list) else [],
+        "rows": [row for row in market_data.split(";") if row] if isinstance(market_data, str) else [],
+    }
 
 # 用法
 data = baidu_kline_with_ma("600519")

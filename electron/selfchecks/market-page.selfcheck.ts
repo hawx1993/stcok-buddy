@@ -21,9 +21,7 @@ assert.deepEqual(unchanged.rows, currentRows);
 assert.deepEqual(unchanged.changedCodes, []);
 
 // ── Price-only changes detected ──
-const valueOnlyTarget = currentRows.map((row, index) =>
-  index < 6 ? { ...row, price: Number(row.price) + 0.5 } : row,
-);
+const valueOnlyTarget = currentRows.map((row, index) => (index < 6 ? { ...row, price: Number(row.price) + 0.5 } : row));
 const valueBatch = applyMarketRowValueUpdate(currentRows, valueOnlyTarget);
 assert.equal(valueBatch.changedCodes.length, 6);
 // Unchanged tail rows keep same object identity
@@ -49,7 +47,10 @@ const withNewAndDeleted: MarketQuoteRow[] = [
   { code: '000009', name: '股票9', price: 18, changePercent: 0 },
 ];
 const deltaBatch = applyMarketRowValueUpdate(currentRows, withNewAndDeleted);
-assert.deepEqual(deltaBatch.rows.map((row) => row.code), ['000002', '000003', '000009']);
+assert.deepEqual(
+  deltaBatch.rows.map((row) => row.code),
+  ['000002', '000003', '000009'],
+);
 
 // ── Industry preservation: target missing industry keeps current value ──
 const industryRows: MarketQuoteRow[] = [
@@ -63,7 +64,10 @@ const missingIndustryTarget: MarketQuoteRow[] = industryRows.map((row) => ({
   changePercent: row.changePercent,
 }));
 const industryBatch = applyMarketRowValueUpdate(industryRows, missingIndustryTarget);
-assert.deepEqual(industryBatch.rows.map((row) => row.industry), ['股份制银行', '航空机场']);
+assert.deepEqual(
+  industryBatch.rows.map((row) => row.industry),
+  ['股份制银行', '航空机场'],
+);
 
 // ── Industry fill: target provides industry when current has none ──
 const noIndustryRows: MarketQuoteRow[] = Array.from({ length: 4 }, (_, index) => ({
@@ -74,7 +78,10 @@ const noIndustryRows: MarketQuoteRow[] = Array.from({ length: 4 }, (_, index) =>
 }));
 const withIndustryTarget = noIndustryRows.map((row, index) => ({ ...row, industry: `行业${index + 1}` }));
 const fillBatch = applyMarketRowValueUpdate(noIndustryRows, withIndustryTarget);
-assert.deepEqual(fillBatch.rows.map((row) => row.industry), ['行业1', '行业2', '行业3', '行业4']);
+assert.deepEqual(
+  fillBatch.rows.map((row) => row.industry),
+  ['行业1', '行业2', '行业3', '行业4'],
+);
 assert.equal(fillBatch.changedCodes.length, 4);
 
 // ── sameMarketRows ──
@@ -85,7 +92,19 @@ assert(!sameMarketRows(currentRows, differentRows));
 // ── Industry provider ──
 const nodes = findShenwanLevelTwoNodes([
   '行情中心',
-  ['A股', [['申万二级', [['白酒Ⅱ', '', 'sw2_340500'], ['无效节点', '', 'new_test']], '']]],
+  [
+    'A股',
+    [
+      [
+        '申万二级',
+        [
+          ['白酒Ⅱ', '', 'sw2_340500'],
+          ['无效节点', '', 'new_test'],
+        ],
+        '',
+      ],
+    ],
+  ],
 ]);
 assert.deepEqual(nodes, [{ name: '白酒Ⅱ', code: 'sw2_340500' }]);
 

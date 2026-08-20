@@ -37,8 +37,17 @@
 }
 
 .ap-dot {
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
-  font-size: 13px;
+}
+
+.ap-status-running {
+  color: var(--accent);
+}
+
+.ap-status-completed {
+  color: var(--success);
 }
 
 .ap-title {
@@ -58,10 +67,8 @@
 
 .ap-caret {
   color: var(--accent);
-  font-size: 22px;
   width: 22px;
   height: 22px;
-  line-height: 18px;
   flex-shrink: 0;
   margin-left: 8px;
   display: inline-flex;
@@ -88,6 +95,9 @@
 
 // ── Section title ──
 .section-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   font-weight: 600;
   color: var(--fg-secondary);
@@ -102,13 +112,6 @@
 
 // ── Progress Bar ──
 .progress-bar {
-  margin-bottom: 6px;
-}
-
-.stock-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg);
   margin-bottom: 6px;
 }
 
@@ -148,14 +151,12 @@
   flex-wrap: wrap;
   gap: 2px 10px;
 }
-
 .step-item {
   display: inline-flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 3px;
   font-size: 10px;
   min-width: 0;
-
   &.completed {
     color: var(--success);
   }
@@ -174,9 +175,12 @@
 }
 
 .step-icon {
-  font-size: 9px;
-  width: 10px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
 }
 
 .step-label {
@@ -245,8 +249,10 @@
 }
 
 .agent-dot {
+  box-sizing: border-box;
   width: 10px;
   height: 10px;
+  border: 2px solid transparent;
   border-radius: 50%;
   flex-shrink: 0;
   transition:
@@ -255,22 +261,26 @@
     box-shadow 0.2s;
 
   &.completed {
-    background: var(--muted);
+    background: var(--success);
+    border-color: var(--success);
   }
   &.running {
-    background: var(--accent);
+    background: transparent;
+    border-color: var(--accent);
   }
   &.error {
-    background: var(--danger);
+    background: transparent;
+    border-color: var(--danger);
   }
   &.pending {
-    background: var(--muted);
+    background: transparent;
+    border-color: var(--muted);
   }
 
-  // Expandable: ring style — clearly signals "click me"
+  // Expandable: keep the completed fill and add a subtle interaction halo
   &.expandable {
-    background: transparent;
-    border: 2px solid var(--success);
+    background: var(--success);
+    border-color: var(--success);
     box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.15);
 
     &:hover {
@@ -296,17 +306,18 @@
 }
 
 .agent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 10px;
   white-space: nowrap;
 }
 
 .agent-expand-icon {
-  font-size: 18px;
   color: var(--accent);
   flex-shrink: 0;
   width: 18px;
   height: 18px;
-  line-height: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -393,7 +404,12 @@
 }
 
 .source-icon {
-  font-size: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
 }
 
 // ── Timeline ──
@@ -567,10 +583,8 @@
 
 .tool-caret {
   color: var(--accent);
-  font-size: 18px;
   width: 18px;
   height: 18px;
-  line-height: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -627,6 +641,16 @@
 }
 
 // ── Animations ──
+.icon-spinning {
+  animation: icon-spin 1s linear infinite;
+}
+
+@keyframes icon-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes pulse {
   0%,
   100% {

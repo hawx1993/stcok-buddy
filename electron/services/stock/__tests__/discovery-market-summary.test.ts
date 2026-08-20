@@ -23,7 +23,9 @@ function createMarketFundFlow(date: string, mainNetInflow: number | null): Marke
   };
 }
 
-function createNorthboundFlow(row: Pick<NorthboundFlowSummary, 'date' | 'direction' | 'netBuyAmount' | 'netInflow'>): NorthboundFlowSummary {
+function createNorthboundFlow(
+  row: Pick<NorthboundFlowSummary, 'date' | 'direction' | 'netBuyAmount' | 'netInflow'>,
+): NorthboundFlowSummary {
   return {
     date: row.date,
     type: 'test',
@@ -78,7 +80,12 @@ describe('选择最新主力资金净流入', () => {
 describe('汇总北向资金净流入', () => {
   it('仅汇总指定交易日北向记录并换算为亿元', () => {
     const rows = [
-      createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: 100_000_000, netInflow: 900_000_000 }),
+      createNorthboundFlow({
+        date: '2026-07-31',
+        direction: '北向资金',
+        netBuyAmount: 100_000_000,
+        netInflow: 900_000_000,
+      }),
       createNorthboundFlow({ date: '2026-07-31', direction: 'Northbound', netBuyAmount: null, netInflow: -50_000_000 }),
       createNorthboundFlow({ date: '2026-07-31', direction: '南向资金', netBuyAmount: 999_000_000, netInflow: null }),
       createNorthboundFlow({ date: '2026-07-30', direction: '北向资金', netBuyAmount: 300_000_000, netInflow: null }),
@@ -89,16 +96,37 @@ describe('汇总北向资金净流入', () => {
 
   it('同时存在时优先使用净买额', () => {
     const rows = [
-      createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: 100_000_000, netInflow: 900_000_000 }),
+      createNorthboundFlow({
+        date: '2026-07-31',
+        direction: '北向资金',
+        netBuyAmount: 100_000_000,
+        netInflow: 900_000_000,
+      }),
     ];
 
     expect(sumNorthFundFlowYi(rows)).toBe(1);
   });
 
   it('北向数值缺失、未披露或非有限时返回 null，netInflow 真实 0 保留为有效数据', () => {
-    expect(sumNorthFundFlowYi([createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: 0, netInflow: null })])).toBeNull();
-    expect(sumNorthFundFlowYi([createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: null, netInflow: 0 })])).toBe(0);
-    expect(sumNorthFundFlowYi([createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: Number.NaN, netInflow: null })])).toBeNull();
-    expect(sumNorthFundFlowYi([createNorthboundFlow({ date: '2026-07-31', direction: '南向资金', netBuyAmount: 100_000_000, netInflow: null })])).toBeNull();
+    expect(
+      sumNorthFundFlowYi([
+        createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: 0, netInflow: null }),
+      ]),
+    ).toBeNull();
+    expect(
+      sumNorthFundFlowYi([
+        createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: null, netInflow: 0 }),
+      ]),
+    ).toBe(0);
+    expect(
+      sumNorthFundFlowYi([
+        createNorthboundFlow({ date: '2026-07-31', direction: '北向资金', netBuyAmount: Number.NaN, netInflow: null }),
+      ]),
+    ).toBeNull();
+    expect(
+      sumNorthFundFlowYi([
+        createNorthboundFlow({ date: '2026-07-31', direction: '南向资金', netBuyAmount: 100_000_000, netInflow: null }),
+      ]),
+    ).toBeNull();
   });
 });

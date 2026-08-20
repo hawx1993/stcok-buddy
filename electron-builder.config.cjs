@@ -35,6 +35,10 @@ module.exports = {
     {
       from: 'public/store',
       to: 'public/store'
+    },
+    {
+      from: 'electron/python/a-stock-data.py',
+      to: 'python/a-stock-data.py'
     }
   ],
   publish: [

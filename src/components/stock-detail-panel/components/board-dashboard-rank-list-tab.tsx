@@ -43,8 +43,8 @@ export function BoardDashboardRankListTab({ items, range, onOpenBoard }: IBoardD
         onOpenBoard={onOpenBoard}
       />
       <BoardRankList
-        title={`${rangeLabel}资金净流入榜`}
-        emptyText={`暂无${rangeLabel}资金净流入榜数据`}
+        title={`${rangeLabel}资金流向榜`}
+        emptyText={`暂无${rangeLabel}资金流向榜数据`}
         kind='fund'
         items={fundInflowRankings}
         onOpenBoard={onOpenBoard}

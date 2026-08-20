@@ -20,6 +20,7 @@ export function ResultCard({
   const headers = result.rows?.[0] ? Object.keys(result.rows[0]) : [];
   const isCollapsible = isNewsAnnouncementCard(result);
   const isDailyDragonTiger = isDailyDragonTigerCard(result);
+  const narrative = isCollapsible || isDailyDragonTiger || isThemeAttributionCard(result) ? undefined : result.narrative;
   const rows = result.rows ?? [];
   const visibleRows = isDailyDragonTiger && !rowsOpen ? rows.slice(0, 5) : rows;
   return (
@@ -79,11 +80,11 @@ export function ResultCard({
           ) : null}
         </>
       ) : null}
-      {open && result.narrative && !isCollapsible ? (
+      {open && narrative ? (
         <div
           className={styles['card-narrative']}
           dangerouslySetInnerHTML={{
-            __html: renderMarkdownContent(result.narrative, { disclaimer: result.title !== '技术指标摘要' }),
+            __html: renderMarkdownContent(narrative, { disclaimer: result.title !== '技术指标摘要' }),
           }}
         />
       ) : null}
@@ -93,6 +94,10 @@ export function ResultCard({
 
 function isDailyDragonTigerCard(result: AgentResultCard) {
   return result.title === '全市场龙虎榜';
+}
+
+function isThemeAttributionCard(result: AgentResultCard) {
+  return result.title === '题材归因';
 }
 
 export function getTableCellClass(header: string, index?: number, total?: number) {

@@ -4,11 +4,17 @@ import type {
   KlinePoint,
   MarketBoardRow,
   StockDetail,
+  TChipDistributionPeriod,
 } from '../../../src/shared/types.js';
 
 export type AdjustType = 'qfq' | 'none' | 'qfq_weekly' | 'qfq_monthly';
 export type DataFreshness = 'live' | 'current' | 'historical' | 'stale' | 'fallback';
-export type SyncJobType = 'initial_backfill' | 'recent_initial' | 'historical_backfill' | 'daily_incremental' | 'repair';
+export type SyncJobType =
+  | 'initial_backfill'
+  | 'recent_initial'
+  | 'historical_backfill'
+  | 'daily_incremental'
+  | 'repair';
 export type SyncJobStatus = 'pending' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
 
 export interface DataMeta {
@@ -62,6 +68,7 @@ export interface TradeCalendarQueryOptions {
 
 export interface StockChipCacheRecord {
   symbol: string;
+  period: TChipDistributionPeriod;
   data: unknown;
   fetchedAt: string;
 }
@@ -83,6 +90,10 @@ export interface DailyBarRecord {
   fetchedAt: string;
 }
 
+export interface IDailyBarCoverageCandidate extends SecurityRecord {
+  latestTradeDate?: string;
+}
+
 export interface HistoricalBarsOptions {
   limit?: number;
   startDate?: string;
@@ -93,7 +104,10 @@ export interface HistoricalBarsOptions {
 
 export interface HistoricalBarProvider {
   name: string;
-  getDailyBars(symbol: string, options: Required<Pick<HistoricalBarsOptions, 'adjustType'>> & Pick<HistoricalBarsOptions, 'startDate' | 'endDate'>): Promise<DailyBarRecord[]>;
+  getDailyBars(
+    symbol: string,
+    options: Required<Pick<HistoricalBarsOptions, 'adjustType'>> & Pick<HistoricalBarsOptions, 'startDate' | 'endDate'>,
+  ): Promise<DailyBarRecord[]>;
 }
 
 export interface MarketDataSyncStatus {
@@ -124,6 +138,7 @@ export interface SyncJobRecord extends MarketDataSyncStatus {
   id: string;
   status: SyncJobStatus;
   checkpointSymbol?: string;
+  checkpointAt?: string;
   errorMessage?: string;
 }
 

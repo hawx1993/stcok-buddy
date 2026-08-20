@@ -5,9 +5,13 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { registerIpcHandlers } from './ipc.js';
-import { closeMarketDataInstance, closeMarketDataStore } from './services/market-data/market-data-store.js';
-import { ensureMarketDataRuntime, shutdownMarketDataScheduler, stopMarketDataScheduler } from './services/market-data/market-data-scheduler.js';
-import { closeConversationStore } from './services/conversation-store.js';
+import { closeMarketDataInstance, closeMarketDataStore } from './services/stock-db/market-data-store.js';
+import {
+  ensureMarketDataRuntime,
+  shutdownMarketDataScheduler,
+  stopMarketDataScheduler,
+} from './services/market-data/market-data-scheduler.js';
+import { closeConversationStore } from './services/stock-db/conversation-store.js';
 import {
   ensureSurgeHistoryCapture,
   shutdownSurgeHistoryScheduler,
@@ -15,17 +19,18 @@ import {
   waitForSurgeHistoryScheduler,
 } from './services/stock/surge-history-scheduler.js';
 import { stopDiscoveryRefreshLoop } from './services/stock/discovery-service.js';
-import { closeQuoteStore, initializeQuoteStore } from './services/stock/quote-store.js';
-import { closeSurgeHistoryInstance, closeSurgeHistoryStore } from './services/stock/surge-history-store.js';
+import { closeQuoteStore, initializeQuoteStore } from './services/stock-db/quote-store.js';
+import { closeSurgeHistoryInstance, closeSurgeHistoryStore } from './services/stock-db/surge-history-store.js';
 import {
   startMonitorHistoryScheduler,
   stopMonitorHistoryScheduler,
   waitForMonitorHistoryScheduler,
 } from './services/stock/monitor-history-scheduler.js';
-import { closeMonitorHistoryInstance, closeMonitorHistoryStore } from './services/stock/monitor-history-store.js';
+import { closeMonitorHistoryInstance, closeMonitorHistoryStore } from './services/stock-db/monitor-history-store.js';
 import { syncSurgeHistoryIfNeeded } from './services/market-data/data-sync-handlers.js';
 import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
 import { checkAppUpdate, setInstallUpdateHandler } from './services/update-service.js';
+import { disposeChipDistributionWorker } from './services/stock/chip-distribution-worker-client.js';
 import { app, BrowserWindow, shell } from './electron-runtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,7 +52,7 @@ const QUIT_POSTHOG_WAIT_MS = 800;
 
 function getPackageVersion() {
   try {
-    return JSON.parse(readFileSync(path.join(__dirname, '../../package.json'), 'utf8')).version as string;
+    return JSON.parse(readFileSync(path.join(__dirname, '../../packageon'), 'utf8')).version as string;
   } catch {
     return app.getVersion();
   }
@@ -67,7 +72,7 @@ function getBuildCommitHash() {
 }
 
 function configureAboutPanel() {
-  const aboutText = `版本: ${getPackageVersion()} (${getBuildCommitHash()})\nElectron: ${process.versions.electron}\nChrome: ${process.versions.chrome}\nNode.js: ${process.versions.node}`;
+  const aboutText = `版本: ${getPackageVersion()} (${getBuildCommitHash()})\nElectron: ${process.versions.electron}\nChrome: ${process.versions.chrome}\nNode: ${process.versions.node}`;
   app.setAboutPanelOptions({
     applicationName: 'StockBuddy',
     applicationVersion: '',
@@ -83,6 +88,7 @@ function prepareForUpdateInstall() {
   stopDiscoveryRefreshLoop();
   stopSurgeHistoryScheduler();
   stopMonitorHistoryScheduler();
+  void disposeChipDistributionWorker();
 }
 
 function finishQuit() {
@@ -136,6 +142,7 @@ async function cleanupAndQuit() {
     await closeMonitorHistoryStore(500);
     await closeMonitorHistoryInstance();
   });
+  await runCleanupStep('chip-distribution-worker', () => disposeChipDistributionWorker());
   await runCleanupStep('posthog', () => waitWithTimeout('posthog', shutdownPostHog(), QUIT_POSTHOG_WAIT_MS));
   finishQuit();
 }
@@ -174,6 +181,16 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
 }
+
+function focusMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
+
+app.on('second-instance', () => {
+  focusMainWindow();
+});
 
 app.whenReady().then(() => {
   sessionStartedAt = Date.now();

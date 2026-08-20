@@ -1,15 +1,19 @@
-import { listRemoteSecurities } from './providers.js';
+import { normalizeMarketCap } from '../stock/format.js';
+import { normalizeASymbol } from '../stock/symbols.js';
 import {
   listAShareMarketCapSnapshotRows,
   upsertSecurities,
   upsertStockSnapshots,
   type IAShareMarketCapSnapshotRow,
-} from './market-data-store.js';
+} from '../stock-db/market-data-store.js';
+import {
+  fetchAStockDataMarketSnapshotQuotes,
+  fetchStockSdkMarketSnapshotQuotes,
+  type IMarketSnapshotQuoteFetchResult,
+  type IMarketSnapshotQuoteRecord,
+} from './market-snapshot-provider.js';
+import { listRemoteSecurities } from './providers.js';
 import type { SecurityRecord } from './types.js';
-import { runAStockDataFn, type ITencentQuote } from '../stock/a-stock-data-runner.js';
-import { normalizeMarketCap } from '../stock/format.js';
-import { sdk } from '../stock/shared.js';
-import { normalizeASymbol } from '../stock/symbols.js';
 
 export type TMarketCapField = 'total' | 'circulating';
 export type TMarketCapUnit = 'yuan' | 'yi';
@@ -18,6 +22,8 @@ export type TMarketCapDataSource = 'duckdb' | 'stock-sdk' | 'a-stock-data';
 export interface IMarketCapScreenInput {
   minMarketCap?: number;
   maxMarketCap?: number;
+  turnoverRateMin?: number;
+  turnoverRateMax?: number;
   unit?: TMarketCapUnit;
   marketCapField?: TMarketCapField;
   limit?: number;
@@ -49,6 +55,8 @@ export interface IMarketCapScreenResult {
   marketCapField: TMarketCapField;
   minMarketCap?: number;
   maxMarketCap?: number;
+  turnoverRateMin?: number;
+  turnoverRateMax?: number;
   unit: 'yuan';
   rows: IMarketCapScreenRow[];
   matchedCount: number;
@@ -64,33 +72,8 @@ export interface IMarketCapScreenResult {
   isEmpty: boolean;
 }
 
-interface IMarketCapQuoteRecord {
-  code: string;
-  name: string;
-  exchange?: SecurityRecord['exchange'];
-  industry?: string;
-  price?: number;
-  change?: number;
-  changePercent?: number;
-  open?: number;
-  high?: number;
-  low?: number;
-  prevClose?: number;
-  volume?: number;
-  amount?: number;
-  turnoverRate?: number;
-  pe?: number;
-  pb?: number;
-  totalMarketCap?: number;
-  circulatingMarketCap?: number;
-  amplitude?: number;
-  fetchedAt?: string;
-}
-
-interface IQuoteFetchResult {
-  quotes: IMarketCapQuoteRecord[];
-  warnings: string[];
-}
+type IMarketCapQuoteRecord = IMarketSnapshotQuoteRecord;
+type IQuoteFetchResult = IMarketSnapshotQuoteFetchResult;
 
 interface IMarketCapScreenerDependencies {
   listLocalRows(includeST: boolean): Promise<IAShareMarketCapSnapshotRow[]>;
@@ -102,8 +85,6 @@ interface IMarketCapScreenerDependencies {
 }
 
 const YI_YUAN = 100_000_000;
-const STOCK_SDK_BATCH_SIZE = 80;
-const A_STOCK_DATA_BATCH_SIZE = 100;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
 
@@ -112,28 +93,30 @@ const defaultDependencies: IMarketCapScreenerDependencies = {
   listRemoteSecurities,
   upsertSecurities,
   upsertSnapshots: async (records) => {
-    await upsertStockSnapshots(records.map((record) => ({
-      symbol: record.code,
-      name: record.name,
-      price: record.price,
-      change: record.change,
-      changePercent: record.changePercent,
-      open: record.open,
-      high: record.high,
-      low: record.low,
-      prevClose: record.prevClose,
-      volume: record.volume,
-      amount: record.amount,
-      turnoverRate: record.turnoverRate,
-      pe: record.pe,
-      pb: record.pb,
-      totalMarketCap: record.totalMarketCap,
-      circulatingMarketCap: record.circulatingMarketCap,
-      amplitude: record.amplitude,
-    })));
+    await upsertStockSnapshots(
+      records.map((record) => ({
+        symbol: record.code,
+        name: record.name,
+        price: record.price,
+        change: record.change,
+        changePercent: record.changePercent,
+        open: record.open,
+        high: record.high,
+        low: record.low,
+        prevClose: record.prevClose,
+        volume: record.volume,
+        amount: record.amount,
+        turnoverRate: record.turnoverRate,
+        pe: record.pe,
+        pb: record.pb,
+        totalMarketCap: record.totalMarketCap,
+        circulatingMarketCap: record.circulatingMarketCap,
+        amplitude: record.amplitude,
+      })),
+    );
   },
-  fetchStockSdkQuotes: fetchStockSdkQuotesDefault,
-  fetchAStockDataQuotes: fetchAStockDataQuotesDefault,
+  fetchStockSdkQuotes: fetchStockSdkMarketSnapshotQuotes,
+  fetchAStockDataQuotes: fetchAStockDataMarketSnapshotQuotes,
 };
 
 let dependencies = defaultDependencies;
@@ -165,9 +148,7 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
     if (mapped) resolved.set(mapped.code, mapped);
   }
 
-  const missingAfterDuckDB = localRows
-    .filter((row) => !resolved.has(row.symbol))
-    .map((row) => row.symbol);
+  const missingAfterDuckDB = localRows.filter((row) => !resolved.has(row.symbol)).map((row) => row.symbol);
   const stockSdkResult = await loadStockSdkQuotes(missingAfterDuckDB, warnings);
   await persistQuoteRecords(stockSdkResult.quotes, warnings);
   mergeQuoteRows(stockSdkResult.quotes, candidateByCode, resolved, options.marketCapField, 'stock-sdk');
@@ -179,7 +160,10 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
 
   const matched = [...resolved.values()]
     .filter((row) => passesRange(row.marketCap, options.minMarketCap, options.maxMarketCap))
-    .sort((left, right) => options.sortOrder === 'asc' ? left.marketCap - right.marketCap : right.marketCap - left.marketCap);
+    .filter((row) => passesTurnoverRange(row.turnoverRate, options.turnoverRateMin, options.turnoverRateMax))
+    .sort((left, right) =>
+      options.sortOrder === 'asc' ? left.marketCap - right.marketCap : right.marketCap - left.marketCap,
+    );
 
   const rows = matched.slice(0, options.limit);
   const sourceStats = {
@@ -190,8 +174,11 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
   };
 
   if (!totalCandidates) warnings.push('未获取到全市场 A 股候选列表，无法完成 5000+ 股票市值筛选');
-  if (sourceStats.missingMarketCap > 0) warnings.push(`${sourceStats.missingMarketCap} 只 A 股缺少可用${marketCapFieldLabel(options.marketCapField)}，未纳入市值筛选`);
-  if (!matched.length) warnings.push('未找到符合市值区间的 A 股');
+  if (sourceStats.missingMarketCap > 0)
+    warnings.push(
+      `${sourceStats.missingMarketCap} 只 A 股缺少可用${marketCapFieldLabel(options.marketCapField)}，未纳入市值筛选`,
+    );
+  if (!matched.length) warnings.push('未找到同时符合市值区间与换手率条件的 A 股');
 
   return {
     source: 'duckdb+stock-sdk+a-stock-data',
@@ -199,6 +186,8 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
     marketCapField: options.marketCapField,
     minMarketCap: options.minMarketCap,
     maxMarketCap: options.maxMarketCap,
+    turnoverRateMin: options.turnoverRateMin,
+    turnoverRateMax: options.turnoverRateMax,
     unit: 'yuan',
     rows,
     matchedCount: matched.length,
@@ -210,18 +199,28 @@ export async function screenASharesByMarketCap(input: IMarketCapScreenInput = {}
   };
 }
 
-function normalizeInput(input: IMarketCapScreenInput): Required<Pick<IMarketCapScreenInput, 'marketCapField' | 'limit' | 'includeST' | 'sortOrder'>> & Pick<IMarketCapScreenInput, 'minMarketCap' | 'maxMarketCap'> {
+function normalizeInput(
+  input: IMarketCapScreenInput,
+): Required<Pick<IMarketCapScreenInput, 'marketCapField' | 'limit' | 'includeST' | 'sortOrder'>> &
+  Pick<IMarketCapScreenInput, 'minMarketCap' | 'maxMarketCap' | 'turnoverRateMin' | 'turnoverRateMax'> {
   const unit = input.unit ?? 'yi';
   const minMarketCap = normalizeBound(input.minMarketCap, unit);
   const maxMarketCap = normalizeBound(input.maxMarketCap, unit);
   return {
     minMarketCap,
     maxMarketCap,
+    turnoverRateMin: normalizeTurnoverBound(input.turnoverRateMin),
+    turnoverRateMax: normalizeTurnoverBound(input.turnoverRateMax),
     marketCapField: input.marketCapField === 'circulating' ? 'circulating' : 'total',
     limit: Math.max(1, Math.min(MAX_LIMIT, Math.floor(input.limit ?? DEFAULT_LIMIT))),
     includeST: input.includeST === true,
     sortOrder: input.sortOrder === 'desc' ? 'desc' : 'asc',
   };
+}
+
+function normalizeTurnoverBound(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return undefined;
+  return Math.max(0, value);
 }
 
 function normalizeBound(value: number | undefined, unit: TMarketCapUnit) {
@@ -376,6 +375,12 @@ function passesRange(value: number, min?: number, max?: number) {
   return true;
 }
 
+function passesTurnoverRange(value: number | undefined, min?: number, max?: number) {
+  if (min !== undefined && (value === undefined || value < min)) return false;
+  if (max !== undefined && (value === undefined || value > max)) return false;
+  return true;
+}
+
 function storageForRows(rows: IMarketCapScreenRow[]): IMarketCapScreenResult['storage'] {
   if (!rows.length) return 'none';
   const sources = new Set(rows.map((row) => row.dataSource));
@@ -394,104 +399,4 @@ function marketCapFieldLabel(field: TMarketCapField) {
 
 function formatError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
-}
-
-function inferAShareExchange(code: string): SecurityRecord['exchange'] {
-  if (code.startsWith('6')) return 'SH';
-  if (code.startsWith('8') || code.startsWith('4')) return 'BJ';
-  return 'SZ';
-}
-
-async function fetchStockSdkQuotesDefault(codes: string[]): Promise<IQuoteFetchResult> {
-  const quotes: IMarketCapQuoteRecord[] = [];
-  const warnings: string[] = [];
-  const unique = uniqueCodes(codes);
-  for (const batch of chunk(unique, STOCK_SDK_BATCH_SIZE)) {
-    try {
-      const rows = await sdk.batch.byCodes(batch, { batchSize: STOCK_SDK_BATCH_SIZE, concurrency: 1 });
-      quotes.push(...rows.map((row) => ({
-        code: normalizeASymbol(row.code),
-        name: row.name,
-        exchange: inferAShareExchange(normalizeASymbol(row.code)),
-        price: row.price,
-        change: row.change,
-        changePercent: row.changePercent,
-        open: row.open,
-        high: row.high,
-        low: row.low,
-        prevClose: row.prevClose,
-        volume: row.volume,
-        amount: row.amount,
-        turnoverRate: row.turnoverRate ?? undefined,
-        pe: row.pe ?? undefined,
-        pb: row.pb ?? undefined,
-        totalMarketCap: row.totalMarketCap ?? undefined,
-        circulatingMarketCap: row.circulatingMarketCap ?? undefined,
-        amplitude: row.amplitude ?? undefined,
-        fetchedAt: new Date().toISOString(),
-      })));
-    } catch (error) {
-      warnings.push(`stock-sdk 批次 ${batch[0]}-${batch.at(-1)} 市值补齐失败：${formatError(error)}`);
-    }
-  }
-  return { quotes, warnings };
-}
-
-async function fetchAStockDataQuotesDefault(codes: string[]): Promise<IQuoteFetchResult> {
-  const quotes: IMarketCapQuoteRecord[] = [];
-  const warnings: string[] = [];
-  const unique = uniqueCodes(codes);
-  for (const batch of chunk(unique, A_STOCK_DATA_BATCH_SIZE)) {
-    try {
-      const result = await runAStockDataFn<Record<string, ITencentQuote>>('tencent_quote', { codes: batch.join(',') });
-      for (const [rawCode, quote] of Object.entries(result)) {
-        const code = normalizeASymbol(rawCode);
-        const totalMarketCap = normalizeYiMarketCap(quote.mcap_yi);
-        const circulatingMarketCap = normalizeYiMarketCap(quote.float_mcap_yi);
-        if (totalMarketCap === undefined && circulatingMarketCap === undefined) continue;
-        quotes.push({
-          code,
-          name: quote.name,
-          exchange: inferAShareExchange(code),
-          price: finiteNumber(quote.price),
-          change: finiteNumber(quote.change_amt),
-          changePercent: finiteNumber(quote.change_pct),
-          open: finiteNumber(quote.open),
-          high: finiteNumber(quote.high),
-          low: finiteNumber(quote.low),
-          prevClose: finiteNumber(quote.last_close),
-          amount: quote.amount_wan > 0 ? quote.amount_wan * 10_000 : undefined,
-          turnoverRate: finiteNumber(quote.turnover_pct),
-          pe: finiteNumber(quote.pe_ttm),
-          pb: finiteNumber(quote.pb),
-          totalMarketCap,
-          circulatingMarketCap,
-          amplitude: finiteNumber(quote.amplitude_pct),
-          fetchedAt: new Date().toISOString(),
-        });
-      }
-    } catch (error) {
-      warnings.push(`a-stock-data 批次 ${batch[0]}-${batch.at(-1)} 市值补齐失败：${formatError(error)}`);
-    }
-  }
-  return { quotes, warnings };
-}
-
-function normalizeYiMarketCap(value: number | undefined) {
-  if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined;
-  return Math.round(value * YI_YUAN);
-}
-
-function finiteNumber(value: number | undefined) {
-  return value !== undefined && Number.isFinite(value) ? value : undefined;
-}
-
-function uniqueCodes(codes: string[]) {
-  return [...new Set(codes.map((code) => normalizeASymbol(code)).filter(Boolean))];
-}
-
-function chunk<T>(items: T[], size: number) {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
-  return chunks;
 }

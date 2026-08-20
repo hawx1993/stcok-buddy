@@ -11,7 +11,10 @@ a-stock-data 运行时执行器（只移植所需函数）
 用途：`python a-stock-data.py <fn> [--key value ...]`，结果以
 `print(json.dumps(result, ensure_ascii=False))` 输出 JSON；失败抛错非零退出。
 """
+from __future__ import annotations
+
 import json
+import math
 import random
 import socket
 import sys
@@ -21,6 +24,11 @@ import requests
 
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+SINA_HEADERS = {"User-Agent": UA, "Referer": "https://vip.stock.finance.sina.com.cn/"}
+SINA_INDUSTRY_RANK_URL = "https://vip.stock.finance.sina.com.cn/q/view/newSinaHy.php"
+SINA_CONCEPT_RANK_URL = "https://money.finance.sina.com.cn/q/view/newFLJK.php"
+SINA_BOARD_COUNT_URL = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeStockCount"
+SINA_BOARD_ROWS_URL = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
 
 # ── 东财防封：全局节流 + 会话复用（SKILL.md「数据源优先级 & 东财防封」章节）──────
 EM_SESSION = requests.Session()
@@ -235,6 +243,143 @@ def board_fund_flow(board_type: str = "industry", period: str = "today", top_n: 
     return {"board_type": board_type, "period": period, "total": total, "rows": rows[:top_n]}
 
 
+# ── 新浪行业/概念板块（条件选股二级真实 Provider）──────────────────────
+def _sina_get(url: str, params: dict | None = None, timeout: int = 15) -> requests.Response:
+    response = requests.get(url, params=params, headers=SINA_HEADERS, timeout=timeout)
+    response.raise_for_status()
+    return response
+
+
+def _sina_number(value) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _sina_js_object(content: bytes) -> dict:
+    text = content.decode("gbk", errors="replace")
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end < start:
+        raise ValueError("新浪板块排行响应缺少 JSON 对象")
+    payload = json.loads(text[start : end + 1])
+    if not isinstance(payload, dict):
+        raise ValueError("新浪板块排行响应不是对象")
+    return payload
+
+
+def _sina_board_rank_rows(url: str, kind: str, params: dict | None = None) -> list[dict]:
+    payload = _sina_js_object(_sina_get(url, params=params).content)
+    rows = []
+    for value in payload.values():
+        if not isinstance(value, str):
+            continue
+        fields = value.split(",")
+        if len(fields) < 13:
+            continue
+        code = fields[0].strip()
+        name = fields[1].strip()
+        change_percent = _sina_number(fields[5])
+        if not code or not name or change_percent is None:
+            continue
+        amount = _sina_number(fields[7])
+        leader_change_percent = _sina_number(fields[9])
+        rows.append(
+            {
+                "code": code,
+                "name": name,
+                "kind": kind,
+                "change_percent": change_percent,
+                "amount": amount,
+                "leader_code": fields[8].replace("sh", "").replace("sz", "").replace("bj", "").strip(),
+                "leader_change_percent": leader_change_percent,
+                "leader_name": fields[12].strip(),
+            }
+        )
+    return rows
+
+
+def sina_board_rank() -> dict:
+    """新浪真实行业/概念板块涨跌幅排行。返回 {rows, failed_kinds}。"""
+    rows: list[dict] = []
+    failed_kinds: list[str] = []
+    for kind, url, params in [
+        ("industry", SINA_INDUSTRY_RANK_URL, None),
+        ("concept", SINA_CONCEPT_RANK_URL, {"param": "class"}),
+    ]:
+        try:
+            rows.extend(_sina_board_rank_rows(url, kind, params))
+        except Exception as error:
+            print(f"[WARN] 新浪{kind}板块排行失败: {error}", file=sys.stderr)
+            failed_kinds.append(kind)
+    if not rows:
+        raise RuntimeError("新浪行业与概念板块排行均不可用")
+    return {"rows": rows, "failed_kinds": failed_kinds}
+
+
+def _sina_board_stock_count(board_code: str) -> int:
+    payload = _sina_get(SINA_BOARD_COUNT_URL, {"node": board_code}).json()
+    try:
+        count = int(str(payload).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"新浪板块 {board_code} 成分股数量无效")
+    return max(count, 0)
+
+
+def _sina_board_page(board_code: str, page: int) -> list[dict]:
+    payload = _sina_get(
+        SINA_BOARD_ROWS_URL,
+        {"node": board_code, "page": page, "num": 100, "sort": "symbol", "asc": 1},
+    ).json()
+    if not isinstance(payload, list):
+        raise ValueError(f"新浪板块 {board_code} 成分股响应不是数组")
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def _normalize_sina_stock_code(value) -> str:
+    code = str(value or "").strip().lower()
+    if code[:2] in {"sh", "sz", "bj"}:
+        code = code[2:]
+    return code if code.isdigit() else ""
+
+
+def sina_board_constituents(board_codes: str) -> dict:
+    """批量读取新浪板块真实成分股。返回 {rows, failed_board_codes}。"""
+    codes = list(dict.fromkeys(code.strip() for code in board_codes.split(",") if code.strip()))
+    if not codes:
+        raise ValueError("board_codes 不能为空")
+
+    rows: list[dict] = []
+    failed_board_codes: list[str] = []
+    for board_code in codes:
+        try:
+            total = _sina_board_stock_count(board_code)
+            page_count = (total + 99) // 100
+            seen_codes: set[str] = set()
+            for page in range(1, page_count + 1):
+                for item in _sina_board_page(board_code, page):
+                    stock_code = _normalize_sina_stock_code(item.get("code") or item.get("symbol"))
+                    stock_name = str(item.get("name") or "").strip()
+                    if not stock_code or not stock_name or stock_code in seen_codes:
+                        continue
+                    seen_codes.add(stock_code)
+                    rows.append(
+                        {
+                            "board_code": board_code,
+                            "stock_code": stock_code,
+                            "stock_name": stock_name,
+                        }
+                    )
+        except Exception as error:
+            print(f"[WARN] 新浪板块 {board_code} 成分股失败: {error}", file=sys.stderr)
+            failed_board_codes.append(board_code)
+    if not rows and failed_board_codes:
+        raise RuntimeError(f"新浪板块成分股均不可用: {', '.join(failed_board_codes)}")
+    return {"rows": rows, "failed_board_codes": failed_board_codes}
+
+
 # ── §10.2 同花顺热榜 + 东财人气榜 ──────────────────────────────────────
 def ths_hot_list(period: str = "hour") -> list[dict]:
     """同花顺热榜（单接口拿名称+人气+概念标签+排名变化）。period: hour/day。"""
@@ -391,6 +536,25 @@ def tencent_quote(codes):
 
 
 # ── §1.3 百度股市通 K线（自带均线）────────────────────────────────────
+def _extract_baidu_new_market_data(payload: dict) -> dict:
+    """兼容百度 Result 为对象或列表的真实返回形态。"""
+    result = payload.get("Result") if isinstance(payload, dict) else None
+    if isinstance(result, dict):
+        candidates = [result]
+    elif isinstance(result, list):
+        candidates = result
+    else:
+        candidates = []
+
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        md = item.get("newMarketData")
+        if isinstance(md, dict):
+            return md
+    return {}
+
+
 def baidu_kline_with_ma(code: str, start_time: str = "") -> dict:
     """百度股市通K线 — 独有能力: 返回时自带 ma5/ma10/ma20 均价。返回 {keys, rows}。"""
     code = str(code)
@@ -408,12 +572,15 @@ def baidu_kline_with_ma(code: str, start_time: str = "") -> dict:
         "Referer": "https://gushitong.baidu.com/",
     }
     r = requests.get(url, params=params, headers=headers, timeout=10)
+    r.raise_for_status()
     d = r.json()
-    result = d.get("Result", {})
-    md = result.get("newMarketData", {})
+    md = _extract_baidu_new_market_data(d)
     keys = md.get("keys", [])
-    rows = md.get("marketData", "").split(";")
-    return {"keys": keys, "rows": rows}
+    market_data = md.get("marketData", "")
+    return {
+        "keys": keys if isinstance(keys, list) else [],
+        "rows": [row for row in market_data.split(";") if row] if isinstance(market_data, str) else [],
+    }
 
 
 # ── §3.4 东财 push2 个股资金流（分钟级）────────────────────────────────
@@ -556,6 +723,8 @@ FUNCS = {
     "tdx_transactions": tdx_transactions,
     "industry_comparison": industry_comparison,
     "board_fund_flow": board_fund_flow,
+    "sina_board_rank": sina_board_rank,
+    "sina_board_constituents": sina_board_constituents,
     "ths_hot_list": ths_hot_list,
     "em_hot_rank": em_hot_rank,
 }

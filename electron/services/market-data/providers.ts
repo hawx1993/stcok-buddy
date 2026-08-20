@@ -1,20 +1,20 @@
 import StockSDK, { type FullQuote, type HistoryKline } from 'stock-sdk';
-import type {
-  AdjustType,
-  DailyBarRecord,
-  HistoricalBarProvider,
-  SecurityRecord,
-  TradeCalendarRecord,
-} from './types.js';
+import type { AdjustType, DailyBarRecord, HistoricalBarProvider, SecurityRecord, TradeCalendarRecord } from './types.js';
 
 const sdk = new StockSDK({
   timeout: 12_000,
   retry: { maxRetries: 2, baseDelay: 500 },
 });
-const historicalSdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 0 } });
+const historicalSdk = new StockSDK({
+  timeout: 12_000,
+  retry: { maxRetries: 0 },
+  providerPolicies: {
+    eastmoney: { rotateUserAgent: true },
+  },
+});
 const HISTORICAL_REQUEST_ATTEMPTS = 2;
 const HISTORICAL_RETRY_DELAY_MS = 400;
-const HISTORICAL_REQUEST_CONCURRENCY = 6;
+const HISTORICAL_REQUEST_CONCURRENCY = 20;
 let activeHistoricalRequests = 0;
 const historicalRequestWaiters: Array<() => void> = [];
 

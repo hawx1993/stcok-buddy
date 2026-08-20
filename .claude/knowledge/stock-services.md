@@ -1,10 +1,10 @@
 # Stock Services 知识
 
-适用范围：`electron/services/stock/**`。
+适用范围：`electron/services/stock/**` 的业务服务与调度，以及由其使用的 `electron/services/stock-db/**` 持久化实现。
 
 ## 职责
 
-stock 服务层聚合股票、行情页、探索页、板块、新闻、热点、异动、监控、交易建议等真实数据能力。它是 renderer API、Agent tools 和 market-data 本地库之间的主要业务层。
+stock 服务层聚合股票、行情页、探索页、板块、新闻、热点、异动、监控、交易建议等真实数据能力。它是 renderer API、Agent tools、market-data 本地库和 DataCoverage 补齐链路之间的主要业务层。
 
 ## 通用工具与 SDK
 
@@ -15,7 +15,8 @@ stock 服务层聚合股票、行情页、探索页、板块、新闻、热点�
 - 提供 K 线解析：`parseEastmoneyKline()`、`parseMarketTime()`、`toKlinePoint()`。
 - 维护板块缓存：`marketBoardsCache`、`boardKindCache`、`searchBoardNameCache`。
 - 提供板块行缓存读取和刷新：`getCachedMarketBoardRows()`、`refreshMarketBoardRows()`。
-- 修改这里会影响行情页、板块详情、探索页和 Agent 工具。
+- `refreshMarketBoardRows()` 是真实板块行情刷新入口，也被条件选股在本地板块目录为空时用作远程真实兜底。
+- 修改这里会影响行情页、板块详情、探索页、条件选股和 Agent 工具。
 
 相关辅助：
 
@@ -37,14 +38,14 @@ stock 服务层聚合股票、行情页、探索页、板块、新闻、热点�
 | 批量行情 | `getBatchQuotes()`，优先批量 `sdk.quotes.cn()`，失败后按单股兜底。 |
 | 分时 | `getStockTimelines()`，按 `STOCK_TIMELINE_CONCURRENCY = 4` 分批请求 `stock-sdk`。 |
 | K 线 | `getKline()`，有 in-flight Promise；日线优先本地 DuckDB，后台刷新远程并回写。 |
-| 筹码 | `getChipDistribution()`，含 worker / cache。 |
+| 筹码 | `getChipDistribution()`，含 worker / cache；DataCoverage 和条件选股后台补齐也会复用此真实入口。 |
 | 板块与行情页 | re-export `getBoardDetail()`、`getMarketPageSnapshot()`、`getAllMarketQuoteRows()`、`onMarketPageSnapshotUpdated()`。 |
 | 热点/龙虎榜/异动 | `listHotFocus()`、`getDragonTigerSnapshot()`、`listStockSurgeEvents()`、`listDragonTigerByDate()`、`listEastmoneySurgeByDate()` 等。 |
-| 本地缓存 | `clearSurgeCache()`、quote-store / DuckDB 读写由下层 service 处理。 |
+| 本地缓存 | `clearSurgeCache()`；quote、market、monitor、surge 的物理读写由 `stock-db/**` 下层 store 处理。 |
 
 注意：K 线和行情回退只能使用真实远程数据或本地真实缓存；没有真实序列时返回空数据/错误状态，不生成合成走势图。
 
-## 行情页
+## 行情页与板块缓存
 
 `electron/services/stock/market-page.ts`：
 
@@ -60,6 +61,13 @@ stock 服务层聚合股票、行情页、探索页、板块、新闻、热点�
 - `market-indices.ts`：市场指数读取、指数代码标准化、指数 K 线时间处理。
 - `market-state.ts`：市场状态/指数缓存。
 - `industry-provider.ts`：行业映射加载。
+
+板块真实数据边界：
+
+- `refreshMarketBoardRows()` 负责刷新 stock-sdk 真实板块行情，不应替换成硬编码领涨板块。
+- `board-detail.ts` 的 `getBoardDetail()` 是板块成分股和板块 K 线真实入口；条件选股缺少本地 `board_constituents` 时会复用它获取成分股。
+- `market-data/condition-screener-sina-board-provider.ts` 可通过 a-stock-data 新浪板块排行和成分股补齐领涨板块条件；这仍是 provider/service 层能力，不能在 UI 或 Agent 文案中伪造板块。
+- 板块列表、板块详情、板块驾驶舱和条件选股共享板块缓存；改返回字段时要同步 market-data 条件选股类型和测试。
 
 ## 探索页
 
@@ -86,7 +94,7 @@ stock 服务层聚合股票、行情页、探索页、板块、新闻、热点�
 - `DISCOVERY_HISTORICAL_SECTION_CACHE_TTL_MS` 控制历史 section 缓存。
 - `DISCOVERY_WAITING_930_MESSAGE` 用于盘前等待 9:30 更新提示。
 - `DISCOVERY_HISTORY_LOADING_MESSAGE` 用于历史交易日本地数据缺失、后台同步中的提示。
-- `stopDiscoveryRefreshLoop()` 会在 `main.ts` 退出和更新安装前调用，避免后台刷新影响退出。
+- `stopDiscoveryRefreshLoop()` 会在 `app-main.ts` 退出和更新安装前调用，避免后台刷新影响退出。
 
 修改 Discovery 时要同步：
 
@@ -100,13 +108,13 @@ stock 服务层聚合股票、行情页、探索页、板块、新闻、热点�
 | 文件 | 职责 |
 | --- | --- |
 | `monitor-service.ts` | AI 监控 feed、监控分类、看板数据。 |
-| `monitor-history-store.ts` | DuckDB `ai_monitor_events` 历史事件存储。 |
-| `monitor-history-scheduler.ts` | AI 监控历史采集调度；`main.ts` 启动，退出前停止并等待。 |
-| `surge-history-store.ts` | DuckDB `stock_surge_events` 异动历史；有队列、批量 flush、清理 marker。 |
-| `surge-history-scheduler.ts` | 异动历史采集调度；热点/异动入口会确保采集启动。 |
-| `surge-history-service.ts` | `listSurgeHistoryWithBackfill()`，本地不足时回填。 |
-| `surge-large-order.ts` | 个股异动/特大单相关数据整理。 |
-| `quote-store.ts` | SQLite 实时行情缓存；应保持批量写入策略。 |
+| `stock-db/monitor-history-store.ts` | DuckDB `ai_monitor_events` 历史事件存储。 |
+| `stock/monitor-history-scheduler.ts` | AI 监控历史采集调度；`app-main.ts` 启动，退出前停止并等待。 |
+| `stock-db/surge-history-store.ts` | DuckDB `stock_surge_events` 异动历史；有队列、批量 flush、清理 marker。 |
+| `stock/surge-history-scheduler.ts` | 异动历史采集调度；热点/异动入口会确保采集启动。 |
+| `stock/surge-history-service.ts` | `listSurgeHistoryWithBackfill()`，本地不足时回填。 |
+| `stock/surge-large-order.ts` | 个股异动/特大单相关数据整理。 |
+| `stock-db/quote-store.ts` | SQLite 实时行情缓存；应保持批量写入策略。 |
 
 手动同步异动历史由 `market-data/data-sync-handlers.ts` 的 `syncSurgeHistory()` 触发：先清理 surge clear marker，再同步今日异动快照和近 7 日个股异动历史，最后恢复后台 scheduler。
 
@@ -124,6 +132,13 @@ stock 服务层聚合股票、行情页、探索页、板块、新闻、热点�
 | `northbound-flow.ts` | 沪深港通资金流。 |
 | `trading-advice-service.ts` | 交易建议输入聚合与输出。 |
 
+## 与 market-data / Agent 的交叉点
+
+- `market-data/market-snapshot-provider.ts` 复用 `stock/shared.ts` 的 `sdk` 获取全市场快照，并通过 a-stock-data runner 补齐缺失行情字段。
+- `market-data/condition-screener-service.ts` 复用 `refreshMarketBoardRows()`、`getBoardDetail()` 和 `getChipDistribution()`，但筛选结果仍由 market-data 层负责整合和返回。
+- `agents/data-coverage-agent.ts` 复用 `getChipDistribution()` 批量补齐筹码缓存；该行为只允许补真实筹码，失败要返回 warnings 或日志。
+- Agent 工具读取 stock service 结果时，必须保留 source、freshness、warnings、isComplete 等元信息，不能在 Agent 层改写成“实时已验证”。
+
 ## 修改注意事项
 
 - 新增股票数据能力时先查 `stock-sdk`，再考虑 a-stock-data。
@@ -132,3 +147,4 @@ stock 服务层聚合股票、行情页、探索页、板块、新闻、热点�
 - 如果要修改公共返回类型，同步 `src/shared/types.ts`、IPC/preload、renderer 调用方和 Agent tool 输出。
 - 涉及缓存/批量写库时检查性能：避免逐条写入 SQLite/DuckDB，优先批量和事务。
 - 图表、分时、K 线、板块榜单、新闻摘要都必须基于真实序列/真实接口；失败时展示空态、错态或数据源不可用。
+- 修改板块刷新、筹码分布或批量行情时，要检查条件选股、超短线选股、DataCoverage 和探索页是否共用该入口。

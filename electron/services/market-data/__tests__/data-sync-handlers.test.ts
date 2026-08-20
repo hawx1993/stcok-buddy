@@ -16,28 +16,28 @@ const mocks = vi.hoisted(() => ({
   individualChangesHistory: vi.fn(),
 }));
 
-vi.mock('../../../electron-runtime.js', () => ({
+vi.mock('../../../electron-runtime', () => ({
   BrowserWindow: { getAllWindows: mocks.getAllWindows },
 }));
 
-vi.mock('../market-data-scheduler.js', () => ({
+vi.mock('../market-data-scheduler', () => ({
   ensureMarketDataRuntime: mocks.ensureMarketDataRuntime,
 }));
 
-vi.mock('../market-data-sync.js', () => ({
+vi.mock('../market-data-sync', () => ({
   startMarketDataSync: mocks.startMarketDataSync,
 }));
 
-vi.mock('../market-data-store.js', () => ({
+vi.mock('../../stock-db/market-data-store', () => ({
   listSecurities: mocks.listSecurities,
 }));
 
-vi.mock('../../stock/surge-history-scheduler.js', () => ({
+vi.mock('../../stock/surge-history-scheduler', () => ({
   ensureSurgeHistoryCapture: mocks.ensureSurgeHistoryCapture,
   isSurgeHistorySchedulerRunning: mocks.isSurgeHistorySchedulerRunning,
 }));
 
-vi.mock('../../stock/surge-history-store.js', () => ({
+vi.mock('../../stock-db/surge-history-store', () => ({
   clearSurgeHistoryClearMarker: vi.fn(),
   getSurgeHistoryFreshness: mocks.getSurgeHistoryFreshness,
   pruneSurgeHistory: mocks.pruneSurgeHistory,
@@ -45,7 +45,7 @@ vi.mock('../../stock/surge-history-store.js', () => ({
   saveSurgeSnapshot: mocks.saveSurgeSnapshot,
 }));
 
-vi.mock('../../stock/hot-focus.js', () => ({
+vi.mock('../../stock/hot-focus', () => ({
   listHotFocus: mocks.listHotFocus,
   toIndividualHistoryEvents: mocks.toIndividualHistoryEvents,
 }));
@@ -134,13 +134,11 @@ describe('syncSurgeHistory', () => {
 
   it('证券列表为空时先启动真实市场同步，再重新读取证券列表', async () => {
     const syncSurgeHistory = await loadSyncSurgeHistory();
-    mocks.listSecurities
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(securities(['600519']));
+    mocks.listSecurities.mockResolvedValueOnce([]).mockResolvedValueOnce(securities(['600519']));
 
     await syncSurgeHistory();
 
-    expect(mocks.startMarketDataSync).toHaveBeenCalledWith(false);
+    expect(mocks.startMarketDataSync).toHaveBeenCalledWith();
     expect(mocks.individualChangesHistory).toHaveBeenCalledWith('600519', { days: 7 });
   });
 
@@ -150,7 +148,7 @@ describe('syncSurgeHistory', () => {
 
     await expect(syncSurgeHistory()).rejects.toThrow('本地证券列表为空');
 
-    expect(mocks.startMarketDataSync).toHaveBeenCalledWith(false);
+    expect(mocks.startMarketDataSync).toHaveBeenCalledWith();
     expect(mocks.individualChangesHistory).not.toHaveBeenCalled();
     expect(mocks.saveIndividualSurgeHistory).not.toHaveBeenCalled();
   });

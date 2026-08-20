@@ -380,43 +380,20 @@ function browserHotStockLoaders(): IHotStockHintLoaders {
       return items;
     },
     listPreviousSurge: async (date) => {
-      const [ztPool, sector] = await Promise.allSettled([
-        sdk.marketEvent.ztPool('zt', date),
-        sdk.fundFlow.sectorRank({ indicator: 'today' }),
-      ]);
-      const items: HotFocusItem[] = [];
-      if (ztPool.status === 'fulfilled') {
-        for (const item of ztPool.value) {
-          if (item.code && item.name) {
-            items.push({
-              id: `browser-prev-zt-${date}-${item.code}`,
-              title: `${item.name} ${item.code}`,
-              code: item.code,
-              name: item.name,
-              description: item.ztStatistics ?? '涨停',
-              tag: '封涨停板',
-              type: 'surge',
-            });
-          }
-        }
-      }
-      if (sector.status === 'fulfilled' && sector.value.length) {
-        for (const item of sector.value.slice(0, 10)) {
-          if (item.topStockCode && item.topStockName && !items.some((existing) => existing.code === item.topStockCode)) {
-            items.push({
-              id: `browser-prev-sector-${date}-${item.code}-${item.topStockCode}`,
-              title: `${item.topStockName} ${item.topStockCode}`,
-              code: item.topStockCode,
-              name: item.topStockName,
-              description: `领涨板块：${item.name}`,
-              tag: item.name,
-              type: 'surge',
-            });
-          }
-        }
-      }
-      return items;
+      const ztPool = await sdk.marketEvent.ztPool('zt', date);
+      return ztPool
+        .filter((item) => item.code && item.name)
+        .map((item): HotFocusItem => ({
+          id: `browser-prev-zt-${date}-${item.code}`,
+          title: `${item.name} ${item.code}`,
+          code: item.code,
+          name: item.name,
+          description: item.ztStatistics ?? '涨停',
+          tag: '封涨停板',
+          type: 'surge',
+        }));
     },
+    listLimitUpPool: (date) => sdk.marketEvent.ztPool('zt', date),
   };
 }
 
@@ -544,7 +521,7 @@ const webFallbackApi: StocksenseApi = {
   async getKline(_symbol: string, _limit = 120, _period = '1d', _beforeTimestamp?: number) {
     return [];
   },
-  async getChipDistribution(_symbol: string) {
+  async getChipDistribution(_symbol: string, _period = '1d') {
     throw new Error('筹码分布仅在 Electron 桌面端可用。');
   },
   async getBatchQuotes(_codes: string[]) {
@@ -597,9 +574,11 @@ const webFallbackApi: StocksenseApi = {
       return await listHotStockHintSource(new Date(), loaders);
     } catch (error: unknown) {
       console.error('获取热点推荐失败', error);
-      return { items: [], isPreviousTradeDay: false };
+      const message = error instanceof Error ? error.message : '未知错误';
+      throw new Error(`热点数据暂不可用：${message}`);
     }
   },
+  onHotStockHintSourceUpdated: undefined,
   async listSurgeHistoryDates() {
     return [];
   },

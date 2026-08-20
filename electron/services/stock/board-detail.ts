@@ -1,4 +1,10 @@
-import type { BoardDetail, KlinePoint, MarketBoardRow, MarketQuoteRow, MarketIndexPeriod } from '../../../src/shared/types.js';
+import type {
+  BoardDetail,
+  KlinePoint,
+  MarketBoardRow,
+  MarketQuoteRow,
+  MarketIndexPeriod,
+} from '../../../src/shared/types.js';
 import {
   listBoardConstituents,
   listDailyBars,
@@ -9,7 +15,7 @@ import {
   replaceBoardConstituents,
   upsertMarketBoards,
   writeBoardDetail,
-} from '../market-data/market-data-store.js';
+} from '../stock-db/market-data-store.js';
 import { formatMoney, formatNumber, formatPercent } from './format.js';
 import {
   BOARD_CONSTITUENT_SCAN_LIMIT,
@@ -109,11 +115,8 @@ async function getPersistedBoardDetailForHeat(boardCode: string, boardName?: str
 type TBoardQuoteRow = Pick<MarketBoardRow, 'code' | 'name' | 'changePercent'>;
 
 async function findBoardQuote(symbol: string, boardName?: string): Promise<TBoardQuoteRow | undefined> {
-  const boardRows = marketBoardsCache.rows.length
-    ? marketBoardsCache.rows
-    : await getCachedMarketBoardRows(true);
-  const find = (rows: TBoardQuoteRow[]) =>
-    rows.find((item) => item.code === symbol || item.name === boardName);
+  const boardRows = marketBoardsCache.rows.length ? marketBoardsCache.rows : await getCachedMarketBoardRows(true);
+  const find = (rows: TBoardQuoteRow[]) => rows.find((item) => item.code === symbol || item.name === boardName);
   const remoteBoard = find(boardRows);
   if (remoteBoard) return remoteBoard;
   return find(await listMarketBoards());
@@ -742,7 +745,9 @@ function prioritizeBoardScanSymbols(symbols: string[]) {
   return [...main, ...rest];
 }
 
-export async function getStockBoardMembership(code: string): Promise<Array<{ code: string; name: string; changePercent: number | null; leadStock: string }>> {
+export async function getStockBoardMembership(
+  code: string,
+): Promise<Array<{ code: string; name: string; changePercent: number | null; leadStock: string }>> {
   const secid = `${code.startsWith('6') ? 1 : 0}.${code}`;
   const params = new URLSearchParams({
     fltt: '2',

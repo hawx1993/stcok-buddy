@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { app } from '../../electron-runtime.js';
 
 /**
  * a-stock-data 运行时执行器。
@@ -17,6 +18,8 @@ export type AStockDataFnName =
   | 'tdx_transactions'
   | 'industry_comparison'
   | 'board_fund_flow'
+  | 'sina_board_rank'
+  | 'sina_board_constituents'
   | 'ths_hot_list'
   | 'em_hot_rank';
 
@@ -128,6 +131,35 @@ export interface IBoardFundFlow {
   rows: IBoardFundFlowRow[];
 }
 
+export type TSinaBoardKind = 'industry' | 'concept';
+
+export interface ISinaBoardRankRow {
+  code: string;
+  name: string;
+  kind: TSinaBoardKind;
+  change_percent: number;
+  amount: number | null;
+  leader_code: string;
+  leader_change_percent: number | null;
+  leader_name: string;
+}
+
+export interface ISinaBoardRankResult {
+  rows: ISinaBoardRankRow[];
+  failed_kinds: TSinaBoardKind[];
+}
+
+export interface ISinaBoardConstituentRow {
+  board_code: string;
+  stock_code: string;
+  stock_name: string;
+}
+
+export interface ISinaBoardConstituentResult {
+  rows: ISinaBoardConstituentRow[];
+  failed_board_codes: string[];
+}
+
 // 同花顺热榜
 export interface IThsHotStock {
   rank?: number;
@@ -150,40 +182,37 @@ export interface IEmHotRankItem {
   rank_chg?: number;
 }
 
-const SCRIPT_PATH = join(process.cwd(), 'electron', 'python', 'a-stock-data.py');
-
-function pythonExecutable(): string {
-  return existsSync(join(process.cwd(), '.venv/bin/python'))
-    ? join(process.cwd(), '.venv/bin/python')
-    : 'python3';
+function scriptPath(): string {
+  const resolvedPath = app.isPackaged
+    ? join(process.resourcesPath, 'python', 'a-stock-data.py')
+    : join(app.getAppPath(), 'electron', 'python', 'a-stock-data.py');
+  if (!existsSync(resolvedPath)) throw new Error(`a-stock-data 脚本不存在: ${resolvedPath}`);
+  return resolvedPath;
 }
 
-export async function runAStockDataFn<T>(
-  fnName: AStockDataFnName,
-  args: Record<string, string | number>,
-): Promise<T> {
-  const argv = [SCRIPT_PATH, fnName];
+function pythonExecutable(): string {
+  if (app.isPackaged) return process.platform === 'win32' ? 'python' : 'python3';
+  const relativePath = process.platform === 'win32' ? ['.venv', 'Scripts', 'python.exe'] : ['.venv', 'bin', 'python'];
+  const venvPython = join(app.getAppPath(), ...relativePath);
+  return existsSync(venvPython) ? venvPython : process.platform === 'win32' ? 'python' : 'python3';
+}
+
+export async function runAStockDataFn<T>(fnName: AStockDataFnName, args: Record<string, string | number>): Promise<T> {
+  const argv = [scriptPath(), fnName];
   for (const [key, value] of Object.entries(args)) {
     argv.push(`--${key}`, String(value));
   }
   return new Promise<T>((resolve, reject) => {
-    execFile(
-      pythonExecutable(),
-      argv,
-      { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(`a-stock-data ${fnName} 运行失败: ${(stderr || error.message).trim()}`));
-          return;
-        }
-        try {
-          resolve(JSON.parse(stdout) as T);
-        } catch {
-          reject(
-            new Error(`a-stock-data ${fnName} 输出非 JSON: ${stderr.trim() || stdout.slice(0, 300)}`),
-          );
-        }
-      },
-    );
+    execFile(pythonExecutable(), argv, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(`a-stock-data ${fnName} 运行失败: ${(stderr || error.message).trim()}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout) as T);
+      } catch {
+        reject(new Error(`a-stock-data ${fnName} 输出非 JSON: ${stderr.trim() || stdout.slice(0, 300)}`));
+      }
+    });
   });
 }

@@ -4,8 +4,15 @@ const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 export function validateDailyBar(bar: DailyBarRecord): string | undefined {
   if (!/^\d{6}$/.test(bar.symbol)) return '股票代码必须为 6 位数字';
-  if (!datePattern.test(bar.tradeDate) || Number.isNaN(Date.parse(`${bar.tradeDate}T00:00:00+08:00`))) return '交易日期无效';
-  for (const [name, value] of Object.entries({ open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume })) {
+  if (!datePattern.test(bar.tradeDate) || Number.isNaN(Date.parse(`${bar.tradeDate}T00:00:00+08:00`)))
+    return '交易日期无效';
+  for (const [name, value] of Object.entries({
+    open: bar.open,
+    high: bar.high,
+    low: bar.low,
+    close: bar.close,
+    volume: bar.volume,
+  })) {
     if (!Number.isFinite(value)) return `${name} 必须是有限数字`;
   }
   if (bar.high < bar.low) return '最高价低于最低价';

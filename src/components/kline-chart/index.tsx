@@ -4,18 +4,27 @@ import { dispose, init } from 'klinecharts';
 import type { Chart, Crosshair, KLineData, Period, VisibleRange } from 'klinecharts';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { useAppDataStore } from '../../store/app-store';
-import type { KlinePoint, StockDetail } from '../../shared/types';
+import type { ChipDistribution, KlinePoint, StockDetail, TChipDistributionPeriod, TChipDistributionSource } from '../../shared/types';
 import { getMarketColors } from '../../shared/market-color';
 import cx from '../../shared/cx';
 import styles from './index.module.scss';
 import { ChipOverlay } from './components/chip-overlay';
-import { findChipDistributionByDate, useChipDistribution } from './components/use-chip-distribution';
+import { selectChipDistributionForKline, useChipDistribution } from './components/use-chip-distribution';
 import { KlineHoverInfo } from './components/kline-hover-info';
 import { KlineModalFrame } from './components/kline-modal-frame';
 import { StockTimelineChart } from './components/stock-timeline-chart';
 import { getStockComputeWorker } from '../../workers/stock-compute-client';
-import { klineTimeframes } from './constants';
-import type { TimeframeId, TLoadOlderKline } from './constants';
+import {
+  getChipStateCacheKey,
+  klineTimeframes,
+  resolveChipOverlayDistribution,
+  resolveChipStateCacheEntry,
+  shouldKeepPreviousChipOverlay,
+  shouldReserveModalChipColumn,
+  shouldUseCachedChipState,
+  supportsChipDistribution,
+} from './constants';
+import type { IChipStateCacheEntry, TimeframeId, TLoadOlderKline } from './constants';
 
 type KlineStock = Pick<StockDetail, 'code' | 'name' | 'pe' | 'price'>;
 
@@ -56,16 +65,27 @@ export function StockKlineChart({
 }: StockKlineChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
+  const chipStateCacheRef = useRef<Map<string, IChipStateCacheEntry>>(new Map());
+  const lastChipOverlayRef = useRef<{
+    symbol: string;
+    distribution: ChipDistribution;
+    source?: TChipDistributionSource;
+  }>();
   const loadingMoreRef = useRef(false);
   const loadedLimitRef = useRef(0);
   const hasMoreOlderDataRef = useRef(true);
   const chartDataRef = useRef<KlinePoint[]>([]);
+  const requestVersionRef = useRef(0);
+  const preparedKlineDataRef = useRef<KlinePoint[] | null>(null);
   const marketColorMode = useAppDataStore((state) => state.config?.marketColorMode ?? 'red-up-green-down');
   const marketColors = useMemo(() => getMarketColors(marketColorMode), [marketColorMode]);
   const [localTf, setLocalTf] = useState<TimeframeId>('1d');
   const requestedTf = timeframe ?? localTf;
   const tf = requestedTf;
+  const displayedTfRef = useRef<TimeframeId>(requestedTf);
+  const [displayedTf, setDisplayedTf] = useState<TimeframeId>(requestedTf);
   const isTimeline = tf === 'timeline';
+  const reserveModalChipColumn = shouldReserveModalChipColumn(tf, showIndicators, showChips, chipsOpen);
   const usesProvidedData = data.length > 0 && staticData;
   const [loadedData, setLoadedData] = useState<KlinePoint[]>(() => {
     if (usesProvidedData || (data.length > 0 && !staticData)) {
@@ -80,25 +100,92 @@ export function StockKlineChart({
   const [tooltipSide, setTooltipSide] = useState<'left' | 'right'>('right');
   const [chartInstance, setChartInstance] = useState<Chart | null>(null);
   const [chipLayoutVersion, setChipLayoutVersion] = useState(0);
-  const frame = klineTimeframes.find((item) => item.id === tf) ?? klineTimeframes[3];
+  const requestedFrame = klineTimeframes.find((item) => item.id === tf) ?? klineTimeframes[3];
+  const frame = klineTimeframes.find((item) => item.id === displayedTf) ?? klineTimeframes[3];
   const chartData = loadedData;
   chartDataRef.current = chartData;
   const [klineData, setKlineData] = useState<KLineData[]>([]);
-  const chipsEnabled = tf === '1d' && showChips && chipsOpen;
+  const chipPeriod = toChipPeriod(displayedTf);
+  const chipsEnabled = Boolean(chipPeriod && showChips && chipsOpen);
+  const chipRequestSymbol = chipsEnabled && stock ? toKlineRequestSymbol(stock) : undefined;
   const {
+    period: chipStatePeriod,
     distribution: latestChipDistribution,
     distributions: chipDistributions,
     source: chipSource,
     loading: chipLoading,
     empty: chipEmpty,
     error: chipError,
-  } = useChipDistribution(chipsEnabled && stock ? toKlineRequestSymbol(stock) : undefined, chipsEnabled);
+  } = useChipDistribution(chipRequestSymbol, chipPeriod, chipsEnabled);
   const activeKlinePoint = hoverPoint ?? chartData[chartData.length - 1];
-  const chipDistribution =
-    (hoverPoint ? findChipDistributionByDate(chipDistributions, hoverPoint.time) : latestChipDistribution) ??
-    latestChipDistribution;
+  const chipCacheKey = chipRequestSymbol && chipPeriod ? getChipStateCacheKey(chipRequestSymbol, chipPeriod) : undefined;
+  const cachedChipState = chipRequestSymbol && chipPeriod
+    ? resolveChipStateCacheEntry(chipStateCacheRef.current, chipRequestSymbol, chipPeriod)
+    : undefined;
+  const hasLoadedCurrentChipData = Boolean(
+    chipPeriod &&
+      (latestChipDistribution?.period === chipPeriod ||
+        chipDistributions.some((item) => item.period === chipPeriod && item.points.length)),
+  );
+  const useCachedChipState = shouldUseCachedChipState(
+    chipLoading,
+    chipPeriod,
+    chipStatePeriod,
+    hasLoadedCurrentChipData,
+  );
+  const activeChipDistributions = useCachedChipState ? (cachedChipState?.distributions ?? []) : chipDistributions;
+  const activeLatestChipDistribution = useCachedChipState ? cachedChipState?.distribution : latestChipDistribution;
+  const activeChipSource = useCachedChipState ? cachedChipState?.source : chipSource;
+  const periodChipDistributions = chipPeriod
+    ? activeChipDistributions.filter((item) => item.period === chipPeriod && item.points.length)
+    : [];
+  const latestPeriodChipDistribution =
+    chipPeriod && activeLatestChipDistribution?.period === chipPeriod ? activeLatestChipDistribution : undefined;
+  const chipSelection =
+    hoverPoint && chipPeriod
+      ? selectChipDistributionForKline(
+          periodChipDistributions,
+          latestPeriodChipDistribution,
+          hoverPoint.time,
+          chipPeriod,
+          hoverPoint.timestamp,
+        )
+      : { distribution: latestPeriodChipDistribution, matchesHoveredKline: false };
+  const chipDistribution = chipSelection.distribution;
+  const chipCurrentPrice =
+    chipSelection.matchesHoveredKline && hoverPoint
+      ? hoverPoint.close
+      : chartData[chartData.length - 1]?.close ?? activeKlinePoint?.close;
+  const previousChipOverlay =
+    lastChipOverlayRef.current?.symbol === chipRequestSymbol ? lastChipOverlayRef.current : undefined;
+  const chipOverlayLoading = shouldKeepPreviousChipOverlay(chipLoading, chipsEnabled, chipPeriod, chipStatePeriod);
+  const displayedChipDistribution = resolveChipOverlayDistribution(
+    chipDistribution,
+    previousChipOverlay?.distribution,
+    chipOverlayLoading,
+  );
+  const displayedChipSource = chipDistribution ? activeChipSource : previousChipOverlay?.source;
 
   useEffect(() => {
+    if (!chipCacheKey || chipStatePeriod !== chipPeriod || !hasLoadedCurrentChipData) return;
+    chipStateCacheRef.current.set(chipCacheKey, {
+      distribution: latestPeriodChipDistribution,
+      distributions: periodChipDistributions,
+      source: chipSource,
+    });
+  }, [chipCacheKey, chipPeriod, chipSource, chipStatePeriod, hasLoadedCurrentChipData, latestPeriodChipDistribution, periodChipDistributions]);
+
+  useEffect(() => {
+    if (!chipDistribution || !chipRequestSymbol) return;
+    lastChipOverlayRef.current = { symbol: chipRequestSymbol, distribution: chipDistribution, source: activeChipSource };
+  }, [activeChipSource, chipDistribution, chipRequestSymbol]);
+
+  useEffect(() => {
+    const preparedData = preparedKlineDataRef.current;
+    if (preparedData !== null) {
+      preparedKlineDataRef.current = null;
+      if (preparedData === chartData) return;
+    }
     if (!chartData.length) {
       setKlineData([]);
       return;
@@ -119,53 +206,65 @@ export function StockKlineChart({
   }, [chartData, frame.period]);
 
   useEffect(() => {
-    if (usesProvidedData) setLoadedData(data);
-  }, [data, usesProvidedData]);
+    if (!usesProvidedData) return;
+    requestVersionRef.current += 1;
+    preparedKlineDataRef.current = null;
+    displayedTfRef.current = tf;
+    setDisplayedTf(tf);
+    setLoadedData(data);
+    loadedLimitRef.current = data.length;
+    hasMoreOlderDataRef.current = true;
+    setHoverIndex(undefined);
+    setHoverPoint(undefined);
+  }, [data, tf, usesProvidedData]);
 
   useEffect(() => {
+    const requestVersion = ++requestVersionRef.current;
     if (!stock?.code || usesProvidedData || isTimeline) return;
     let alive = true;
     // For daily timeframe use provided data as seed, allow loadOlderData to fetch more on drag-left.
     // For other timeframes always fetch via API since the data prop is daily-only.
     const hasDailySeed = data.length > 0 && !staticData && tf === '1d';
-    if (hasDailySeed) {
+    if (hasDailySeed && displayedTfRef.current === tf) {
       console.log('[kline] using parent seed data', { code: stock?.code, bars: data.length });
       setLoadedData(data);
       loadedLimitRef.current = data.length;
       hasMoreOlderDataRef.current = true;
       setHoverIndex(undefined);
       setHoverPoint(undefined);
-    } else {
-      setLoadedData([]);
-      loadedLimitRef.current = 0;
-      hasMoreOlderDataRef.current = true;
-      setHoverIndex(undefined);
-      setHoverPoint(undefined);
     }
     console.log(hasDailySeed ? '[kline] refreshing seed data from API' : '[kline] no seed data, fetching from API', { code: stock?.code });
     getStocksenseApi()
-      .getKline(toKlineRequestSymbol(stock), frame.limit, tf)
+      .getKline(toKlineRequestSymbol(stock), requestedFrame.limit, tf)
       .then(async (next) => {
         console.log('[kline] API fetch done', { code: stock?.code, bars: next.length, firstDate: next[0]?.time });
-        if (alive) {
-          const merged = hasDailySeed
-            ? await getStockComputeWorker().mergeKlineData({ older: data, current: next, period: frame.period })
-            : next;
-          if (!alive) return;
-          setLoadedData(merged);
-          loadedLimitRef.current = hasDailySeed ? Math.max(data.length, next.length) : frame.limit;
-          hasMoreOlderDataRef.current = true;
-          setHoverIndex(undefined);
-          setHoverPoint(undefined);
-        }
+        const merged = hasDailySeed
+          ? await getStockComputeWorker().mergeKlineData({ older: data, current: next, period: requestedFrame.period })
+          : next;
+        if (!alive || requestVersion !== requestVersionRef.current) return;
+        const nextKlineData = await getStockComputeWorker().buildKlineData({
+          data: merged,
+          period: requestedFrame.period,
+        });
+        if (!alive || requestVersion !== requestVersionRef.current) return;
+        preparedKlineDataRef.current = merged;
+        displayedTfRef.current = tf;
+        setLoadedData(merged);
+        setKlineData(nextKlineData);
+        setDisplayedTf(tf);
+        loadedLimitRef.current = hasDailySeed ? Math.max(data.length, next.length) : requestedFrame.limit;
+        hasMoreOlderDataRef.current = true;
+        setHoverIndex(undefined);
+        setHoverPoint(undefined);
       })
       .catch((err) => {
         console.error('[kline] API fetch error', {
           code: stock?.code,
           error: err instanceof Error ? err.message : String(err),
         });
-        if (alive) {
+        if (alive && requestVersion === requestVersionRef.current && !chartDataRef.current.length) {
           setLoadedData([]);
+          setKlineData([]);
           loadedLimitRef.current = 0;
           hasMoreOlderDataRef.current = false;
         }
@@ -173,7 +272,7 @@ export function StockKlineChart({
     return () => {
       alive = false;
     };
-  }, [usesProvidedData, isTimeline, stock?.code, frame.limit, frame.period, tf, data, staticData]);
+  }, [usesProvidedData, isTimeline, stock?.code, requestedFrame.limit, requestedFrame.period, tf, data, staticData]);
 
   const loadOlderData = useCallback(
     async (options: { anchorTimestamp?: number } = {}) => {
@@ -185,6 +284,7 @@ export function StockKlineChart({
         !chartDataRef.current.length
       )
         return [];
+      const requestVersion = requestVersionRef.current;
       const firstTimestamp =
         options.anchorTimestamp ??
         chartDataRef.current[0]?.timestamp ??
@@ -203,9 +303,10 @@ export function StockKlineChart({
       );
       try {
         const next = loadOlderKline
-          ? await loadOlderKline({ timeframe: tf, limit: nextLimit, beforeTimestamp: firstTimestamp })
-          : await getStocksenseApi().getKline(toKlineRequestSymbol(stock), nextLimit, tf, firstTimestamp);
+          ? await loadOlderKline({ timeframe: displayedTf, limit: nextLimit, beforeTimestamp: firstTimestamp })
+          : await getStocksenseApi().getKline(toKlineRequestSymbol(stock), nextLimit, displayedTf, firstTimestamp);
         const normalizedNext = await getStockComputeWorker().mergeKlineData({ older: next, current: [], period: frame.period });
+        if (requestVersion !== requestVersionRef.current) return [];
         const older = firstTimestamp === undefined ? normalizedNext : normalizedNext.filter((point) => (point.timestamp ?? 0) < firstTimestamp);
         if (!older.length) {
           hasMoreOlderDataRef.current = false;
@@ -214,13 +315,14 @@ export function StockKlineChart({
         loadedLimitRef.current = Math.min(KLINE_MAX_LIMIT, chartDataRef.current.length + older.length);
         const currentData = chartDataRef.current;
         const merged = await getStockComputeWorker().mergeKlineData({ older, current: currentData, period: frame.period });
+        if (requestVersion !== requestVersionRef.current) return [];
         setLoadedData(merged);
         return older;
       } finally {
         loadingMoreRef.current = false;
       }
     },
-    [frame.limit, frame.period, loadOlderKline, stock, tf],
+    [displayedTf, frame.limit, frame.period, loadOlderKline, stock],
   );
   const loadOlderDataRef = useRef(loadOlderData);
 
@@ -233,7 +335,7 @@ export function StockKlineChart({
   }, [loadOlderData]);
 
   useEffect(() => {
-    if (!hostRef.current) return;
+    if (isTimeline || !hostRef.current) return;
     const klineStyles = getKlineStyles(marketColors);
     const chart = init(hostRef.current, {
       styles: {
@@ -255,7 +357,7 @@ export function StockKlineChart({
           tickLine: { show: false },
           tickText: { show: true, color: 'rgba(148, 163, 184, 0.78)', size: 10, marginStart: 4, marginEnd: 4 },
         },
-        yAxis: getYAxisStyles(showIndicators && chipsEnabled),
+        yAxis: getYAxisStyles(reserveModalChipColumn),
         separator: { size: 1, color: 'rgba(148, 163, 184, 0.12)' },
       },
     });
@@ -324,18 +426,18 @@ export function StockKlineChart({
       chartRef.current = null;
       setChartInstance(null);
     };
-  }, [requestOlderData, showLegend, frame.period, showIndicators, chipsEnabled]);
+  }, [isTimeline, requestOlderData, reserveModalChipColumn, showLegend]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     chart.setStyles({
       ...getKlineStyles(marketColors),
-      yAxis: getYAxisStyles(showIndicators && chipsEnabled),
+      yAxis: getYAxisStyles(reserveModalChipColumn),
     });
     chart.setRightMinVisibleBarCount(2);
     chart.resize();
-  }, [marketColors, showIndicators, chipsEnabled]);
+  }, [marketColors, reserveModalChipColumn]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -350,7 +452,7 @@ export function StockKlineChart({
     chart.setDataLoader({
       getBars: async ({ type, timestamp, callback }) => {
         if (type === 'forward') {
-          await loadOlderData({ anchorTimestamp: timestamp ?? undefined });
+          await loadOlderDataRef.current({ anchorTimestamp: timestamp ?? undefined });
           callback([], { forward: hasMoreOlderDataRef.current, backward: false });
           return;
         }
@@ -364,12 +466,12 @@ export function StockKlineChart({
     chart.removeIndicator();
     chart.createIndicator('MA', { isStack: true, pane: { id: 'candle_pane' } });
     if (showIndicators) {
-      chart.createIndicator('VOL', { pane: { height: 96 } });
+      chart.createIndicator({ name: 'VOL', styles: getVolumeIndicatorStyles(marketColors) }, { pane: { height: 96 } });
       chart.createIndicator('MACD', { pane: { height: 96 } });
     }
     chart.resize();
     setChipLayoutVersion((value) => value + 1);
-  }, [frame.period, klineData, loadOlderData, showIndicators, staticData, stock?.code, stock?.name]);
+  }, [frame.period, klineData, marketColors, showIndicators, staticData, stock?.code, stock?.name]);
 
   const setTimeframe = (next: TimeframeId) => {
     setLocalTf(next);
@@ -378,7 +480,7 @@ export function StockKlineChart({
 
   if (isTimeline) {
     return (
-      <div className={cx(styles.wrap, className)} style={{ height }}>
+      <div className={cx(styles.wrap, styles['timeline-wrap'], className)} style={{ height }}>
         <StockTimelineChart stock={stock} height='100%' />
         {showSwitcher ? (
           <div className={styles.timeframes}>
@@ -399,7 +501,7 @@ export function StockKlineChart({
   }
 
   return (
-    <div className={cx(styles.wrap, className)} style={{ height }}>
+    <div className={cx(styles.wrap, reserveModalChipColumn && styles['modal-chip-reserved'], className)} style={{ height }}>
       <div className={styles.chart} ref={hostRef} />
       {hoverPoint ? (
         <KlineHoverInfo
@@ -410,22 +512,22 @@ export function StockKlineChart({
           period={frame.period}
         />
       ) : null}
-      {chipDistribution && chartInstance && activeKlinePoint ? (
+      {displayedChipDistribution && chartInstance && activeKlinePoint ? (
         <ChipOverlay
-          chips={chipDistribution}
+          chips={displayedChipDistribution}
           chart={chartInstance}
-          currentPrice={activeKlinePoint.close}
+          currentPrice={chipCurrentPrice ?? activeKlinePoint.close}
           layoutVersion={chipLayoutVersion}
           profitColor={marketColors.upColor}
           trappedColor={marketColors.downColor}
-          source={chipSource}
+          source={displayedChipSource}
           showSummary={showIndicators}
           showPriceAxis={showIndicators}
         />
       ) : null}
-      {chipsEnabled && hoverPoint && !chipDistribution && !chipLoading ? (
-        <div className={styles['chip-state']}>该日期暂无筹码数据</div>
-      ) : chipsEnabled && !latestChipDistribution && !chipLoading ? (
+      {chipsEnabled && hoverPoint && !chipDistribution && !chipOverlayLoading ? (
+        <div className={styles['chip-state']}>该K线暂无筹码数据</div>
+      ) : chipsEnabled && !latestPeriodChipDistribution && !chipOverlayLoading ? (
         <div className={styles['chip-state']} title={chipError}>
           {chipError ? '筹码数据暂不可用' : chipEmpty ? '暂无筹码数据' : '暂无筹码数据'}
         </div>
@@ -493,6 +595,10 @@ function toKlineRequestSymbol(stock: KlineStock) {
   return stock.code;
 }
 
+function toChipPeriod(timeframe: TimeframeId): TChipDistributionPeriod | undefined {
+  return supportsChipDistribution(timeframe) ? timeframe : undefined;
+}
+
 function resolveMouseIndex(chart: Chart, host: HTMLDivElement | null, event: MouseEvent) {
   if (!host) return undefined;
   const x = event.clientX - host.getBoundingClientRect().left;
@@ -552,5 +658,17 @@ function getKlineStyles({ upColor, downColor }: ReturnType<typeof getMarketColor
       priceMark: { last: { upColor, downColor, noChangeColor: upColor } },
     },
     indicator: { ohlc: { upColor, downColor, noChangeColor: upColor } },
+  };
+}
+
+function getVolumeIndicatorStyles({ upColor, downColor }: ReturnType<typeof getMarketColors>) {
+  return {
+    bars: [
+      {
+        upColor,
+        downColor,
+        noChangeColor: upColor,
+      },
+    ],
   };
 }

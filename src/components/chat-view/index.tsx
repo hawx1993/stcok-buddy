@@ -7,7 +7,8 @@ import { trackButtonClick } from '../../shared/analytics';
 import { setBuiltInSlashItems } from './components/thinking-steps';
 import { MessageBubble } from './components/message-bubble';
 import { QuickEntry } from './components/quick-entry';
-import { SlashCommandMenu } from './components/slash-command-menu';
+import { ConditionScreenerPicker } from './components/condition-screener-picker';
+import { getNextSlashIndex, SlashCommandMenu } from './components/slash-command-menu';
 import { findSearchTargetMessageId } from './components/search-highlight';
 import { AppStoreBar } from './components/app-store-bar';
 import { AppStoreModal } from './components/app-store-modal';
@@ -59,6 +60,22 @@ const builtInSlashItems = [
     command: '/复盘今日行情',
     description: '基于真实全市场数据复盘最近可用交易日行情',
     argPlaceholder: '直接发送即可',
+  },
+  {
+    id: 'condition-screener',
+    section: 'Commands',
+    label: '条件选股',
+    command: '/条件选股',
+    description: '按市值、换手率、成交额、筹码或领涨板块筛选真实 A 股数据',
+    argPlaceholder: '[选择预设或输入 --条件]',
+  },
+  {
+    id: 'stock-picker',
+    section: 'Commands',
+    label: '超短选股',
+    command: '/超短选股',
+    description: '用自然语言描述强势股、主力控盘、连板潜力等意图，Agent 自动拆解真实数据条件',
+    argPlaceholder: '[例如：帮我找强势股 / 找主力控盘的票 / 找能连板的]',
   },
   {
     id: 'technical-agent',
@@ -121,8 +138,9 @@ type TAppliedSearchHighlight = {
 
 export function ChatView() {
   const rootRef = useRef<HTMLDivElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
-  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState<number>();
   const [storeOpen, setStoreOpen] = useState(false);
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
   const [installedStoreItems, setInstalledStoreItems] = useState<string[]>([]);
@@ -278,14 +296,18 @@ export function ChatView() {
   // ── slash command helpers ────────────────────────────────────────────
   const slashOpen = input.startsWith('/') && !input.includes(' ');
   const activeModelName = config?.model.customModel?.trim() || config?.model.model || '模型设置';
+  const openModelSettings = () => {
+    trackButtonClick('open_model_settings');
+    setSettingsOpen(true);
+  };
   const activeCommand = slashItems.find((item) => input.startsWith(`${item.command} `));
   const commandArg = activeCommand ? input.slice(activeCommand.command.length + 1) : '';
 
-  const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
-    if (item) {
-      trackButtonClick('select_slash_command', { command: item.command });
-      setInput(`${item.command} `);
-    }
+  const selectSlashItem = (item: (typeof slashItems)[number] | undefined) => {
+    if (!item) return;
+    trackButtonClick('select_slash_command', { command: item.command });
+    setInput(`${item.command} `);
+    setSelectedSlashIndex(undefined);
   };
 
   const submitComposerInput = useCallback(
@@ -293,7 +315,7 @@ export function ChatView() {
       const trimmed = text.trim();
       if (!trimmed || isSending) return;
       setInput('');
-      setSelectedSlashIndex(0);
+      setSelectedSlashIndex(undefined);
       void send(trimmed);
     },
     [isSending, send],
@@ -334,7 +356,14 @@ export function ChatView() {
       <div className={styles['chat-messages']} ref={setScrollRef} onScroll={handleMessagesScroll} data-chat-scroll>
         {isLoadingEarlierMessages ? <div className={styles['chat-loading-earlier']}>正在加载更早消息…</div> : null}
         {messages.length === 0 && !isMessagesLoading ? (
-          <QuickEntry conversationId={activeConversationId} onSubmit={send} slashItems={slashItems} />
+          <QuickEntry
+            activeModelName={activeModelName}
+            conversationId={activeConversationId}
+            onOpenStore={() => setStoreOpen(true)}
+            onOpenModelSettings={openModelSettings}
+            onSubmit={send}
+            slashItems={slashItems}
+          />
         ) : (
           <div ref={contentRef} style={{ height: messageVirtualizer.getTotalSize(), position: 'relative' }}>
             {messageVirtualizer.getVirtualItems().map((virtualMessage) => {
@@ -380,85 +409,102 @@ export function ChatView() {
           {slashOpen ? (
             <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} />
           ) : null}
-          <div className={styles['composer-shell']}>
-            <div className={styles['input-row']}>
-              {activeCommand ? (
-                <div className={styles['command-input-wrap']}>
-                  <button
-                    className='command-chip'
-                    title={activeCommand.description}
-                    onClick={() => setInput('/')}
-                    type='button'
-                  >
-                    <span className='slash-icon'>/</span>
-                    {activeCommand.command}
-                  </button>
+          <div className={styles['composer-stack']}>
+            <div className={styles['composer-shell']}>
+              <ConditionScreenerPicker
+                value={input}
+                onCommandChange={(command) => {
+                  setInput(command);
+                  setSelectedSlashIndex(undefined);
+                }}
+                onRequestInputFocus={() => composerInputRef.current?.focus()}
+              />
+              <div className={styles['input-row']}>
+                {activeCommand ? (
+                  <div className={styles['command-input-wrap']}>
+                    <button
+                      className='command-chip'
+                      title={activeCommand.description}
+                      onClick={() => {
+                        setInput('/');
+                        setSelectedSlashIndex(undefined);
+                      }}
+                      type='button'
+                    >
+                      <span className='slash-icon'>/</span>
+                      {activeCommand.command}
+                    </button>
+                    <input
+                      ref={composerInputRef}
+                      value={commandArg}
+                      onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)}
+                      onKeyDown={(event) => {
+                        if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) {
+                          event.preventDefault();
+                          setInput('');
+                          return;
+                        }
+                        if (event.key === 'Enter') submitComposerInput(input);
+                      }}
+                      placeholder={activeCommand.argPlaceholder}
+                      autoFocus
+                    />
+                  </div>
+                ) : (
                   <input
-                    value={commandArg}
-                    onChange={(event) => setInput(`${activeCommand.command} ${event.target.value}`)}
+                    ref={composerInputRef}
+                    value={input}
+                    onChange={(event) => {
+                      setInput(event.target.value);
+                      setSelectedSlashIndex(undefined);
+                    }}
                     onKeyDown={(event) => {
-                      if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) {
+                      if (slashOpen && event.key === 'Enter') {
                         event.preventDefault();
-                        setInput('');
+                        selectSlashItem(
+                          selectedSlashIndex === undefined ? undefined : slashItems[selectedSlashIndex],
+                        );
+                        return;
+                      }
+                      if (slashOpen && event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        setSelectedSlashIndex((value) => getNextSlashIndex(value, slashItems.length, 'next'));
+                        return;
+                      }
+                      if (slashOpen && event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        setSelectedSlashIndex((value) => getNextSlashIndex(value, slashItems.length, 'previous'));
                         return;
                       }
                       if (event.key === 'Enter') submitComposerInput(input);
                     }}
-                    placeholder={activeCommand.argPlaceholder}
-                    autoFocus
+                    placeholder='输入 / 打开命令，或直接输入A股股票名称/代码'
                   />
+                )}
+              </div>
+              <div className={styles['composer-toolbar']}>
+                <AppStoreBar onOpen={() => setStoreOpen(true)} />
+                <div className={styles['composer-actions']}>
+                  <button
+                    className={styles['model-pill']}
+                    onClick={openModelSettings}
+                    type='button'
+                    aria-label={`当前模型：${activeModelName}。打开模型设置`}
+                    title={`当前模型：${activeModelName}。点击打开模型设置`}
+                  >
+                    <span className={styles['model-pill-label']}>模型</span>
+                    <span className={styles['model-pill-name']}>{activeModelName}</span>
+                  </button>
+                  <button
+                    className={cx(styles['send-btn'], isSending && styles.sending)}
+                    onClick={isSending ? stopThinking : () => submitComposerInput(input)}
+                    type='button'
+                    aria-label={isSending ? '暂停思考' : '发送'}
+                    title={isSending ? '暂停思考' : '发送'}
+                  >
+                    {isSending ? <span className={styles['pause-icon']} /> : '➤'}
+                  </button>
                 </div>
-              ) : (
-                <input
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (slashOpen && event.key === 'Enter') {
-                      event.preventDefault();
-                      selectSlashItem();
-                      return;
-                    }
-                    if (slashOpen && event.key === 'ArrowDown') {
-                      event.preventDefault();
-                      setSelectedSlashIndex((value) => Math.min(value + 1, slashItems.length - 1));
-                      return;
-                    }
-                    if (slashOpen && event.key === 'ArrowUp') {
-                      event.preventDefault();
-                      setSelectedSlashIndex((value) => Math.max(value - 1, 0));
-                      return;
-                    }
-                    if (event.key === 'Enter') submitComposerInput(input);
-                  }}
-                  placeholder='输入 / 打开命令，或直接输入A股股票名称/代码'
-                />
-              )}
-            </div>
-            <div className={styles['composer-toolbar']}>
-              <AppStoreBar onOpen={() => setStoreOpen(true)} />
-              <div className={styles['composer-actions']}>
-                <button
-                  className={styles['model-pill']}
-                  onClick={() => {
-                    trackButtonClick('open_model_settings');
-                    setSettingsOpen(true);
-                  }}
-                  type='button'
-                  aria-label={`当前模型：${activeModelName}。打开模型设置`}
-                  title={`当前模型：${activeModelName}。点击打开模型设置`}
-                >
-                  <span className={styles['model-pill-label']}>模型</span>
-                  <span className={styles['model-pill-name']}>{activeModelName}</span>
-                </button>
-                <button
-                  className={cx(styles['send-btn'], isSending && styles.sending)}
-                  onClick={isSending ? stopThinking : () => submitComposerInput(input)}
-                  type='button'
-                  aria-label={isSending ? '暂停思考' : '发送'}
-                  title={isSending ? '暂停思考' : '发送'}
-                >
-                  {isSending ? <span className={styles['pause-icon']} /> : '➤'}
-                </button>
               </div>
             </div>
           </div>

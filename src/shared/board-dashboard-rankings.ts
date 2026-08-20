@@ -13,12 +13,7 @@ export function selectTopBoardFundInflowRankings(
   metrics: IBoardDashboardMetric[],
   limit = DEFAULT_BOARD_RANKING_LIMIT,
 ): IBoardDashboardMetric[] {
-  const safeLimit = Math.max(0, Math.floor(limit));
-  if (!safeLimit) return [];
-  return metrics
-    .filter((metric) => metric.mainNetInflow !== null && Number.isFinite(metric.mainNetInflow) && metric.mainNetInflow > 0)
-    .sort((left, right) => (right.mainNetInflow ?? -Infinity) - (left.mainNetInflow ?? -Infinity))
-    .slice(0, safeLimit);
+  return selectTopBoardRankings(metrics, 'mainNetInflow', limit);
 }
 
 function selectTopBoardRankings(

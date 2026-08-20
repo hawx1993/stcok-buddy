@@ -1,5 +1,5 @@
 import { isChinaMarketOpen } from '../../../src/shared/market-time.js';
-import { flushMonitorEventQueue } from './monitor-history-store.js';
+import { flushMonitorEventQueue } from '../stock-db/monitor-history-store.js';
 import { captureMonitorEvents, persistMonitorCapture } from './monitor-service.js';
 
 const CAPTURE_INTERVAL_MS = 20_000;

@@ -274,15 +274,20 @@ function FavoriteStockItem({ stock, timeline, pinned, observeItem, onOpen, onRem
   ].filter((value): value is string => Boolean(value)).join(' · ');
   return (
     <div
-      className={styles['favorite-item']}
+      className={cx(styles['favorite-item'], pinned && styles.pinned)}
       data-favorite-code={stock.code}
       ref={observeItem}
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.key === 'Enter') onOpen();
+        if (event.key === ' ') {
+          event.preventDefault();
+          onOpen();
+        }
       }}
       role='button'
       tabIndex={0}
+      aria-label={`查看${stock.name}${stock.code}详情`}
     >
       <FavoriteTimelineBg points={timeline?.points} isUp={isUp} />
       <span className={styles['favorite-main']}>
@@ -297,10 +302,15 @@ function FavoriteStockItem({ stock, timeline, pinned, observeItem, onOpen, onRem
         <strong>{stock.price ?? '--'}</strong>
         <span className={isUp ? 'up' : 'down'}>{stock.changePercent ?? '--'}</span>
         <span className={styles['favorite-actions']}>
-          <button onClick={(event) => stop(event, onTogglePin)} title={pinned ? '取消置顶' : '置顶'} type='button'>
+          <button
+            onClick={(event) => stop(event, onTogglePin)}
+            title={pinned ? '取消置顶' : '置顶'}
+            aria-label={pinned ? '取消置顶' : '置顶'}
+            type='button'
+          >
             {pinned ? <PinOff size={13} /> : <Pin size={13} />}
           </button>
-          <button onClick={(event) => stop(event, onRemove)} title='取消收藏' type='button'>
+          <button onClick={(event) => stop(event, onRemove)} title='取消收藏' aria-label='取消收藏' type='button'>
             <Trash2 size={13} />
           </button>
         </span>

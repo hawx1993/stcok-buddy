@@ -2,6 +2,7 @@ node_modules/
 .venv/
 dist/
 dist-electron/
+coverage/
 .vite/
 .DS_Store
 *.log
@@ -13,3 +14,4 @@ release
 build/commit-hash.txt
 build/telemetry.json
 .env.local
+.claude/worktrees

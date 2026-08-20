@@ -3,7 +3,7 @@ import type { Serialized } from '@langchain/core/load/serializable';
 import type { LLMResult } from '@langchain/core/outputs';
 import type { BaseMessage } from '@langchain/core/messages';
 import { getPostHogClient } from './posthog-client.js';
-import { getDeviceId } from '../config-store.js';
+import { getDeviceId } from '../stock-db/config-store.js';
 
 interface RunState {
   startedAt: number;

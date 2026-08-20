@@ -12,7 +12,7 @@ import {
   listLatestMarketRows,
   listSecurities,
   updateSecurityIndustries,
-} from '../market-data/market-data-store.js';
+} from '../stock-db/market-data-store.js';
 import { pickString } from './format.js';
 import {
   aggregateKlineByMonth,
@@ -29,7 +29,7 @@ import {
   withTimeoutReject,
   sdk,
 } from './shared.js';
-import { getStoredQuoteRows, upsertQuoteRows } from './quote-store.js';
+import { getStoredQuoteRows, upsertQuoteRows } from '../stock-db/quote-store.js';
 import { loadSinaIndustryMap } from './industry-provider.js';
 import { marketIndexCache } from './market-state.js';
 import { getMarketIndices, getCachedMarketIndices, fallbackIndex, fallbackIndices } from './market-indices.js';
@@ -195,9 +195,12 @@ export async function resolveStockIndustry(code: string, currentIndustry?: strin
       () => new Map<string, string>(),
     ),
   ]);
-  const industry = normalizeIndustryName(rowIndustryMap.get(symbol)) ?? normalizeIndustryName(boardIndustryMap.get(symbol));
+  const industry =
+    normalizeIndustryName(rowIndustryMap.get(symbol)) ?? normalizeIndustryName(boardIndustryMap.get(symbol));
   if (industry) {
-    updateSecurityIndustries([{ symbol, industry }]).catch((err) => console.warn('[market] persist stock industry failed', err));
+    updateSecurityIndustries([{ symbol, industry }]).catch((err) =>
+      console.warn('[market] persist stock industry failed', err),
+    );
   }
   return industry;
 }
@@ -361,11 +364,8 @@ export async function getMarketPageSnapshot(
   period: MarketIndexPeriod = '1d',
 ): Promise<MarketPageSnapshot> {
   const snapshot = await getMarketPageSnapshotCore(tab, period);
-  const rows = await enrichMarketPageRowsFast(snapshot.rows, tab);
-  const enrichedSnapshot = rows === snapshot.rows ? snapshot : { ...snapshot, rows };
-  if (rows !== snapshot.rows) marketPageCache.set(marketPageKey(tab, period), { snapshot: enrichedSnapshot });
-  scheduleMarketPageIndustryRefresh(enrichedSnapshot);
-  return enrichedSnapshot;
+  scheduleMarketPageIndustryRefresh(snapshot);
+  return snapshot;
 }
 
 function getCachedMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod): MarketPageSnapshot {
@@ -500,11 +500,7 @@ async function getLocalMarketPageSnapshot(tab: MarketTab, period: MarketIndexPer
   // Merge daily-bar rows with the last cached/stored live quotes so offline users
   // still see prices even when remote is unreachable.
   const mergedRows = mergeQuoteRows(localRows, persistedRows);
-  const rows = mergedRows.length
-    ? mergedRows
-    : cached?.rows?.length
-      ? cached.rows
-      : await buildRowsFromSecurities(tab);
+  const rows = mergedRows.length ? mergedRows : cached?.rows?.length ? cached.rows : await buildRowsFromSecurities(tab);
   const indices = marketIndexCache.get(period)?.rows ?? cached?.indices ?? (await getLocalMarketIndices(period));
   const snapshot: MarketPageSnapshot = {
     tab,

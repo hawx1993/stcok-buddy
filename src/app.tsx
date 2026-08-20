@@ -1,5 +1,5 @@
 import { Activity, Bot, Layers, LineChart, MessageSquarePlus, Newspaper, Search, Star } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { hasLocalAssistantDraft, useAppDataStore, useAppUiStore } from './store/app-store';
 import { usePanelResize } from './hooks/use-panel-resize';
 import { Sidebar } from './components/sidebar';
@@ -13,7 +13,7 @@ import { SettingsModal } from './components/settings-modal';
 import { AboutModal } from './components/about-modal';
 import { StorageManagerModal } from './components/storage-manager-modal';
 import { DataSyncModal } from './components/data-sync-modal';
-import { GlobalStockSearch } from './components/global-stock-search';
+import { GlobalStockSearch, type IGlobalSearchOpenOptions, type TGlobalSearchMode } from './components/global-stock-search';
 import { getGlobalSearchShortcutLabel, isGlobalSearchShortcut, isMacPlatform } from './components/global-stock-search/shortcut';
 import { ErrorBoundary } from './components/error-boundary';
 import { getStocksenseApi } from './shared/stocksense-api';
@@ -26,6 +26,8 @@ import cx from './shared/cx';
 export function App() {
   useSyncProgressPump();
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [globalSearchMode, setGlobalSearchMode] = useState<TGlobalSearchMode>('global');
+  const [globalSearchOptions, setGlobalSearchOptions] = useState<IGlobalSearchOpenOptions>({});
   const globalSearchShortcutLabel = getGlobalSearchShortcutLabel();
   const config = useAppDataStore((state) => state.config);
   const setConfig = useAppDataStore((state) => state.setConfig);
@@ -41,6 +43,11 @@ export function App() {
   const toggleLeftSidebar = useAppUiStore((state) => state.toggleLeftSidebar);
   const rightPanelTab = useAppUiStore((state) => state.rightPanelTab);
   const setRightPanelTab = useAppUiStore((state) => state.setRightPanelTab);
+  const openGlobalSearch = useCallback((mode: TGlobalSearchMode = 'global', options: IGlobalSearchOpenOptions = {}) => {
+    setGlobalSearchMode(mode);
+    setGlobalSearchOptions(options);
+    setGlobalSearchOpen(true);
+  }, []);
 
   useEffect(() => {
     const api = getStocksenseApi();
@@ -95,11 +102,11 @@ export function App() {
       if (!isGlobalSearchShortcut(event, isMac)) return;
       event.preventDefault();
       trackButtonClick('open_global_search_shortcut');
-      setGlobalSearchOpen(true);
+      openGlobalSearch('global');
     };
     window.addEventListener('keydown', openGlobalSearchByShortcut);
     return () => window.removeEventListener('keydown', openGlobalSearchByShortcut);
-  }, []);
+  }, [openGlobalSearch]);
 
   useEffect(() => {
     trackPageView(mainView);
@@ -161,7 +168,7 @@ export function App() {
                 return;
               }
               trackButtonClick('open_global_search_sidebar');
-              setGlobalSearchOpen(true);
+              openGlobalSearch('global');
             }}
             title={isLeftSidebarCollapsed ? '新建会话' : `全局搜索 ${globalSearchShortcutLabel}`}
             type='button'
@@ -188,7 +195,7 @@ export function App() {
             {mainView === 'news-reader' ? (
               <NewsReader />
             ) : mainView === 'market' ? (
-              <MarketView onOpenGlobalSearch={() => setGlobalSearchOpen(true)} />
+              <MarketView onOpenGlobalSearch={() => openGlobalSearch('global')} />
             ) : mainView === 'discovery' ? (
               <DiscoveryView />
             ) : (
@@ -267,7 +274,10 @@ export function App() {
             </button>
           </div>
           <ErrorBoundary name='右侧栏'>
-            <StockDetailPanel />
+            <StockDetailPanel
+              onOpenGlobalSearch={(options) => openGlobalSearch('ai-monitor', options)}
+              onOpenNewsSearch={() => openGlobalSearch('news')}
+            />
           </ErrorBoundary>
         </div>
         <ErrorBoundary name='设置'>
@@ -283,7 +293,14 @@ export function App() {
           <DataSyncModal />
         </ErrorBoundary>
         <ErrorBoundary name='全局搜索'>
-          <GlobalStockSearch open={globalSearchOpen} onOpenChange={setGlobalSearchOpen} />
+          <GlobalStockSearch
+            mode={globalSearchMode}
+            open={globalSearchOpen}
+            onOpenChange={setGlobalSearchOpen}
+            placeholder={globalSearchOptions.placeholder}
+            aiMonitorDate={globalSearchOptions.aiMonitorDate}
+            onSelectAiMonitorEvent={globalSearchOptions.onSelectAiMonitorEvent}
+          />
         </ErrorBoundary>
       </div>
     </div>

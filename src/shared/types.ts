@@ -237,12 +237,14 @@ export type TAgentPlanIntent =
   | 'theme-attribution'
   | 'daily-lhb'
   | 'market-review'
+  | 'condition-screener'
   | 'board'
   | 'portfolio'
   | 'shareholder-chip'
   | 'hot-concepts'
   | 'industry-ranking'
   | 'a-stock-data-agent'
+  | 'stock-picker'
   | 'chat';
 
 export type TPlanItemStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'blocked' | 'failed';
@@ -551,9 +553,12 @@ export interface ChipPoint {
 }
 
 export type TChipDistributionSource = 'stock-sdk' | 'a-stock-data';
+export type TChipDistributionPeriod = '15m' | '1h' | '1d' | '1w' | '1mo';
 
 export interface ChipDistribution {
   date: string;
+  timestamp?: number;
+  period: TChipDistributionPeriod;
   profitRatio?: number;
   avgCost?: number;
   cost90?: string;
@@ -564,6 +569,7 @@ export interface ChipDistribution {
 }
 
 export interface IChipDistributionResult {
+  period: TChipDistributionPeriod;
   latest?: ChipDistribution;
   distributions: ChipDistribution[];
   trend: Array<{ days: number; concentration70?: number; concentration90?: number }>;
@@ -1111,7 +1117,7 @@ export interface StocksenseApi {
   getBoardDetail(symbol: string, forceRefresh?: boolean, boardName?: string): Promise<BoardDetail>;
   getBoardDashboard(range?: TBoardDashboardRange, forceRefresh?: boolean): Promise<IBoardDashboardSnapshot>;
   getKline(symbol: string, limit?: number, period?: string, beforeTimestamp?: number): Promise<KlinePoint[]>;
-  getChipDistribution(symbol: string): Promise<IChipDistributionResult>;
+  getChipDistribution(symbol: string, period?: TChipDistributionPeriod): Promise<IChipDistributionResult>;
   getBatchQuotes(codes: string[]): Promise<StockDetail[]>;
   getStockTimelines(codes: string[]): Promise<Record<string, IStockTimelineSnapshot>>;
   listMarketNews(query?: string, page?: number, pageSize?: number): Promise<PagedMarketNews>;
@@ -1127,6 +1133,7 @@ export interface StocksenseApi {
   ): Promise<MarketNewsItem>;
   listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]>;
   getHotStockHintSource(): Promise<IHotStockHintSource>;
+  onHotStockHintSourceUpdated?(handler: (source: IHotStockHintSource) => void): () => void;
   listSurgeHistoryDates(): Promise<string[]>;
   listSurgeHistory(date: string, offset?: number, limit?: number): Promise<HotFocusItem[]>;
   listStockSurgeEvents(code: string): Promise<StockSurgeEvent[]>;
@@ -1139,7 +1146,15 @@ export interface StocksenseApi {
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
   getDragonTigerSnapshot(range?: TDragonTigerRange): Promise<IDragonTigerSnapshot>;
   getDiscoverySnapshot(options?: IDiscoverySnapshotOptions): Promise<Record<string, unknown>>;
-  getMonitorFeed(options?: { categories?: TMonitorCategory[]; since?: string; limit?: number; offset?: number; date?: string; mode?: TMonitorMode }): Promise<IMonitorFeed>;
+  getMonitorFeed(options?: {
+    categories?: TMonitorCategory[];
+    since?: string;
+    query?: string;
+    limit?: number;
+    offset?: number;
+    date?: string;
+    mode?: TMonitorMode;
+  }): Promise<IMonitorFeed>;
   getTradingAdvice(options?: ITradingAdviceOptions): Promise<ITradingAdvice>;
   onMarketPageSnapshotUpdated?(handler: (snapshot: MarketPageSnapshot) => void): () => void;
   onMarketDataProgress?(handler: (status: MarketDataSyncStatus) => void): () => void;

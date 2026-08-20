@@ -2,8 +2,17 @@ import type { MarketDataSyncStatus } from './types.js';
 
 export type TMarketDataProgressListener = (status: MarketDataSyncStatus) => void;
 
+export interface IMarketDataCoverageSyncOptions {
+  targetTradeDate: string;
+  minCoverage: number;
+}
+
 export interface IMarketDataSyncWorkerApi {
-  runSync(force: boolean, onProgress: TMarketDataProgressListener): Promise<MarketDataSyncStatus>;
+  runSync(onProgress: TMarketDataProgressListener): Promise<MarketDataSyncStatus>;
+  runCoverageSync(
+    options: IMarketDataCoverageSyncOptions,
+    onProgress: TMarketDataProgressListener,
+  ): Promise<MarketDataSyncStatus>;
   runRepair(onProgress: TMarketDataProgressListener): Promise<MarketDataSyncStatus>;
   runHistoricalBackfill(onProgress: TMarketDataProgressListener): Promise<MarketDataSyncStatus>;
   requestStop(): Promise<void>;

@@ -13,9 +13,9 @@ const surgeStore = vi.hoisted(() => ({
   pruneSurgeHistory: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../../../../src/shared/market-time.js', () => marketTime);
-vi.mock('../stock-client.js', () => stockClient);
-vi.mock('../surge-history-store.js', () => surgeStore);
+vi.mock('../../../../src/shared/market-time', () => marketTime);
+vi.mock('../stock-client', () => stockClient);
+vi.mock('../../stock-db/surge-history-store', () => surgeStore);
 
 type TSurgeHistoryScheduler = typeof import('../surge-history-scheduler.js');
 

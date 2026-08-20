@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../market-data/trade-date-resolver.js', () => ({
+vi.mock('../../market-data/trade-date-resolver', () => ({
   resolveTradingDate: vi.fn(),
 }));
 
-vi.mock('../stock-client.js', () => ({
+vi.mock('../stock-client', () => ({
   getMarketPageSnapshot: vi.fn(),
   listEastmoneySurgeByDate: vi.fn(),
   listHotFocus: vi.fn(),

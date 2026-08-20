@@ -5,6 +5,5 @@
   "category": "commands",
   "command": "/龙虎榜",
   "description": "[股票代码或名称]最近上过龙虎榜吗，哪些营业部在买？",
-  "argPlaceholder": "[股票代码或名称]",
-  "handler": "index.js"
+  "argPlaceholder": "[股票代码或名称]"
 }

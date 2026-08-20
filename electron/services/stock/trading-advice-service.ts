@@ -1,10 +1,18 @@
 import { getMarketReview } from './market-review-service.js';
 import { getDiscoverySnapshot } from './discovery-service.js';
 import { getBatchQuotes, listDailyDragonTiger, listEastmoneySurgeByDate } from './stock-client.js';
-import { getConfig } from '../config-store.js';
+import { getConfig } from '../stock-db/config-store.js';
 import { chatWithOpenAICompatible } from '../llm/openai-compatible-client.js';
 import { sdk } from './shared.js';
-import type { IMarketReviewMetric, ITradingAdvice, ITradingAdviceOptions, ITradingAdviceSector, StockDetail, TMarketReviewReport, TMarketReviewWatchCategory } from '../../../src/shared/types.js';
+import type {
+  IMarketReviewMetric,
+  ITradingAdvice,
+  ITradingAdviceOptions,
+  ITradingAdviceSector,
+  StockDetail,
+  TMarketReviewReport,
+  TMarketReviewWatchCategory,
+} from '../../../src/shared/types.js';
 
 // ── Data collection ──
 
@@ -70,15 +78,22 @@ function buildUserPrompt(data: TTradingAdviceData): string {
   const { reviewData, dtItems, fundFlows, poolItems, concepts } = data;
 
   const parts: string[] = [];
-  parts.push(`你是一名 A 股短线策略师。以下是 **${reviewData?.tradeDate ?? '今日'}** 收盘后的市场数据摘要，请基于这些数据生成明日操作建议。`);
+  parts.push(
+    `你是一名 A 股短线策略师。以下是 **${reviewData?.tradeDate ?? '今日'}** 收盘后的市场数据摘要，请基于这些数据生成明日操作建议。`,
+  );
 
   // 一、大盘概况
   if (reviewData?.wealthEffect) {
     parts.push('\n## 一、大盘概况');
     for (const m of reviewData.wealthEffect) {
-      const val = m.value !== null && m.value !== undefined
-        ? (typeof m.value === 'number' ? (Number.isInteger(m.value) ? String(m.value) : m.value.toFixed(2)) : String(m.value))
-        : '--';
+      const val =
+        m.value !== null && m.value !== undefined
+          ? typeof m.value === 'number'
+            ? Number.isInteger(m.value)
+              ? String(m.value)
+              : m.value.toFixed(2)
+            : String(m.value)
+          : '--';
       parts.push(`- ${m.label}：${val}${m.unit ?? ''}`);
     }
   }
@@ -112,9 +127,10 @@ function buildUserPrompt(data: TTradingAdviceData): string {
     parts.push('\n## 三、资金面（全市场主力净流入 Top 20）');
     const top20 = fundFlows.slice(0, 20);
     for (const item of top20) {
-      const mainInflow = item.mainNetInflow !== undefined && item.mainNetInflow !== null
-        ? `${(Number(item.mainNetInflow) / 1e8).toFixed(2)}亿`
-        : '--';
+      const mainInflow =
+        item.mainNetInflow !== undefined && item.mainNetInflow !== null
+          ? `${(Number(item.mainNetInflow) / 1e8).toFixed(2)}亿`
+          : '--';
       parts.push(`- ${item.name}(${item.code})：主力净流入 ${mainInflow}`);
     }
   }
@@ -168,10 +184,13 @@ function buildUserPrompt(data: TTradingAdviceData): string {
   if (reviewData?.hotThemes?.length) {
     parts.push('\n## 六、热点方向');
     for (const theme of reviewData.hotThemes.slice(0, 8)) {
-      const changePercent = theme.changePercent !== undefined && theme.changePercent !== null
-        ? `${Number(theme.changePercent) > 0 ? '+' : ''}${theme.changePercent}%`
-        : '--';
-      parts.push(`- ${theme.name}：${changePercent} | 涨停 ${theme.limitUpCount ?? '--'} 家${theme.leaderName ? ` | 龙头 ${theme.leaderName}` : ''}${theme.reason ? ` | ${theme.reason}` : ''}`);
+      const changePercent =
+        theme.changePercent !== undefined && theme.changePercent !== null
+          ? `${Number(theme.changePercent) > 0 ? '+' : ''}${theme.changePercent}%`
+          : '--';
+      parts.push(
+        `- ${theme.name}：${changePercent} | 涨停 ${theme.limitUpCount ?? '--'} 家${theme.leaderName ? ` | 龙头 ${theme.leaderName}` : ''}${theme.reason ? ` | ${theme.reason}` : ''}`,
+      );
     }
   }
 
@@ -238,11 +257,7 @@ export async function reconcileAdviceLeaderStocks(
   quoteResolver: TAdviceQuoteResolver = getBatchQuotes,
 ): Promise<ITradingAdvice> {
   const codes = [
-    ...new Set(
-      advice.keySectors
-        .map((sector) => normalizeAdviceStockCode(sector.leaderCode))
-        .filter(Boolean),
-    ),
+    ...new Set(advice.keySectors.map((sector) => normalizeAdviceStockCode(sector.leaderCode)).filter(Boolean)),
   ];
   if (!codes.length) return advice;
 
@@ -298,9 +313,7 @@ function parseAdviceResponse(raw: string): ITradingAdvice {
   const marketSummary = String(parsed.marketSummary ?? '');
   const riskReminder = String(parsed.riskReminder ?? '');
 
-  const suitableStrategies = Array.isArray(parsed.suitableStrategies)
-    ? parsed.suitableStrategies.map(String)
-    : [];
+  const suitableStrategies = Array.isArray(parsed.suitableStrategies) ? parsed.suitableStrategies.map(String) : [];
   const unsuitableStrategies = Array.isArray(parsed.unsuitableStrategies)
     ? parsed.unsuitableStrategies.map(String)
     : [];
@@ -312,9 +325,10 @@ function parseAdviceResponse(raw: string): ITradingAdvice {
         const s = sector as Record<string, unknown>;
         keySectors.push({
           name: String(s.name ?? ''),
-          confidence: (s.confidence === 'high' || s.confidence === 'medium' || s.confidence === 'low')
-            ? s.confidence as ITradingAdviceSector['confidence']
-            : 'medium',
+          confidence:
+            s.confidence === 'high' || s.confidence === 'medium' || s.confidence === 'low'
+              ? (s.confidence as ITradingAdviceSector['confidence'])
+              : 'medium',
           reason: String(s.reason ?? ''),
           leaderCode: String(s.leaderCode ?? ''),
           leaderName: String(s.leaderName ?? ''),
@@ -352,14 +366,14 @@ function hasTradingAdviceData(data: TTradingAdviceData): boolean {
   const reviewData = data.reviewData;
   return Boolean(
     reviewData?.nextDayFocus?.length ||
-      reviewData?.hotThemes?.length ||
-      reviewData?.sentiment?.length ||
-      reviewData?.wealthEffect?.length ||
-      reviewData?.leaders?.length ||
-      data.dtItems.length ||
-      data.poolItems.length ||
-      data.fundFlows.length ||
-      data.concepts.length,
+    reviewData?.hotThemes?.length ||
+    reviewData?.sentiment?.length ||
+    reviewData?.wealthEffect?.length ||
+    reviewData?.leaders?.length ||
+    data.dtItems.length ||
+    data.poolItems.length ||
+    data.fundFlows.length ||
+    data.concepts.length,
   );
 }
 
@@ -384,75 +398,85 @@ async function collectHistoricalMarketData(tradeDate: string): Promise<TTradingA
   });
   if (snapshot.unavailableReason) throw new Error(snapshot.unavailableReason);
   const dragonTiger = snapshot.dragonTiger;
-  const dtItems = [
-    ...(dragonTiger?.inst ?? []),
-    ...(dragonTiger?.hot ?? []),
-    ...(dragonTiger?.first ?? []),
-  ].map((item, index) => ({
-    id: `${tradeDate}-${item.code}-${index}`,
-    date: tradeDate,
-    code: item.code,
-    name: item.name,
-    reason: item.reason,
-    changePercent: item.changePercent,
-    netBuy: item.netBuy,
-    buy: Math.max(item.netBuy, 0),
-    sell: item.netBuy < 0 ? Math.abs(item.netBuy) : 0,
-  }));
+  const dtItems = [...(dragonTiger?.inst ?? []), ...(dragonTiger?.hot ?? []), ...(dragonTiger?.first ?? [])].map(
+    (item, index) => ({
+      id: `${tradeDate}-${item.code}-${index}`,
+      date: tradeDate,
+      code: item.code,
+      name: item.name,
+      reason: item.reason,
+      changePercent: item.changePercent,
+      netBuy: item.netBuy,
+      buy: Math.max(item.netBuy, 0),
+      sell: item.netBuy < 0 ? Math.abs(item.netBuy) : 0,
+    }),
+  );
   const poolItems = await listEastmoneySurgeByDate(compactTradeDate(tradeDate));
   const reviewData: TMarketReviewReport = {
     tradeDate: snapshot.tradeDate,
     generatedAt: snapshot.generatedAt,
     dataSources: ['discovery-snapshot'],
     dataGaps: [],
-    indexSummary: snapshot.marketSummary?.indices.map((item) => ({ name: item.name, changePercent: item.changePercent, amount: null })) ?? [],
+    indexSummary:
+      snapshot.marketSummary?.indices.map((item) => ({
+        name: item.name,
+        changePercent: item.changePercent,
+        amount: null,
+      })) ?? [],
     sentimentScore: snapshot.sentimentScore ?? null,
     profitDirections: [],
     lossDirections: [],
-    leaders: snapshot.leaders?.map((item) => ({
-      code: item.code,
-      name: item.name,
-      concepts: item.concepts ?? [],
-      height: item.height ?? null,
-      amount: item.amount ?? null,
-      turnoverRate: null,
-      sealAmount: null,
-      changePercent: item.changePercent ?? null,
-    })) ?? [],
-    wealthEffect: snapshot.wealthMetrics?.map((item) => ({
-      label: item.label,
-      value: item.value,
-      unit: isMarketReviewMetricUnit(item.unit) ? item.unit : undefined,
-    })) ?? [],
-    sentiment: snapshot.sentimentFactors?.map((item) => ({
-      label: item.label,
-      value: typeof item.value === 'number' ? item.value : null,
-      unit: undefined,
-    })) ?? [],
-    hotThemes: snapshot.hotThemes?.map((item) => ({
-      id: item.code ?? item.name,
-      name: item.name,
-      boardCode: item.code ?? null,
-      score: null,
-      changePercent: item.changePercent ?? null,
-      limitUpCount: item.limitUpCount ?? null,
-      reason: item.reason ?? null,
-      leaderName: item.leaderName ?? null,
-      leaderCode: item.leaderCode ?? null,
-      leaderHeight: item.leaders?.[0]?.height ?? null,
-      mainNetInflow: null,
-      amount: null,
-      limitUpStocks: item.leaders?.map((leader) => ({ code: leader.code, name: leader.name, height: leader.height ?? null })) ?? [],
-      coreStocks: [],
-      trackingNote: null,
-    })) ?? [],
-    nextDayFocus: snapshot.nextDayFocus?.map((item) => ({
-      id: item.category,
-      category: toMarketReviewWatchCategory(item.category),
-      condition: item.condition,
-      baseline: item.baseline ?? null,
-      tone: 'neutral' as const,
-    })) ?? [],
+    leaders:
+      snapshot.leaders?.map((item) => ({
+        code: item.code,
+        name: item.name,
+        concepts: item.concepts ?? [],
+        height: item.height ?? null,
+        amount: item.amount ?? null,
+        turnoverRate: null,
+        sealAmount: null,
+        changePercent: item.changePercent ?? null,
+      })) ?? [],
+    wealthEffect:
+      snapshot.wealthMetrics?.map((item) => ({
+        label: item.label,
+        value: item.value,
+        unit: isMarketReviewMetricUnit(item.unit) ? item.unit : undefined,
+      })) ?? [],
+    sentiment:
+      snapshot.sentimentFactors?.map((item) => ({
+        label: item.label,
+        value: typeof item.value === 'number' ? item.value : null,
+        unit: undefined,
+      })) ?? [],
+    hotThemes:
+      snapshot.hotThemes?.map((item) => ({
+        id: item.code ?? item.name,
+        name: item.name,
+        boardCode: item.code ?? null,
+        score: null,
+        changePercent: item.changePercent ?? null,
+        limitUpCount: item.limitUpCount ?? null,
+        reason: item.reason ?? null,
+        leaderName: item.leaderName ?? null,
+        leaderCode: item.leaderCode ?? null,
+        leaderHeight: item.leaders?.[0]?.height ?? null,
+        mainNetInflow: null,
+        amount: null,
+        limitUpStocks:
+          item.leaders?.map((leader) => ({ code: leader.code, name: leader.name, height: leader.height ?? null })) ??
+          [],
+        coreStocks: [],
+        trackingNote: null,
+      })) ?? [],
+    nextDayFocus:
+      snapshot.nextDayFocus?.map((item) => ({
+        id: item.category,
+        category: toMarketReviewWatchCategory(item.category),
+        condition: item.condition,
+        baseline: item.baseline ?? null,
+        tone: 'neutral' as const,
+      })) ?? [],
   };
   const data = { reviewData, dtItems, fundFlows: [], poolItems, concepts: [], today: compactTradeDate(tradeDate) };
   if (!hasTradingAdviceData(data)) throw new Error('该交易日暂无足够数据生成交易建议');

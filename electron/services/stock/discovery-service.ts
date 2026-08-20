@@ -7,16 +7,16 @@ import {
   listDragonTigerByDate,
   listEastmoneySurgeByDate,
 } from './stock-client.js';
-import { listFavoriteStocks, getConfig } from '../config-store.js';
+import { listFavoriteStocks, getConfig } from '../stock-db/config-store.js';
 import { chatWithOpenAICompatible } from '../llm/openai-compatible-client.js';
-import { listSurgeDates, listSurgeHistory } from './surge-history-store.js';
+import { listSurgeDates, listSurgeHistory } from '../stock-db/surge-history-store.js';
 import {
   listBoardConstituents,
   listMarketBoards,
   readDiscoverySnapshot,
   writeDiscoverySnapshot,
   getStockChip,
-} from '../market-data/market-data-store.js';
+} from '../stock-db/market-data-store.js';
 import { fetchMarketIndex } from './market-indices.js';
 import { isRemoteTradingDay, listRemoteTradingCalendar } from '../market-data/providers.js';
 import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
@@ -535,13 +535,19 @@ function hasSellSideOpportunityStockRadarRows(snapshot: IDiscoverySnapshot): boo
 
 function hasStaleChipFilteredOpportunityStockRadarRows(snapshot: IDiscoverySnapshot): boolean {
   const stocks = snapshot.opportunityRadar?.stocks ?? [];
-  return stocks.length > 0 && stocks.length < OPPORTUNITY_STOCK_MIN_DISPLAY_COUNT && stocks.some((item) => /90%筹码集中度/.test(item.reason));
+  return (
+    stocks.length > 0 &&
+    stocks.length < OPPORTUNITY_STOCK_MIN_DISPLAY_COUNT &&
+    stocks.some((item) => /90%筹码集中度/.test(item.reason))
+  );
 }
 
 function hasStaleSectorSummaryRows(snapshot: IDiscoverySnapshot): boolean {
   return Boolean(
-    snapshot.marketSummary?.sectors.some((sector) =>
-      Number.isFinite(sector.changePercent) && Math.abs(sector.changePercent) > DISCOVERY_SECTOR_DAILY_CHANGE_LIMIT_PERCENT,
+    snapshot.marketSummary?.sectors.some(
+      (sector) =>
+        Number.isFinite(sector.changePercent) &&
+        Math.abs(sector.changePercent) > DISCOVERY_SECTOR_DAILY_CHANGE_LIMIT_PERCENT,
     ),
   );
 }
@@ -706,7 +712,9 @@ async function resolveDiscoveryTradeDateNavEndDate(now = new Date()): Promise<st
   return (await isRemoteTradingDay(today)) ? today : resolveTradingDate(9 * 60 + 30, now);
 }
 
-async function listRecentDiscoveryTradeDateOptions(now = new Date()): Promise<Array<{ date: string; weekday: string }>> {
+async function listRecentDiscoveryTradeDateOptions(
+  now = new Date(),
+): Promise<Array<{ date: string; weekday: string }>> {
   const endDate = await resolveDiscoveryTradeDateNavEndDate(now);
   return (await listRecentTradingDates(endDate)).map(toTradeDateOption);
 }
@@ -769,17 +777,11 @@ function buildRealtimeBoardQuoteMaps(rows: TRealtimeBoardQuote[]): TRealtimeBoar
   return { byCode, byName };
 }
 
-function findRealtimeBoardQuote(
-  item: Pick<ISectorSummary, 'code' | 'name'>,
-  maps: TRealtimeBoardQuoteMaps,
-) {
+function findRealtimeBoardQuote(item: Pick<ISectorSummary, 'code' | 'name'>, maps: TRealtimeBoardQuoteMaps) {
   return maps.byCode.get(item.code) ?? maps.byName.get(boardQuoteNameKey(item.name));
 }
 
-function patchSectorsWithRealtimeBoardQuotes(
-  sectors: ISectorSummary[],
-  rows: TRealtimeBoardQuote[],
-): ISectorSummary[] {
+function patchSectorsWithRealtimeBoardQuotes(sectors: ISectorSummary[], rows: TRealtimeBoardQuote[]): ISectorSummary[] {
   const maps = buildRealtimeBoardQuoteMaps(rows);
   return sectors.map((sector) => {
     const changePercent = numericStringValue(findRealtimeBoardQuote(sector, maps)?.changePercent);
@@ -948,9 +950,7 @@ async function withRealtimeQuoteFields(snapshot: IDiscoverySnapshot): Promise<ID
   return next;
 }
 
-async function writeDiscoverySnapshotCaches(
-  snapshot: IDiscoverySnapshot,
-) {
+async function writeDiscoverySnapshotCaches(snapshot: IDiscoverySnapshot) {
   await writeDiscoverySnapshot({ snapshot: { ...snapshot }, updatedAt: snapshot.generatedAt }, DISCOVERY_SNAPSHOT_KEY);
   if (isIsoTradeDate(snapshot.tradeDate)) {
     await writeDiscoverySnapshot(
@@ -996,13 +996,15 @@ async function buildAndCacheDiscoverySnapshotForTradeDate(tradeDate: string): Pr
     fetchLocalBoardCatalog(),
   ]);
   const poolItems = poolResult.status === 'fulfilled' ? poolResult.value : [];
-  const boardCatalog = boardCatalogResult.status === 'fulfilled' ? boardCatalogResult.value : buildLocalBoardCatalog([]);
+  const boardCatalog =
+    boardCatalogResult.status === 'fulfilled' ? boardCatalogResult.value : buildLocalBoardCatalog([]);
   const [sectorsResult, opportunityStocksResult] = await Promise.allSettled([
     buildHistoricalSectorsFromPools(poolItems, tradeDate, boardCatalog),
     buildOpportunityStockRadarFromMonitorFeed(tradeDate, true),
   ]);
   const tradeDates = tradeDatesResult.status === 'fulfilled' ? tradeDatesResult.value : [toTradeDateOption(tradeDate)];
-  const dragonTigerGroup = dragonTigerResult.status === 'fulfilled' ? dragonTigerResult.value : { date: tradeDate, items: [] };
+  const dragonTigerGroup =
+    dragonTigerResult.status === 'fulfilled' ? dragonTigerResult.value : { date: tradeDate, items: [] };
   const dragonTigerHistory = buildDiscoveryDragonTigerHistory([dragonTigerGroup]);
   const snapshot = buildDiscoverySnapshotFromHistoricalPools({
     tradeDate,
@@ -1014,10 +1016,7 @@ async function buildAndCacheDiscoverySnapshotForTradeDate(tradeDate: string): Pr
     sectors: sectorsResult.status === 'fulfilled' ? sectorsResult.value : [],
     opportunityStocks: opportunityStocksResult.status === 'fulfilled' ? opportunityStocksResult.value : [],
   });
-  await writeDiscoverySnapshot(
-    { snapshot, updatedAt: snapshot.generatedAt },
-    discoveryTradeDateSnapshotKey(tradeDate),
-  );
+  await writeDiscoverySnapshot({ snapshot, updatedAt: snapshot.generatedAt }, discoveryTradeDateSnapshotKey(tradeDate));
   return snapshot;
 }
 
@@ -1103,9 +1102,12 @@ function shouldRefreshDiscoverySectionCache(
   const updatedAtMs = new Date(updatedAt).getTime();
   if (!Number.isFinite(updatedAtMs)) return true;
   const realtimeSection = section === 'hero' || section === 'market-summary' || section === 'opportunity-radar';
-  const ttl = snapshot.tradeDate === currentTradeDate
-    ? (realtimeSection ? DISCOVERY_CACHE_TTL_MS : DISCOVERY_DETAIL_CACHE_TTL_MS)
-    : DISCOVERY_HISTORICAL_SECTION_CACHE_TTL_MS;
+  const ttl =
+    snapshot.tradeDate === currentTradeDate
+      ? realtimeSection
+        ? DISCOVERY_CACHE_TTL_MS
+        : DISCOVERY_DETAIL_CACHE_TTL_MS
+      : DISCOVERY_HISTORICAL_SECTION_CACHE_TTL_MS;
   return Date.now() - updatedAtMs >= ttl;
 }
 
@@ -1153,10 +1155,7 @@ async function buildDiscoveryHeroSection(tradeDate: string, isCurrent: boolean):
   );
 }
 
-async function buildDiscoveryMarketSummarySection(
-  tradeDate: string,
-  isCurrent: boolean,
-): Promise<IDiscoverySnapshot> {
+async function buildDiscoveryMarketSummarySection(tradeDate: string, isCurrent: boolean): Promise<IDiscoverySnapshot> {
   if (isCurrent) {
     const { reviewData, poolItems } = await loadDiscoveryReviewContext(tradeDate);
     const marketSummary = await buildMarketSummary(reviewData, poolItems, tradeDate, true);
@@ -1182,10 +1181,7 @@ async function buildDiscoveryMarketSummarySection(
   return pickDiscoverySection(snapshot, 'market-summary');
 }
 
-async function buildDiscoveryOpportunitySection(
-  tradeDate: string,
-  isCurrent: boolean,
-): Promise<IDiscoverySnapshot> {
+async function buildDiscoveryOpportunitySection(tradeDate: string, isCurrent: boolean): Promise<IDiscoverySnapshot> {
   const stocks = await buildOpportunityStockRadarFromMonitorFeed(tradeDate, !isCurrent);
   return {
     tradeDate,
@@ -1208,25 +1204,20 @@ async function buildDiscoveryDragonTigerSection(tradeDate: string): Promise<IDis
 function loadDiscoveryReviewContext(tradeDate: string): Promise<TDiscoveryReviewContext> {
   const existing = discoveryReviewContextPromises.get(tradeDate);
   if (existing && Date.now() - existing.updatedAt < DISCOVERY_CACHE_TTL_MS) return existing.promise;
-  const promise = Promise.allSettled([
-    getMarketReview(),
-    listEastmoneySurgeByDate(compactTradeDate(tradeDate)),
-  ])
-    .then(([reviewResult, poolResult]) => ({
+  const promise = Promise.allSettled([getMarketReview(), listEastmoneySurgeByDate(compactTradeDate(tradeDate))]).then(
+    ([reviewResult, poolResult]) => ({
       reviewData:
         reviewResult.status === 'fulfilled' && reviewResult.value.tradeDate === tradeDate
           ? reviewResult.value
           : undefined,
       poolItems: poolResult.status === 'fulfilled' ? poolResult.value : [],
-    }));
+    }),
+  );
   discoveryReviewContextPromises.set(tradeDate, { updatedAt: Date.now(), promise });
   return promise;
 }
 
-async function buildDiscoverySentimentSection(
-  tradeDate: string,
-  isCurrent: boolean,
-): Promise<IDiscoverySnapshot> {
+async function buildDiscoverySentimentSection(tradeDate: string, isCurrent: boolean): Promise<IDiscoverySnapshot> {
   if (!isCurrent) {
     const poolItems = await listEastmoneySurgeByDate(compactTradeDate(tradeDate));
     return pickDiscoverySection(
@@ -1258,13 +1249,9 @@ async function buildDiscoverySentimentSection(
     }
   }
   const previous = await fetchPreviousTradingDaySentimentPools(tradeDate, tradeDates);
-  const sentimentScore = reviewData?.sentimentScore ?? scoreSentiment(
-    0,
-    0,
-    sentimentStocks.zt.length,
-    sentimentStocks.dt.length,
-    sentimentStocks.zb.length,
-  );
+  const sentimentScore =
+    reviewData?.sentimentScore ??
+    scoreSentiment(0, 0, sentimentStocks.zt.length, sentimentStocks.dt.length, sentimentStocks.zb.length);
   return {
     tradeDate,
     generatedAt: new Date().toISOString(),
@@ -1282,9 +1269,7 @@ async function buildDiscoverySentimentSection(
           { label: '连板', value: `${consecutiveStocks.length}家` },
         ],
     sentimentStocks:
-      sentimentStocks.zt.length || sentimentStocks.dt.length || sentimentStocks.zb.length
-        ? sentimentStocks
-        : undefined,
+      sentimentStocks.zt.length || sentimentStocks.dt.length || sentimentStocks.zb.length ? sentimentStocks : undefined,
     consecutiveStocks: consecutiveStocks.length ? consecutiveStocks : undefined,
     yesterdayZt: previous.zt.length ? previous.zt : undefined,
     yesterdayLb: previous.lb.length ? previous.lb : undefined,
@@ -1292,10 +1277,7 @@ async function buildDiscoverySentimentSection(
   };
 }
 
-async function buildDiscoveryHotRotationSection(
-  tradeDate: string,
-  isCurrent: boolean,
-): Promise<IDiscoverySnapshot> {
+async function buildDiscoveryHotRotationSection(tradeDate: string, isCurrent: boolean): Promise<IDiscoverySnapshot> {
   const context = isCurrent
     ? await loadDiscoveryReviewContext(tradeDate)
     : { reviewData: undefined, poolItems: await listEastmoneySurgeByDate(compactTradeDate(tradeDate)) };
@@ -1309,10 +1291,7 @@ async function buildDiscoveryHotRotationSection(
   };
 }
 
-async function buildDiscoveryLimitUpSection(
-  tradeDate: string,
-  isCurrent: boolean,
-): Promise<IDiscoverySnapshot> {
+async function buildDiscoveryLimitUpSection(tradeDate: string, isCurrent: boolean): Promise<IDiscoverySnapshot> {
   if (!isCurrent) {
     const poolItems = await listEastmoneySurgeByDate(compactTradeDate(tradeDate));
     return pickDiscoverySection(
@@ -1349,10 +1328,7 @@ async function buildDiscoveryLimitUpSection(
   };
 }
 
-async function buildDiscoveryTomorrowSection(
-  tradeDate: string,
-  isCurrent: boolean,
-): Promise<IDiscoverySnapshot> {
+async function buildDiscoveryTomorrowSection(tradeDate: string, isCurrent: boolean): Promise<IDiscoverySnapshot> {
   const { reviewData, poolItems } = isCurrent
     ? await loadDiscoveryReviewContext(tradeDate)
     : { reviewData: undefined, poolItems: await listEastmoneySurgeByDate(compactTradeDate(tradeDate)) };
@@ -1399,7 +1375,10 @@ async function getDiscoverySectionSnapshot(
   const snapshotKey = discoverySectionSnapshotKey(tradeDate, section);
   const cached = await readDiscoverySnapshot(snapshotKey);
   const cachedSnapshot = cached ? toCachedDiscoverySnapshot(cached.snapshot) : undefined;
-  if (cachedSnapshot && !shouldRefreshDiscoverySectionCache(cachedSnapshot, section, cached?.updatedAt, currentTradeDate)) {
+  if (
+    cachedSnapshot &&
+    !shouldRefreshDiscoverySectionCache(cachedSnapshot, section, cached?.updatedAt, currentTradeDate)
+  ) {
     return cachedSnapshot;
   }
 
@@ -1424,7 +1403,7 @@ async function getScopedDiscoverySnapshot(
     const shouldHoldUntil930 = await shouldHoldDiscoverySnapshotUntil930();
     if (shouldHoldUntil930) return buildDiscoveryWaitingSnapshot();
   }
-  if (requestedTradeDate && await shouldDeferDiscoveryRefresh()) {
+  if (requestedTradeDate && (await shouldDeferDiscoveryRefresh())) {
     const cachedSections = await Promise.all(
       sections.map((section) => readDiscoverySnapshot(discoverySectionSnapshotKey(requestedTradeDate, section))),
     );
@@ -2369,10 +2348,7 @@ function mapBoardListRowsToSectors(rows: TBoardListRow[]): ISectorSummary[] {
 }
 
 async function loadBoardListSectorRank(): Promise<ISectorSummary[]> {
-  const [industries, concepts] = await Promise.allSettled([
-    sdk.board.industry.list(),
-    sdk.board.concept.list(),
-  ]);
+  const [industries, concepts] = await Promise.allSettled([sdk.board.industry.list(), sdk.board.concept.list()]);
   const rows = [
     ...(industries.status === 'fulfilled' ? industries.value : []),
     ...(concepts.status === 'fulfilled' ? concepts.value : []),
@@ -2517,12 +2493,14 @@ async function withCachedChipConcentration90(
 }
 
 async function fetchOpportunityQuoteRows(events: IMonitorEvent[]): Promise<TOpportunityMarketRow[]> {
-  const codes = Array.from(new Set(
-    events
-      .filter((event) => event.category === 'large-order' && isLargeOrderBuyMonitorEvent(event))
-      .map((event) => event.code)
-      .filter((code) => /^\d{6}$/.test(code)),
-  ));
+  const codes = Array.from(
+    new Set(
+      events
+        .filter((event) => event.category === 'large-order' && isLargeOrderBuyMonitorEvent(event))
+        .map((event) => event.code)
+        .filter((code) => /^\d{6}$/.test(code)),
+    ),
+  );
   if (!codes.length) return [];
   const quotes = await getBatchQuotes(codes);
   return quotes.map((quote) => ({
@@ -2540,18 +2518,25 @@ function buildHistoricalOpportunityStockRadar(events: IMonitorEvent[]): IOpportu
     .filter((event) => event.category === 'large-order' && isLargeOrderBuyMonitorEvent(event))
     .flatMap((event) => {
       const changePercent = finiteStockChangePercent(event.changePercent);
-      if (!event.code || !event.name || changePercent === null || changePercent >= OPPORTUNITY_STOCK_CHANGE_PERCENT_LIMIT) {
+      if (
+        !event.code ||
+        !event.name ||
+        changePercent === null ||
+        changePercent >= OPPORTUNITY_STOCK_CHANGE_PERCENT_LIMIT
+      ) {
         return [];
       }
-      return [{
-        code: event.code,
-        name: event.name,
-        reason: [event.title, ...event.details].filter(Boolean).join(' · '),
-        price: numericStringValue(event.price) ?? null,
-        changePercent,
-        amount: null,
-        score: finiteNumber(event.score) ? event.score : 0,
-      }];
+      return [
+        {
+          code: event.code,
+          name: event.name,
+          reason: [event.title, ...event.details].filter(Boolean).join(' · '),
+          price: numericStringValue(event.price) ?? null,
+          changePercent,
+          amount: null,
+          score: finiteNumber(event.score) ? event.score : 0,
+        },
+      ];
     })
     .slice(0, OPPORTUNITY_STOCK_DISPLAY_LIMIT);
 }
@@ -2657,8 +2642,12 @@ async function generateNextWeekSectors(
       .map((board) => `${board.name}(${board.code})`)
       .join('、');
     const fundFlowLines = [
-      mainFundFlow !== null ? `今日主力资金净流入：${mainFundFlow >= 0 ? '+' : ''}${mainFundFlow.toFixed(1)}亿` : undefined,
-      northFundFlow !== null ? `今日北向资金净流入：${northFundFlow >= 0 ? '+' : ''}${northFundFlow.toFixed(1)}亿` : undefined,
+      mainFundFlow !== null
+        ? `今日主力资金净流入：${mainFundFlow >= 0 ? '+' : ''}${mainFundFlow.toFixed(1)}亿`
+        : undefined,
+      northFundFlow !== null
+        ? `今日北向资金净流入：${northFundFlow >= 0 ? '+' : ''}${northFundFlow.toFixed(1)}亿`
+        : undefined,
     ].filter((line): line is string => Boolean(line));
 
     const messages = [
@@ -2875,9 +2864,10 @@ async function loadBoardKlineForTradeDate(
     startDate: compactTradeDate(tradeDate),
     endDate: compactTradeDate(tradeDate),
   };
-  const loaders = board.kind === 'concept'
-    ? [sdk.board.concept.kline, sdk.board.industry.kline]
-    : [sdk.board.industry.kline, sdk.board.concept.kline];
+  const loaders =
+    board.kind === 'concept'
+      ? [sdk.board.concept.kline, sdk.board.industry.kline]
+      : [sdk.board.industry.kline, sdk.board.concept.kline];
 
   for (const load of loaders) {
     try {
@@ -2900,7 +2890,10 @@ async function buildHistoricalSectorsFromPools(
 ): Promise<ISectorSummary[]> {
   const themes = buildHotThemesFromPools(poolItems);
   const candidates = themes
-    .map((theme) => ({ theme, board: findLocalBoard(boardCatalog, { code: theme.code ?? undefined, name: theme.name }) }))
+    .map((theme) => ({
+      theme,
+      board: findLocalBoard(boardCatalog, { code: theme.code ?? undefined, name: theme.name }),
+    }))
     .filter(
       (item): item is { theme: NonNullable<IDiscoverySnapshot['hotThemes']>[number]; board: TLocalBoardSummary } =>
         Boolean(item.board),
@@ -3085,68 +3078,83 @@ async function buildMarketSummary(
   useCurrentBoardFallback = false,
 ): Promise<IMarketSummary | undefined> {
   const boardCatalog = await fetchLocalBoardCatalog();
-  const remoteSectors = await withOptionalTimeout(
-    'sector flow rank',
-    fetchSectorFlowRank(),
-    DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS,
-  ) ?? [];
-  const tradeDate = requestedTradeDate ?? reviewData?.tradeDate;
-  const historicalSectors = remoteSectors.length || !tradeDate || pools.length === 0
-    ? []
-    : await withOptionalTimeout(
-      'historical sectors',
-      buildHistoricalSectorsFromPools(pools, tradeDate, boardCatalog),
+  const remoteSectors =
+    (await withOptionalTimeout(
+      'sector flow rank',
+      fetchSectorFlowRank(),
       DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS,
-    ) ?? [];
+    )) ?? [];
+  const tradeDate = requestedTradeDate ?? reviewData?.tradeDate;
+  const historicalSectors =
+    remoteSectors.length || !tradeDate || pools.length === 0
+      ? []
+      : ((await withOptionalTimeout(
+          'historical sectors',
+          buildHistoricalSectorsFromPools(pools, tradeDate, boardCatalog),
+          DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS,
+        )) ?? []);
   const sourceSectors = remoteSectors.length
     ? remoteSectors
     : historicalSectors.length
       ? historicalSectors
       : useCurrentBoardFallback
         ? [...boardCatalog.rows]
-          .sort((left, right) => {
-            if (!Number.isFinite(left.changePercent)) return 1;
-            if (!Number.isFinite(right.changePercent)) return -1;
-            return right.changePercent - left.changePercent;
-          })
-          .slice(0, 30)
+            .sort((left, right) => {
+              if (!Number.isFinite(left.changePercent)) return 1;
+              if (!Number.isFinite(right.changePercent)) return -1;
+              return right.changePercent - left.changePercent;
+            })
+            .slice(0, 30)
         : [];
   const reconciledSectors = reconcileSectorsWithLocalBoards(sourceSectors, boardCatalog);
-  const sectorsWithChangePercents = await withOptionalTimeout(
-    'sector change percent enrichment',
-    enrichInvalidSectorChangePercents(reconciledSectors, boardCatalog),
-    DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
-  ) ?? reconciledSectors;
+  const sectorsWithChangePercents =
+    (await withOptionalTimeout(
+      'sector change percent enrichment',
+      enrichInvalidSectorChangePercents(reconciledSectors, boardCatalog),
+      DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
+    )) ?? reconciledSectors;
   const realtimeBoardRows = useCurrentBoardFallback
-    ? await withOptionalTimeout(
-      'current board quotes',
-      getCachedMarketBoardRows(true),
-      DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS,
-    ) ?? []
+    ? ((await withOptionalTimeout(
+        'current board quotes',
+        getCachedMarketBoardRows(true),
+        DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS,
+      )) ?? [])
     : [];
   const sectorsWithRealtimeQuotes = realtimeBoardRows.length
     ? patchSectorsWithRealtimeBoardQuotes(sectorsWithChangePercents, realtimeBoardRows)
     : sectorsWithChangePercents;
-  const reliableSectors = sectorsWithRealtimeQuotes.filter((sector) => isReliableSectorChangePercent(sector.changePercent));
-  const sectorsWithFlows = await withOptionalTimeout(
-    'sector main net inflow enrichment',
-    enrichMissingSectorMainNetInflows(reliableSectors, boardCatalog),
-    DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
-  ) ?? reliableSectors;
-  const sectors = await withOptionalTimeout(
-    'sector amount enrichment',
-    enrichMissingSectorAmounts(sectorsWithFlows, boardCatalog),
-    DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
-  ) ?? sectorsWithFlows;
+  const reliableSectors = sectorsWithRealtimeQuotes.filter((sector) =>
+    isReliableSectorChangePercent(sector.changePercent),
+  );
+  const sectorsWithFlows =
+    (await withOptionalTimeout(
+      'sector main net inflow enrichment',
+      enrichMissingSectorMainNetInflows(reliableSectors, boardCatalog),
+      DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
+    )) ?? reliableSectors;
+  const sectors =
+    (await withOptionalTimeout(
+      'sector amount enrichment',
+      enrichMissingSectorAmounts(sectorsWithFlows, boardCatalog),
+      DISCOVERY_MARKET_SUMMARY_ENRICH_TIMEOUT_MS,
+    )) ?? sectorsWithFlows;
 
   const [indicesResult, mainFundFlowResult, northFundFlowResult] = await Promise.allSettled([
     withOptionalTimeout('market summary indices', fetchAllIndices(), DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS),
-    withOptionalTimeout('market summary main fund flow', fetchMainFundFlow(tradeDate), DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS),
-    withOptionalTimeout('market summary north fund flow', fetchNorthFundFlow(tradeDate), DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS),
+    withOptionalTimeout(
+      'market summary main fund flow',
+      fetchMainFundFlow(tradeDate),
+      DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS,
+    ),
+    withOptionalTimeout(
+      'market summary north fund flow',
+      fetchNorthFundFlow(tradeDate),
+      DISCOVERY_MARKET_SUMMARY_SOURCE_TIMEOUT_MS,
+    ),
   ]);
   const indices = indicesResult.status === 'fulfilled' && indicesResult.value ? indicesResult.value : [];
-  const mainFundFlow = mainFundFlowResult.status === 'fulfilled' ? mainFundFlowResult.value ?? null : null;
-  const northFundFlow = northFundFlowResult.status === 'fulfilled' ? northFundFlowResult.value ?? null : null;
+  const mainFundFlow = mainFundFlowResult.status === 'fulfilled' ? (mainFundFlowResult.value ?? null) : null;
+  const northFundFlow = northFundFlowResult.status === 'fulfilled' ? (northFundFlowResult.value ?? null) : null;
 
   if (!indices.length && !sectors.length) return undefined;
 
@@ -3194,15 +3202,14 @@ async function buildDiscoverySnapshotFresh(): Promise<IDiscoverySnapshot> {
   const currentTradeDate = await resolveTradingDate(9 * 60 + 30);
   const tradeDates = await listRecentDiscoveryTradeDateOptions();
 
-  const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool, quoteLimitDowns] =
-    await Promise.allSettled([
-      getMarketReview(),
-      getMarketPageSnapshot('sh-main'),
-      getMarketPageSnapshot('sz-main'),
-      listDragonTigerByDate(currentTradeDate),
-      listEastmoneySurgeByDate(compactTradeDate(currentTradeDate)),
-      listLimitDownStocksFromQuotes(),
-    ]);
+  const [review, shSnapshot, szSnapshot, dragonTiger, eastmoneyPool, quoteLimitDowns] = await Promise.allSettled([
+    getMarketReview(),
+    getMarketPageSnapshot('sh-main'),
+    getMarketPageSnapshot('sz-main'),
+    listDragonTigerByDate(currentTradeDate),
+    listEastmoneySurgeByDate(compactTradeDate(currentTradeDate)),
+    listLimitDownStocksFromQuotes(),
+  ]);
 
   // ── Indices ──
   const indices: IDiscoverySnapshot['indices'] = [];

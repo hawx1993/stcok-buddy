@@ -38,10 +38,10 @@ export function IndexKlineModal({ index, initialPeriod, onClose }: IndexKlineMod
   );
   const loadOlderKline = useCallback<TLoadOlderKline>(
     async ({ timeframe, limit, beforeTimestamp }) => {
-      if (!indexSymbol || timeframe !== period) return [];
+      if (!indexSymbol) return [];
       return getStocksenseApi().getKline(indexSymbol, limit, timeframe, beforeTimestamp);
     },
-    [indexSymbol, period],
+    [indexSymbol],
   );
   return createPortal(
     <div className={styles.overlay} onClick={onClose}>
@@ -61,7 +61,6 @@ export function IndexKlineModal({ index, initialPeriod, onClose }: IndexKlineMod
         </div>
         <div className={styles.wrap}>
           <StockKlineChart
-            key={`${index.code}-${period}`}
             stock={chartStock}
             height='100%'
             showIndicators

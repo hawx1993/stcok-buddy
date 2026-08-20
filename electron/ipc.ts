@@ -15,6 +15,7 @@ import type {
   MarketIndexPeriod,
   MarketNewsItem,
   MarketTab,
+  TChipDistributionPeriod,
   TDragonTigerRange,
 } from '../src/shared/types.js';
 import {
@@ -30,7 +31,7 @@ import {
   store,
   toggleFavoriteStockPin,
   upsertFavoriteStock,
-} from './services/config-store.js';
+} from './services/stock-db/config-store.js';
 import {
   closeConversationStore,
   createConversation,
@@ -42,7 +43,7 @@ import {
   saveAssistantMessage,
   saveMessage,
   saveUserMessage,
-} from './services/conversation-store.js';
+} from './services/stock-db/conversation-store.js';
 import {
   getMarketDataStats,
   getMarketDataSyncStatus,
@@ -53,7 +54,7 @@ import {
   waitForMarketDataSync,
 } from './services/market-data/market-data-sync.js';
 import { syncSurgeHistory, syncStockDetails, syncMarketSnapshot } from './services/market-data/data-sync-handlers.js';
-import { runOrchestrator } from './services/agent/orchestrator.js';
+import { runOrchestrator } from './services/agents/orchestrator.js';
 import {
   clearSurgeCache,
   getBatchQuotes,
@@ -73,9 +74,9 @@ import { getDiscoverySnapshot } from './services/stock/discovery-service.js';
 import { getBoardDashboard } from './services/stock/board-dashboard.js';
 import { getMonitorFeed } from './services/stock/monitor-service.js';
 import { getTradingAdvice } from './services/stock/trading-advice-service.js';
-import { listHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
+import { getHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
-import { closeSurgeHistoryInstance, listSurgeDates } from './services/stock/surge-history-store.js';
+import { closeSurgeHistoryInstance, listSurgeDates } from './services/stock-db/surge-history-store.js';
 import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
 import { stopMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
 import {
@@ -91,14 +92,18 @@ import {
   listStoreItems,
   uninstallStoreItem,
 } from './services/store-service.js';
-import { closeSurgeHistoryStore, resetSurgeHistoryStore } from './services/stock/surge-history-store.js';
-import { closeMonitorHistoryInstance, closeMonitorHistoryStore, resetMonitorHistoryStore } from './services/stock/monitor-history-store.js';
+import { closeSurgeHistoryStore, resetSurgeHistoryStore } from './services/stock-db/surge-history-store.js';
+import {
+  closeMonitorHistoryInstance,
+  closeMonitorHistoryStore,
+  resetMonitorHistoryStore,
+} from './services/stock-db/monitor-history-store.js';
 import {
   closeMarketDataStore,
   getMarketDataDatabasePath,
   initializeMarketDataStore,
   resetMarketDataStore,
-} from './services/market-data/market-data-store.js';
+} from './services/stock-db/market-data-store.js';
 import { ensureMarketDataRuntime } from './services/market-data/market-data-scheduler.js';
 import { captureError, captureEvent } from './services/llm/posthog-client.js';
 import { testModelConnection } from './services/llm/index.js';
@@ -207,15 +212,19 @@ export function registerIpcHandlers() {
   ipcMain.handle('board:getDetail', (_event, symbol: string, forceRefresh?: boolean, boardName?: string) =>
     getBoardDetail(symbol, forceRefresh, boardName),
   );
-  ipcMain.handle('board:getDashboard', (_event, range?: Parameters<typeof getBoardDashboard>[0], forceRefresh?: boolean) =>
-    getBoardDashboard(range, forceRefresh),
+  ipcMain.handle(
+    'board:getDashboard',
+    (_event, range?: Parameters<typeof getBoardDashboard>[0], forceRefresh?: boolean) =>
+      getBoardDashboard(range, forceRefresh),
   );
   ipcMain.handle(
     'stock:getKline',
     (_event, symbol: string, limit?: number, period?: string, beforeTimestamp?: number) =>
       getKline(symbol, limit, period, beforeTimestamp),
   );
-  ipcMain.handle('stock:getChipDistribution', (_event, symbol: string) => getChipDistribution(symbol));
+  ipcMain.handle('stock:getChipDistribution', (_event, symbol: string, period?: TChipDistributionPeriod) =>
+    getChipDistribution(symbol, period),
+  );
   ipcMain.handle('stock:getBatchQuotes', (_event, codes: string[]) => getBatchQuotes(codes));
   ipcMain.handle('stock:getTimelines', (_event, codes: string[]) => getStockTimelines(codes));
   ipcMain.handle('market:getPageSnapshot', async (_event, tab: MarketTab, period?: MarketIndexPeriod) => {
@@ -226,7 +235,9 @@ export function registerIpcHandlers() {
   ipcMain.handle('discovery:getSnapshot', (_event, options?: Parameters<typeof getDiscoverySnapshot>[0]) =>
     getDiscoverySnapshot(options),
   );
-  ipcMain.handle('monitor:getFeed', (_event, options?: Parameters<typeof getMonitorFeed>[0]) => getMonitorFeed(options));
+  ipcMain.handle('monitor:getFeed', (_event, options?: Parameters<typeof getMonitorFeed>[0]) =>
+    getMonitorFeed(options),
+  );
   ipcMain.handle('trading-advice:get', (_event, options?: ITradingAdviceOptions) => getTradingAdvice(options));
   const removeMarketPageListener = onMarketPageSnapshotUpdated((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) window.webContents.send('market:pageSnapshotUpdated', snapshot);
@@ -236,7 +247,21 @@ export function registerIpcHandlers() {
     if (tab === 'surge') ensureSurgeHistoryCapture();
     return listHotFocus(tab);
   });
-  ipcMain.handle('hot:hintSource', () => listHotStockHintSource());
+  ipcMain.handle('hot:hintSource', async () => {
+    const { source, refresh } = await getHotStockHintSource();
+    if (refresh) {
+      void refresh
+        .then((updatedSource) => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            window.webContents.send('hot:hintSourceUpdated', updatedSource);
+          }
+        })
+        .catch((error: unknown) => {
+          console.warn('[hot-stock-hints] background refresh failed', error);
+        });
+    }
+    return source;
+  });
   ipcMain.handle('hot:historyDates', () => {
     ensureSurgeHistoryCapture();
     return listSurgeDates();
@@ -259,7 +284,7 @@ export function registerIpcHandlers() {
   });
   ipcMain.handle('marketData:startSync', async () => {
     await ensureMarketDataRuntime();
-    return startMarketDataSync(true);
+    return startMarketDataSync();
   });
   ipcMain.handle('marketData:retryFailures', async () => {
     await ensureMarketDataRuntime();
@@ -273,11 +298,7 @@ export function registerIpcHandlers() {
   // Data sync handlers
   ipcMain.handle('dataSync:syncKlines', async () => {
     await ensureMarketDataRuntime();
-    const status = await getMarketDataSyncStatus();
-    if (status.state === 'checking' || status.state === 'initializing' || status.state === 'syncing') {
-      return startMarketDataSync(false);
-    }
-    return startMarketDataSync(true);
+    return startMarketDataSync();
   });
   ipcMain.handle('dataSync:syncSurgeHistory', () => syncSurgeHistory());
   ipcMain.handle('dataSync:syncStockDetails', () => syncStockDetails());
@@ -469,7 +490,8 @@ function getStorageStats(): IStorageStats {
 
 function getDiskInfo(): IDiskInfo {
   const stats = getStorageStats();
-  const usedByAppBytes = stats.chat.bytes + stats.config.bytes + stats.market.bytes + stats.surge.bytes + stats.monitor.bytes;
+  const usedByAppBytes =
+    stats.chat.bytes + stats.config.bytes + stats.market.bytes + stats.surge.bytes + stats.monitor.bytes;
   let totalBytes = 0;
   let freeBytes = 0;
   try {

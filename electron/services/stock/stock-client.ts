@@ -1,6 +1,5 @@
 import type {
   AgentResultCard,
-  IChipDistributionResult,
   IStockTimelinePoint,
   IStockTimelineSnapshot,
   KlinePoint,
@@ -9,7 +8,7 @@ import type {
   MarketSearchResult,
   StockDetail,
 } from '../../../src/shared/types.js';
-import { listDailyBars, upsertDailyBars } from '../market-data/market-data-store.js';
+import { listDailyBars, upsertDailyBars } from '../stock-db/market-data-store.js';
 import type { AdjustType, DailyBarRecord } from '../market-data/types.js';
 import { queryHistoricalBars, queryLatestQuote } from '../market-data/market-data-query.js';
 import { formatMoney, formatNumber, formatPercent } from './format.js';
@@ -30,12 +29,9 @@ import {
 import type { IndexKlinePeriod } from './shared.js';
 
 import { analyzeIndicators } from './indicators.js';
-import { loadStockSdkChipDistributionInWorker, calculateChipDistributionInWorker } from './chip-distribution-worker-client.js';
-import { getStoredQuoteRows } from './quote-store.js';
+import { getStoredQuoteRows } from '../stock-db/quote-store.js';
 import { extractSymbolCandidate, normalizeASymbol, inferExchange, toQuoteSymbol } from './symbols.js';
 import { getBoardDetail } from './board-detail.js';
-import type { IBaiduKline } from './a-stock-data-runner.js';
-import { runAStockDataFn } from './a-stock-data-runner.js';
 import {
   getMarketPageSnapshot,
   onMarketPageSnapshotUpdated,
@@ -53,14 +49,8 @@ import {
   normalizeIndexDate,
 } from './market-indices.js';
 
-const chipDistributionCache = new Map<
-  string,
-  { result?: IChipDistributionResult; updatedAt: number; fetchedAt?: string; promise?: Promise<IChipDistributionResult> }
->();
-const CHIP_DISTRIBUTION_CACHE_TTL_MS = 5 * 60_000;
-const CHIP_DISTRIBUTION_MAX_AGE_MS = 5 * 24 * 60 * 60_000;
-
 import { deriveStockRating, toStockDetail } from './stock-rating.js';
+import { hasCompleteSearchStockMetrics, mergeSearchStockQuoteMetrics } from './search-result-enrichment.js';
 
 type AnyRecord = Record<string, unknown>;
 type TTimelinePointRecord = Partial<IStockTimelinePoint> & { time?: unknown; price?: unknown };
@@ -265,7 +255,9 @@ async function getKlineUncached(
     try {
       const cached = await listDailyBars(symbol, { limit, adjustType: wmAdjust });
       if (cached.length >= limit) return cached.map(dailyBarToKline);
-    } catch { /* DB read failed, fall through to remote */ }
+    } catch {
+      /* DB read failed, fall through to remote */
+    }
     // Fetch remote and persist
     try {
       const remote = await fetchWeeklyMonthlyRemote(symbol, period, limit, beforeTimestamp);
@@ -288,7 +280,8 @@ async function getKlineUncached(
             source: 'stock-sdk:tencent',
             fetchedAt: new Date().toISOString(),
           }));
-        if (bars.length) upsertDailyBars(bars).catch((err) => console.warn('[stock-client] weekly/monthly persist failed', err));
+        if (bars.length)
+          upsertDailyBars(bars).catch((err) => console.warn('[stock-client] weekly/monthly persist failed', err));
         return remote;
       }
     } catch (err) {
@@ -298,7 +291,9 @@ async function getKlineUncached(
     try {
       const cached = await listDailyBars(symbol, { limit, adjustType: wmAdjust });
       return cached.map(dailyBarToKline);
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
   try {
     if (period === '15m') return getTencentMinuteKline(symbol, limit, '15', beforeTimestamp);
@@ -459,9 +454,7 @@ async function getCachedIndexKline(
             fetchedAt: new Date().toISOString(),
           }));
         if (bars.length) {
-          upsertDailyBars(bars).catch((err) =>
-            console.warn('[market-data] index kline persist failed', err),
-          );
+          upsertDailyBars(bars).catch((err) => console.warn('[market-data] index kline persist failed', err));
         }
       }
       return snapshot.minutes.slice(-limit);
@@ -484,7 +477,6 @@ async function getCachedIndexKline(
     return [];
   }
 }
-
 
 function toSdkKlinePeriod(period: string): 'daily' | 'weekly' | 'monthly' {
   return period === '1w' ? 'weekly' : period === '1mo' ? 'monthly' : 'daily';
@@ -637,7 +629,9 @@ export async function searchStocks(query: string): Promise<MarketSearchResult[]>
   const stockRows = fromSdk.filter((item) => item.kind === 'stock');
   const sdkBoardRows = fromSdk.filter((item) => item.kind === 'board');
   const mergedBoardRows = dedupeSearchRows([...sdkBoardRows, ...boardRows]).slice(0, 20);
-  const baseStockRows = stockRows.length ? dedupeSearchRows(stockRows).slice(0, 50) : await searchFallbackStocks(text, q);
+  const baseStockRows = stockRows.length
+    ? dedupeSearchRows(stockRows).slice(0, 50)
+    : await searchFallbackStocks(text, q);
   const mergedStockRows = await enrichSearchStockRows(baseStockRows);
   const results = [...mergedBoardRows, ...mergedStockRows].slice(0, 50);
   if (results.length) return results;
@@ -671,8 +665,7 @@ async function searchFallbackStocks(text: string, q: string): Promise<MarketSear
 
 async function enrichSearchStockRows(rows: MarketSearchResult[]): Promise<MarketSearchResult[]> {
   const stockRows = rows.filter((row): row is MarketQuoteRow & { kind?: 'stock' } => row.kind !== 'board');
-  const rowsWithMetrics = stockRows.filter((row) => hasValue(row.price) && hasValue(row.changePercent));
-  if (rowsWithMetrics.length === stockRows.length) return rows;
+  if (stockRows.every(hasCompleteSearchStockMetrics)) return rows;
 
   const quotes = await getBatchQuotes(stockRows.map((row) => row.code)).catch(() => []);
   if (!quotes.length) return rows;
@@ -680,15 +673,9 @@ async function enrichSearchStockRows(rows: MarketSearchResult[]): Promise<Market
   const quoteByCode = new Map(quotes.map((quote) => [normalizeASymbol(quote.code), quote]));
   return rows.map((row) => {
     if (row.kind === 'board') return row;
-    const quote = quoteByCode.get(normalizeASymbol(row.code));
-    if (!quote) return row;
-    return {
-      ...row,
-      code: normalizeASymbol(row.code),
-      name: row.name || quote.name,
-      price: row.price ?? quote.price,
-      changePercent: row.changePercent ?? quote.changePercent,
-    };
+    const normalizedCode = normalizeASymbol(row.code);
+    const quote = quoteByCode.get(normalizedCode);
+    return quote ? mergeSearchStockQuoteMetrics(row, quote, normalizedCode) : row;
   });
 }
 
@@ -922,130 +909,7 @@ async function getLocalStockDetail(symbolInput: string): Promise<StockDetail | u
 
 export { getStockFundFlowSnapshot } from './fund-flow.js';
 
-export async function getChipDistribution(symbolInput: string): Promise<IChipDistributionResult> {
-  const symbol = normalizeASymbol(symbolInput);
-  const cached = chipDistributionCache.get(symbol);
-  const now = Date.now();
-  if (
-    cached?.result &&
-    now - cached.updatedAt < CHIP_DISTRIBUTION_CACHE_TTL_MS &&
-    (!cached.fetchedAt || isFreshChipCache(cached.fetchedAt, now))
-  ) {
-    return cached.result;
-  }
-  if (cached?.promise) return cached.promise;
-
-  // Try DuckDB first, but never treat a cache older than five days as current.
-  const { getStockChipCacheRecord, upsertStockChip } = await import('../market-data/market-data-store.js');
-  const localWarnings: string[] = [];
-  try {
-    const cacheRecord = await getStockChipCacheRecord(symbol);
-    if (cacheRecord && isFreshChipCache(cacheRecord.fetchedAt, now)) {
-      const localResult = asChipDistributionResult(cacheRecord.data);
-      chipDistributionCache.set(symbol, { result: localResult, updatedAt: Date.now(), fetchedAt: cacheRecord.fetchedAt });
-      return localResult;
-    }
-    if (cacheRecord) localWarnings.push(`DuckDB 筹码缓存已超过 5 天（${cacheRecord.fetchedAt}）`);
-  } catch (error) {
-    localWarnings.push(`DuckDB 筹码缓存读取失败：${formatError(error)}`);
-  }
-
-  const promise = loadChipDistribution(symbol, localWarnings)
-    .then(async (result) => {
-      chipDistributionCache.set(symbol, { result, updatedAt: Date.now(), fetchedAt: new Date().toISOString() });
-      void upsertStockChip(symbol, result).catch((err) => console.warn('[chip] upsert failed', err));
-      return result;
-    })
-    .catch((error: unknown) => {
-      chipDistributionCache.delete(symbol);
-      throw error;
-    });
-  chipDistributionCache.set(symbol, {
-    result: cached?.result,
-    updatedAt: cached?.updatedAt ?? 0,
-    fetchedAt: cached?.fetchedAt,
-    promise,
-  });
-  return promise;
-}
-
-async function loadChipDistribution(symbol: string, warnings: string[] = []): Promise<IChipDistributionResult> {
-  try {
-    const result = await loadStockSdkChipDistributionInWorker(symbol);
-    return withChipWarnings(result, warnings);
-  } catch (stockSdkError) {
-    const stockSdkMessage = formatError(stockSdkError);
-    const fallbackWarnings = [...warnings, `stock-sdk 筹码数据获取失败：${stockSdkMessage}`];
-    try {
-      const baidu = await runAStockDataFn<IBaiduKline>('baidu_kline_with_ma', { code: symbol });
-      const klines = parseAStockDataBaiduKline(baidu).slice(-360);
-      if (!klines.length) throw new Error('a-stock-data 百度日 K 未返回有效数据');
-      return await calculateChipDistributionInWorker(klines, 'a-stock-data', fallbackWarnings);
-    } catch (fallbackError) {
-      const fallbackMessage = formatError(fallbackError);
-      throw new Error(`筹码分布数据获取失败。stock-sdk：${stockSdkMessage}；a-stock-data 百度日 K：${fallbackMessage}`);
-    }
-  }
-}
-
-function isFreshChipCache(fetchedAt: string, now: number): boolean {
-  const fetchedAtMs = Date.parse(fetchedAt);
-  if (!Number.isFinite(fetchedAtMs)) return false;
-  const age = now - fetchedAtMs;
-  return age >= 0 && age < CHIP_DISTRIBUTION_MAX_AGE_MS;
-}
-
-function asChipDistributionResult(value: unknown): IChipDistributionResult {
-  if (!value || typeof value !== 'object') throw new Error('DuckDB 筹码缓存格式无效');
-  const result = value as Partial<IChipDistributionResult>;
-  if (!Array.isArray(result.distributions) || !Array.isArray(result.trend)) {
-    throw new Error('DuckDB 筹码缓存缺少 distributions/trend');
-  }
-  return result as IChipDistributionResult;
-}
-
-function withChipWarnings(result: IChipDistributionResult, warnings: string[]): IChipDistributionResult {
-  if (!warnings.length) return result;
-  return { ...result, warnings: [...warnings, ...(result.warnings ?? [])] };
-}
-
-function parseAStockDataBaiduKline(data: IBaiduKline | null): KlinePoint[] {
-  if (!data || !Array.isArray(data.keys) || !Array.isArray(data.rows)) return [];
-  const indexOf = (name: string) => data.keys.indexOf(name);
-  const timeIndex = indexOf('time');
-  const openIndex = indexOf('open');
-  const highIndex = indexOf('high');
-  const lowIndex = indexOf('low');
-  const closeIndex = indexOf('close');
-  const volumeIndex = indexOf('volume');
-  if (timeIndex < 0 || closeIndex < 0) return [];
-  return data.rows.flatMap((row) => {
-    const values = row.split(',');
-    const point: KlinePoint = {
-      time: values[timeIndex] ?? '',
-      open: Number(values[openIndex]),
-      high: Number(values[highIndex]),
-      low: Number(values[lowIndex]),
-      close: Number(values[closeIndex]),
-      volume: Number(values[volumeIndex]) || 0,
-      amount: optionalKlineNumber(values, indexOf('amount')),
-      change: optionalKlineNumber(values, indexOf('ratioamount')),
-      changePercent: optionalKlineNumber(values, indexOf('ratioprice')),
-      turnoverRate: optionalKlineNumber(values, indexOf('turnoverratio')) ?? optionalKlineNumber(values, indexOf('turnover')),
-    };
-    return point.time && [point.open, point.high, point.low, point.close].every(Number.isFinite) ? [point] : [];
-  });
-}
-
-function optionalKlineNumber(values: string[], index: number): number | undefined {
-  if (index < 0) return undefined;
-  const value = Number(values[index]);
-  return Number.isFinite(value) ? value : undefined;
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export { getChipDistribution } from './chip-distribution-provider.js';
 
 export async function analyzeTechnical(symbolInput: string): Promise<AgentResultCard> {
   const result = await queryHistoricalBars(symbolInput, { limit: 140, adjustType: 'qfq' });
@@ -1059,5 +923,10 @@ export {
   listEastmoneySurgeByDate,
   getBoardSnapshot,
 } from './hot-focus.js';
-export { getDragonTigerSnapshot, listDailyDragonTiger, listDragonTigerByDate, listRecentDragonTigerDays } from './dragon-tiger.js';
+export {
+  getDragonTigerSnapshot,
+  listDailyDragonTiger,
+  listDragonTigerByDate,
+  listRecentDragonTigerDays,
+} from './dragon-tiger.js';
 export type { DailyDragonTigerGroup, DailyDragonTigerItem } from './dragon-tiger.js';

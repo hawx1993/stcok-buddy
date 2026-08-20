@@ -1,13 +1,13 @@
 import { BrowserWindow } from '../../electron-runtime.js';
 import { ensureMarketDataRuntime } from './market-data-scheduler.js';
 import { startMarketDataSync } from './market-data-sync.js';
-import { listSecurities } from './market-data-store.js';
+import { listSecurities } from '../stock-db/market-data-store.js';
 import { ensureSurgeHistoryCapture, isSurgeHistorySchedulerRunning } from '../stock/surge-history-scheduler.js';
 import {
   clearSurgeHistoryClearMarker,
   getSurgeHistoryFreshness,
   type ISurgeHistoryFreshness,
-} from '../stock/surge-history-store.js';
+} from '../stock-db/surge-history-store.js';
 import StockSDK from 'stock-sdk';
 
 const sdk = new StockSDK({
@@ -81,7 +81,8 @@ async function runSurgeHistorySync() {
   try {
     // Dynamic import to avoid circular deps
     const { listHotFocus, toIndividualHistoryEvents } = await import('../stock/hot-focus.js');
-    const { pruneSurgeHistory, saveSurgeSnapshot, saveIndividualSurgeHistory } = await import('../stock/surge-history-store.js');
+    const { pruneSurgeHistory, saveSurgeSnapshot, saveIndividualSurgeHistory } =
+      await import('../stock-db/surge-history-store.js');
 
     await ensureMarketDataRuntime();
 
@@ -96,7 +97,7 @@ async function runSurgeHistorySync() {
     // Phase 2: sync individual stock surge history for every listed stock.
     let securities = await listSecurities();
     if (!securities.length) {
-      await startMarketDataSync(false);
+      await startMarketDataSync();
       securities = await listSecurities();
     }
     if (!securities.length) {
@@ -126,7 +127,10 @@ async function runSurgeHistorySync() {
           events = toIndividualHistoryEvents(history, code);
         } catch (error) {
           failed += 1;
-          console.warn(`[data-sync] individual surge history failed for ${code}`, error instanceof Error ? error.message : String(error));
+          console.warn(
+            `[data-sync] individual surge history failed for ${code}`,
+            error instanceof Error ? error.message : String(error),
+          );
           return;
         }
         pendingEvents.push(...events);
@@ -203,7 +207,7 @@ export async function syncStockDetails() {
     message: `正在批量获取 ${total} 只股票行情并落盘（batch size 80）…`,
   });
 
-  const { upsertStockSnapshots } = await import('./market-data-store.js');
+  const { upsertStockSnapshots } = await import('../stock-db/market-data-store.js');
 
   let processed = 0;
   let failed = 0;
@@ -215,25 +219,27 @@ export async function syncStockDetails() {
       const batch = codes.slice(i, i + batchSize);
       try {
         const quotes = await sdk.batch.byCodes(batch, { batchSize: 80, concurrency: 1 });
-        await upsertStockSnapshots(quotes.map((q) => ({
-          symbol: q.code,
-          name: q.name,
-          price: q.price,
-          change: q.change,
-          changePercent: q.changePercent,
-          open: q.open,
-          high: q.high,
-          low: q.low,
-          prevClose: q.prevClose,
-          volume: q.volume,
-          amount: q.amount,
-          turnoverRate: q.turnoverRate ?? undefined,
-          pe: q.pe ?? undefined,
-          pb: q.pb ?? undefined,
-          totalMarketCap: q.totalMarketCap ?? undefined,
-          circulatingMarketCap: q.circulatingMarketCap ?? undefined,
-          amplitude: q.amplitude ?? undefined,
-        })));
+        await upsertStockSnapshots(
+          quotes.map((q) => ({
+            symbol: q.code,
+            name: q.name,
+            price: q.price,
+            change: q.change,
+            changePercent: q.changePercent,
+            open: q.open,
+            high: q.high,
+            low: q.low,
+            prevClose: q.prevClose,
+            volume: q.volume,
+            amount: q.amount,
+            turnoverRate: q.turnoverRate ?? undefined,
+            pe: q.pe ?? undefined,
+            pb: q.pb ?? undefined,
+            totalMarketCap: q.totalMarketCap ?? undefined,
+            circulatingMarketCap: q.circulatingMarketCap ?? undefined,
+            amplitude: q.amplitude ?? undefined,
+          })),
+        );
         processed += quotes.length;
         failed += batch.length - quotes.length;
       } catch {
@@ -289,7 +295,9 @@ export async function syncMarketSnapshot() {
   for (const tab of tabs) {
     try {
       await getMarketPageSnapshot(tab);
-    } catch { /* individual tab failure is non-fatal */ }
+    } catch {
+      /* individual tab failure is non-fatal */
+    }
     done += 1;
     emitProgress({
       taskType: 'marketSnapshot',

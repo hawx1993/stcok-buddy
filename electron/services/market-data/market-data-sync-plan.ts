@@ -23,7 +23,8 @@ export function classifyMarketBoard(symbol: string): TMarketBoard {
 
 export function sortSecuritiesForSync(securities: SecurityRecord[]): SecurityRecord[] {
   return [...securities].sort((left, right) => {
-    const boardDiff = BOARD_PRIORITY[classifyMarketBoard(left.symbol)] - BOARD_PRIORITY[classifyMarketBoard(right.symbol)];
+    const boardDiff =
+      BOARD_PRIORITY[classifyMarketBoard(left.symbol)] - BOARD_PRIORITY[classifyMarketBoard(right.symbol)];
     if (boardDiff !== 0) return boardDiff;
     return left.symbol.localeCompare(right.symbol);
   });
@@ -58,6 +59,14 @@ export function yearsAgo(target: string, years: number) {
   const date = new Date(`${target}T12:00:00+08:00`);
   date.setFullYear(date.getFullYear() - years);
   return isoDate(date);
+}
+
+export function splitSyncBatches<T>(items: readonly T[], batchSize: number): T[][] {
+  const batches: T[][] = [];
+  for (let index = 0; index < items.length; index += batchSize) {
+    batches.push(items.slice(index, index + batchSize));
+  }
+  return batches;
 }
 
 export function dayAfter(value: string) {

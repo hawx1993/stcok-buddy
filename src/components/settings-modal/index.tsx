@@ -1,6 +1,7 @@
 import { ChevronDown, Download, ExternalLink, FolderOpen, RefreshCw, RotateCw } from 'lucide-react';
 import { ConfigProvider, message as antdMessage, Select, Switch } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { AppConfig, HoldingPeriod, IAppUpdateSettings, IAppUpdateState, MarketColorMode, MarketDataStats, MarketDataSyncStatus, ProviderKind, RiskProfile, TAppUpdateChannel, TradeStyle } from '../../shared/types';
 import { getMarketColors, marketColorModes } from '../../shared/market-color';
 import { getStocksenseApi } from '../../shared/stocksense-api';
@@ -64,6 +65,7 @@ export function SettingsModal() {
   const [appUpdateActionPending, setAppUpdateActionPending] = useState(false);
   const [saving, setSaving] = useState(false);
   const isOpenRef = useRef(isOpen);
+  const marketProgressRef = useRef<MarketDataSyncStatus>();
 
   useEffect(() => {
     isOpenRef.current = isOpen;
@@ -82,19 +84,36 @@ export function SettingsModal() {
   useEffect(() => {
     if (!isOpen) return;
     const api = getStocksenseApi();
+    let receivedProgress = false;
+    const flushMarketProgress = () => {
+      const status = marketProgressRef.current;
+      if (!status) return;
+      marketProgressRef.current = undefined;
+      const nextStatus = normalizeMarketStatus(status);
+      flushSync(() => {
+        setMarketStatus(nextStatus);
+        if (isMarketSyncTerminal(nextStatus.state)) setMarketActionPending(false);
+      });
+      if (!isMarketSyncTerminal(nextStatus.state)) return;
+      showMarketSyncResult(nextStatus);
+      void api.getMarketDataStats()
+        .then(setMarketStats)
+        .catch((error) => console.warn('[settings] refresh market data stats failed', error));
+    };
     void Promise.all([api.getMarketDataSyncStatus(), api.getMarketDataStats()]).then(([status, stats]) => {
-      setMarketStatus(normalizeMarketStatus(status));
+      if (!receivedProgress) setMarketStatus(normalizeMarketStatus(status));
       setMarketStats(stats);
     });
-    return api.onMarketDataProgress?.((status) => {
-      const nextStatus = normalizeMarketStatus(status);
-      setMarketStatus(nextStatus);
-      if (isMarketSyncTerminal(nextStatus.state)) {
-        setMarketActionPending(false);
-        showMarketSyncResult(nextStatus);
-      }
-      void api.getMarketDataStats().then(setMarketStats);
+    const progressInterval = window.setInterval(flushMarketProgress, 80);
+    const unsubscribe = api.onMarketDataProgress?.((status) => {
+      receivedProgress = true;
+      marketProgressRef.current = status;
     });
+    return () => {
+      window.clearInterval(progressInterval);
+      marketProgressRef.current = undefined;
+      unsubscribe?.();
+    };
   }, [isOpen]);
   useEffect(() => {
     if (!isOpen) return;
@@ -549,7 +568,7 @@ function isMarketSyncRunningState(state?: MarketDataSyncStatus['state']) {
 }
 
 function showMarketSyncResult(status: MarketDataSyncStatus) {
-  if (status.state === 'completed') antdMessage.success('同步完成');
+  if (status.state === 'completed') antdMessage.success(status.message ?? '同步完成');
   else if (status.state === 'failed') antdMessage.error(status.message ?? '同步失败');
   else if (status.state === 'partial') antdMessage.warning(status.message ?? '同步部分完成');
 }

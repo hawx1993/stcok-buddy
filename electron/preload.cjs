@@ -43,7 +43,7 @@ var api = {
   getBoardDetail: (symbol, forceRefresh, boardName) => import_electron.ipcRenderer.invoke("board:getDetail", symbol, forceRefresh, boardName),
   getBoardDashboard: (range, forceRefresh) => import_electron.ipcRenderer.invoke("board:getDashboard", range, forceRefresh),
   getKline: (symbol, limit, period, beforeTimestamp) => import_electron.ipcRenderer.invoke("stock:getKline", symbol, limit, period, beforeTimestamp),
-  getChipDistribution: (symbol) => import_electron.ipcRenderer.invoke("stock:getChipDistribution", symbol),
+  getChipDistribution: (symbol, period) => import_electron.ipcRenderer.invoke("stock:getChipDistribution", symbol, period),
   getBatchQuotes: (codes) => import_electron.ipcRenderer.invoke("stock:getBatchQuotes", codes),
   getStockTimelines: (codes) => import_electron.ipcRenderer.invoke("stock:getTimelines", codes),
   listMarketNews: (query, page, pageSize) => import_electron.ipcRenderer.invoke("news:list", query, page, pageSize),
@@ -57,6 +57,11 @@ var api = {
   getMarketNewsItem: (item) => import_electron.ipcRenderer.invoke("news:getDetail", item),
   listHotFocus: (tab) => import_electron.ipcRenderer.invoke("hot:list", tab),
   getHotStockHintSource: () => import_electron.ipcRenderer.invoke("hot:hintSource"),
+  onHotStockHintSourceUpdated: (handler) => {
+    const listener = (_event, source) => handler(source);
+    import_electron.ipcRenderer.on("hot:hintSourceUpdated", listener);
+    return () => import_electron.ipcRenderer.removeListener("hot:hintSourceUpdated", listener);
+  },
   listSurgeHistoryDates: () => import_electron.ipcRenderer.invoke("hot:historyDates"),
   listSurgeHistory: (date, offset, limit) => import_electron.ipcRenderer.invoke("hot:history", date, offset, limit),
   listStockSurgeEvents: (code) => import_electron.ipcRenderer.invoke("stock:surgeEvents", code),

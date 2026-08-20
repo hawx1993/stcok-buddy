@@ -44,9 +44,7 @@ export async function loadSinaIndustryMap(): Promise<Map<string, string>> {
 export function findShenwanLevelTwoNodes(payload: TSinaNodeValue): ISinaIndustryNode[] {
   if (!Array.isArray(payload)) return [];
   if (payload[0] === '申万二级' && Array.isArray(payload[1])) {
-    return payload[1]
-      .map(parseNode)
-      .filter((node): node is ISinaIndustryNode => node !== undefined);
+    return payload[1].map(parseNode).filter((node): node is ISinaIndustryNode => node !== undefined);
   }
   for (const item of payload) {
     const nodes = findShenwanLevelTwoNodes(item);

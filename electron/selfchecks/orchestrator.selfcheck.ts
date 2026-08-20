@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { buildAgentWorkflow } from '../services/agent/agent-workflows.js';
-import { classifyIntent, extractBoardKeyword, extractUrls, parseSlashCommand } from '../services/agent/intent-routing.js';
-import type { IAgentContext } from '../services/agent/orchestrator-types.js';
+import { buildAgentWorkflow } from '../services/agents/agent-workflows.js';
+import { classifyIntent, extractBoardKeyword, extractUrls, parseSlashCommand } from '../services/agents/intent-routing.js';
+import type { IAgentContext } from '../services/agents/orchestrator-types.js';
 
 assert.equal(parseSlashCommand('/复盘今日行情')?.intent, 'market-review');
 assert.equal(parseSlashCommand('/技术面分析 000858')?.singleAgent, 'technical');
@@ -19,7 +19,10 @@ const context: IAgentContext = {
   findings: [],
 };
 const workflow = buildAgentWorkflow(context);
-assert.deepEqual(workflow.map((node) => node.id), ['market-review-data', 'market-review-report']);
+assert.deepEqual(
+  workflow.map((node) => node.id),
+  ['market-review-data', 'market-review-report'],
+);
 assert.deepEqual(workflow[1]?.dependsOn, ['market-review-data']);
 
 console.log('orchestrator selfcheck passed');

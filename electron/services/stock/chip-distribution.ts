@@ -1,6 +1,13 @@
 import { calcChipDistribution } from 'stock-sdk';
 import type { ChipDistributionItem, ChipKlineLike } from 'stock-sdk';
-import type { ChipDistribution, ChipPoint, IChipDistributionResult, KlinePoint, TChipDistributionSource } from '../../../src/shared/types.js';
+import type {
+  ChipDistribution,
+  ChipPoint,
+  IChipDistributionResult,
+  KlinePoint,
+  TChipDistributionPeriod,
+  TChipDistributionSource,
+} from '../../../src/shared/types.js';
 
 const CHIP_TREND_DAYS = [5, 10, 20] as const;
 
@@ -8,34 +15,35 @@ export function calculateChipDistribution(
   klines: KlinePoint[],
   source: TChipDistributionSource,
   warnings?: string[],
+  period: TChipDistributionPeriod = '1d',
 ): IChipDistributionResult {
-  const input: ChipKlineLike[] = klines
-    .filter(hasValidChipBar)
-    .map((bar) => ({
-      date: bar.time,
-      open: bar.open,
-      high: bar.high,
-      low: bar.low,
-      close: bar.close,
-      turnoverRate: bar.turnoverRate ?? null,
-    }));
+  const input: ChipKlineLike[] = klines.filter(hasValidChipBar).map((bar) => ({
+    date: bar.time,
+    open: bar.open,
+    high: bar.high,
+    low: bar.low,
+    close: bar.close,
+    turnoverRate: bar.turnoverRate ?? null,
+  }));
   if (!input.length || !input.some((bar) => (bar.turnoverRate ?? 0) > 0)) {
-    throw new Error('日 K 线缺少有效换手率，无法计算筹码分布');
+    throw new Error('该周期 K 线缺少有效换手率，无法计算筹码分布');
   }
   const rows = calcChipDistribution(input, { range: 120, includeHistogram: 'all' });
-  return chipRowsToResult(rows, source, warnings);
+  return chipRowsToResult(rows, source, warnings, period);
 }
 
 export function chipRowsToResult(
   rows: ChipDistributionItem[],
   source: TChipDistributionSource,
   warnings?: string[],
+  period: TChipDistributionPeriod = '1d',
 ): IChipDistributionResult {
   const latestRow = rows.at(-1);
-  const distributions = rows.map(toChipDistribution).filter((item) => item.points.length);
+  const distributions = rows.map((row) => toChipDistribution(row, period)).filter((item) => item.points.length);
   const distribution = distributions.at(-1);
   if (!distribution) throw new Error('筹码算法未返回有效直方图');
   return {
+    period,
     latest: distribution,
     distributions,
     trend: CHIP_TREND_DAYS.map((days) => {
@@ -51,7 +59,7 @@ export function chipRowsToResult(
   };
 }
 
-function toChipDistribution(row: ChipDistributionItem): ChipDistribution {
+function toChipDistribution(row: ChipDistributionItem, period: TChipDistributionPeriod): ChipDistribution {
   const cost70Low = nullableNumber(row.cost70Low);
   const cost70High = nullableNumber(row.cost70High);
   const cost90Low = nullableNumber(row.cost90Low);
@@ -59,8 +67,11 @@ function toChipDistribution(row: ChipDistributionItem): ChipDistribution {
   const prices = row.histogram?.prices ?? [];
   const ratios = row.histogram?.ratios ?? [];
   const interpolated = buildInterpolatedConcentration(prices, ratios);
+  const timestamp = parseChipTimestamp(row.date);
   return {
     date: row.date,
+    ...(timestamp === undefined ? {} : { timestamp }),
+    period,
     profitRatio: nullableNumber(row.profitRatio),
     avgCost: nullableNumber(row.avgCost),
     cost70: formatCostRange(cost70Low, cost70High),
@@ -108,6 +119,16 @@ function buildInterpolatedConcentration(
     concentration90: Math.round(concentration90 * 1000) / 1000,
     concentration70: Math.round(concentration70 * 1000) / 1000,
   };
+}
+
+function parseChipTimestamp(value: string): number | undefined {
+  const text = String(value || '').trim();
+  const minute = text.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+  if (minute) return new Date(`${minute[1]}-${minute[2]}-${minute[3]}T${minute[4]}:${minute[5]}:00+08:00`).getTime();
+  const day = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (day) return new Date(`${day[1]}-${day[2]}-${day[3]}T00:00:00+08:00`).getTime();
+  const timestamp = Date.parse(text.includes('T') ? text : `${text}T00:00:00+08:00`);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
 function hasValidChipBar(bar: KlinePoint) {

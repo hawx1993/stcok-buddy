@@ -8,7 +8,7 @@ import styles from '../index.module.scss';
 export const MODAL_CHIP_COLUMN_WIDTH = 220;
 const SMALL_CHIP_WIDTH = 118;
 const MODAL_CHIP_WIDTH = 164;
-const PRICE_AXIS_WIDTH = MODAL_CHIP_COLUMN_WIDTH - MODAL_CHIP_WIDTH;
+const PRICE_AXIS_TEXT_RIGHT_INSET = 14;
 
 interface IChipOverlayProps {
   chips: ChipDistribution;
@@ -113,7 +113,7 @@ export function ChipOverlay({
         {isVisibleY(currentY, layout.height) ? (
           <g className={styles['chip-price-line']}>
             <line x1='0' x2={layout.barWidth} y1={currentY} y2={currentY} />
-            <text x={showPriceAxis ? layout.barWidth + PRICE_AXIS_WIDTH - 4 : layout.barWidth - 2} y={currentY - 3} textAnchor='end'>现价 {currentPrice.toFixed(2)}</text>
+            <text x={showPriceAxis ? layout.width - PRICE_AXIS_TEXT_RIGHT_INSET : layout.barWidth - 2} y={currentY - 3} textAnchor='end'>现价 {currentPrice.toFixed(2)}</text>
           </g>
         ) : null}
         {averageY !== undefined && isVisibleY(averageY, layout.height) ? (
@@ -126,7 +126,7 @@ export function ChipOverlay({
           <text
             className={styles['chip-axis-tick']}
             key={`${tick.value}-${tick.y}`}
-            x={layout.width - 4}
+            x={layout.width - PRICE_AXIS_TEXT_RIGHT_INSET}
             y={tick.y + 3}
             textAnchor='end'
           >

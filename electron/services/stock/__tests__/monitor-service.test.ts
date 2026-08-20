@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../../src/shared/market-time.js', () => ({
+vi.mock('../../../../src/shared/market-time', () => ({
   isChinaMarketOpen: vi.fn(),
   toShanghaiMarketTime: vi.fn(),
 }));
 
-vi.mock('../../config-store.js', () => ({
+vi.mock('../../stock-db/config-store', () => ({
   listFavoriteStocks: vi.fn(),
 }));
 
-vi.mock('../monitor-history-store.js', () => ({
+vi.mock('../../stock-db/monitor-history-store', () => ({
   cleanupMonitorHistoryNoise: vi.fn(),
   countMonitorHistory: vi.fn(),
   countMonitorHistoryByCategory: vi.fn(),
@@ -20,26 +20,26 @@ vi.mock('../monitor-history-store.js', () => ({
   pruneMonitorHistory: vi.fn(),
 }));
 
-vi.mock('../surge-history-store.js', () => ({
+vi.mock('../../stock-db/surge-history-store', () => ({
   listRecentStockSurgeEvents: vi.fn(),
   listStockSurgeEvents: vi.fn(),
 }));
 
-vi.mock('../../market-data/market-data-store.js', () => ({
+vi.mock('../../stock-db/market-data-store', () => ({
   getStockChip: vi.fn(),
 }));
 
-vi.mock('../market-page.js', () => ({
+vi.mock('../market-page', () => ({
   getAllMarketQuoteRows: vi.fn(),
 }));
 
-vi.mock('../stock-client.js', () => ({
+vi.mock('../stock-client', () => ({
   getBatchQuotes: vi.fn(),
   getChipDistribution: vi.fn(),
   listHotFocus: vi.fn(),
 }));
 
-vi.mock('../news-client.js', () => ({
+vi.mock('../news-client', () => ({
   listStockNewsAnnouncements: vi.fn(),
 }));
 
@@ -52,11 +52,11 @@ import {
   parseMarketCapYi,
   ratioPercent,
 } from '../monitor-service.js';
-import { listFavoriteStocks } from '../../config-store.js';
-import { getStockChip } from '../../market-data/market-data-store.js';
+import { listFavoriteStocks } from '../../stock-db/config-store.js';
+import { getStockChip } from '../../stock-db/market-data-store.js';
 import { getAllMarketQuoteRows } from '../market-page.js';
 import { getBatchQuotes, getChipDistribution, listHotFocus } from '../stock-client.js';
-import { listRecentStockSurgeEvents } from '../surge-history-store.js';
+import { listRecentStockSurgeEvents } from '../../stock-db/surge-history-store.js';
 import type { HotFocusItem, IChipDistributionResult, StockSurgeEvent } from '../../../../src/shared/types.js';
 
 beforeEach(() => {
@@ -66,7 +66,9 @@ beforeEach(() => {
 describe('AI 监控筹码信号', () => {
   it('低集中度叠加大额买入时展示个股异动和买入信息', async () => {
     vi.mocked(toShanghaiMarketTime).mockReturnValue({ date: '2026-08-03', minutes: 600, weekday: 1 });
-    vi.mocked(listFavoriteStocks).mockResolvedValue([{ code: '600519', name: '贵州茅台', createdAt: '2026-08-03T00:00:00.000Z' }]);
+    vi.mocked(listFavoriteStocks).mockResolvedValue([
+      { code: '600519', name: '贵州茅台', createdAt: '2026-08-03T00:00:00.000Z' },
+    ]);
     vi.mocked(getBatchQuotes).mockResolvedValue([
       { code: '600519', name: '贵州茅台', price: '1500', changePercent: '1.20', marketCap: '800亿' },
     ]);
@@ -74,8 +76,10 @@ describe('AI 监控筹码信号', () => {
     vi.mocked(getAllMarketQuoteRows).mockResolvedValue([]);
     vi.mocked(getStockChip).mockResolvedValue(undefined);
     vi.mocked(getChipDistribution).mockResolvedValue({
+      period: '1d',
       latest: {
         date: '2026-08-03',
+        period: '1d',
         avgCost: 1490,
         profitRatio: 0.42,
         concentration90: 0.145,
@@ -104,7 +108,9 @@ describe('AI 监控筹码信号', () => {
     ]);
 
     const events = await captureMonitorEvents(new Date('2026-08-03T02:00:00.000Z'), ['chip']);
-    const largeBuyChipEvent = events.find((event) => event.id === 'mo-chip-low-concentration-largebuy-600519-2026-08-03');
+    const largeBuyChipEvent = events.find(
+      (event) => event.id === 'mo-chip-low-concentration-largebuy-600519-2026-08-03',
+    );
 
     expect(largeBuyChipEvent).toBeDefined();
     expect(largeBuyChipEvent?.details).toContain('90%筹码集中度 14.50%');

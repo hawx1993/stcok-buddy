@@ -68,10 +68,7 @@ export function toFiniteNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed * unit : null;
 }
 
-export function normalizeBoardChangePercent(
-  value: unknown,
-  range: TBoardDashboardRange = 'today',
-): number | null {
+export function normalizeBoardChangePercent(value: unknown, range: TBoardDashboardRange = 'today'): number | null {
   const changePercent = toFiniteNumber(value);
   if (changePercent === null) return null;
   const maxAllowed = rangeToMaxChangePercent(range);
@@ -215,7 +212,9 @@ function pickDistinctSummaryMetrics(
   return result;
 }
 
-export function classifyBoardBucket(metric: Pick<IBoardDashboardMetric, 'riskScore' | 'fundScore' | 'momentumScore' | 'leaderScore'>): TBoardDashboardBucket {
+export function classifyBoardBucket(
+  metric: Pick<IBoardDashboardMetric, 'riskScore' | 'fundScore' | 'momentumScore' | 'leaderScore'>,
+): TBoardDashboardBucket {
   if ((metric.riskScore ?? 0) >= 70) return 'avoid';
   if ((metric.leaderScore ?? 0) >= 75) return 'leader';
   if ((metric.momentumScore ?? 0) >= 70 && (metric.fundScore ?? 0) >= 45) return 'hot';
@@ -224,22 +223,57 @@ export function classifyBoardBucket(metric: Pick<IBoardDashboardMetric, 'riskSco
 
 function scoreMetric(input: IBoardDashboardInput, peers: IBoardDashboardInput[]): IBoardDashboardMetric {
   const momentumScore = averageScores([
-    scorePercentile(input.changePercent, peers.map((item) => item.changePercent)),
-    scorePercentile(input.maxDailyChangePercent, peers.map((item) => item.maxDailyChangePercent)),
+    scorePercentile(
+      input.changePercent,
+      peers.map((item) => item.changePercent),
+    ),
+    scorePercentile(
+      input.maxDailyChangePercent,
+      peers.map((item) => item.maxDailyChangePercent),
+    ),
   ]);
   const fundScore = averageScores([
-    scorePercentile(input.mainNetInflow, peers.map((item) => item.mainNetInflow)),
-    scorePercentile(input.amount, peers.map((item) => item.amount)),
+    scorePercentile(
+      input.mainNetInflow,
+      peers.map((item) => item.mainNetInflow),
+    ),
+    scorePercentile(
+      input.amount,
+      peers.map((item) => item.amount),
+    ),
   ]);
   const breadthScore = averageScores([
-    scorePercentile(input.upRatio, peers.map((item) => item.upRatio)),
-    scorePercentile(input.limitUpCount, peers.map((item) => item.limitUpCount)),
+    scorePercentile(
+      input.upRatio,
+      peers.map((item) => item.upRatio),
+    ),
+    scorePercentile(
+      input.limitUpCount,
+      peers.map((item) => item.limitUpCount),
+    ),
   ]);
   const leaderScore = averageScores(input.leaders.map((leader) => leader.leaderScore));
   const riskScore = averageScores([
-    input.mainNetInflow === null ? null : scorePercentile(input.mainNetInflow, peers.map((item) => item.mainNetInflow), 'lower-better'),
-    input.upRatio === null ? null : scorePercentile(input.upRatio, peers.map((item) => item.upRatio), 'lower-better'),
-    input.averageAmplitude === null ? null : scorePercentile(input.averageAmplitude, peers.map((item) => item.averageAmplitude)),
+    input.mainNetInflow === null
+      ? null
+      : scorePercentile(
+          input.mainNetInflow,
+          peers.map((item) => item.mainNetInflow),
+          'lower-better',
+        ),
+    input.upRatio === null
+      ? null
+      : scorePercentile(
+          input.upRatio,
+          peers.map((item) => item.upRatio),
+          'lower-better',
+        ),
+    input.averageAmplitude === null
+      ? null
+      : scorePercentile(
+          input.averageAmplitude,
+          peers.map((item) => item.averageAmplitude),
+        ),
   ]);
   const rawScore = [momentumScore, fundScore, breadthScore, leaderScore, riskScore].some((score) => score !== null)
     ? clampScore(
@@ -269,7 +303,9 @@ function scoreMetric(input: IBoardDashboardInput, peers: IBoardDashboardInput[])
 }
 
 function averageScores(scores: Array<number | null | undefined>): number | null {
-  const values = scores.filter((score): score is number => score !== null && score !== undefined && Number.isFinite(score));
+  const values = scores.filter(
+    (score): score is number => score !== null && score !== undefined && Number.isFinite(score),
+  );
   if (!values.length) return null;
   return clampScore(values.reduce((sum, score) => sum + score, 0) / values.length);
 }

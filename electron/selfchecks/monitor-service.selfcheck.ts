@@ -52,7 +52,10 @@ assert.equal(isRecentLimitUpEvent({ ...baseSurgeEvent, tag: '封跌停板', desc
 
 assert.equal(isRecentLargeBuyEvent(baseSurgeEvent), true);
 assert.equal(isRecentLargeBuyEvent({ ...baseSurgeEvent, amount: '买入9999手' }), false);
-assert.equal(isRecentLargeBuyEvent({ ...baseSurgeEvent, amount: '卖出1.2万手', tag: '特大单卖出', description: '特大单卖出' }), false);
+assert.equal(
+  isRecentLargeBuyEvent({ ...baseSurgeEvent, amount: '卖出1.2万手', tag: '特大单卖出', description: '特大单卖出' }),
+  false,
+);
 
 console.log('monitor-service selfcheck passed');
 app.quit();

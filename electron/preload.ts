@@ -10,12 +10,14 @@ import type {
   IAppUpdateSettings,
   IAppUpdateState,
   IDataSyncTaskProgress,
+  IHotStockHintSource,
   IStorageClearProgress,
   MarketDataSyncStatus,
   MarketIndexPeriod,
   MarketPageSnapshot,
   MarketTab,
   StocksenseApi,
+  TChipDistributionPeriod,
   TDragonTigerRange,
 } from '../src/shared/types.js';
 
@@ -51,8 +53,13 @@ const api: StocksenseApi = {
     ipcRenderer.on('chat:token', listener);
     return () => ipcRenderer.removeListener('chat:token', listener);
   },
-  onAiResponseNotification: (handler: (payload: { title: string; body: string; source: 'system' | 'in-app' }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: { title: string; body: string; source: 'system' | 'in-app' }) => handler(payload);
+  onAiResponseNotification: (
+    handler: (payload: { title: string; body: string; source: 'system' | 'in-app' }) => void,
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: { title: string; body: string; source: 'system' | 'in-app' },
+    ) => handler(payload);
     ipcRenderer.on('notification:aiResponse', listener);
     return () => ipcRenderer.removeListener('notification:aiResponse', listener);
   },
@@ -63,7 +70,8 @@ const api: StocksenseApi = {
   getBoardDashboard: (range, forceRefresh) => ipcRenderer.invoke('board:getDashboard', range, forceRefresh),
   getKline: (symbol: string, limit?: number, period?: string, beforeTimestamp?: number) =>
     ipcRenderer.invoke('stock:getKline', symbol, limit, period, beforeTimestamp),
-  getChipDistribution: (symbol: string) => ipcRenderer.invoke('stock:getChipDistribution', symbol),
+  getChipDistribution: (symbol: string, period?: TChipDistributionPeriod) =>
+    ipcRenderer.invoke('stock:getChipDistribution', symbol, period),
   getBatchQuotes: (codes: string[]) => ipcRenderer.invoke('stock:getBatchQuotes', codes),
   getStockTimelines: (codes: string[]) => ipcRenderer.invoke('stock:getTimelines', codes),
   listMarketNews: (query?: string, page?: number, pageSize?: number) =>
@@ -79,6 +87,11 @@ const api: StocksenseApi = {
   getMarketNewsItem: (item) => ipcRenderer.invoke('news:getDetail', item),
   listHotFocus: (tab: HotFocusTab) => ipcRenderer.invoke('hot:list', tab),
   getHotStockHintSource: () => ipcRenderer.invoke('hot:hintSource'),
+  onHotStockHintSourceUpdated: (handler: (source: IHotStockHintSource) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, source: IHotStockHintSource) => handler(source);
+    ipcRenderer.on('hot:hintSourceUpdated', listener);
+    return () => ipcRenderer.removeListener('hot:hintSourceUpdated', listener);
+  },
   listSurgeHistoryDates: () => ipcRenderer.invoke('hot:historyDates'),
   listSurgeHistory: (date: string, offset?: number, limit?: number) =>
     ipcRenderer.invoke('hot:history', date, offset, limit),
@@ -94,8 +107,10 @@ const api: StocksenseApi = {
   getDragonTigerSnapshot: (range?: TDragonTigerRange) => ipcRenderer.invoke('dragonTiger:getSnapshot', range),
   getDiscoverySnapshot: (options?: Parameters<StocksenseApi['getDiscoverySnapshot']>[0]) =>
     ipcRenderer.invoke('discovery:getSnapshot', options),
-  getMonitorFeed: (options?: Parameters<StocksenseApi['getMonitorFeed']>[0]) => ipcRenderer.invoke('monitor:getFeed', options),
-  getTradingAdvice: (options?: Parameters<StocksenseApi['getTradingAdvice']>[0]) => ipcRenderer.invoke('trading-advice:get', options),
+  getMonitorFeed: (options?: Parameters<StocksenseApi['getMonitorFeed']>[0]) =>
+    ipcRenderer.invoke('monitor:getFeed', options),
+  getTradingAdvice: (options?: Parameters<StocksenseApi['getTradingAdvice']>[0]) =>
+    ipcRenderer.invoke('trading-advice:get', options),
   onMarketPageSnapshotUpdated: (handler: (snapshot: MarketPageSnapshot) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: MarketPageSnapshot) => handler(snapshot);
     ipcRenderer.on('market:pageSnapshotUpdated', listener);

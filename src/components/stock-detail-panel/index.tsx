@@ -1,5 +1,5 @@
 import { getStocksenseApi } from '../../shared/stocksense-api';
-import type { StockDetail } from '../../shared/types';
+import type { IMonitorEvent, StockDetail } from '../../shared/types';
 import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import type { RightPanelTab } from '../../store/app-store';
 import { BoardDashboardPanel } from './components/board-dashboard-panel';
@@ -20,7 +20,16 @@ const BACK_LABELS: Record<RightPanelTab, string> = {
   'ai-monitor': 'AI监控',
 };
 
-export function StockDetailPanel() {
+interface IStockDetailPanelProps {
+  onOpenGlobalSearch(options?: {
+    placeholder?: string;
+    aiMonitorDate?: string;
+    onSelectAiMonitorEvent?(event: IMonitorEvent): void;
+  }): void;
+  onOpenNewsSearch(): void;
+}
+
+export function StockDetailPanel({ onOpenGlobalSearch, onOpenNewsSearch }: IStockDetailPanelProps) {
   const selectedStock = useAppDataStore((state) => state.selectedStock);
   const selectedBoard = useAppDataStore((state) => state.selectedBoard);
   const stockReturnContext = useAppDataStore((state) => state.stockReturnContext);
@@ -71,7 +80,9 @@ export function StockDetailPanel() {
   return (
     <aside className={`${styles['right-panel']} right-panel`}>
       {rightPanelTab === 'favorites' ? <FavoritesPanel isActive={!isRightPanelCollapsed} /> : null}
-      {rightPanelTab === 'news' ? <MarketNewsPanel isActive={!isRightPanelCollapsed} /> : null}
+      {rightPanelTab === 'news' ? (
+        <MarketNewsPanel isActive={!isRightPanelCollapsed} onOpenNewsSearch={onOpenNewsSearch} />
+      ) : null}
       {rightPanelTab === 'board' ? (
         selectedBoard ? (
           <BoardDetailPanel />
@@ -96,7 +107,13 @@ export function StockDetailPanel() {
           genericBackLabel={showGenericBack && stockReturnContext ? BACK_LABELS[stockReturnContext.tab] : undefined}
         />
       ) : null}
-      {rightPanelTab === 'ai-monitor' ? <AiMonitorPanel isActive={!isRightPanelCollapsed} restoreState={stockReturnContext?.tab === 'ai-monitor' ? stockReturnContext.aiMonitor : undefined} /> : null}
+      {rightPanelTab === 'ai-monitor' ? (
+        <AiMonitorPanel
+          isActive={!isRightPanelCollapsed}
+          onOpenGlobalSearch={onOpenGlobalSearch}
+          restoreState={stockReturnContext?.tab === 'ai-monitor' ? stockReturnContext.aiMonitor : undefined}
+        />
+      ) : null}
     </aside>
   );
 }

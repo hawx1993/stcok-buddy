@@ -1,28 +1,30 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../discovery-service.js', () => ({
+vi.mock('../discovery-service', () => ({
   getDiscoverySnapshot: vi.fn(),
 }));
 
-vi.mock('../market-review-service.js', () => ({
+vi.mock('../market-review-service', () => ({
   getMarketReview: vi.fn(),
 }));
 
-vi.mock('../stock-client.js', () => ({
+vi.mock('../stock-client', () => ({
   getBatchQuotes: vi.fn().mockResolvedValue([]),
   listDailyDragonTiger: vi.fn(),
   listEastmoneySurgeByDate: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock('../../config-store.js', () => ({
-  getConfig: vi.fn(() => ({ model: { provider: 'deepseek', apiKey: '', baseUrl: '', model: 'test', customModel: '' } })),
+vi.mock('../../stock-db/config-store', () => ({
+  getConfig: vi.fn(() => ({
+    model: { provider: 'deepseek', apiKey: '', baseUrl: '', model: 'test', customModel: '' },
+  })),
 }));
 
-vi.mock('../../llm/openai-compatible-client.js', () => ({
+vi.mock('../../llm/openai-compatible-client', () => ({
   chatWithOpenAICompatible: vi.fn(),
 }));
 
-vi.mock('../shared.js', () => ({
+vi.mock('../shared', () => ({
   sdk: {
     fundFlow: { rank: vi.fn() },
     board: { concept: { list: vi.fn() } },
@@ -84,7 +86,9 @@ describe('交易建议龙头股校准', () => {
   });
 
   it('没有龙头代码时返回原建议', async () => {
-    const advice = createAdvice({ keySectors: [{ name: '空', confidence: 'low', reason: '无', leaderCode: '', leaderName: '' }] });
+    const advice = createAdvice({
+      keySectors: [{ name: '空', confidence: 'low', reason: '无', leaderCode: '', leaderName: '' }],
+    });
     const quoteResolver = vi.fn().mockResolvedValue([]);
 
     await expect(reconcileAdviceLeaderStocks(advice, quoteResolver)).resolves.toBe(advice);
@@ -179,7 +183,17 @@ describe('历史交易日交易建议', () => {
       tradeDate: '2026-07-30',
       generatedAt: '2026-07-30T15:30:00.000Z',
       sentimentFactors: [{ label: '涨停', value: 82 }],
-      hotThemes: [{ name: '机器人', score: 4, changePercent: 3.2, limitUpCount: 8, reason: '涨停扩散', leaderName: '机器人A', leaderCode: '600001' }],
+      hotThemes: [
+        {
+          name: '机器人',
+          score: 4,
+          changePercent: 3.2,
+          limitUpCount: 8,
+          reason: '涨停扩散',
+          leaderName: '机器人A',
+          leaderCode: '600001',
+        },
+      ],
       nextDayFocus: [{ category: 'theme', condition: '观察机器人是否接力', baseline: 3.2 }],
       dragonTiger: {
         inst: [{ code: '600001', name: '机器人A', changePercent: 10, netBuy: 100_000_000, reason: '机构专用' }],
@@ -211,7 +225,9 @@ describe('历史交易日交易建议', () => {
       unavailableReason: '该交易日暂无本地历史数据，正在后台同步',
     });
 
-    await expect(getTradingAdvice({ tradeDate: '2026-07-29' })).rejects.toThrow('该交易日暂无本地历史数据，正在后台同步');
+    await expect(getTradingAdvice({ tradeDate: '2026-07-29' })).rejects.toThrow(
+      '该交易日暂无本地历史数据，正在后台同步',
+    );
     expect(mockedChatWithOpenAICompatible).not.toHaveBeenCalled();
   });
 });

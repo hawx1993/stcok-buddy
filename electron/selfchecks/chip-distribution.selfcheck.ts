@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { calculateChipDistributionInWorker, disposeChipDistributionWorker } from '../services/stock/chip-distribution-worker-client.js';
+import {
+  calculateChipDistributionInWorker,
+  disposeChipDistributionWorker,
+} from '../services/stock/chip-distribution-worker-client.js';
 import type { KlinePoint } from '../../src/shared/types.js';
 
 const start = Date.parse('2026-01-02T00:00:00+08:00');
@@ -28,8 +31,14 @@ assert.equal(new Set(result.distributions.map((item) => item.date)).size, result
 assert.equal(result.distributions.at(-1)?.date, latest.date);
 assert.ok(result.distributions.every((item) => item.points.length > 0));
 assert.notDeepEqual(result.distributions[20]?.points, result.distributions.at(-1)?.points);
-assert.deepEqual(result.trend.map((item) => item.days), [5, 10, 20]);
-assert.ok(latest.points.length >= 140 && latest.points.length <= 150, `histogram should contain nearly 150 non-zero price levels, received ${latest.points.length}`);
+assert.deepEqual(
+  result.trend.map((item) => item.days),
+  [5, 10, 20],
+);
+assert.ok(
+  latest.points.length >= 140 && latest.points.length <= 150,
+  `histogram should contain nearly 150 non-zero price levels, received ${latest.points.length}`,
+);
 const ratioTotal = latest.points.reduce((sum, point) => sum + point.weight, 0);
 assert.ok(Math.abs(ratioTotal - 1) < 0.01, `histogram ratio total should be near 1, received ${ratioTotal}`);
 assert.ok(latest.profitRatio !== undefined && latest.profitRatio >= 0 && latest.profitRatio <= 1);

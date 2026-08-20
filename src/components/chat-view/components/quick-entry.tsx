@@ -1,10 +1,16 @@
 import { RefreshCw } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import type { IHotStockHint } from './hot-stock-hints';
-import { SlashCommandMenu } from './slash-command-menu';
+import { useEffect, useRef, useState } from 'react';
+import { DEFAULT_STOCK_ENTRY_HINTS, type IHotStockHint } from './hot-stock-hints';
+import { getNextSlashIndex, SlashCommandMenu } from './slash-command-menu';
 import { useHotStockHints } from './use-hot-stock-hints';
+import { useRotatingQuickEntryPrompt } from './use-rotating-quick-entry-prompt';
+import { isConditionScreenerCommand } from '../../../shared/condition-screener';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import type { MarketSearchResult } from '../../../shared/types';
+import { ConditionScreenerPicker } from './condition-screener-picker';
+import { QuickEntrySearchSuggestions } from './quick-entry-search-suggestions';
+import { QuickEntryToolbar } from './quick-entry-toolbar';
+import { WhaleLogo } from './whale-logo';
 import styles from '../index.module.scss';
 
 export type TSlashItem = {
@@ -16,16 +22,17 @@ export type TSlashItem = {
   argPlaceholder: string;
 };
 
-const commonStockShortcuts: IHotStockHint[] = [
-  { code: '600519', name: '贵州茅台', priority: 0 },
-  { code: '000001', name: '平安银行', priority: 0 },
-  { code: '300750', name: '宁德时代', priority: 0 },
-  { code: '688981', name: '中芯国际', priority: 0 },
-  { code: '830799', name: '艾融软件', priority: 0 },
-];
+export const QUICK_ENTRY_TREND_PATH = 'M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70';
+export const QUICK_ENTRY_WHALE_SIZE = { width: 30, height: 25 } as const;
+export const QUICK_ENTRY_WHALE_MOTION = {
+  durationSeconds: 5.29,
+  sprintStartPoint: 0.707,
+  sprintStartTime: 0.828,
+} as const;
 
 export function getQuickEntrySearchKeyword(input: string) {
   const trimmed = input.trim();
+  if (isConditionScreenerCommand(input)) return '';
   if (!trimmed.startsWith('/')) return trimmed;
   const commandWithArg = /^\/\S+\s+(.+)$/.exec(input);
   return commandWithArg?.[1]?.trim() ?? '';
@@ -37,61 +44,92 @@ export function getQuickEntryValueAfterSearchSelection(input: string, selectedVa
 }
 
 export function QuickEntry({
+  activeModelName,
   conversationId,
+  onOpenStore,
+  onOpenModelSettings,
   onSubmit,
   slashItems,
 }: {
+  activeModelName: string;
   conversationId?: string;
+  onOpenStore(): void;
+  onOpenModelSettings(): void;
   onSubmit(text: string): void;
   slashItems: TSlashItem[];
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const suggestionAnchorRef = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState('');
-  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState<number>();
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedSearchValue, setSelectedSearchValue] = useState('');
   const [suggestions, setSuggestions] = useState<MarketSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string>();
   const { hints, loading, error, isPreviousTradeDay, tradeDate, refresh } = useHotStockHints(conversationId);
+  const quickEntryPrompt = useRotatingQuickEntryPrompt();
   const slashOpen = value.startsWith('/') && !value.includes(' ');
+  const activeCommand = slashItems.find((item) => value.startsWith(`${item.command} `));
+  const commandArg = activeCommand ? value.slice(activeCommand.command.length + 1) : '';
   const searchKeyword = getQuickEntrySearchKeyword(value);
   const hasSearchInput = Boolean(searchKeyword) && searchKeyword !== selectedSearchValue;
-  const canShowSuggestions = !slashOpen && hasSearchInput;
-  const selectSlashItem = (item = slashItems[selectedSlashIndex]) => {
-    if (item) {
-      setValue(`${item.command} `);
-      setSelectedSearchValue('');
-    }
+  const hasConditionScreenerInput = isConditionScreenerCommand(value);
+  const canShowSuggestions = !slashOpen && hasSearchInput && !hasConditionScreenerInput;
+
+  const selectSlashItem = (item: TSlashItem | undefined) => {
+    if (!item) return;
+    setValue(`${item.command} `);
+    setSelectedSearchValue('');
+    setSelectedSlashIndex(undefined);
   };
+
   const selectSearchResult = (item: MarketSearchResult) => {
     const nextSearchValue = item.kind === 'board' ? item.name : item.code;
     setValue(getQuickEntryValueAfterSearchSelection(value, nextSearchValue));
     setSelectedSearchValue(nextSearchValue);
     setSuggestions([]);
     setDebouncedSearch('');
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const submit = () => {
+    const text = value.trim();
+    if (!text) return;
+    setSelectedSlashIndex(undefined);
+    onSubmit(text);
   };
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(slashOpen || !hasSearchInput ? '' : searchKeyword), 250);
+    const timer = window.setTimeout(
+      () => setDebouncedSearch(slashOpen || !hasSearchInput || hasConditionScreenerInput ? '' : searchKeyword),
+      250,
+    );
     return () => window.clearTimeout(timer);
-  }, [hasSearchInput, searchKeyword, slashOpen]);
+  }, [hasConditionScreenerInput, hasSearchInput, searchKeyword, slashOpen]);
 
   useEffect(() => {
     let alive = true;
     if (!debouncedSearch) {
       setSuggestions([]);
+      setSearchError(undefined);
       setSearching(false);
       return () => {
         alive = false;
       };
     }
+
     setSearching(true);
+    setSearchError(undefined);
     getStocksenseApi()
       .searchStocks(debouncedSearch)
       .then((items) => {
         if (alive) setSuggestions(items);
       })
-      .catch(() => {
-        if (alive) setSuggestions([]);
+      .catch((requestError: unknown) => {
+        if (!alive) return;
+        setSuggestions([]);
+        setSearchError(requestError instanceof Error ? requestError.message : '搜索暂不可用');
       })
       .finally(() => {
         if (alive) setSearching(false);
@@ -100,6 +138,7 @@ export function QuickEntry({
       alive = false;
     };
   }, [debouncedSearch]);
+
   return (
     <div className={styles['quick-entry']} data-quickentry>
       <div className={styles['qe-hero']} aria-hidden='true'>
@@ -118,12 +157,12 @@ export function QuickEntry({
           </g>
           <path
             className={styles['qe-wave']}
-            d='M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70 L 360 150 Z'
+            d={`${QUICK_ENTRY_TREND_PATH} L 360 150 Z`}
             fill='rgba(59,130,246,0.08)'
           />
           <path
             className={styles['qe-trend']}
-            d='M60 150 Q 95 110, 130 120 T 200 90 T 270 100 T 340 70'
+            d={QUICK_ENTRY_TREND_PATH}
             stroke='var(--accent)'
             strokeWidth='2'
             fill='none'
@@ -152,75 +191,140 @@ export function QuickEntry({
             </g>
           ))}
           <line x1='40' y1='150' x2='380' y2='150' stroke='var(--border)' strokeWidth='1' />
+          <g className={styles['qe-whale-sprint']}>
+            <g transform='translate(-15 -30)'>
+              <WhaleLogo width={QUICK_ENTRY_WHALE_SIZE.width} height={QUICK_ENTRY_WHALE_SIZE.height} />
+            </g>
+            <animateMotion
+              calcMode='linear'
+              dur={`${QUICK_ENTRY_WHALE_MOTION.durationSeconds}s`}
+              keyPoints={`0;${QUICK_ENTRY_WHALE_MOTION.sprintStartPoint};1`}
+              keyTimes={`0;${QUICK_ENTRY_WHALE_MOTION.sprintStartTime};1`}
+              path={QUICK_ENTRY_TREND_PATH}
+              repeatCount='indefinite'
+              rotate='auto'
+            />
+            <animate
+              attributeName='opacity'
+              dur={`${QUICK_ENTRY_WHALE_MOTION.durationSeconds}s`}
+              keyTimes='0;0.04;0.92;1'
+              repeatCount='indefinite'
+              values='0;1;1;0'
+            />
+          </g>
         </svg>
       </div>
       <div className={styles['qe-title']}>开始新的投研分析</div>
-      <div className={styles['qe-sub']}>输入A股股票名称或代码，AI 将为你深度解读</div>
-      <div className={styles['qe-search-box']}>
-        {slashOpen ? (
-          <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} />
-        ) : null}
-        {canShowSuggestions ? (
-          <div className={styles['qe-suggestions']}>
-            {searching ? (
-              <div className={styles['qe-suggestion-empty']}>搜索中…</div>
-            ) : suggestions.length ? (
-              suggestions.map((item) => (
-                <button
-                  key={`${item.kind ?? 'stock'}-${item.code}`}
-                  className={styles['qe-suggestion-item']}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    selectSearchResult(item);
-                  }}
-                  type='button'
-                >
-                  <span>
-                    {item.name}
-                    <em>{item.kind === 'board' ? '板块' : '股票'}</em>
-                  </span>
-                  <code>{item.code}</code>
-                </button>
-              ))
-            ) : debouncedSearch ? (
-              <div className={styles['qe-suggestion-empty']}>无匹配结果</div>
-            ) : null}
+      <div className={styles['qe-sub']}>{quickEntryPrompt}</div>
+      <div className={styles['qe-entry-controls']}>
+        <div className={styles['composer-stack']}>
+          {slashOpen ? (
+            <SlashCommandMenu slashItems={slashItems} selectedIndex={selectedSlashIndex} onSelect={selectSlashItem} />
+          ) : null}
+          <div className={styles['composer-shell']}>
+            <ConditionScreenerPicker
+              value={value}
+              onCommandChange={(command) => {
+                setValue(command);
+                setSelectedSearchValue('');
+                setSuggestions([]);
+                setDebouncedSearch('');
+                setSelectedSlashIndex(undefined);
+              }}
+              onRequestInputFocus={() => inputRef.current?.focus()}
+            />
+            <div className={styles['qe-composer-input']}>
+              <div ref={suggestionAnchorRef} className={styles['input-row']}>
+                {activeCommand ? (
+                  <div className={styles['command-input-wrap']}>
+                    <button
+                      className='command-chip'
+                      title={activeCommand.description}
+                      onClick={() => {
+                        setValue('/');
+                        setSelectedSlashIndex(undefined);
+                      }}
+                      type='button'
+                    >
+                      <span className='slash-icon'>/</span>
+                      {activeCommand.command}
+                    </button>
+                    <input
+                      ref={inputRef}
+                      value={commandArg}
+                      onChange={(event) => {
+                        setValue(`${activeCommand.command} ${event.target.value}`);
+                        setSelectedSearchValue('');
+                      }}
+                      onKeyDown={(event) => {
+                        if ((event.key === 'Backspace' || event.key === 'Delete') && !commandArg) {
+                          event.preventDefault();
+                          setValue('');
+                          return;
+                        }
+                        if (event.key === 'Enter') submit();
+                      }}
+                      placeholder={activeCommand.argPlaceholder}
+                      autoFocus
+                    />
+                  </div>
+                ) : (
+                  <input
+                    ref={inputRef}
+                    value={value}
+                    onChange={(event) => {
+                      setValue(event.target.value);
+                      setSelectedSearchValue('');
+                      setSelectedSlashIndex(undefined);
+                    }}
+                    onKeyDown={(event) => {
+                      if (slashOpen && event.key === 'Enter') {
+                        event.preventDefault();
+                        selectSlashItem(
+                          selectedSlashIndex === undefined ? undefined : slashItems[selectedSlashIndex],
+                        );
+                        return;
+                      }
+                      if (slashOpen && event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        setSelectedSlashIndex((current) => getNextSlashIndex(current, slashItems.length, 'next'));
+                        return;
+                      }
+                      if (slashOpen && event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        setSelectedSlashIndex((current) => getNextSlashIndex(current, slashItems.length, 'previous'));
+                        return;
+                      }
+                      if (event.key === 'Escape') {
+                        setSuggestions([]);
+                        setSearchError(undefined);
+                        return;
+                      }
+                      if (event.key === 'Enter') submit();
+                    }}
+                    placeholder='输入 / 打开命令，或直接输入A股股票名称/代码'
+                    autoFocus
+                  />
+                )}
+              </div>
+              <QuickEntrySearchSuggestions
+                anchorRef={suggestionAnchorRef}
+                debouncedSearch={debouncedSearch}
+                error={searchError}
+                isOpen={canShowSuggestions}
+                onSelect={selectSearchResult}
+                searching={searching}
+                suggestions={suggestions}
+              />
+            </div>
+            <QuickEntryToolbar
+              activeModelName={activeModelName}
+              onOpenStore={onOpenStore}
+              onOpenModelSettings={onOpenModelSettings}
+              onSubmit={submit}
+            />
           </div>
-        ) : null}
-        <input
-          value={value}
-          onChange={(event) => {
-            setValue(event.target.value);
-            setSelectedSearchValue('');
-          }}
-          onKeyDown={(event) => {
-            if (slashOpen && event.key === 'Enter') {
-              event.preventDefault();
-              selectSlashItem();
-              return;
-            }
-            if (slashOpen && event.key === 'ArrowDown') {
-              event.preventDefault();
-              setSelectedSlashIndex((current) => Math.min(current + 1, slashItems.length - 1));
-              return;
-            }
-            if (slashOpen && event.key === 'ArrowUp') {
-              event.preventDefault();
-              setSelectedSlashIndex((current) => Math.max(current - 1, 0));
-              return;
-            }
-            if (event.key === 'Escape') {
-              setSuggestions([]);
-              return;
-            }
-            if (event.key === 'Enter') onSubmit(value);
-          }}
-          placeholder='例如：/综合投研报告 中公教育、000858……'
-          autoFocus
-        />
-        <button onClick={() => onSubmit(value)} type='button'>
-          开始分析
-        </button>
+        </div>
       </div>
       <HintList
         hints={hints}
@@ -232,6 +336,7 @@ export function QuickEntry({
         onSelect={(hint) => {
           setValue(hint.code);
           setSelectedSearchValue(hint.code);
+          window.requestAnimationFrame(() => inputRef.current?.focus());
         }}
       />
     </div>
@@ -255,32 +360,21 @@ function HintList({
   onRefresh(): void;
   onSelect(hint: IHotStockHint): void;
 }) {
-  if (loading)
+  if (loading) {
     return (
       <div className={styles['qe-hints']}>
-        <span className={styles['qe-hints-status']}>正在获取真实热点推荐…</span>
+        <span className={styles['qe-hints-status']}>正在加载热点…</span>
       </div>
     );
-  if (error)
-    return (
-      <HintShortcutList
-        status={isPreviousTradeDay ? '上一交易日热点数据暂不可用' : '热点数据暂不可用'}
-        onSelect={onSelect}
-      />
-    );
-  if (!hints.length)
-    return (
-      <HintShortcutList
-        status={isPreviousTradeDay ? `上一交易日暂无热点数据（${tradeDate ?? '--'}）` : ''}
-        onSelect={onSelect}
-      />
-    );
+  }
+  const hasHotStockHints = hints.length > 0;
+  const displayHints = hasHotStockHints ? hints : DEFAULT_STOCK_ENTRY_HINTS;
+  const hintStatus = getHintStatus(hasHotStockHints, error, isPreviousTradeDay, tradeDate);
+
   return (
     <div className={styles['qe-hints']}>
-      {isPreviousTradeDay && tradeDate ? (
-        <span className={styles['qe-hints-status']}>上一交易日热点（{tradeDate}）</span>
-      ) : null}
-      {hints.map((hint) => (
+      <span className={styles['qe-hints-status']}>{hintStatus}</span>
+      {displayHints.map((hint) => (
         <button key={hint.code} className={styles['qe-hint']} onClick={() => onSelect(hint)} type='button'>
           {hint.name}（{hint.code}）{hint.label ? ` · ${hint.label}` : ''}
         </button>
@@ -293,15 +387,15 @@ function HintList({
   );
 }
 
-function HintShortcutList({ status, onSelect }: { status: string; onSelect(hint: IHotStockHint): void }) {
-  return (
-    <div className={styles['qe-hints']}>
-      <span className={styles['qe-hints-status']}>{status}</span>
-      {commonStockShortcuts.map((shortcut) => (
-        <button key={shortcut.code} className={styles['qe-hint']} onClick={() => onSelect(shortcut)} type='button'>
-          {shortcut.name}（{shortcut.code}）
-        </button>
-      ))}
-    </div>
-  );
+function getHintStatus(
+  hasHotStockHints: boolean,
+  error: string | undefined,
+  isPreviousTradeDay: boolean,
+  tradeDate: string | undefined,
+) {
+  if (!hasHotStockHints) {
+    return error ? '常用股票（固定入口 · 热点数据暂不可用）' : '常用股票（固定入口）';
+  }
+  if (!isPreviousTradeDay) return '今日热点';
+  return tradeDate ? `历史热点（${tradeDate}）` : '近期热点';
 }

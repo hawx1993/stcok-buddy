@@ -65,7 +65,12 @@ export function ConversationList(props: IConversationListProps) {
                 key={row.key}
                 data-index={virtualRow.index}
                 ref={virtualizer.measureElement}
-                className={styles['conversation-virtual-row']}
+                className={cx(
+                  styles['conversation-virtual-row'],
+                  row.type === 'conversation' &&
+                    props.conversationMenuId === row.conversation.id &&
+                    styles['conversation-virtual-row-menu-open'],
+                )}
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
                 {row.type === 'group' ? (

@@ -9,7 +9,7 @@ import type {
 } from '../../../src/shared/types.js';
 import { isChinaMarketOpen, toShanghaiMarketTime } from '../../../src/shared/market-time.js';
 import { isRemoteTradingDay } from '../market-data/providers.js';
-import { listBoardConstituents, listLatestMarketRows, listMarketBoards } from '../market-data/market-data-store.js';
+import { listBoardConstituents, listLatestMarketRows, listMarketBoards } from '../stock-db/market-data-store.js';
 import type { MarketBoardRecord } from '../market-data/types.js';
 import { formatMoney, formatNumber, formatPercent, pickNumber, pickString } from './format.js';
 import { getBoardDetail } from './board-detail.js';
@@ -24,7 +24,7 @@ import {
   enqueueSurgeSnapshot,
   saveIndividualSurgeHistory,
   setSurgeHistoryClearMarker,
-} from './surge-history-store.js';
+} from '../stock-db/surge-history-store.js';
 
 const sdk = new StockSDK({ timeout: 12_000, retry: { maxRetries: 1 } });
 
@@ -49,7 +49,9 @@ export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
         try {
           const cached = await listSurgeHistory(toTradeDate(new Date()), 0, 100);
           if (cached.length) return cached;
-        } catch { /* DB unavailable, fall through to global fallback */ }
+        } catch {
+          /* DB unavailable, fall through to global fallback */
+        }
       }
     } else if (tab === 'flow') {
       return listFlowHot();
@@ -64,7 +66,9 @@ export async function listHotFocus(tab: HotFocusTab): Promise<HotFocusItem[]> {
     try {
       const cached = await listSurgeHistory(toTradeDate(new Date()));
       if (cached.length) return cached;
-    } catch { /* DB also unavailable */ }
+    } catch {
+      /* DB also unavailable */
+    }
   }
   return [];
 }
@@ -78,7 +82,9 @@ function mergeHotFocusItems(local: HotFocusItem[], remote: HotFocusItem[]): HotF
   const map = new Map<string, HotFocusItem>();
   for (const item of local) map.set(item.id, item);
   for (const item of remote) map.set(item.id, item);
-  return Array.from(map.values()).sort((a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time) || b.id.localeCompare(a.id));
+  return Array.from(map.values()).sort(
+    (a, b) => surgeTimeValue(b.time) - surgeTimeValue(a.time) || b.id.localeCompare(a.id),
+  );
 }
 
 function toTradeDate(date: Date) {
@@ -172,7 +178,10 @@ async function listSurgeHot(): Promise<HotFocusItem[]> {
   if (!surgeRequest) {
     surgeRequest = fetchSurgeHot()
       .catch((err) => {
-        console.warn('[hot-focus] fetchSurgeHot failed, returning empty', err instanceof Error ? err.message : String(err));
+        console.warn(
+          '[hot-focus] fetchSurgeHot failed, returning empty',
+          err instanceof Error ? err.message : String(err),
+        );
         return [] as HotFocusItem[];
       })
       .finally(() => {
@@ -608,7 +617,9 @@ export async function getBoardSnapshot(keyword: string): Promise<AgentResultCard
   const matchedFlow = matched ? findMatchedFlow(matched, flows) : undefined;
   const detail = matchedCode
     ? await buildLocalBoardDetail(matchedCode, matchedName ?? normalizedKeyword, latestRows).then((localDetail) =>
-        localDetail.constituents?.length ? localDetail : getBoardDetail(matchedCode, false, matchedName).catch(() => localDetail),
+        localDetail.constituents?.length
+          ? localDetail
+          : getBoardDetail(matchedCode, false, matchedName).catch(() => localDetail),
       )
     : undefined;
   const stockFlowByCode = new Map(
@@ -668,9 +679,7 @@ export async function getBoardSnapshot(keyword: string): Promise<AgentResultCard
 }
 
 function settledRows(result: PromiseSettledResult<unknown>): AnyRecord[] {
-  return result.status === 'fulfilled' && Array.isArray(result.value)
-    ? result.value.filter(isRecord)
-    : [];
+  return result.status === 'fulfilled' && Array.isArray(result.value) ? result.value.filter(isRecord) : [];
 }
 
 function settledLocalBoards(result: PromiseSettledResult<MarketBoardRecord[]>): AnyRecord[] {
@@ -706,7 +715,11 @@ async function buildLocalBoardDetail(
           turnover: latest?.turnoverRate === undefined ? '--' : `${formatNumber(latest.turnoverRate)}%`,
         };
       })
-      .sort((left, right) => Number(parseDisplayNumber(right.changePercent) ?? -100) - Number(parseDisplayNumber(left.changePercent) ?? -100)),
+      .sort(
+        (left, right) =>
+          Number(parseDisplayNumber(right.changePercent) ?? -100) -
+          Number(parseDisplayNumber(left.changePercent) ?? -100),
+      ),
   };
 }
 
@@ -773,7 +786,10 @@ interface IBoardLeaderStock {
   score: number;
 }
 
-function pickLeaderStocks(detail: BoardDetail | undefined, stockFlowByCode: Map<string, AnyRecord>): IBoardLeaderStock[] {
+function pickLeaderStocks(
+  detail: BoardDetail | undefined,
+  stockFlowByCode: Map<string, AnyRecord>,
+): IBoardLeaderStock[] {
   return (detail?.constituents ?? [])
     .map((row): IBoardLeaderStock => {
       const code = normalizeASymbol(row.code);
@@ -846,9 +862,10 @@ function buildBoardNarrative(input: {
   const boardName = readName(input.matched) ?? input.detail?.name ?? input.keyword;
   const boardCode = readCode(input.matched) ?? input.detail?.code ?? '未精确匹配';
   const mainFlow = readMainNetInflow(input.matchedFlow);
-  const flowText = mainFlow === undefined && input.localAmount !== undefined
-    ? `暂无板块主力净流入；前五龙头成交额合计 ${formatMoney(input.localAmount)}`
-    : formatMoney(mainFlow);
+  const flowText =
+    mainFlow === undefined && input.localAmount !== undefined
+      ? `暂无板块主力净流入；前五龙头成交额合计 ${formatMoney(input.localAmount)}`
+      : formatMoney(mainFlow);
   const changePercent = readChangePercent(input.matchedFlow ?? input.matched);
   const leaderTable = input.leaders.length
     ? input.leaders
@@ -888,8 +905,13 @@ ${leaderTable}
 - ${rating}：结论仅基于当前可用的真实资金流、板块涨跌幅与龙头股表现生成。`;
 }
 
-function buildNegativeText(mainFlow: number | undefined, changePercent: number | undefined, leaderCount: number): string {
-  if (mainFlow === undefined && changePercent === undefined) return '板块资金流与涨跌幅暂无数据，暂无法识别明确利空因素。';
+function buildNegativeText(
+  mainFlow: number | undefined,
+  changePercent: number | undefined,
+  leaderCount: number,
+): string {
+  if (mainFlow === undefined && changePercent === undefined)
+    return '板块资金流与涨跌幅暂无数据，暂无法识别明确利空因素。';
   if ((mainFlow ?? 0) < 0) return '板块主力资金呈净流出，短期需观察资金承接力度。';
   if ((changePercent ?? 0) < 0) return '板块涨跌幅为负，说明价格表现尚未与资金面形成一致共振。';
   if (!leaderCount) return '龙头股样本暂不可用，无法确认板块内部扩散强度。';

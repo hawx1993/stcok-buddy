@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   resolveTradingDate: vi.fn(),
 }));
 
-vi.mock('../shared.js', () => ({
+vi.mock('../shared', () => ({
   sdk: {
     dragonTiger: {
       detail: mocks.detail,
@@ -23,11 +23,17 @@ vi.mock('../shared.js', () => ({
   withTimeoutReject: <T>(promise: Promise<T>) => promise,
 }));
 
-vi.mock('../../market-data/trade-date-resolver.js', () => ({
+vi.mock('../../market-data/trade-date-resolver', () => ({
   resolveTradingDate: mocks.resolveTradingDate,
 }));
 
-import { dragonTigerTestExports, getDragonTigerSnapshot, listDailyDragonTiger, listDragonTigerByDate, listRecentDragonTigerDays } from '../dragon-tiger.js';
+import {
+  dragonTigerTestExports,
+  getDragonTigerSnapshot,
+  listDailyDragonTiger,
+  listDragonTigerByDate,
+  listRecentDragonTigerDays,
+} from '../dragon-tiger.js';
 import type { IDragonTigerDetailRow } from '../../../../src/shared/types.js';
 
 type TDetailFixture = Omit<IDragonTigerDetailRow, 'id'>;
@@ -48,8 +54,22 @@ describe('龙虎榜快照服务', () => {
 
   it('按净买额生成榜单和汇总', async () => {
     mocks.detail.mockResolvedValueOnce([
-      createDetail({ code: '600001', name: '强势股', netBuyAmount: 120_000_000, buyAmount: 200_000_000, sellAmount: 80_000_000, reason: '日涨幅偏离值达7%' }),
-      createDetail({ code: '000001', name: '分歧股', netBuyAmount: -30_000_000, buyAmount: 20_000_000, sellAmount: 50_000_000, reason: '日换手率达20%' }),
+      createDetail({
+        code: '600001',
+        name: '强势股',
+        netBuyAmount: 120_000_000,
+        buyAmount: 200_000_000,
+        sellAmount: 80_000_000,
+        reason: '日涨幅偏离值达7%',
+      }),
+      createDetail({
+        code: '000001',
+        name: '分歧股',
+        netBuyAmount: -30_000_000,
+        buyAmount: 20_000_000,
+        sellAmount: 50_000_000,
+        reason: '日换手率达20%',
+      }),
     ]);
     mocks.institution.mockResolvedValueOnce([
       {
@@ -66,11 +86,17 @@ describe('龙虎榜快照服务', () => {
       },
     ]);
     mocks.branchRank.mockResolvedValueOnce([
-      { code: 'B1', name: '营业部A', totalBuyAmount: 90_000_000, totalSellAmount: 10_000_000, buyCount: 3, sellCount: 1, totalCount: 4 },
+      {
+        code: 'B1',
+        name: '营业部A',
+        totalBuyAmount: 90_000_000,
+        totalSellAmount: 10_000_000,
+        buyCount: 3,
+        sellCount: 1,
+        totalCount: 4,
+      },
     ]);
-    mocks.quotesCn.mockResolvedValueOnce([
-      { code: '600001', name: '强势股', price: 12.34, changePercent: 9.87 },
-    ]);
+    mocks.quotesCn.mockResolvedValueOnce([{ code: '600001', name: '强势股', price: 12.34, changePercent: 9.87 }]);
 
     const snapshot = await getDragonTigerSnapshot('5d');
 
@@ -87,13 +113,18 @@ describe('龙虎榜快照服务', () => {
 
   it('stock-sdk 机构榜为空时用 a-stock-data 席位明细补充', async () => {
     mocks.detail.mockResolvedValueOnce([
-      createDetail({ code: '600001', name: '机构股', netBuyAmount: 80_000_000, buyAmount: 100_000_000, sellAmount: 20_000_000, reason: '日涨幅偏离值达7%' }),
+      createDetail({
+        code: '600001',
+        name: '机构股',
+        netBuyAmount: 80_000_000,
+        buyAmount: 100_000_000,
+        sellAmount: 20_000_000,
+        reason: '日涨幅偏离值达7%',
+      }),
     ]);
     mocks.institution.mockResolvedValueOnce([]);
     mocks.branchRank.mockResolvedValueOnce([]);
-    mocks.quotesCn.mockResolvedValueOnce([
-      { code: '600001', name: '机构股', price: 21.5, changePercent: 8.88 },
-    ]);
+    mocks.quotesCn.mockResolvedValueOnce([{ code: '600001', name: '机构股', price: 21.5, changePercent: 8.88 }]);
     mockDatacenterRows([
       [
         {
@@ -267,7 +298,13 @@ describe('龙虎榜快照服务', () => {
 
   it('指定日期龙虎榜同时返回真实机构买卖数据供探索页机构榜使用', async () => {
     mocks.detail.mockResolvedValueOnce([
-      createDetail({ code: '600001', name: '机构净买股', date: '2026-08-04', netBuyAmount: 80_000_000, reason: '日涨幅偏离值达到7%的前5只证券' }),
+      createDetail({
+        code: '600001',
+        name: '机构净买股',
+        date: '2026-08-04',
+        netBuyAmount: 80_000_000,
+        reason: '日涨幅偏离值达到7%的前5只证券',
+      }),
     ]);
     mocks.institution.mockResolvedValueOnce([
       {
