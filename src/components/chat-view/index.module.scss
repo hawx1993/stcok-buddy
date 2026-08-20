@@ -1782,10 +1782,10 @@
   outline-offset: 2px;
 }
 .slash-item :global(.slash-icon) {
-  width: 30px;
-  height: 30px;
-  border-color: color-mix(in srgb, var(--glass-border) 92%, var(--border));
-  background: color-mix(in srgb, var(--surface-active) 78%, transparent);
+  width: 22px;
+  height: 22px;
+  border-color: color-mix(in srgb, var(--fg-secondary) 72%, transparent);
+  background: transparent;
   color: var(--fg-secondary);
   transition:
     border-color 120ms ease,
@@ -1793,7 +1793,7 @@
 }
 .slash-item.active :global(.slash-icon),
 .slash-menu:not(.slash-menu-has-selection) .slash-item:hover :global(.slash-icon) {
-  border-color: color-mix(in srgb, var(--accent) 38%, var(--glass-border));
+  border-color: var(--fg-secondary);
   color: var(--fg);
 }
 .slash-copy {
