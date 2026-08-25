@@ -1,7 +1,72 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { extractRecords, toBoardCatalogItems, toBoardConstituentRows, toMarketBoardRows } from '../../anomaly/hithink-board-heat.js';
+import {
+  extractRecords,
+  resolveFuyaoIndexMcpConnection,
+  toBoardCatalogItems,
+  toBoardConstituentRows,
+  toMarketBoardRows,
+} from '../../anomaly/hithink-board-heat.js';
 
 describe('同花顺板块热度数据适配', () => {
+  it('打包环境可通过显式路径读取外部 MCP 配置中的扶摇指数连接信息', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'stockbuddy-fuyao-index-empty-'));
+    const configDir = await mkdtemp(join(tmpdir(), 'stockbuddy-fuyao-index-config-'));
+    try {
+      const configPath = join(configDir, '.mcp.json');
+      await writeFile(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            'fuyao-a-share-index': {
+              type: 'http',
+              url: 'https://fuyao.example.test/mcp/a-share-index',
+              headers: { 'X-api-key': 'index-config-test-key' },
+            },
+          },
+        }),
+        'utf8',
+      );
+
+      await expect(resolveFuyaoIndexMcpConnection({ cwd, env: {}, configPath })).resolves.toEqual({
+        url: 'https://fuyao.example.test/mcp/a-share-index',
+        apiKey: 'index-config-test-key',
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('未单独配置指数 MCP 时复用扶摇 A 股 Key 并使用指数默认地址', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'stockbuddy-fuyao-index-fallback-'));
+    try {
+      const configPath = join(cwd, '.mcp.json');
+      await writeFile(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            'fuyao-a-share': {
+              type: 'http',
+              url: 'https://fuyao.example.test/mcp/a-share',
+              headers: { 'X-api-key': 'a-share-config-test-key' },
+            },
+          },
+        }),
+        'utf8',
+      );
+
+      await expect(resolveFuyaoIndexMcpConnection({ cwd, env: {} })).resolves.toEqual({
+        url: 'https://fuyao.aicubes.cn/mcp/a-share-index',
+        apiKey: 'a-share-config-test-key',
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('读取真实 index.catalog 的 data.item 数组，避免把目录解析为空', () => {
     const rows = extractRecords({
       item: [

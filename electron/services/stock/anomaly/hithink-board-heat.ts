@@ -1,4 +1,6 @@
 import { execFile as execFileCallback } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { BoardConstituent, IBoardHeatSnapshot, MarketBoardRow } from '../../../../src/shared/types.js';
 
@@ -31,6 +33,16 @@ interface IBoardCatalogItem {
   name: string;
   boardKind: TBoardKind;
 }
+
+type TFuyaoIndexMcpConnection = {
+  url: string;
+  apiKey: string;
+};
+
+type TMcpConfigPathOptions = {
+  cwd: string;
+  explicitPath?: string;
+};
 
 /** Loads THS industry/concept index catalogues and live quotes from Fuyao's Tonghuashun index data source. */
 export async function getHithinkBoardHeatSnapshot(): Promise<IBoardHeatSnapshot> {
@@ -121,26 +133,78 @@ export function toBoardConstituentRows(rows: Array<Record<string, unknown>>): Bo
 }
 
 async function runFuyaoIndexTool(name: TToolName, args: Record<string, string>): Promise<IFuyaoToolEnvelope> {
-  const apiKey = process.env.FUYAO_A_SHARE_INDEX_API_KEY ?? process.env.FUYAO_API_KEY ?? process.env.HITHINK_FINANCE_API_KEY;
-  if (apiKey) return runFuyaoMcpTool(name, args, apiKey);
+  const connection = await resolveFuyaoIndexMcpConnection();
+  if (connection) return runFuyaoMcpTool(name, args, connection);
   return runHithinkFinanceCli(name, args);
+}
+
+export async function resolveFuyaoIndexMcpConnection(options: {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  configPath?: string;
+} = {}): Promise<TFuyaoIndexMcpConnection | undefined> {
+  const env = options.env ?? process.env;
+  const envApiKey = env.FUYAO_A_SHARE_INDEX_API_KEY ?? env.FUYAO_API_KEY ?? env.HITHINK_FINANCE_API_KEY;
+  if (envApiKey) {
+    return {
+      url: env.FUYAO_A_SHARE_INDEX_MCP_URL ?? DEFAULT_FUYAO_INDEX_MCP_URL,
+      apiKey: envApiKey,
+    };
+  }
+
+  const configPaths = resolveMcpConfigPaths({
+    cwd: options.cwd ?? process.cwd(),
+    explicitPath: options.configPath ?? env.FUYAO_A_SHARE_INDEX_MCP_CONFIG_PATH ?? env.FUYAO_MCP_CONFIG_PATH,
+  });
+  for (const configPath of configPaths) {
+    let configText: string;
+    try {
+      configText = await readFile(configPath, 'utf8');
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') continue;
+      throw new Error(`读取 MCP 配置失败：${errorMessage(error)}`);
+    }
+
+    let configValue: unknown;
+    try {
+      configValue = JSON.parse(configText);
+    } catch (error) {
+      throw new Error(`MCP 配置 ${configPath} 格式无效：${errorMessage(error)}`);
+    }
+    const root = asRecord(configValue);
+    const servers = asRecord(root?.mcpServers);
+    const indexServer = asRecord(servers?.['fuyao-a-share-index']);
+    const indexApiKey = caseInsensitiveText(asRecord(indexServer?.headers), 'X-api-key');
+    if (indexApiKey) {
+      return {
+        url: (indexServer ? text(indexServer, ['url']) : '') || DEFAULT_FUYAO_INDEX_MCP_URL,
+        apiKey: indexApiKey,
+      };
+    }
+
+    const aShareServer = asRecord(servers?.['fuyao-a-share']);
+    const aShareApiKey = caseInsensitiveText(asRecord(aShareServer?.headers), 'X-api-key');
+    if (aShareApiKey) return { url: DEFAULT_FUYAO_INDEX_MCP_URL, apiKey: aShareApiKey };
+  }
+
+  return undefined;
 }
 
 async function runFuyaoMcpTool(
   name: TToolName,
   args: Record<string, string>,
-  apiKey: string,
+  connection: TFuyaoIndexMcpConnection,
 ): Promise<IFuyaoToolEnvelope> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MCP_TIMEOUT_MS);
   try {
-    const response = await fetch(process.env.FUYAO_A_SHARE_INDEX_MCP_URL ?? DEFAULT_FUYAO_INDEX_MCP_URL, {
+    const response = await fetch(connection.url, {
       method: 'POST',
       headers: {
         Accept: 'application/json, text/event-stream',
         'Content-Type': 'application/json',
         'MCP-Protocol-Version': '2025-06-18',
-        'X-api-key': apiKey,
+        'X-api-key': connection.apiKey,
       },
       body: JSON.stringify({
         jsonrpc: '2.0',
@@ -169,6 +233,30 @@ function toCliArgs(name: TToolName, args: Record<string, string>): string[] {
   if (name === 'get_a_share_index_constituents_ths_stock_list')
     return ['index', 'constituents', '--thscode', args.thscode];
   return ['index', 'snapshot', '--thscodes', args.thscodes, '--format', 'json'];
+}
+
+function resolveMcpConfigPaths(options: TMcpConfigPathOptions): string[] {
+  const paths = [
+    options.explicitPath,
+    resolve(options.cwd, '.mcp.json'),
+    process.resourcesPath ? resolve(process.resourcesPath, '.mcp.json') : undefined,
+  ].filter((item): item is string => Boolean(item));
+  return [...new Set(paths)];
+}
+
+function errorCode(error: unknown): string {
+  if (!error || typeof error !== 'object' || !('code' in error)) return '';
+  return typeof error.code === 'string' ? error.code : '';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function caseInsensitiveText(row: Record<string, unknown> | undefined, key: string): string {
+  if (!row) return '';
+  const matchedKey = Object.keys(row).find((item) => item.toLowerCase() === key.toLowerCase());
+  return matchedKey ? text(row, [matchedKey]) : '';
 }
 
 function parseMcpBody(body: string): unknown {
