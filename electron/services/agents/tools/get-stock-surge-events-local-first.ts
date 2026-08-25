@@ -1,7 +1,7 @@
 import type { StockSurgeEvent } from '../../../../src/shared/types.js';
-import type { ITdxTransactionRow } from '../../stock/a-stock-data-runner.js';
-import { runAStockDataFn } from '../../stock/a-stock-data-runner.js';
-import { listStockSurgeEvents } from '../../stock/stock-client.js';
+import type { ITdxTransactionRow } from '../../stock/quotes/a-stock-data-runner.js';
+import { runAStockDataFn } from '../../stock/quotes/a-stock-data-runner.js';
+import { listStockSurgeEvents } from '../../stock/stock-detail/stock-client.js';
 import type { AgentTool } from '../types.js';
 import { asRecord, formatError, num, safePositiveInt, text } from './input.js';
 

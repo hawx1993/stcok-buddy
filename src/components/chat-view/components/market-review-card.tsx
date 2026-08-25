@@ -140,9 +140,6 @@ export function MarketReviewCard({
             .join('；') || '暂无数据'}
         </p>
       </ReviewSection>
-      {asArray(report.dataGaps).length ? (
-        <div className={styles['review-gaps']}>⚠️ 数据缺口：{asArray(report.dataGaps).join('、')}</div>
-      ) : null}
     </section>
   );
 }

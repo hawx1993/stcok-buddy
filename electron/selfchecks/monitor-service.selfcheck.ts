@@ -6,7 +6,7 @@ import {
   isRecentLimitUpEvent,
   parseMarketCapYi,
   ratioPercent,
-} from '../services/stock/monitor-service.js';
+} from '../services/stock/monitor/monitor-service.js';
 import type { HotFocusItem, StockSurgeEvent } from '../../src/shared/types.js';
 
 const baseItem: HotFocusItem = {

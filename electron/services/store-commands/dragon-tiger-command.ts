@@ -1,6 +1,6 @@
-import { getDragonTigerSeatDetails } from '../stock/dragon-tiger-seat-detail.js';
-import { getDragonTigerSnapshot, searchStocks } from '../stock/stock-client.js';
-import type { IDragonTigerSeatDetail } from '../stock/dragon-tiger-seat-detail.js';
+import { getDragonTigerSeatDetails } from '../stock/anomaly/dragon-tiger-seat-detail.js';
+import { getDragonTigerSnapshot, searchStocks } from '../stock/stock-detail/stock-client.js';
+import type { IDragonTigerSeatDetail } from '../stock/anomaly/dragon-tiger-seat-detail.js';
 import type { IStoreCommandInput, IStoreCommandResult } from './types.js';
 
 interface IResolvedStock {

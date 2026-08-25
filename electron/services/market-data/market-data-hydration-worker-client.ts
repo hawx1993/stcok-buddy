@@ -1,7 +1,7 @@
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { proxy, wrap, type Remote } from 'comlink';
-import { nodeEndpoint } from '../stock/comlink-node-endpoint.js';
+import { nodeEndpoint } from '../stock/quotes/comlink-node-endpoint.js';
 import { getMarketDataDatabasePath } from '../stock-db/market-data-store.js';
 import type {
   IHydrateAllMarketChipsOptions,

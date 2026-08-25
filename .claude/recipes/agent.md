@@ -13,7 +13,7 @@
 
 1. 沿 `orchestrator → intent-routing → planning → workflow/DAG → tool runtime → service/provider → evidence/reflection → renderer` 定位边界。
 2. 新增意图时同步 routing、planning、workflow、结果展示和测试；全市场任务优先复用 DataCoverage 节点。
-3. 新增工具时先找 `stock/**`、`market-data/**`、`stock-db/**` 的真实实现，再封装到 `electron/services/agents/tools/<kebab-case>.ts`。
+3. 新增工具时先找 `stock/stock-detail/**`、`stock/quotes/**`、`stock/anomaly/**`、`stock/chip-distribution/**`、`market-data/**`、`stock-db/**` 的真实实现，再封装到 `electron/services/agents/tools/<kebab-case>.ts`。
 4. 工具注册不等于模型授权；只有模型确实需要自主选择时才加入对应白名单。
 5. workflow 内默认通过 `runContextTool()` 调用工具，保留 toolCalls、dataStatuses、evidence、runEvents 和 data gap。
 6. 工具输出要保留 source、freshness、storage、isComplete、warnings 和证据字段。

@@ -24,21 +24,13 @@ describe('条件选股预设命令', () => {
   it('单个预设生成唯一的条件选股命令', () => {
     const command = createConditionScreenerCommand(['chip-concentration-improving']);
 
-    expect(command).toBe(
-      '/条件选股 --筹码90%集中度<15% --获利比例>50% --涨幅=0-5% --排除ST',
-    );
+    expect(command).toBe('/条件选股 --筹码90%集中度<15% --获利比例>50% --涨幅=0-5% --排除ST');
     expect(command.match(/\/条件选股/g)).toHaveLength(1);
   });
 
   it('后选择的相同参数覆盖先前参数', () => {
-    const criteria = mergeConditionScreenerCriteria([
-      'chip-concentration-improving',
-      'strong-volume-not-limit-up',
-    ]);
-    const command = createConditionScreenerCommand([
-      'chip-concentration-improving',
-      'strong-volume-not-limit-up',
-    ]);
+    const criteria = mergeConditionScreenerCriteria(['chip-concentration-improving', 'strong-volume-not-limit-up']);
+    const command = createConditionScreenerCommand(['chip-concentration-improving', 'strong-volume-not-limit-up']);
 
     expect(criteria.find((criterion) => criterion.key === 'change-percent')?.command).toBe('--涨幅=3-8%');
     expect(command).toContain('--涨幅=3-8%');
@@ -69,15 +61,15 @@ describe('条件选股预设命令', () => {
 
   it('仅在条件选股命令以独立双横线结尾时打开参数面板', () => {
     expect(shouldOpenConditionScreenerParameters('/条件选股 --')).toBe(true);
-    expect(shouldOpenConditionScreenerParameters('/条件选股 --成交额>2亿 --')).toBe(true);
-    expect(shouldOpenConditionScreenerParameters('/条件选股 --成交额>2亿')).toBe(false);
+    expect(shouldOpenConditionScreenerParameters('/条件选股 --成交额>5亿 --')).toBe(true);
+    expect(shouldOpenConditionScreenerParameters('/条件选股 --成交额>5亿')).toBe(false);
     expect(shouldOpenConditionScreenerParameters('/超短选股 --')).toBe(false);
   });
 
   it('插入参数时替换尾部触发符并保留已有条件', () => {
     expect(insertConditionScreenerParameter('/条件选股 --', '--换手率>8%')).toBe('/条件选股 --换手率>8%');
-    expect(insertConditionScreenerParameter('/条件选股 --成交额>2亿 --', '--换手率>8%')).toBe(
-      '/条件选股 --成交额>2亿 --换手率>8%',
+    expect(insertConditionScreenerParameter('/条件选股 --成交额>5亿 --', '--换手率>8%')).toBe(
+      '/条件选股 --成交额>5亿 --换手率>8%',
     );
     expect(insertConditionScreenerParameter('', '--排除ST')).toBe('/条件选股 --排除ST');
   });

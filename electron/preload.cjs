@@ -72,6 +72,7 @@ var api = {
   cancelMarketDataSync: () => import_electron.ipcRenderer.invoke("marketData:cancelSync"),
   getMarketDataStats: () => import_electron.ipcRenderer.invoke("marketData:getStats"),
   getMarketPageSnapshot: (tab, period) => import_electron.ipcRenderer.invoke("market:getPageSnapshot", tab, period),
+  getBoardHeatSnapshot: () => import_electron.ipcRenderer.invoke("market:getBoardHeatSnapshot"),
   getDragonTigerSnapshot: (range) => import_electron.ipcRenderer.invoke("dragonTiger:getSnapshot", range),
   getDiscoverySnapshot: (options) => import_electron.ipcRenderer.invoke("discovery:getSnapshot", options),
   getMonitorFeed: (options) => import_electron.ipcRenderer.invoke("monitor:getFeed", options),

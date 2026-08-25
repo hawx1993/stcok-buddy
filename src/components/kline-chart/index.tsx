@@ -13,6 +13,7 @@ import { selectChipDistributionForKline, useChipDistribution } from './component
 import { KlineHoverInfo } from './components/kline-hover-info';
 import { KlineModalFrame } from './components/kline-modal-frame';
 import { StockTimelineChart } from './components/stock-timeline-chart';
+import { useKlineModalQuote } from './components/use-kline-modal-quote';
 import { getStockComputeWorker } from '../../workers/stock-compute-client';
 import {
   getChipStateCacheKey,
@@ -27,6 +28,7 @@ import {
 import type { IChipStateCacheEntry, TimeframeId, TLoadOlderKline } from './constants';
 
 type KlineStock = Pick<StockDetail, 'code' | 'name' | 'pe' | 'price'>;
+type KlineModalStock = Pick<StockDetail, 'code' | 'name' | 'pe' | 'price' | 'changePercent'>;
 
 const EMPTY_KLINE_DATA: KlinePoint[] = [];
 const KLINE_LOAD_STEP = 240;
@@ -556,20 +558,22 @@ export function KlineModal({
   onClose,
   chipsOpen = true,
 }: {
-  stock: KlineStock;
+  stock: KlineModalStock;
   data?: KlinePoint[];
   onClose(): void;
   chipsOpen?: boolean;
 }) {
+  const quote = useKlineModalQuote(stock);
+  const liveStock = { ...stock, ...quote };
   const modal = (
     <KlineModalFrame
-      stock={stock}
+      stock={liveStock}
       data={data}
       onClose={onClose}
       chipsOpen={chipsOpen}
       renderChart={(tf, setTf) => (
         <StockKlineChart
-          stock={stock}
+          stock={liveStock}
           data={data}
           height='100%'
           showSwitcher

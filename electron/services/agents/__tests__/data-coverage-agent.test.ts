@@ -27,7 +27,7 @@ const chipMocks = vi.hoisted(() => ({
 vi.mock('../../stock-db/market-data-store', () => storeMocks);
 vi.mock('../../market-data/market-data-hydration-worker-client', () => hydrationMocks);
 vi.mock('../../market-data/market-data-sync', () => syncMocks);
-vi.mock('../../stock/chip-distribution-provider', () => chipMocks);
+vi.mock('../../stock/chip-distribution/chip-distribution-provider', () => chipMocks);
 
 import { runDataCoverageAgent } from '../data-coverage-agent.js';
 import type { IAgentContext } from '../orchestrator-types.js';

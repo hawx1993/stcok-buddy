@@ -4,12 +4,14 @@ import { describe, expect, it } from 'vitest';
 import { GlobalStockSearch } from '../index';
 import { MarketSearchSuggestionList } from '../components/market-search-suggestion-list';
 import {
+  appendSearchHistoryItem,
   formatSearchChangePercent,
   formatSearchQuoteValue,
   getConversationRoleLabel,
   getGlobalSearchResultKey,
   getSearchChangeTone,
   isConversationSearchResult,
+  normalizeSearchHistory,
 } from '../utils';
 import { getGlobalSearchShortcutLabel, isGlobalSearchShortcut, isMacPlatform } from '../shortcut';
 
@@ -56,6 +58,31 @@ describe('全局行情搜索结果行情字段格式化', () => {
     expect(getSearchChangeTone(1.2)).toBe('up');
     expect(getSearchChangeTone('-0.35%')).toBe('down');
     expect(getSearchChangeTone('--')).toBe('flat');
+  });
+});
+
+describe('全局搜索历史辅助函数', () => {
+  it('读取历史时去掉空值、重复项并保留前十条', () => {
+    expect(normalizeSearchHistory([' 茅台 ', '茅台', '', 123, '宁德时代', '比亚迪', '平安银行', '中芯国际', '招商银行', '药明康德', '万科A', '紫金矿业', '人民网'])).toEqual([
+      '茅台',
+      '宁德时代',
+      '比亚迪',
+      '平安银行',
+      '中芯国际',
+      '招商银行',
+      '药明康德',
+      '万科A',
+      '紫金矿业',
+      '人民网',
+    ]);
+  });
+
+  it('追加新搜索词时置顶并限制十条', () => {
+    const history = ['茅台', '宁德时代', '比亚迪', '平安银行', '中芯国际', '招商银行', '药明康德', '万科A', '紫金矿业', '人民网'];
+
+    expect(appendSearchHistoryItem(history, ' 比亚迪 ')).toEqual(['比亚迪', '茅台', '宁德时代', '平安银行', '中芯国际', '招商银行', '药明康德', '万科A', '紫金矿业', '人民网']);
+    expect(appendSearchHistoryItem(history, '东方财富')).toEqual(['东方财富', '茅台', '宁德时代', '比亚迪', '平安银行', '中芯国际', '招商银行', '药明康德', '万科A', '紫金矿业']);
+    expect(appendSearchHistoryItem(history, '   ')).toBe(history);
   });
 });
 

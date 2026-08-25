@@ -35,7 +35,7 @@ vi.mock('comlink', () => ({
     workerApi = api;
   }),
 }));
-vi.mock('../../stock/comlink-node-endpoint', () => ({ nodeEndpoint: vi.fn(() => ({})) }));
+vi.mock('../../stock/quotes/comlink-node-endpoint', () => ({ nodeEndpoint: vi.fn(() => ({})) }));
 vi.mock('../../stock-db/market-data-store', () => marketDataStoreMocks);
 vi.mock('../providers', () => providerMocks);
 vi.mock('../quality', () => ({ partitionValidDailyBars: vi.fn(() => ({ valid: [], invalid: [] })) }));

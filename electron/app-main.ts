@@ -17,20 +17,20 @@ import {
   shutdownSurgeHistoryScheduler,
   stopSurgeHistoryScheduler,
   waitForSurgeHistoryScheduler,
-} from './services/stock/surge-history-scheduler.js';
-import { stopDiscoveryRefreshLoop } from './services/stock/discovery-service.js';
+} from './services/stock/anomaly/surge-history-scheduler.js';
+import { stopDiscoveryRefreshLoop } from './services/stock/discovery/discovery-service.js';
 import { closeQuoteStore, initializeQuoteStore } from './services/stock-db/quote-store.js';
 import { closeSurgeHistoryInstance, closeSurgeHistoryStore } from './services/stock-db/surge-history-store.js';
 import {
   startMonitorHistoryScheduler,
   stopMonitorHistoryScheduler,
   waitForMonitorHistoryScheduler,
-} from './services/stock/monitor-history-scheduler.js';
+} from './services/stock/monitor/monitor-history-scheduler.js';
 import { closeMonitorHistoryInstance, closeMonitorHistoryStore } from './services/stock-db/monitor-history-store.js';
 import { syncSurgeHistoryIfNeeded } from './services/market-data/data-sync-handlers.js';
 import { captureError, captureEvent, shutdownPostHog } from './services/llm/posthog-client.js';
 import { checkAppUpdate, setInstallUpdateHandler } from './services/update-service.js';
-import { disposeChipDistributionWorker } from './services/stock/chip-distribution-worker-client.js';
+import { disposeChipDistributionWorker } from './services/stock/chip-distribution/chip-distribution-worker-client.js';
 import { app, BrowserWindow, shell } from './electron-runtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

@@ -1,5 +1,5 @@
 import type { AgentTool } from '../types.js';
-import { getQuote } from '../../stock/stock-client.js';
+import { getQuote } from '../../stock/stock-detail/stock-client.js';
 import { asRecord, text } from './input.js';
 
 /** Registry/workflow 专用：经既有 stock-client 读取单只股票最新行情。 */

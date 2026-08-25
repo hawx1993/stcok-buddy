@@ -1,5 +1,5 @@
-import type { IEmHotRankItem, IThsHotStock } from '../../stock/a-stock-data-runner.js';
-import { runAStockDataFn } from '../../stock/a-stock-data-runner.js';
+import type { IEmHotRankItem, IThsHotStock } from '../../stock/quotes/a-stock-data-runner.js';
+import { runAStockDataFn } from '../../stock/quotes/a-stock-data-runner.js';
 import type { AgentTool } from '../types.js';
 
 export interface IHotConceptsToolOutput {

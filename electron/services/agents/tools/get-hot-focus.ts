@@ -1,6 +1,6 @@
 import type { HotFocusTab } from '../../../../src/shared/types.js';
 import type { AgentTool } from '../types.js';
-import { listHotFocus } from '../../stock/stock-client.js';
+import { listHotFocus } from '../../stock/stock-detail/stock-client.js';
 import { asRecord, text } from './input.js';
 
 /** 模型可调用：按异动、板块、资金流或市场维度获取热点聚焦数据。 */

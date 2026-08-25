@@ -32,7 +32,7 @@ vi.mock('../../stock-db/market-data-store', () => ({
   listSecurities: mocks.listSecurities,
 }));
 
-vi.mock('../../stock/surge-history-scheduler', () => ({
+vi.mock('../../stock/anomaly/surge-history-scheduler', () => ({
   ensureSurgeHistoryCapture: mocks.ensureSurgeHistoryCapture,
   isSurgeHistorySchedulerRunning: mocks.isSurgeHistorySchedulerRunning,
 }));
@@ -45,7 +45,7 @@ vi.mock('../../stock-db/surge-history-store', () => ({
   saveSurgeSnapshot: mocks.saveSurgeSnapshot,
 }));
 
-vi.mock('../../stock/hot-focus', () => ({
+vi.mock('../../stock/anomaly/hot-focus', () => ({
   listHotFocus: mocks.listHotFocus,
   toIndividualHistoryEvents: mocks.toIndividualHistoryEvents,
 }));

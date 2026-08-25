@@ -20,7 +20,7 @@ stock-sdk
 
 ## 实现步骤
 
-1. 搜索现有 service、provider、缓存和 shared type；优先复用既有真实入口。
+1. 搜索现有 service、provider、缓存和 shared type；优先复用既有真实入口。当前 stock service 子域为 `stock-detail/`（个股）、`quotes/`（行情页/指数/板块缓存/a-stock runner）、`anomaly/`（热点/龙虎榜/复盘/异动）、`discovery/`、`monitor/`、`chip-distribution/`。
 2. 新增数据能力放在 service/provider 层，不在 React 组件或 Agent 文案中直连第三方接口。
 3. 批量数据优先使用批量接口、缓存、并发限制和超时控制。
 4. 失败路径返回可理解的错误、warning、empty、partial 或 stale 元信息。

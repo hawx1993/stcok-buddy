@@ -1,6 +1,6 @@
 import { captureEvent } from '../llm/posthog-client.js';
 import type { KlinePoint, StockDetail } from '../../../src/shared/types.js';
-import { inferExchange, normalizeASymbol } from '../stock/symbols.js';
+import { inferExchange, normalizeASymbol } from '../stock/stock-detail/symbols.js';
 import { partitionValidDailyBars } from './quality.js';
 import { getRemoteFullQuote, remoteMarketStatus, stockSdkHistoricalProvider } from './providers.js';
 import { getLatestDailyBar, listDailyBars, upsertDailyBars } from '../stock-db/market-data-store.js';

@@ -14,9 +14,9 @@ export default defineConfig({
         statements: 70,
       },
       include: [
-        'electron/services/stock/discovery-market-summary.ts',
-        'electron/services/stock/discovery-monthly-themes.ts',
-        'electron/services/stock/discovery-hot-themes.ts',
+        'electron/services/stock/discovery/discovery-market-summary.ts',
+        'electron/services/stock/discovery/discovery-monthly-themes.ts',
+        'electron/services/stock/discovery/discovery-hot-themes.ts',
         'electron/services/market-data/trade-date-resolver.ts',
         'electron/services/market-data/quality.ts',
         'src/shared/hot-stock-hints-service.ts',

@@ -14,7 +14,7 @@ This skill helps you add PostHog analytics to JavaScript Web applications.
 
 ## Workflow
 
-Follow these steps in order to complete the integration:
+Follow these steps in order to complete the integration. Read only the current step file and any API reference it explicitly needs; do not load all `references/` files upfront.
 
 1. `references/1-begin.md` - PostHog Setup - Begin ← **Start here**
 2. `references/2-edit.md` - PostHog Setup - Edit

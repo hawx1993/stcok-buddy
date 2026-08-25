@@ -1,5 +1,5 @@
 import type { AgentTool } from '../types.js';
-import { getChipDistribution } from '../../stock/stock-client.js';
+import { getChipDistribution } from '../../stock/stock-detail/stock-client.js';
 import { asRecord, text } from './input.js';
 
 /** 模型可调用：经既有真实数据链路获取单股筹码分布。 */

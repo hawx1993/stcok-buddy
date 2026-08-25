@@ -1,6 +1,6 @@
 import { parentPort } from 'node:worker_threads';
 import { expose } from 'comlink';
-import { nodeEndpoint } from '../stock/comlink-node-endpoint.js';
+import { nodeEndpoint } from '../stock/quotes/comlink-node-endpoint.js';
 import { resolveTradingDate } from './trade-date-resolver.js';
 import { partitionValidDailyBars } from './quality.js';
 import { listRemoteSecurities, listRemoteTradingCalendar, stockSdkHistoricalProvider } from './providers.js';

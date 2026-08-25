@@ -21,8 +21,17 @@ import {
   resetStartTime,
 } from './derived';
 import styles from './index.module.scss';
+import { isAnalysisProgressRunning } from './presentation';
 
-export function AnalysisProgress({ events, toolCalls }: { events: AgentRunEvent[]; toolCalls?: ToolCallRecord[] }) {
+export function AnalysisProgress({
+  events,
+  toolCalls,
+  completed = false,
+}: {
+  events: AgentRunEvent[];
+  toolCalls?: ToolCallRecord[];
+  completed?: boolean;
+}) {
   const [open, setOpen] = useState(true);
   const [elapsed, setElapsed] = useState(0);
 
@@ -35,7 +44,7 @@ export function AnalysisProgress({ events, toolCalls }: { events: AgentRunEvent[
   const pending = useMemo(() => hasPendingAgents(events), [events]);
   const remaining = useMemo(() => calcEstimatedRemaining(events), [events]);
   const preparing = !events.length;
-  const inProgress = preparing || pending;
+  const inProgress = isAnalysisProgressRunning({ preparing, pending, completed });
   const HeaderStatusIcon = inProgress ? LoaderCircle : CheckCircle;
 
   const terminal = steps.filter((s) => s.status === 'completed' || s.status === 'skipped' || s.status === 'error').length;
@@ -51,8 +60,9 @@ export function AnalysisProgress({ events, toolCalls }: { events: AgentRunEvent[
     return () => clearInterval(interval);
   }, [events, pending, preparing]);
 
-  const elapsedSec = pending && !preparing ? elapsed || calcElapsed(events) : 0;
-  const progressSummary = formatProgressSummary({ preparing, pending, terminal, total, elapsedSec });
+  const effectivePending = !completed && pending;
+  const elapsedSec = effectivePending && !preparing ? elapsed || calcElapsed(events) : 0;
+  const progressSummary = formatProgressSummary({ preparing: !completed && preparing, pending: effectivePending, terminal, total, elapsedSec });
 
   return (
     <div className={styles['analysis-progress']}>

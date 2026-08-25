@@ -38,7 +38,7 @@
 
 - 更新安装前 `prepareForUpdateInstall()` 会停止 market-data、Discovery、异动历史和监控历史 scheduler。
 - 普通退出 `before-quit` 会阻止默认退出，停止 scheduler、销毁窗口并记录 `app_closing`，再执行 bounded cleanup。
-- cleanup 关闭 quote SQLite、conversation SQLite、market-data DuckDB、surge DuckDB、monitor DuckDB，并 shutdown PostHog；market-data 清理会调用 `shutdownMarketDataScheduler()` 以 dispose worker。
+- cleanup 关闭 quote SQLite、conversation SQLite、market-data DuckDB、surge DuckDB、monitor DuckDB，并 shutdown PostHog；market-data 清理会调用 `shutdownMarketDataScheduler()` 以 dispose worker，stock 清理会调用 `stock/chip-distribution/chip-distribution-worker-client.ts` 的 `disposeChipDistributionWorker()`。
 - 新增后台任务时必须定义启动/停止点、队列等待和有界超时，避免在关闭的数据库上继续写入。
 
 ## 与 IPC 的关系

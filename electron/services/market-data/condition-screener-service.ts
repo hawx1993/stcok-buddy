@@ -1,8 +1,8 @@
 import type { IChipDistributionResult } from '../../../src/shared/types.js';
-import { getBoardDetail } from '../stock/board-detail.js';
-import { getChipDistribution } from '../stock/chip-distribution-provider.js';
-import { normalizeMarketCap } from '../stock/format.js';
-import { refreshMarketBoardRows } from '../stock/shared.js';
+import { getBoardDetail } from '../stock/anomaly/board-detail.js';
+import { getChipDistribution } from '../stock/chip-distribution/chip-distribution-provider.js';
+import { normalizeMarketCap } from '../stock/stock-detail/format.js';
+import { refreshMarketBoardRows } from '../stock/quotes/shared.js';
 import {
   emptyConditionScreenerBoardScope,
   loadConditionScreenerLeadingBoardScope,
@@ -68,6 +68,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
 const CHIP_BACKGROUND_HYDRATION_LIMIT = 20;
 const CHIP_BACKGROUND_HYDRATION_CONCURRENCY = 3;
+const CHIP_DISPLAY_HYDRATION_CONCURRENCY = 3;
 
 const defaultDependencies: IConditionScreenerDependencies = {
   listLocalRows: listAShareMarketCapSnapshotRows,
@@ -131,7 +132,7 @@ export async function screenASharesByConditions(input: IConditionScreenerInput):
     passesQuoteConditions(candidate, options, leadingBoardScope),
   );
   const chipResult = await applyChipConditions(scopedCandidates, options, leadingBoardScope, warnings);
-  const rows = sortRows(chipResult.rows, options).slice(0, options.limit);
+  const rows = await hydrateDisplayedChipMetrics(sortRows(chipResult.rows, options).slice(0, options.limit));
   const stats = await loadStats(warnings);
   const missingQuoteFields = candidates.filter((candidate) => hasRequiredQuoteFieldMissing(candidate, options)).length;
   const missingChipData = chipResult.missingChipData;
@@ -482,7 +483,7 @@ async function applyChipConditions(
   warnings: string[],
 ): Promise<{ rows: IConditionScreenerRow[]; missingChipData: number }> {
   const needsChip = hasChipConditions(options);
-  const chipByCode = needsChip ? await loadChips(warnings) : new Map<string, StockChipCacheRecord>();
+  const chipByCode = await loadChips(warnings);
   if (needsChip) startBackgroundChipHydration(candidates, options, chipByCode, warnings);
 
   let missingChipData = 0;
@@ -518,6 +519,38 @@ async function applyChipConditions(
   }
   if (missingChipData) warnings.push(`筹码数据缺失 ${missingChipData} 只，未纳入含筹码条件筛选`);
   return { rows, missingChipData };
+}
+
+async function hydrateDisplayedChipMetrics(rows: IConditionScreenerRow[]): Promise<IConditionScreenerRow[]> {
+  const targets = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => row.concentration90Percent === undefined || row.concentration70Percent === undefined);
+  if (!targets.length) return rows;
+
+  const hydratedRows = [...rows];
+  let failedCount = 0;
+  await runWithConcurrency(targets, CHIP_DISPLAY_HYDRATION_CONCURRENCY, async ({ row, index }) => {
+    try {
+      const chip = await dependencies.getChipDistribution(row.code);
+      if (!isChipDistributionResult(chip)) {
+        failedCount += 1;
+        return;
+      }
+      const metrics = getChipMetricsFromDistribution(chip);
+      hydratedRows[index] = {
+        ...row,
+        concentration90Percent: row.concentration90Percent ?? metrics.concentration90Percent,
+        concentration70Percent: row.concentration70Percent ?? metrics.concentration70Percent,
+        profitRatioPercent: row.profitRatioPercent ?? metrics.profitRatioPercent,
+        chipDate: row.chipDate ?? metrics.chipDate,
+      };
+    } catch (error) {
+      failedCount += 1;
+      console.warn(`[condition-screener] ${row.code} 展示筹码数据补齐失败：${formatError(error)}`);
+    }
+  });
+  if (failedCount) console.warn(`[condition-screener] 展示行筹码数据补齐失败 ${failedCount} 只`);
+  return hydratedRows;
 }
 
 async function loadChips(warnings: string[]) {
@@ -572,7 +605,11 @@ async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (i
 }
 
 function getChipMetrics(chip: StockChipCacheRecord | undefined) {
-  const latest = chip && isChipDistributionResult(chip.data) ? chip.data.latest : undefined;
+  return getChipMetricsFromDistribution(chip && isChipDistributionResult(chip.data) ? chip.data : undefined);
+}
+
+function getChipMetricsFromDistribution(chip: IChipDistributionResult | undefined) {
+  const latest = chip?.latest;
   return {
     concentration90Percent: ratioPercent(latest?.concentration90),
     concentration70Percent: ratioPercent(latest?.concentration70),

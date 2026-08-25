@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DragonTigerPanel } from './components/dragon-tiger-panel';
+import { BoardHeatPanel } from './components/board-heat-panel';
 import { IndexCard } from './components/index-card';
 import { IndexKlineModal } from './components/index-kline-modal';
 import { StockTable } from './components/stock-table';
@@ -10,7 +11,7 @@ import { cacheMarketViewSnapshot, getCachedMarketViewState } from './market-view
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import { getAshareMarketPhase } from '../../shared/market-time';
 import { MarketPhasePill } from '../market-phase-pill';
-import type { MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketTab } from '../../shared/types';
+import type { MarketBoardRow, MarketIndexPeriod, MarketIndexSnapshot, MarketPageSnapshot, MarketQuoteRow, MarketTab } from '../../shared/types';
 import { useOpenMarketSearchResult } from '../../hooks/use-open-market-search-result';
 import { getGlobalSearchShortcutLabel } from '../global-stock-search/shortcut';
 import cx from '../../shared/cx';
@@ -40,9 +41,13 @@ interface IMarketViewProps {
 }
 
 type SortDirection = TSortDirection;
-type TMarketViewTab = MarketTab | 'dragon-tiger';
+type TMarketViewTab = MarketTab | 'dragon-tiger' | 'board-heat';
 
-const viewTabs: Array<{ id: TMarketViewTab; label: string }> = [...tabs, { id: 'dragon-tiger', label: '龙虎榜' }];
+const viewTabs: Array<{ id: TMarketViewTab; label: string }> = [
+  ...tabs,
+  { id: 'dragon-tiger', label: '龙虎榜' },
+  { id: 'board-heat', label: '板块热度' },
+];
 
 export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
   const [activeTab, setActiveTab] = useState<MarketTab>('sh-main');
@@ -50,6 +55,9 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
   const [indexPeriod, setIndexPeriod] = useState<MarketIndexPeriod>('1d');
   const [initialSnapshot] = useState(() => getCachedMarketViewState('sh-main', '1d'));
   const [indices, setIndices] = useState<MarketIndexSnapshot[]>(initialSnapshot.indices);
+  const [boards, setBoards] = useState<MarketBoardRow[]>([]);
+  const [boardHeatLoading, setBoardHeatLoading] = useState(false);
+  const [boardHeatError, setBoardHeatError] = useState<string>();
   const [rowsByTab, setRowsByTab] = useState<Partial<Record<MarketTab, MarketQuoteRow[]>>>(initialSnapshot.rowsByTab);
   const rowsByTabRef = useRef<Partial<Record<MarketTab, MarketQuoteRow[]>>>(initialSnapshot.rowsByTab);
   const [updatedAt, setUpdatedAt] = useState(initialSnapshot.updatedAt);
@@ -70,7 +78,7 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
   const [updateVersion, setUpdateVersion] = useState(0);
   const [reorderingVersion, setReorderingVersion] = useState(0);
   const [changedCodes, setChangedCodes] = useState<string[]>([]);
-  const { openStock } = useOpenMarketSearchResult();
+  const { openBoard, openStock } = useOpenMarketSearchResult();
   const shortcutLabel = getGlobalSearchShortcutLabel();
 
   useEffect(() => {
@@ -286,6 +294,21 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
   const changeTab = (tab: TMarketViewTab) => {
     window.clearTimeout(updateTimer.current);
     setActiveViewTab(tab);
+    if (tab === 'board-heat') {
+      setChangedCodes([]);
+      setReorderingVersion(0);
+      setBoardHeatLoading(true);
+      setBoardHeatError(undefined);
+      void getStocksenseApi()
+        .getBoardHeatSnapshot()
+        .then((snapshot) => setBoards(snapshot.boards))
+        .catch((error: unknown) => {
+          console.error('[market] board heat refresh failed', error);
+          setBoardHeatError(error instanceof Error ? error.message : '板块热度刷新失败');
+        })
+        .finally(() => setBoardHeatLoading(false));
+      return;
+    }
     if (tab === 'dragon-tiger') {
       setChangedCodes([]);
       setReorderingVersion(0);
@@ -371,6 +394,8 @@ export function MarketView({ onOpenGlobalSearch }: IMarketViewProps = {}) {
       </div>
       {activeViewTab === 'dragon-tiger' ? (
         <DragonTigerPanel onOpen={openStock} />
+      ) : activeViewTab === 'board-heat' ? (
+        <BoardHeatPanel boards={boards} error={boardHeatError} loading={boardHeatLoading} onOpen={openBoard} />
       ) : (
         <div ref={tableWrapRef} className={styles.tableWrap} onScroll={handleTableScroll}>
           <StockTable

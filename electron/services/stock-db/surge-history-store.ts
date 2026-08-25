@@ -1,7 +1,7 @@
 import { app } from '../../electron-runtime.js';
 import { DuckDBInstance, type DuckDBConnection } from '@duckdb/node-api';
 import path from 'node:path';
-import { shouldKeepSurgeItem } from '../stock/surge-large-order.js';
+import { shouldKeepSurgeItem } from '../stock/anomaly/surge-large-order.js';
 import type { HotFocusItem, StockSurgeEvent } from '../../../src/shared/types.js';
 
 interface SurgeRow {

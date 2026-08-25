@@ -27,7 +27,7 @@ const slashCommands: ISlashCommand[] = [
   {
     name: '/条件选股',
     intent: 'condition-screener',
-    usage: '请先选择条件选股预设，或输入条件，例如：/条件选股 --换手率>8% --成交额>2亿',
+    usage: '请先选择条件选股预设，或输入条件，例如：/条件选股 --换手率>8% --成交额>5亿',
   },
   {
     name: '/技术面分析',

@@ -552,7 +552,8 @@ export async function listLatestMarketRows() {
         COALESCE(ss.amount, b.amount) AS amount,
         COALESCE(ss.change, b.change) AS change,
         COALESCE(ss.change_percent, b.change_percent) AS change_percent,
-        COALESCE(ss.turnover_rate, b.turnover_rate) AS turnover_rate
+        COALESCE(ss.turnover_rate, b.turnover_rate) AS turnover_rate,
+        ss.total_market_cap AS market_cap
       FROM symbols
       LEFT JOIN securities s ON s.symbol = symbols.symbol AND s.status = 'listed'
       LEFT JOIN latest l ON l.symbol = symbols.symbol
@@ -575,6 +576,7 @@ export async function listLatestMarketRows() {
       change: optionalNumber(row.change),
       changePercent: optionalNumber(row.change_percent),
       turnoverRate: optionalNumber(row.turnover_rate),
+      marketCap: optionalNumber(row.market_cap),
       industry: optionalString(row.industry),
     }));
   });

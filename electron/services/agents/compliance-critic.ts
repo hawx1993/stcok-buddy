@@ -1,4 +1,9 @@
-import type { ComplianceReview, EvidenceItem, IAgentDataGap, StructuredAgentFinding } from '../../../src/shared/types.js';
+import type {
+  ComplianceReview,
+  EvidenceItem,
+  IAgentDataGap,
+  StructuredAgentFinding,
+} from '../../../src/shared/types.js';
 
 const disclaimer = '以上内容基于公开数据自动生成，仅供研究参考，不构成投资建议。';
 const forbiddenEmoji: Record<string, string> = {
@@ -79,7 +84,7 @@ export function reviewComplianceStructured(input: {
 }
 
 function appendDataGapUncertainty(text: string, gapLines: string) {
-  if (!/综合投研报告/.test(text)) return `${text.trim()}\n\n### ⚠️ 数据缺口与影响\n${gapLines}`;
+  if (!/综合投研报告/.test(text)) return `${text.trim()}\n`;
   if (/^###\s*(?:\S+\s+)?风险提示\s*$/m.test(text)) {
     return text.replace(/(###\s*(?:\S+\s+)?风险提示\s*\n)/, `$1${gapLines}\n`);
   }

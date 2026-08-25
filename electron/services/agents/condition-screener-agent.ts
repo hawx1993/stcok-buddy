@@ -1,7 +1,10 @@
 import type { AgentResultCard, EvidenceItem } from '../../../src/shared/types.js';
 import { CONDITION_SCREENER_COMMAND } from '../../../src/shared/condition-screener.js';
-import { formatMoney, formatPercentPoints } from '../stock/format.js';
-import { type IConditionScreenerResult, type IConditionScreenerRow } from '../market-data/condition-screener-service.js';
+import { formatMoney, formatPercentPoints } from '../stock/stock-detail/format.js';
+import {
+  type IConditionScreenerResult,
+  type IConditionScreenerRow,
+} from '../market-data/condition-screener-service.js';
 import { compileConditionScreenerQuery, type TConditionScreenerCompileResult } from './condition-screener-compiler.js';
 import { getConditionScreenerSessionState, setConditionScreenerSessionState } from './condition-screener-session.js';
 import { runContextTool } from './agent-tool-runtime.js';
@@ -122,9 +125,6 @@ function formatConditionScreenerResult(
   const parameterWarningLines = parseWarnings.length
     ? ['## ⚠️ 参数提示', ...parseWarnings.map((warning) => `- ${warning}`), '']
     : [];
-  const dataGapLines = result.warnings.length
-    ? ['## ⚠️ 数据缺口', ...result.warnings.map((warning) => `- ${warning}`), '']
-    : ['## ⚠️ 数据缺口', '- 当前未发现明确数据缺口。', ''];
 
   return [
     '# 条件选股',
@@ -138,7 +138,6 @@ function formatConditionScreenerResult(
     `- 命中 ${result.matchedCount} 只，展示 ${result.returnedCount} 只，候选 ${result.totalCandidates} 只。`,
     `- 数据源分布：DuckDB ${result.sourceStats.duckdbMatched} 只，stock-sdk ${result.sourceStats.stockSdkMatched} 只，a-stock-data ${result.sourceStats.aStockDataMatched} 只。`,
     '',
-    ...dataGapLines,
     '## 🎯 综合结论',
     ...formatConditionScreenerSummary(result),
     '- 🟡 中性：以上为真实数据条件筛选结果，仅用于缩小研究范围，不构成投资建议。',

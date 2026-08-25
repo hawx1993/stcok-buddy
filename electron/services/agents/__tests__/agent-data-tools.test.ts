@@ -27,13 +27,13 @@ vi.mock('../../market-data/providers', () => ({
   remoteMarketStatus: vi.fn(() => 'closed'),
 }));
 
-vi.mock('../../stock/stock-client', () => ({
+vi.mock('../../stock/stock-detail/stock-client', () => ({
   getChipDistribution: mocks.getChipDistribution,
   getStockFundFlowSnapshot: vi.fn(),
   listStockSurgeEvents: mocks.listStockSurgeEvents,
 }));
 
-vi.mock('../../stock/a-stock-data-runner', () => ({
+vi.mock('../../stock/quotes/a-stock-data-runner', () => ({
   runAStockDataFn: mocks.runAStockDataFn,
 }));
 

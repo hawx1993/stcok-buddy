@@ -111,6 +111,6 @@ ChatResponse + runEvents 通过 chat:token 推送给 renderer
 ## 修改路径
 
 - **新增意图**：`intent-routing.ts` → `agent-planning.ts` → `agent-workflows.ts` → 结果卡片/提示词/测试；新增全市场意图优先复用 `buildDataCoverageNode()`。
-- **新增真实工具**：先复用 `stock/**`、`market-data/**` 或 `stock-db/**` 的 service/provider，再接入 `tools/<kebab-case>.ts`、`tools/index.ts`、`tool-registry.ts` 和按需模型白名单；详见 `agent-tools.md`。
+- **新增真实工具**：先复用 `stock/stock-detail/**`、`stock/quotes/**`、`stock/anomaly/**`、`stock/chip-distribution/**`、`market-data/**` 或 `stock-db/**` 的 service/provider，再接入 `tools/<kebab-case>.ts`、`tools/index.ts`、`tool-registry.ts` 和按需模型白名单；详见 `agent-tools.md`。
 - **新增分析维度**：同步检查 `stock-analysis-agents.ts`、`StructuredAgentFinding`、`evidence.ts`、`stock-analysis-overview-agent.ts`、结果卡片、合规与测试。
 - **排查 Agent 问题**：沿 `orchestrator → intent-routing → planning → workflow/DAG → DataCoverage → tool runtime/tool/service → data status/reflection → evidence/compliance → renderer runEvents` 定位根因；不要用假数据、吞错或删除逻辑绕过问题。

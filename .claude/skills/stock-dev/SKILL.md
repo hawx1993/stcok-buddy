@@ -22,7 +22,7 @@ argument-hint: '[开发任务描述]'
 | State | Zustand、hook、worker、前端状态同步 | `.claude/recipes/renderer-ui.md` |
 | Renderer API | `getStocksenseApi()`、shared types、browser fallback | `.claude/recipes/renderer-api.md` |
 | IPC | preload、ipc channel、push event、主进程调用 | `.claude/recipes/ipc.md` |
-| Stock Service | 行情、搜索、K 线、板块、新闻、热点 | `.claude/recipes/stock-data.md` |
+| Stock Service | 行情、搜索、K 线、分时、筹码、板块、指数、新闻、热点、龙虎榜、异动、探索页、监控 | `.claude/recipes/stock-data.md` |
 | Market Data | DuckDB、同步、条件选股、本地查询 | `.claude/recipes/stock-data.md`、`.claude/recipes/persistence.md` |
 | Agent | 投研、orchestrator、tool、evidence、data gap | `.claude/recipes/agent.md` |
 | Persistence | SQLite、DuckDB、cache、scheduler、批量写入 | `.claude/recipes/persistence.md` |
@@ -36,8 +36,9 @@ argument-hint: '[开发任务描述]'
    - `.claude/rules/data.md`（涉及股票、行情、板块、新闻、图表、Agent 数据时）
    - `.claude/rules/bug-fix.md`（开发任务中包含 Bug 修复时）
 2. 读取 `.claude/knowledge/index.md`，只根据分类加载相关 Knowledge。
-3. 只读取命中的 Recipe；不要一次性读取 `.claude/knowledge/**` 或 `.claude/recipes/**`。
-4. 如果分类不确定，先搜索最精确线索；仍无法判断时向用户澄清。
+3. Stock Service 任务优先按当前子域定位：`stock-detail/`、`quotes/`、`anomaly/`、`discovery/`、`monitor/`、`chip-distribution/`；不要恢复旧 `stock/<file>.ts` 扁平路径。
+4. 只读取命中的 Recipe；不要一次性读取 `.claude/knowledge/**` 或 `.claude/recipes/**`。
+5. 如果分类不确定，先搜索最精确线索；仍无法判断时向用户澄清。
 
 ## 工作流
 

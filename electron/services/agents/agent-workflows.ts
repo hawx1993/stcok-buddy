@@ -9,8 +9,8 @@ import type {
   TMarketReviewReport,
 } from '../../../src/shared/types.js';
 import type { HistoricalBarsResult } from '../market-data/types.js';
-import type { IHolderNumberChangeRow } from '../stock/a-stock-data-runner.js';
-import type { DailyDragonTigerItem } from '../stock/stock-client.js';
+import type { IHolderNumberChangeRow } from '../stock/quotes/a-stock-data-runner.js';
+import type { DailyDragonTigerItem } from '../stock/stock-detail/stock-client.js';
 import type { IHotConceptsToolOutput } from './tools/get-hot-concepts.js';
 import type { IIndustryRankingToolOutput } from './tools/get-industry-ranking.js';
 import type { DagNode } from './dag-executor.js';
@@ -82,7 +82,9 @@ const EXPLICIT_MARKET_CHIP_QUERY_PATTERN = /全市场|A股|沪深|筛选|选出|
 
 function resolveChipCoverageMode(context: IAgentContext, isConditionScreener: boolean): TChipCoverageMode {
   if (!CHIP_QUERY_PATTERN.test(context.query)) return 'none';
-  if (isConditionScreener || context.intent === 'stock-picker') return 'market';
+  // 条件选股会先按行情条件缩小候选池，再使用本地筹码缓存并在后台补齐缺口，避免前置扫描全市场。
+  if (isConditionScreener) return 'none';
+  if (context.intent === 'stock-picker') return 'market';
   if (context.symbol && !EXPLICIT_MARKET_CHIP_QUERY_PATTERN.test(context.query)) return 'symbol';
   if (MARKET_CHIP_QUERY_PATTERN.test(context.query)) return 'market';
   return context.symbol ? 'symbol' : 'none';

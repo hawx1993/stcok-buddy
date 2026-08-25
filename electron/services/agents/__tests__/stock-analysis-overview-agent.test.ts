@@ -148,7 +148,6 @@ describe('股票综合报告最终正文', () => {
     );
 
     expect(report).not.toContain('### 🧭 分析计划回顾');
-    expect(report).not.toContain('### ⚠️ 数据缺口与影响');
     expect(report).not.toContain('### 🚨 风险排除');
     expect(report).not.toContain('### 🧭 观察框架');
     expect(report).toContain('### 📈 技术面分析');

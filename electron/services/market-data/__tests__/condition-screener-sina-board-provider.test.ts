@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   runAStockDataFn: vi.fn(),
 }));
 
-vi.mock('../../stock/a-stock-data-runner', () => ({
+vi.mock('../../stock/quotes/a-stock-data-runner', () => ({
   runAStockDataFn: mocks.runAStockDataFn,
 }));
 

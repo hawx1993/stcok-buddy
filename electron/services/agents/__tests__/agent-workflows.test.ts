@@ -174,7 +174,7 @@ describe('agent workflow market-data', () => {
 });
 
 describe('条件选股工作流', () => {
-  it('筹码条件选股把 A 股全市场筹码补齐作为 DataCoverage 前置条件', async () => {
+  it('筹码条件选股不把 A 股全市场筹码补齐作为 DataCoverage 前置条件', async () => {
     coverageMocks.runDataCoverageAgent.mockClear();
     const context = createContext();
     context.query = '查找90%筹码集中度小于18%、70%筹码集中度小于14%的个股';
@@ -186,10 +186,10 @@ describe('条件选股工作流', () => {
 
     await coverageNode.run(context);
 
-    expect(coverageNode.description).toContain('含A股全市场筹码');
+    expect(coverageNode.description).not.toContain('含A股全市场筹码');
     expect(coverageMocks.runDataCoverageAgent).toHaveBeenCalledWith(context, {
       minCoverage: 5000,
-      chipCoverageMode: 'market',
+      chipCoverageMode: 'none',
       chipSymbol: undefined,
       requireDailyBars: false,
     });
@@ -301,7 +301,7 @@ describe('条件选股工作流', () => {
     });
 
     const context = createContext();
-    context.query = '/条件选股 --换首率>8% --成交额>2亿';
+    context.query = '/条件选股 --换首率>8% --成交额>5亿';
     context.intent = 'condition-screener';
     context.symbol = undefined;
     context.plan = createInitialAgentPlan(context);
@@ -312,7 +312,7 @@ describe('条件选股工作流', () => {
 
     expect(mockedCallTool).toHaveBeenCalledWith('screenASharesByConditions', {
       turnoverRateMinExclusive: 8,
-      amountMinYuanExclusive: 200_000_000,
+      amountMinYuanExclusive: 500_000_000,
     });
     const emitEvent = context.emitEvent;
     if (!emitEvent) throw new Error('condition screener emitEvent missing');
@@ -338,7 +338,7 @@ describe('条件选股工作流', () => {
     );
     expect(analysisOverview).toContain('成交额较大个股：成交额最高股（600002，+4.50亿）');
     expect(analysisOverview).not.toContain('## 📰 核心事件');
-    expect(context.board?.subtitle).toBe('换手率 > 8% · 成交额 > 2 亿');
+    expect(context.board?.subtitle).toBe('换手率 > 8% · 成交额 > 5 亿');
     expect(context.board?.rows).toBeUndefined();
     expect(context.board?.narrative).toBeUndefined();
   });
@@ -375,7 +375,7 @@ describe('条件选股工作流', () => {
     });
 
     const context = createContext();
-    context.query = '/条件选股 --换手率>8% --成交额>2亿';
+    context.query = '/条件选股 --换手率>8% --成交额>5亿';
     context.intent = 'condition-screener';
     context.symbol = undefined;
     context.plan = createInitialAgentPlan(context);

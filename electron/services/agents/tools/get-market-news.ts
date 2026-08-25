@@ -1,5 +1,5 @@
 import type { AgentTool } from '../types.js';
-import { listMarketNews } from '../../stock/news-client.js';
+import { listMarketNews } from '../../stock/stock-detail/news-client.js';
 import { asRecord, num, text } from './input.js';
 
 /** Registry/workflow 专用：从新闻服务读取市场新闻列表。 */

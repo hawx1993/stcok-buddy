@@ -7,14 +7,14 @@ import type {
   MarketNewsItem,
   StockDetail,
 } from '../../../src/shared/types.js';
-import type { DailyDragonTigerItem } from '../stock/stock-client.js';
+import type { DailyDragonTigerItem } from '../stock/stock-detail/stock-client.js';
 import type {
   IBoardFundFlow,
   IEmHotRankItem,
   IHolderNumberChangeRow,
   IIndustryRanking,
   IThsHotStock,
-} from '../stock/a-stock-data-runner.js';
+} from '../stock/quotes/a-stock-data-runner.js';
 
 export function quoteToCard(quote?: StockDetail): AgentResultCard | undefined {
   if (!quote) return undefined;

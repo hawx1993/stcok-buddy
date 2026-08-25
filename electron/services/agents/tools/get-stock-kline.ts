@@ -1,5 +1,5 @@
 import type { AgentTool } from '../types.js';
-import { getKline } from '../../stock/stock-client.js';
+import { getKline } from '../../stock/stock-detail/stock-client.js';
 import { asRecord, num, text } from './input.js';
 
 /** Registry/workflow 专用：按既有 stock-client 契约获取股票 K 线序列。 */

@@ -14,6 +14,7 @@ import type {
   IStorageClearProgress,
   MarketDataSyncStatus,
   MarketIndexPeriod,
+  IBoardHeatSnapshot,
   MarketPageSnapshot,
   MarketTab,
   StocksenseApi,
@@ -104,6 +105,7 @@ const api: StocksenseApi = {
   getMarketDataStats: () => ipcRenderer.invoke('marketData:getStats'),
   getMarketPageSnapshot: (tab: MarketTab, period?: MarketIndexPeriod) =>
     ipcRenderer.invoke('market:getPageSnapshot', tab, period),
+  getBoardHeatSnapshot: (): Promise<IBoardHeatSnapshot> => ipcRenderer.invoke('market:getBoardHeatSnapshot'),
   getDragonTigerSnapshot: (range?: TDragonTigerRange) => ipcRenderer.invoke('dragonTiger:getSnapshot', range),
   getDiscoverySnapshot: (options?: Parameters<StocksenseApi['getDiscoverySnapshot']>[0]) =>
     ipcRenderer.invoke('discovery:getSnapshot', options),

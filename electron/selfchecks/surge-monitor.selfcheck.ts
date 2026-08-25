@@ -18,7 +18,7 @@ assert.equal(isChinaMarketOpen(new Date('2026-07-23T07:01:00.000Z')), false);
 assert.equal(isChinaMarketOpen(new Date('2026-07-25T01:30:00.000Z')), false);
 
 const store = await import('../services/stock-db/surge-history-store.js');
-const scheduler = await import('../services/stock/surge-history-scheduler.js');
+const scheduler = await import('../services/stock/anomaly/surge-history-scheduler.js');
 
 const item: HotFocusItem = {
   id: 'surge-selfcheck-1',

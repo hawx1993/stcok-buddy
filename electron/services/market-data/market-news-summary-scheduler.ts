@@ -1,6 +1,6 @@
 import { isRemoteTradingDay } from './providers.js';
 import { toShanghaiMarketTime } from './trade-date-resolver.js';
-import { getMarketNewsSummaryState, refreshMarketNewsSummary } from '../stock/news-client.js';
+import { getMarketNewsSummaryState, refreshMarketNewsSummary } from '../stock/stock-detail/news-client.js';
 
 const MIN_DELAY_MS = 15 * 60 * 1000;
 const MAX_DELAY_MS = 150 * 60 * 1000;

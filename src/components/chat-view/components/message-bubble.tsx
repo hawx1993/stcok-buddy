@@ -113,7 +113,7 @@ export const MessageBubble = memo(function MessageBubble({
           <ProcessedBanner seconds={message.processedSeconds} />
         ) : null}
         {message.runEvents?.length || message.thinking ? (
-          <AnalysisProgress events={message.runEvents ?? []} toolCalls={message.toolCalls} />
+          <AnalysisProgress completed={!message.thinking} events={message.runEvents ?? []} toolCalls={message.toolCalls} />
         ) : null}
         {highlightedMessageHtml ? (
           <div

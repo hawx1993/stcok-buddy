@@ -59,7 +59,6 @@ export function DragonTigerPanel({ onOpen }: { onOpen(row: MarketQuoteRow): void
       <div className={styles.dragonTigerHeader}>
         <div>
           <h2>龙虎榜</h2>
-          <p>stock-sdk 真实上榜数据 · 最新 Tab 每 60 秒刷新真实数据源</p>
         </div>
         <div className={styles.dragonTigerRanges}>
           {ranges.map((item) => (

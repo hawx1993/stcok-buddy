@@ -552,6 +552,201 @@
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 80%, transparent);
 }
+.boardHeatPanel {
+  flex: 1 0 320px;
+  min-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+}
+.boardHeatHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.boardHeatHeader h2 {
+  margin: 0;
+  color: var(--fg);
+  font-size: 16px;
+}
+.boardHeatHeader p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.boardHeatFilters {
+  display: flex;
+  gap: 5px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--input-bg);
+}
+.boardHeatFilters button {
+  height: 27px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+.boardHeatFilters button:hover,
+.boardHeatFilters button.boardHeatFilterActive {
+  color: var(--accent);
+  background: var(--list-item-active);
+}
+.boardHeatList {
+  padding: 4px 16px 16px;
+}
+.boardHeatRow {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 30px minmax(150px, 1fr) minmax(118px, max-content) 76px 16px;
+  align-items: center;
+  gap: 12px;
+  min-height: 62px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.boardHeatRow:hover {
+  background: var(--surface-hover);
+}
+.boardHeatRank {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.boardHeatRank1 { background: #e85252; color: #fff; }
+.boardHeatRank2 { background: #dd983d; color: #fff; }
+.boardHeatRank3 { background: #ccae35; color: #fff; }
+.boardHeatName {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.boardHeatTitle {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.boardHeatName strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.boardHeatName small,
+.boardHeatScore {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.boardHeatTags {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.boardHeatTags em {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.6;
+}
+.boardHeatScore {
+  color: var(--fg-secondary);
+  text-align: right;
+  white-space: nowrap;
+}
+.boardHeatChange {
+  font-size: 14px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.up {
+  color: var(--market-up);
+}
+.down {
+  color: var(--market-down);
+}
+.boardHeatArrow {
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+}
+.boardHeatSkeleton {
+  padding: 4px 16px 16px;
+}
+.boardHeatSkeletonRow {
+  display: grid;
+  grid-template-columns: 30px minmax(150px, 1fr) 88px 76px 16px;
+  align-items: center;
+  gap: 12px;
+  min-height: 62px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+.boardHeatSkeletonRank,
+.boardHeatSkeletonName i,
+.boardHeatSkeletonName em,
+.boardHeatSkeletonMetric,
+.boardHeatSkeletonChange,
+.boardHeatSkeletonArrow {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-hover) 25%, var(--surface-active) 37%, var(--surface-hover) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+.boardHeatSkeletonRank {
+  width: 24px;
+  height: 24px;
+}
+.boardHeatSkeletonName {
+  display: grid;
+  gap: 7px;
+}
+.boardHeatSkeletonName i {
+  width: 96px;
+  height: 15px;
+}
+.boardHeatSkeletonName em {
+  width: 128px;
+  height: 12px;
+}
+.boardHeatSkeletonMetric,
+.boardHeatSkeletonChange {
+  justify-self: end;
+  width: 64px;
+  height: 14px;
+}
+.boardHeatSkeletonArrow {
+  width: 10px;
+  height: 18px;
+}
+.boardHeatState {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
 .emptyState {
   min-height: 160px;
   display: grid;
@@ -731,6 +926,14 @@
 }
 :global(.down) {
   color: var(--market-down) !important;
+}
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .marketTable tbody tr {

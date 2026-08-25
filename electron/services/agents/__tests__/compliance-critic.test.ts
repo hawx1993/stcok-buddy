@@ -81,28 +81,6 @@ describe('结构化合规审查', () => {
     expect(result.issues.some((item) => item.type === 'unsupported-claim')).toBe(true);
   });
 
-  it('存在数据缺口和确定措辞时补充不确定性说明', () => {
-    const result = reviewComplianceStructured({
-      text: '风险已排除，技术方向确定。不构成投资建议。',
-      evidence: [evidence('technical')],
-      findings: [finding],
-      dataGaps: [
-        {
-          id: 'gap-1',
-          dataName: '新闻',
-          status: 'empty',
-          reason: '新闻为空',
-          affectedPlanItemIds: ['event-risk'],
-          impact: 'medium',
-          userMessage: '新闻数据为空，事件风险不能视为已排除。',
-        },
-      ],
-    });
-
-    expect(result.revisedText).toContain('数据缺口与影响');
-    expect(result.revisedText).toContain('新闻数据为空');
-  });
-
   it('综合投研报告存在数据缺口时不追加独立数据缺口小节', () => {
     const result = reviewComplianceStructured({
       text: '## 📊 测试股（600001）综合投研报告\n\n### 🚨 风险提示\n- 技术方向确定。\n\n不构成投资建议。',
@@ -121,7 +99,6 @@ describe('结构化合规审查', () => {
       ],
     });
 
-    expect(result.revisedText).not.toContain('### ⚠️ 数据缺口与影响');
     expect(result.revisedText).toContain('### 🚨 风险提示');
     expect(result.revisedText).toContain('新闻数据为空');
   });
