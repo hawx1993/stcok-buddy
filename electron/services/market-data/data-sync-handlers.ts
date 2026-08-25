@@ -2,7 +2,7 @@ import { BrowserWindow } from '../../electron-runtime.js';
 import { ensureMarketDataRuntime } from './market-data-scheduler.js';
 import { startMarketDataSync } from './market-data-sync.js';
 import { listSecurities } from '../stock-db/market-data-store.js';
-import { ensureSurgeHistoryCapture, isSurgeHistorySchedulerRunning } from '../stock/surge-history-scheduler.js';
+import { ensureSurgeHistoryCapture, isSurgeHistorySchedulerRunning } from '../stock/anomaly/surge-history-scheduler.js';
 import {
   clearSurgeHistoryClearMarker,
   getSurgeHistoryFreshness,
@@ -80,7 +80,7 @@ async function runSurgeHistorySync() {
 
   try {
     // Dynamic import to avoid circular deps
-    const { listHotFocus, toIndividualHistoryEvents } = await import('../stock/hot-focus.js');
+    const { listHotFocus, toIndividualHistoryEvents } = await import('../stock/anomaly/hot-focus.js');
     const { pruneSurgeHistory, saveSurgeSnapshot, saveIndividualSurgeHistory } =
       await import('../stock-db/surge-history-store.js');
 
@@ -278,7 +278,7 @@ export async function syncStockDetails() {
 }
 
 export async function syncMarketSnapshot() {
-  const { getMarketPageSnapshot } = await import('../stock/market-page.js');
+  const { getMarketPageSnapshot } = await import('../stock/quotes/market-page.js');
 
   const tabs = ['sh-main', 'sz-main', 'bj', 'gem', 'star'] as const;
   const total = tabs.length;

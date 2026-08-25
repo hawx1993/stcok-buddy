@@ -2,8 +2,8 @@ import {
   runAStockDataFn,
   type ISinaBoardConstituentResult,
   type ISinaBoardRankResult,
-} from '../stock/a-stock-data-runner.js';
-import { normalizeASymbol } from '../stock/symbols.js';
+} from '../stock/quotes/a-stock-data-runner.js';
+import { normalizeASymbol } from '../stock/stock-detail/symbols.js';
 import type { BoardConstituentRecord, MarketBoardRecord } from './types.js';
 
 export interface IConditionScreenerSinaBoardsResult {

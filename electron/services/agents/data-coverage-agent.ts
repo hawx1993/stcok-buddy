@@ -14,7 +14,7 @@ import {
   hydrateAllSecuritiesInWorker,
 } from '../market-data/market-data-hydration-worker-client.js';
 import type { IMarketDataHydrationStatus } from '../market-data/market-data-hydration-worker-types.js';
-import { getChipDistribution } from '../stock/chip-distribution-provider.js';
+import { getChipDistribution } from '../stock/chip-distribution/chip-distribution-provider.js';
 
 const DEFAULT_MIN_COVERAGE = 5000;
 const DEFAULT_CHIP_TIMEOUT_MS = 120_000;

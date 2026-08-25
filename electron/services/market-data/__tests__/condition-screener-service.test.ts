@@ -27,8 +27,8 @@ vi.mock('../../../electron-runtime', () => ({
   },
 }));
 
-vi.mock('../../stock/shared', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../stock/shared.js')>()),
+vi.mock('../../stock/quotes/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../stock/quotes/shared.js')>()),
   getCachedMarketBoardRows: sharedMocks.getCachedMarketBoardRows,
   refreshMarketBoardRows: sharedMocks.refreshMarketBoardRows,
 }));

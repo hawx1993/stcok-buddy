@@ -1,8 +1,8 @@
 import type { IChipDistributionResult } from '../../../src/shared/types.js';
-import { getBoardDetail } from '../stock/board-detail.js';
-import { getChipDistribution } from '../stock/chip-distribution-provider.js';
-import { normalizeMarketCap } from '../stock/format.js';
-import { refreshMarketBoardRows } from '../stock/shared.js';
+import { getBoardDetail } from '../stock/anomaly/board-detail.js';
+import { getChipDistribution } from '../stock/chip-distribution/chip-distribution-provider.js';
+import { normalizeMarketCap } from '../stock/stock-detail/format.js';
+import { refreshMarketBoardRows } from '../stock/quotes/shared.js';
 import {
   emptyConditionScreenerBoardScope,
   loadConditionScreenerLeadingBoardScope,

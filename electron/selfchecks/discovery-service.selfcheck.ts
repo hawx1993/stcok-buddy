@@ -9,9 +9,9 @@ const surgeDbPath = path.join(os.tmpdir(), `stocksense-discovery-surge-selfcheck
 process.env.STOCKSENSE_MARKET_DB_PATH = dbPath;
 process.env.STOCKSENSE_SURGE_DB_PATH = surgeDbPath;
 
-import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from '../services/stock/discovery-hot-themes.js';
-import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from '../services/stock/discovery-market-summary.js';
-import { buildMonthlyThemesFromHistoricalPools } from '../services/stock/discovery-monthly-themes.js';
+import { mergeHotThemeLeaders, reconcileHotThemeWithLocalBoard } from '../services/stock/discovery/discovery-hot-themes.js';
+import { selectLatestMainFundFlowYi, sumNorthFundFlowYi } from '../services/stock/discovery/discovery-market-summary.js';
+import { buildMonthlyThemesFromHistoricalPools } from '../services/stock/discovery/discovery-monthly-themes.js';
 import {
   buildLocalBoardCatalog,
   parseMoneyTextToYuanForTest,
@@ -21,7 +21,7 @@ import {
   sumBoardConstituentAmountsForTest,
   sumConstituentMainNetInflowYiForTest,
   toLimitDownStockItemForTest,
-} from '../services/stock/discovery-service.js';
+} from '../services/stock/discovery/discovery-service.js';
 import type { HotFocusItem } from '../../src/shared/types.js';
 import type { MarketFundFlow, NorthboundFlowSummary } from 'stock-sdk';
 

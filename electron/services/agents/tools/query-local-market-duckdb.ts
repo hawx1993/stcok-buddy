@@ -12,7 +12,7 @@ import {
   readBoardSnapshot,
   readDiscoverySnapshot,
 } from '../../stock-db/market-data-store.js';
-import { normalizeMarketCap } from '../../stock/format.js';
+import { normalizeMarketCap } from '../../stock/stock-detail/format.js';
 import type { AgentTool } from '../types.js';
 import { asRecord, enumValue, formatError, limit, optionalText } from './input.js';
 

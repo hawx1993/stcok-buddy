@@ -16,7 +16,7 @@ import type {
   TMarketReviewReport,
   ToolCallRecord,
 } from '../../../src/shared/types.js';
-import type { DailyDragonTigerItem } from '../stock/stock-client.js';
+import type { DailyDragonTigerItem } from '../stock/stock-detail/stock-client.js';
 import type { StockAnalysisAgentName, StockAnalysisResult } from './stock-analysis-agents.js';
 import type { IDataCoverageResult } from './data-coverage-agent.js';
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ITencentQuote } from '../../stock/a-stock-data-runner.js';
+import type { ITencentQuote } from '../../stock/quotes/a-stock-data-runner.js';
 
 const mocks = vi.hoisted(() => ({
   runAStockDataFn: vi.fn(),
@@ -7,11 +7,11 @@ const mocks = vi.hoisted(() => ({
   stockSdkBatchCn: vi.fn(),
 }));
 
-vi.mock('../../stock/a-stock-data-runner', () => ({
+vi.mock('../../stock/quotes/a-stock-data-runner', () => ({
   runAStockDataFn: mocks.runAStockDataFn,
 }));
 
-vi.mock('../../stock/shared', () => ({
+vi.mock('../../stock/quotes/shared', () => ({
   sdk: { batch: { byCodes: mocks.stockSdkBatchByCodes, cn: mocks.stockSdkBatchCn } },
 }));
 

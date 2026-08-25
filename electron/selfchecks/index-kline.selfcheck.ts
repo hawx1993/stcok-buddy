@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import type { KlinePoint, MarketIndexPeriod, MarketIndexSnapshot } from '../../src/shared/types.js';
 import { closeMarketDataInstance, closeMarketDataStore } from '../services/stock-db/market-data-store.js';
-import { getMarketPageSnapshot } from '../services/stock/market-page.js';
-import { getKline } from '../services/stock/stock-client.js';
+import { getMarketPageSnapshot } from '../services/stock/quotes/market-page.js';
+import { getKline } from '../services/stock/stock-detail/stock-client.js';
 
 const periods = ['1d', '1w', '1mo'] as const;
 const symbols = ['sh000001', 'sz399001'] as const;

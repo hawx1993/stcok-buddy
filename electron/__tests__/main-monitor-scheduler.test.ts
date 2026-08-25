@@ -93,7 +93,7 @@ vi.mock('../ipc', () => ({ registerIpcHandlers: lifecycle.registerIpcHandlers })
 vi.mock('../services/market-data/data-sync-handlers', () => ({
   syncSurgeHistoryIfNeeded: lifecycle.syncSurgeHistoryIfNeeded,
 }));
-vi.mock('../services/stock/monitor-history-scheduler', () => monitorScheduler);
+vi.mock('../services/stock/monitor/monitor-history-scheduler', () => monitorScheduler);
 vi.mock('../services/stock-db/market-data-store', () => ({
   closeMarketDataInstance: lifecycle.closeMarketDataInstance,
   closeMarketDataStore: lifecycle.closeMarketDataStore,
@@ -106,13 +106,13 @@ vi.mock('../services/market-data/market-data-scheduler', () => ({
 vi.mock('../services/stock-db/conversation-store', () => ({
   closeConversationStore: lifecycle.closeConversationStore,
 }));
-vi.mock('../services/stock/surge-history-scheduler', () => ({
+vi.mock('../services/stock/anomaly/surge-history-scheduler', () => ({
   ensureSurgeHistoryCapture: lifecycle.ensureSurgeHistoryCapture,
   shutdownSurgeHistoryScheduler: lifecycle.shutdownSurgeHistoryScheduler,
   stopSurgeHistoryScheduler: lifecycle.stopSurgeHistoryScheduler,
   waitForSurgeHistoryScheduler: lifecycle.waitForSurgeHistoryScheduler,
 }));
-vi.mock('../services/stock/discovery-service', () => ({
+vi.mock('../services/stock/discovery/discovery-service', () => ({
   stopDiscoveryRefreshLoop: lifecycle.stopDiscoveryRefreshLoop,
 }));
 vi.mock('../services/stock-db/quote-store', () => ({

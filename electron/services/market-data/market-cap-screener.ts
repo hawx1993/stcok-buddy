@@ -1,5 +1,5 @@
-import { normalizeMarketCap } from '../stock/format.js';
-import { normalizeASymbol } from '../stock/symbols.js';
+import { normalizeMarketCap } from '../stock/stock-detail/format.js';
+import { normalizeASymbol } from '../stock/stock-detail/symbols.js';
 import {
   listAShareMarketCapSnapshotRows,
   upsertSecurities,

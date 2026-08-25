@@ -1,5 +1,5 @@
 import type { AgentTool } from '../types.js';
-import { listDailyDragonTiger } from '../../stock/stock-client.js';
+import { listDailyDragonTiger } from '../../stock/stock-detail/stock-client.js';
 import { asRecord, num } from './input.js';
 
 /** Registry/workflow 专用：获取当日全市场龙虎榜记录并按数量截取。 */

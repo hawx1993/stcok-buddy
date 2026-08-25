@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../shared/stocksense-api';
 import type { IConversationSearchResult, IMonitorEvent, MarketNewsItem, MarketSearchResult } from '../../shared/types';
 import { useOpenMarketSearchResult } from '../../hooks/use-open-market-search-result';
-import { getConversationRoleLabel, getGlobalSearchResultKey } from './utils';
+import { appendSearchHistoryItem, getConversationRoleLabel, getGlobalSearchResultKey, normalizeSearchHistory } from './utils';
 import { MarketSearchSuggestionList } from './components/market-search-suggestion-list';
 import { useAppDataStore, useAppUiStore } from '../../store/app-store';
 import { getGlobalSearchShortcutLabel } from './shortcut';
@@ -11,6 +11,7 @@ import styles from './index.module.scss';
 
 const NEWS_SEARCH_PAGE_SIZE = 20;
 const MONITOR_SEARCH_PAGE_SIZE = 50;
+const SEARCH_HISTORY_STORAGE_KEY = 'stocksense:global-search-history';
 
 export type TGlobalSearchMode = 'global' | 'news' | 'ai-monitor';
 
@@ -27,6 +28,35 @@ interface IGlobalStockSearchProps {
   placeholder?: string;
   aiMonitorDate?: string;
   onSelectAiMonitorEvent?(event: IMonitorEvent): void;
+}
+
+function readSearchHistory() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY);
+    return raw ? normalizeSearchHistory(JSON.parse(raw)) : [];
+  } catch (error) {
+    console.warn('读取搜索历史失败', error);
+    return [];
+  }
+}
+
+function writeSearchHistory(history: string[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(history));
+  } catch (error) {
+    console.warn('保存搜索历史失败', error);
+  }
+}
+
+function removeSearchHistory() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(SEARCH_HISTORY_STORAGE_KEY);
+  } catch (error) {
+    console.warn('清空搜索历史失败', error);
+  }
 }
 
 const MONITOR_CATEGORY_LABELS: Record<IMonitorEvent['category'], string> = {
@@ -56,6 +86,7 @@ export function GlobalStockSearch({
   const [conversationResults, setConversationResults] = useState<IConversationSearchResult[]>([]);
   const [newsResults, setNewsResults] = useState<MarketNewsItem[]>([]);
   const [aiMonitorResults, setAiMonitorResults] = useState<IMonitorEvent[]>([]);
+  const [searchHistory, setSearchHistory] = useState<string[]>(readSearchHistory);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const { openSearchResult } = useOpenMarketSearchResult();
@@ -187,6 +218,27 @@ export function GlobalStockSearch({
   if (!open) return null;
 
   const close = () => onOpenChange(false);
+  const currentSearchKeyword = () => debouncedSearch || searchText.trim();
+  const recordSelectedSearch = () => {
+    const keyword = currentSearchKeyword();
+    if (!keyword) return;
+    setSearchHistory((current) => {
+      const next = appendSearchHistoryItem(current, keyword);
+      if (next.length === current.length && next.every((item, index) => item === current[index])) return current;
+      writeSearchHistory(next);
+      return next;
+    });
+  };
+  const clearSearchHistory = () => {
+    setSearchHistory([]);
+    removeSearchHistory();
+    inputRef.current?.focus();
+  };
+  const selectSearchHistory = (keyword: string) => {
+    setSearchText(keyword);
+    setDebouncedSearch(keyword);
+    inputRef.current?.focus();
+  };
   const searchPlaceholder = placeholder ?? (isNewsMode ? '搜索新闻标题 / 来源 / 标签' : isAiMonitorMode ? '搜索代码 / 名称 / 事件' : '搜索代码 / 股票名称 / 板块 / 会话内容');
   const emptyHint = isNewsMode
     ? '输入关键词搜索新闻'
@@ -195,6 +247,7 @@ export function GlobalStockSearch({
       : '输入股票代码、名称、板块或会话内容开始搜索';
   const dialogLabel = isNewsMode ? '新闻搜索' : isAiMonitorMode ? 'AI监控搜索' : '全局搜索';
   const selectNewsResult = (row: MarketNewsItem) => {
+    recordSelectedSearch();
     close();
     const requestId = useAppUiStore.getState().openNewsReader(row);
     void getStocksenseApi()
@@ -207,19 +260,22 @@ export function GlobalStockSearch({
       });
   };
   const selectMarketResult = (row: MarketSearchResult) => {
+    recordSelectedSearch();
     close();
     void openSearchResult(row);
   };
   const selectAiMonitorResult = (row: IMonitorEvent) => {
+    recordSelectedSearch();
     close();
     onSelectAiMonitorEvent?.(row);
   };
   const selectConversationResult = (row: IConversationSearchResult) => {
+    recordSelectedSearch();
     close();
     requestChatSearchHighlight({
       conversationId: row.conversationId,
       messageId: row.messageId,
-      query: debouncedSearch || searchText.trim() || row.snippet,
+      query: currentSearchKeyword() || row.snippet,
     });
     if (row.conversationId === activeConversationId) setMainView('chat');
     else setActiveConversation(row.conversationId);
@@ -336,6 +392,28 @@ export function GlobalStockSearch({
             </>
           ) : debouncedSearch ? (
             <div className={styles.empty}>{isAiMonitorMode ? '无匹配监控事件' : '无匹配结果'}</div>
+          ) : searchHistory.length ? (
+            <section className={styles.group}>
+              <div className={styles.groupHeader}>
+                <h3>搜索历史</h3>
+                <button className={styles.clearHistoryButton} onClick={clearSearchHistory} type='button'>
+                  清空
+                </button>
+              </div>
+              {searchHistory.map((keyword) => (
+                <button
+                  key={keyword}
+                  className={styles.historyItem}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    selectSearchHistory(keyword);
+                  }}
+                  type='button'
+                >
+                  {keyword}
+                </button>
+              ))}
+            </section>
           ) : (
             <div className={styles.empty}>{emptyHint}</div>
           )}

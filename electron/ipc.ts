@@ -69,24 +69,24 @@ import {
   listStockSurgeEvents,
   onMarketPageSnapshotUpdated,
   searchStocks,
-} from './services/stock/stock-client.js';
-import { getDiscoverySnapshot } from './services/stock/discovery-service.js';
-import { getBoardDashboard } from './services/stock/board-dashboard.js';
-import { getMonitorFeed } from './services/stock/monitor-service.js';
-import { getTradingAdvice } from './services/stock/trading-advice-service.js';
-import { getHithinkBoardHeatSnapshot } from './services/stock/hithink-board-heat.js';
-import { getHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
-import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
+} from './services/stock/stock-detail/stock-client.js';
+import { getDiscoverySnapshot } from './services/stock/discovery/discovery-service.js';
+import { getBoardDashboard } from './services/stock/quotes/board-dashboard.js';
+import { getMonitorFeed } from './services/stock/monitor/monitor-service.js';
+import { getTradingAdvice } from './services/stock/stock-detail/trading-advice-service.js';
+import { getHithinkBoardHeatSnapshot } from './services/stock/anomaly/hithink-board-heat.js';
+import { getHotStockHintSource } from './services/stock/anomaly/hot-stock-hints-service.js';
+import { listSurgeHistoryWithBackfill } from './services/stock/anomaly/surge-history-service.js';
 import { closeSurgeHistoryInstance, listSurgeDates } from './services/stock-db/surge-history-store.js';
-import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler } from './services/stock/surge-history-scheduler.js';
-import { stopMonitorHistoryScheduler } from './services/stock/monitor-history-scheduler.js';
+import { ensureSurgeHistoryCapture, stopSurgeHistoryScheduler } from './services/stock/anomaly/surge-history-scheduler.js';
+import { stopMonitorHistoryScheduler } from './services/stock/monitor/monitor-history-scheduler.js';
 import {
   ensureMarketNewsSummaryState,
   getMarketNewsDetail,
   listMarketNews,
   listStockNewsAnnouncements,
   listStockNewsFeed,
-} from './services/stock/news-client.js';
+} from './services/stock/stock-detail/news-client.js';
 import {
   installStoreItem,
   listInstalledStoreItems,

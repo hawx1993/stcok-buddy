@@ -1,5 +1,26 @@
 import type { IConversationSearchResult, MarketSearchResult, TGlobalSearchResult } from '../../shared/types';
 
+export const GLOBAL_SEARCH_HISTORY_LIMIT = 10;
+
+export function normalizeSearchHistory(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const keyword = item.trim();
+    if (!keyword || result.includes(keyword)) continue;
+    result.push(keyword);
+    if (result.length >= GLOBAL_SEARCH_HISTORY_LIMIT) break;
+  }
+  return result;
+}
+
+export function appendSearchHistoryItem(history: string[], query: string) {
+  const keyword = query.trim();
+  if (!keyword) return history;
+  return [keyword, ...history.filter((item) => item !== keyword)].slice(0, GLOBAL_SEARCH_HISTORY_LIMIT);
+}
+
 export function formatSearchQuoteValue(value: MarketSearchResult['price']) {
   if (value === undefined || value === null || value === '') return '--';
   return String(value);

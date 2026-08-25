@@ -235,6 +235,6 @@ pnpm run build
 2026-07-13 扫描项目时发现以下历史硬编码或 fallback 数据模式。后续触碰相关文件时，不得继续扩展这些模式，应逐步替换为真实数据源：
 
 - `src/shared/stocksense-api.ts`：浏览器预览 `stockMap`、`fallbackNews`、`fallbackHot`、`makePreview*` 数据。
-- `electron/services/stock/stock-client.ts`：`fallbackMarketQuotes`、`fallbackMarketBoards`、`fallbackSectorHot`、合成指数辅助函数。
+- `electron/services/stock/stock-detail/stock-client.ts`、`electron/services/stock/quotes/**`：历史曾存在 `fallbackMarketQuotes`、`fallbackMarketBoards`、`fallbackSectorHot`、合成指数辅助函数等模式；触碰迁移后的 stock 子域时继续确认没有恢复伪造行情。
 - `src/components/kline-chart/index.tsx`：无股票代码时的合成图表数据。
 - Agent 的 fallback 文案/证据 helper 可以保留“数据不可用”提示，但不得伪造市场数值。

@@ -1,7 +1,7 @@
 import type { KlinePoint } from '../../../../src/shared/types.js';
 import { queryHistoricalBars } from '../../market-data/market-data-query.js';
-import type { IBaiduKline } from '../../stock/a-stock-data-runner.js';
-import { runAStockDataFn } from '../../stock/a-stock-data-runner.js';
+import type { IBaiduKline } from '../../stock/quotes/a-stock-data-runner.js';
+import { runAStockDataFn } from '../../stock/quotes/a-stock-data-runner.js';
 import type { AgentTool } from '../types.js';
 import { parseBaiduKline } from '../agent-data-mappers.js';
 import { asRecord, formatError, num, text } from './input.js';

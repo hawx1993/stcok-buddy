@@ -9,8 +9,8 @@ import type {
   TMarketReviewReport,
 } from '../../../src/shared/types.js';
 import type { HistoricalBarsResult } from '../market-data/types.js';
-import type { IHolderNumberChangeRow } from '../stock/a-stock-data-runner.js';
-import type { DailyDragonTigerItem } from '../stock/stock-client.js';
+import type { IHolderNumberChangeRow } from '../stock/quotes/a-stock-data-runner.js';
+import type { DailyDragonTigerItem } from '../stock/stock-detail/stock-client.js';
 import type { IHotConceptsToolOutput } from './tools/get-hot-concepts.js';
 import type { IIndustryRankingToolOutput } from './tools/get-industry-ranking.js';
 import type { DagNode } from './dag-executor.js';

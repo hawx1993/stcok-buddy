@@ -1,6 +1,6 @@
 import type { IStockFundFlowSnapshot, KlinePoint, StockDetail } from '../../../src/shared/types.js';
-import { inferExchange } from '../stock/symbols.js';
-import type { IBaiduKline, IEMFundFlowMinuteRow, ITencentQuote } from '../stock/a-stock-data-runner.js';
+import { inferExchange } from '../stock/stock-detail/symbols.js';
+import type { IBaiduKline, IEMFundFlowMinuteRow, ITencentQuote } from '../stock/quotes/a-stock-data-runner.js';
 
 /**
  * Agent 数据工具用的纯映射函数（无 DuckDB / stock-sdk 运行时依赖，可单测）。

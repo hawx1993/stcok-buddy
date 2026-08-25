@@ -1,5 +1,5 @@
-import type { IHolderNumberChangeRow } from '../../stock/a-stock-data-runner.js';
-import { runAStockDataFn } from '../../stock/a-stock-data-runner.js';
+import type { IHolderNumberChangeRow } from '../../stock/quotes/a-stock-data-runner.js';
+import { runAStockDataFn } from '../../stock/quotes/a-stock-data-runner.js';
 import type { AgentTool } from '../types.js';
 import { asRecord, text } from './input.js';
 

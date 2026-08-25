@@ -1,6 +1,6 @@
 import type { AgentResultCard, EvidenceItem } from '../../../src/shared/types.js';
 import { CONDITION_SCREENER_COMMAND } from '../../../src/shared/condition-screener.js';
-import { formatMoney, formatPercentPoints } from '../stock/format.js';
+import { formatMoney, formatPercentPoints } from '../stock/stock-detail/format.js';
 import { type IConditionScreenerResult, type IConditionScreenerRow } from '../market-data/condition-screener-service.js';
 import { compileConditionScreenerQuery, type TConditionScreenerCompileResult } from './condition-screener-compiler.js';
 import { getConditionScreenerSessionState, setConditionScreenerSessionState } from './condition-screener-session.js';

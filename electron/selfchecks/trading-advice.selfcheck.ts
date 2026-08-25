@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { marketBoardsCache } from '../services/stock/shared.js';
-import { resolveBoardDetailLookupKey } from '../services/stock/board-detail.js';
-import { reconcileAdviceLeaderStocks } from '../services/stock/trading-advice-service.js';
+import { marketBoardsCache } from '../services/stock/quotes/shared.js';
+import { resolveBoardDetailLookupKey } from '../services/stock/anomaly/board-detail.js';
+import { reconcileAdviceLeaderStocks } from '../services/stock/stock-detail/trading-advice-service.js';
 import type { ITradingAdvice } from '../../src/shared/types.js';
 
 const advice: ITradingAdvice = {

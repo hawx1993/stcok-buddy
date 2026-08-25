@@ -9,14 +9,14 @@ import type {
   StockDetail,
 } from '../../../src/shared/types.js';
 import type { HistoricalBarsResult } from '../market-data/types.js';
-import type { DailyDragonTigerItem } from '../stock/stock-client.js';
+import type { DailyDragonTigerItem } from '../stock/stock-detail/stock-client.js';
 import type {
   IBoardFundFlow,
   IEmHotRankItem,
   IHolderNumberChangeRow,
   IIndustryRanking,
   IThsHotStock,
-} from '../stock/a-stock-data-runner.js';
+} from '../stock/quotes/a-stock-data-runner.js';
 
 export function evidenceFromBoardCard(card?: AgentResultCard): EvidenceItem[] {
   if (!card) return [fallbackEvidence('board', '板块资金流数据不足')];

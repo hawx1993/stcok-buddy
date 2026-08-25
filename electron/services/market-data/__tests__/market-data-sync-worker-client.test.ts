@@ -49,7 +49,7 @@ vi.mock('comlink', () => ({
   wrap: comlinkMocks.wrap,
 }));
 
-vi.mock('../../stock/comlink-node-endpoint', () => ({
+vi.mock('../../stock/quotes/comlink-node-endpoint', () => ({
   nodeEndpoint: vi.fn(() => ({})),
 }));
 

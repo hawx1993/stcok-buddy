@@ -1,5 +1,5 @@
-import type { IBoardFundFlow, IIndustryRanking } from '../../stock/a-stock-data-runner.js';
-import { runAStockDataFn } from '../../stock/a-stock-data-runner.js';
+import type { IBoardFundFlow, IIndustryRanking } from '../../stock/quotes/a-stock-data-runner.js';
+import { runAStockDataFn } from '../../stock/quotes/a-stock-data-runner.js';
 import type { AgentTool } from '../types.js';
 
 export interface IIndustryRankingToolOutput {

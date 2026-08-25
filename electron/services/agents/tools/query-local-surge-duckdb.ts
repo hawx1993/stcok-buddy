@@ -1,5 +1,5 @@
 import type { HotFocusItem } from '../../../../src/shared/types.js';
-import { largeOrderHands } from '../../stock/surge-large-order.js';
+import { largeOrderHands } from '../../stock/anomaly/surge-large-order.js';
 import {
   listRecentStockSurgeEvents,
   listStockSurgeEventsByTradeDates,

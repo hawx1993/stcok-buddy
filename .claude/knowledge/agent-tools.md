@@ -2,7 +2,7 @@
 
 适用范围：`electron/services/agents/tool-registry.ts`、`electron/services/agents/types.ts`、`electron/services/agents/tools/**`、`electron/services/agents/agent-tool-runtime.ts`，以及两个模型 Agent 的工具白名单。
 
-工具不是 renderer API。所有股票数据必须先经 `stock/**`、`market-data/**`、`stock-db/**` 的 service/provider，再由 Agent 工具封装；UI 不得直连第三方行情接口。
+工具不是 renderer API。所有股票数据必须先经 `stock/**`、`market-data/**`、`stock-db/**` 的 service/provider，再由 Agent 工具封装；UI 不得直连第三方行情接口。当前 stock service 已按 `stock-detail/`、`quotes/`、`anomaly/`、`discovery/`、`monitor/`、`chip-distribution/` 子域拆分，新增工具应复用对应子域入口而不是恢复旧扁平路径。
 
 ## 工具集合与调用授权
 
@@ -120,7 +120,7 @@ fallback 只能使流程继续表达“数据缺口/置信度下降”，不能�
 
 ## 新增或修改工具
 
-1. 先在 `electron/services/stock/**`、`electron/services/market-data/**`、`electron/services/stock-db/**` 或现有 provider 中寻找真实实现；`stock-sdk` 优先，只有不支持或不可用时才使用 `a-stock-data`。
+1. 先在 `electron/services/stock/stock-detail/**`、`electron/services/stock/quotes/**`、`electron/services/stock/anomaly/**`、`electron/services/stock/chip-distribution/**`、`electron/services/market-data/**`、`electron/services/stock-db/**` 或现有 provider 中寻找真实实现；`stock-sdk` 优先，只有不支持或不可用时才使用 `a-stock-data`。
 2. 在 `electron/services/agents/tools/<kebab-case>.ts` 实现职责单一的 `AgentTool`，保持来源、存储、新鲜度、完整性、warning 和 evidence 所需字段。
 3. 从 `tools/index.ts` 导出，并在 `tool-registry.ts` 注册唯一名称。
 4. 只有模型确实需要自主选择时，才把它加入相应 Agent 的白名单和提示说明；registry 注册本身不授予授权。

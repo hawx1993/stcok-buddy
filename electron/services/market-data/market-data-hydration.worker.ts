@@ -1,9 +1,9 @@
 import { parentPort } from 'node:worker_threads';
 import { expose } from 'comlink';
 import StockSDK from 'stock-sdk';
-import { nodeEndpoint } from '../stock/comlink-node-endpoint.js';
-import { calculateChipDistribution, chipRowsToResult } from '../stock/chip-distribution.js';
-import { runAStockDataFn, type IBaiduKline } from '../stock/a-stock-data-runner.js';
+import { nodeEndpoint } from '../stock/quotes/comlink-node-endpoint.js';
+import { calculateChipDistribution, chipRowsToResult } from '../stock/chip-distribution/chip-distribution.js';
+import { runAStockDataFn, type IBaiduKline } from '../stock/quotes/a-stock-data-runner.js';
 import {
   listSecurities,
   listStockChips,

@@ -7,7 +7,7 @@ import type {
   IAgentReflectionResult,
   TPlanItemStatus,
 } from '../../../src/shared/types.js';
-import { isUnsupportedStockMarketQuery } from '../stock/stock-client.js';
+import { isUnsupportedStockMarketQuery } from '../stock/stock-detail/stock-client.js';
 import { runStoreCommand } from '../store-service.js';
 import { callTool } from './tool-registry.js';
 import { reviewComplianceStructured } from './compliance-critic.js';

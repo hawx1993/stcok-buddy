@@ -1,5 +1,5 @@
 import type { AgentTool } from '../types.js';
-import { getStockFundFlowSnapshot as fetchStockFundFlowSnapshot } from '../../stock/stock-client.js';
+import { getStockFundFlowSnapshot as fetchStockFundFlowSnapshot } from '../../stock/stock-detail/stock-client.js';
 import { asRecord, text } from './input.js';
 
 /** Registry/workflow 专用：通过 stock-client 获取个股资金流快照。 */

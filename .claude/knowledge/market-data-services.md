@@ -87,9 +87,9 @@ market-data 层负责 A 股基础市场数据的本地持久化、查询、同�
 | `data-sync-handlers.ts` | UI 手动触发的数据同步任务，如 K 线、异动历史、个股详情、市场快照。 |
 | `market-data-scheduler.ts` | Electron 运行时启动同步、停止同步和 worker shutdown。 |
 | `market-cap-screener.ts` | 基于本地行情/市值快照做 A 股筛选。 |
-| `condition-screener-service.ts` | 条件选股真实数据服务，供 Agent 工具 `screenASharesByConditions` 使用。 |
+| `condition-screener-service.ts` | 条件选股真实数据服务，供 Agent 工具 `screenASharesByConditions` 使用；复用 `stock/quotes/shared.ts`、`stock/anomaly/board-detail.ts` 和 `stock/chip-distribution/chip-distribution-provider.ts`。 |
 | `condition-screener-board-provider.ts` | 条件选股的今日领涨板块范围：本地板块优先，stock-sdk 真实板块其次，a-stock-data 新浪板块兜底。 |
-| `condition-screener-sina-board-provider.ts` | a-stock-data 新浪板块排行和成分股适配，用于补齐领涨板块条件。 |
+| `condition-screener-sina-board-provider.ts` | a-stock-data 新浪板块排行和成分股适配，用于补齐领涨板块条件；通过 `stock/quotes/a-stock-data-runner.ts` 调用。 |
 | `condition-screener-types.ts` | 条件选股输入、输出、候选和数据源类型。 |
 | `market-news-summary-scheduler.ts` | 市场新闻摘要调度状态相关能力。 |
 
@@ -123,9 +123,9 @@ market-data 层负责 A 股基础市场数据的本地持久化、查询、同�
 2. 先读取本地 DuckDB 候选：`listAShareMarketCapSnapshotRows()`。
 3. 调用 `fetchStockSdkAllMarketSnapshotQuotes()` 获取全市场当前行情；若本地候选为空，用 stock-sdk 快照创建候选并回写 `stock_snapshots` / `securities`。
 4. 对缺少必要行情字段的候选，用 `fetchAStockDataMarketSnapshotQuotes()` 补齐，结果仍会尝试回写 DuckDB。
-5. 如启用 `leadingBoards`，调用 `loadConditionScreenerLeadingBoardScope()`：先读 `market_boards`；本地无可用领涨板块时调用 `refreshMarketBoardRows()` 获取 stock-sdk 真实板块；仍无有效板块时再走 `fetchConditionScreenerSinaBoards()` 的 a-stock-data 新浪板块排行；取涨幅 Top 5。
-6. 领涨板块成分股优先读本地 `board_constituents`，其次 `getBoardDetail()`；若板块来源为 a-stock-data 新浪，则调用 `fetchConditionScreenerSinaConstituents()` 批量获取成分股。
-7. 如启用筹码条件，仅读取本地 `stock_chips` 完成本轮筛选；缺筹码的股票不纳入当前命中，并后台补齐前 20 只缺失候选。
+5. 如启用 `leadingBoards`，调用 `loadConditionScreenerLeadingBoardScope()`：先读 `market_boards`；本地无可用领涨板块时调用 `stock/quotes/shared.ts` 的 `refreshMarketBoardRows()` 获取 stock-sdk 真实板块；仍无有效板块时再走 `fetchConditionScreenerSinaBoards()` 的 a-stock-data 新浪板块排行；取涨幅 Top 5。
+6. 领涨板块成分股优先读本地 `board_constituents`，其次 `stock/anomaly/board-detail.ts` 的 `getBoardDetail()`；若板块来源为 a-stock-data 新浪，则调用 `fetchConditionScreenerSinaConstituents()` 批量获取成分股。
+7. 如启用筹码条件，仅读取本地 `stock_chips` 完成本轮筛选；缺筹码的股票不纳入当前命中，并通过 `stock/chip-distribution/chip-distribution-provider.ts` 后台补齐前 20 只缺失候选。
 8. 输出 `sourceStats`、`warnings`、`isComplete`、`freshness`、`storage`、`leadingBoards` 和命中行，供 Agent 数据状态和证据使用。
 
 注意：

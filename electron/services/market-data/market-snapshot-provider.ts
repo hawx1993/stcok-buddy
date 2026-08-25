@@ -1,7 +1,7 @@
 import type { FullQuote } from 'stock-sdk';
-import { runAStockDataFn, type ITencentQuote } from '../stock/a-stock-data-runner.js';
-import { sdk } from '../stock/shared.js';
-import { normalizeASymbol } from '../stock/symbols.js';
+import { runAStockDataFn, type ITencentQuote } from '../stock/quotes/a-stock-data-runner.js';
+import { sdk } from '../stock/quotes/shared.js';
+import { normalizeASymbol } from '../stock/stock-detail/symbols.js';
 import type { SecurityRecord } from './types.js';
 
 export interface IMarketSnapshotQuoteRecord {

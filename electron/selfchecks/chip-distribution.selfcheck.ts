@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {
   calculateChipDistributionInWorker,
   disposeChipDistributionWorker,
-} from '../services/stock/chip-distribution-worker-client.js';
+} from '../services/stock/chip-distribution/chip-distribution-worker-client.js';
 import type { KlinePoint } from '../../src/shared/types.js';
 
 const start = Date.parse('2026-01-02T00:00:00+08:00');
