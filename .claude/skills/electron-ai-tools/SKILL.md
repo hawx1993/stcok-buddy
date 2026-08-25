@@ -8,15 +8,14 @@ argument-hint: '[工具接入或修改任务]'
 
 > 本 Skill 适用于 `electron/services/agents/tools/` 下的工具。每个注册的 Function Call 工具必须独立维护在一个 kebab-case 文件中，并在导出前添加说明其用途、数据路径与调用面的 JSDoc。
 
-## 1. 必读资料与权威入口
+## 1. 按需资料与权威入口
 
-开始修改前，先阅读：
+开始修改前先判断任务类型，并只读取命中的资料；不要为了工具任务一次性加载全部 Knowledge。
 
-- [Agent 服务与 DAG](../../knowledge/agent-services.md)
-- [Agent 工具、数据状态与接入流程](../../knowledge/agent-tools.md)
-- [Stock Services 知识](../../knowledge/stock-services.md)（工具依赖 `electron/services/stock/**` 时）
-- [数据访问规则](../../rules/data.md)
-- [TypeScript / React 规则](../../rules/typescript-react.md)
+- **始终读取**：[Agent 工具、数据状态与接入流程](../../knowledge/agent-tools.md)。
+- **修改 orchestrator、DAG、`runContextTool()`、evidence、data gap、结果卡片或工具调用循环时**，再读取 [Agent 服务与 DAG](../../knowledge/agent-services.md)。
+- **工具依赖 `electron/services/stock/**` 或涉及真实行情 / 板块 / 新闻 / 资金数据时**，再读取 [Stock Services 知识](../../knowledge/stock-services.md) 与 [数据访问规则](../../rules/data.md)。
+- **触碰 TypeScript public API、shared type、React / renderer 或 IPC 暴露类型时**，再读取 [TypeScript / React 规则](../../rules/typescript-react.md)。
 
 以下为运行时的唯一事实来源：
 

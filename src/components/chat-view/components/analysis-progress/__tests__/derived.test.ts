@@ -2,6 +2,21 @@ import { describe, expect, it } from 'vitest';
 
 import type { AgentRunEvent } from '../../../../../shared/types';
 import { deriveAgentStatuses, deriveSteps, formatProgressSummary } from '../derived';
+import { isAnalysisProgressRunning, normalizeProgressLabel } from '../presentation';
+
+describe('进度展示文案', () => {
+  it('将内部工具和 Agent 名称显示为用户可读名称', () => {
+    expect(normalizeProgressLabel('DataCoverage')).toBe('数据覆盖检查');
+    expect(normalizeProgressLabel('ConditionScreener')).toBe('条件选股');
+    expect(normalizeProgressLabel('正在调用工具：screenASharesByConditions')).toBe('正在调用工具：全市场条件选股');
+    expect(normalizeProgressLabel('screenASharesByConditions 返回可用数据')).toBe('全市场条件选股 返回可用数据');
+  });
+
+  it('消息已完成时进度标题不再保持转圈状态', () => {
+    expect(isAnalysisProgressRunning({ preparing: false, pending: true, completed: true })).toBe(false);
+    expect(isAnalysisProgressRunning({ preparing: false, pending: true, completed: false })).toBe(true);
+  });
+});
 
 describe('formatProgressSummary 进度摘要', () => {
   it('完成后只显示步骤数，不再显示会继续累加的耗时', () => {

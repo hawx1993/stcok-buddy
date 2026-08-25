@@ -219,6 +219,71 @@ describe('条件选股真实数据服务', () => {
     expect(result.storage).toBe('remote');
   });
 
+  it('无筹码筛选条件时仍合并本地真实筹码字段供表格展示', async () => {
+    configureDefaults(
+      [
+        row({
+          symbol: '600001',
+          name: '展示筹码股',
+          totalMarketCap: 50,
+          turnoverRate: 10,
+          amount: 30_000,
+          changePercent: 3,
+        }),
+      ],
+      {
+        listStockChips: async () => [chip('600001', 0.123, 0.6, 0.087)],
+      },
+    );
+
+    const result = await screenASharesByConditions({
+      turnoverRateMinExclusive: 8,
+      changePercentMin: 0,
+      changePercentMax: 5,
+    });
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({
+        code: '600001',
+        concentration90Percent: 12.3,
+        concentration70Percent: 8.7,
+      }),
+    ]);
+    expect(result.sourceStats.missingChipData).toBe(0);
+  });
+
+  it('全量筹码列表缺失时复用单股筹码 provider 补齐展示行', async () => {
+    const getChipDistribution = vi.fn(async () => chipResult(0.176, 0.55, 0.054));
+    configureDefaults(
+      [
+        row({
+          symbol: '600127',
+          name: '金健米业',
+          totalMarketCap: 59.75,
+          turnoverRate: 46.17,
+          amount: 271_500,
+          changePercent: 10.05,
+        }),
+      ],
+      {
+        listStockChips: async () => [],
+        getChipDistribution,
+      },
+    );
+
+    const result = await screenASharesByConditions({
+      turnoverRateMinExclusive: 8,
+      sortBy: 'turnoverRate',
+      sortOrder: 'desc',
+    });
+
+    expect(getChipDistribution).toHaveBeenCalledWith('600127');
+    expect(result.rows[0]).toEqual(expect.objectContaining({ code: '600127' }));
+    expect(result.rows[0].concentration90Percent).toBeCloseTo(17.6);
+    expect(result.rows[0].concentration70Percent).toBeCloseTo(5.4);
+    expect(result.sourceStats.missingChipData).toBe(0);
+  });
+
   it('按流通市值、成交量、市场范围和 70% 筹码集中度筛选并排序', async () => {
     configureDefaults(
       [

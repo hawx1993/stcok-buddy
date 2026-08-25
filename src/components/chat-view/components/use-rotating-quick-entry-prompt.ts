@@ -4,7 +4,7 @@ const CHARACTER_DELAY_MS = 42;
 const COMPLETED_PROMPT_DELAY_MS = 3_000;
 
 export const QUICK_ENTRY_PROMPTS = [
-  '试试 "/条件选股 --总市值=30-100亿 --换手率>8% --成交额>2亿 --排除ST"',
+  '试试 "/条件选股 --总市值=30-100亿 --换手率>8% --成交额>5亿 --排除ST"',
   '试试 "/复盘今日行情"',
   '试试 "/综合投研报告 300017"',
   '试试 "/新闻公告 600519"',

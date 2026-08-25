@@ -154,6 +154,47 @@ describe('龙虎榜快照服务', () => {
     }
   });
 
+  it('扶摇最新请求显式携带已解析交易日，避免回退到前一交易日', async () => {
+    const actual = await vi.importActual<typeof import('../../anomaly/fuyao-dragon-tiger.js')>(
+      '../../anomaly/fuyao-dragon-tiger.js',
+    );
+    const originalApiKey = process.env.FUYAO_A_SHARE_API_KEY;
+    process.env.FUYAO_A_SHARE_API_KEY = 'test-key';
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          result: {
+            structuredContent: {
+              code: 0,
+              data: { trade_date: '2026-08-25', stock_items: [] },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    try {
+      const result = await actual.loadFuyaoDragonTigerRange({
+        startDate: '2026-08-25',
+        endDate: '2026-08-25',
+        latestOnly: true,
+      });
+      const requestBody = JSON.parse(String(mocks.fetch.mock.calls[0]?.[1]?.body)) as {
+        params?: { arguments?: { board_type?: string; date?: string } };
+      };
+
+      expect(requestBody.params?.arguments).toEqual({
+        board_type: 'all',
+        date: '2026-08-25',
+      });
+      expect(result.tradeDate).toBe('2026-08-25');
+    } finally {
+      if (originalApiKey === undefined) delete process.env.FUYAO_A_SHARE_API_KEY;
+      else process.env.FUYAO_A_SHARE_API_KEY = originalApiKey;
+    }
+  });
+
   it('映射扶摇龙虎榜金额、百分比、原因和机构席位字段', () => {
     const envelope = {
       code: 0,

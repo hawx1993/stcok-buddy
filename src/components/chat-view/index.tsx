@@ -140,6 +140,7 @@ export function ChatView() {
   const rootRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
+  const [conditionScreenerResetVersion, setConditionScreenerResetVersion] = useState(0);
   const [selectedSlashIndex, setSelectedSlashIndex] = useState<number>();
   const [storeOpen, setStoreOpen] = useState(false);
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
@@ -315,6 +316,7 @@ export function ChatView() {
       const trimmed = text.trim();
       if (!trimmed || isSending) return;
       setInput('');
+      setConditionScreenerResetVersion((current) => current + 1);
       setSelectedSlashIndex(undefined);
       void send(trimmed);
     },
@@ -412,6 +414,7 @@ export function ChatView() {
           <div className={styles['composer-stack']}>
             <div className={styles['composer-shell']}>
               <ConditionScreenerPicker
+                key={conditionScreenerResetVersion}
                 value={input}
                 onCommandChange={(command) => {
                   setInput(command);

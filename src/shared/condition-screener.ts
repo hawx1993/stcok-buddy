@@ -64,7 +64,7 @@ export const conditionScreenerParameters: readonly IConditionScreenerParameter[]
     id: 'amount',
     name: '成交额',
     description: '设置最低成交额或成交额区间，金额单位为亿元。',
-    example: '--成交额>2亿',
+    example: '--成交额>5亿',
     aliases: ['成交额'],
   },
   {
@@ -176,7 +176,7 @@ export const conditionScreenerPresets: readonly IConditionScreenerPreset[] = [
     criteria: [
       { key: 'market-cap', command: '--总市值=30-100亿', label: '总市值 30–100 亿' },
       { key: 'turnover-rate', command: '--换手率>8%', label: '换手率 > 8%' },
-      { key: 'amount', command: '--成交额>2亿', label: '成交额 > 2 亿' },
+      { key: 'amount', command: '--成交额>5亿', label: '成交额 > 5 亿' },
       { key: 'exclude-st', command: '--排除ST', label: '排除 ST' },
       { key: 'sort', command: '--排序=换手率降序', label: '按换手率降序' },
     ],
@@ -245,7 +245,9 @@ export function mergeConditionScreenerCriteria(
 
 export function createConditionScreenerCommand(presetIds: readonly TConditionScreenerPresetId[]): string {
   const criteria = mergeConditionScreenerCriteria(presetIds);
-  return criteria.length ? `${CONDITION_SCREENER_COMMAND} ${criteria.map((criterion) => criterion.command).join(' ')}` : '';
+  return criteria.length
+    ? `${CONDITION_SCREENER_COMMAND} ${criteria.map((criterion) => criterion.command).join(' ')}`
+    : '';
 }
 
 export function toggleConditionScreenerPreset(

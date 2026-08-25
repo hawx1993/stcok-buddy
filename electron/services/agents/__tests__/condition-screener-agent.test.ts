@@ -31,7 +31,7 @@ describe('条件选股命令参数解析', () => {
   });
 
   it('解析总市值区间、严格上限和换手排序', () => {
-    const rangeResult = parseConditionScreenerArguments('--总市值=30-100亿 --换手率>8% --成交额>2亿 --排序=换手率降序');
+    const rangeResult = parseConditionScreenerArguments('--总市值=30-100亿 --换手率>8% --成交额>5亿 --排序=换手率降序');
     const upperBoundResult = parseConditionScreenerArguments('--总市值<150亿');
 
     expect(rangeResult.valid).toBe(true);
@@ -40,11 +40,11 @@ describe('条件选股命令参数解析', () => {
       minTotalMarketCapYuan: 3_000_000_000,
       maxTotalMarketCapYuan: 10_000_000_000,
       turnoverRateMinExclusive: 8,
-      amountMinYuanExclusive: 200_000_000,
+      amountMinYuanExclusive: 500_000_000,
       sortBy: 'turnoverRate',
       sortOrder: 'desc',
     });
-    expect(rangeResult.criteria).toEqual(['总市值 30–100 亿', '换手率 > 8%', '成交额 > 2 亿', '按换手率降序']);
+    expect(rangeResult.criteria).toEqual(['总市值 30–100 亿', '换手率 > 8%', '成交额 > 5 亿', '按换手率降序']);
     expect(upperBoundResult.valid).toBe(true);
     if (!upperBoundResult.valid) throw new Error(upperBoundResult.errors.join('；'));
     expect(upperBoundResult.input.maxTotalMarketCapYuanExclusive).toBe(15_000_000_000);

@@ -46,9 +46,9 @@ export async function loadFuyaoDragonTigerRange(options: {
 }): Promise<IFuyaoDragonTigerResult> {
   const warnings: string[] = [];
   const dates = options.latestOnly
-    ? [undefined]
+    ? [options.endDate]
     : await resolveTradingDates(options.startDate, options.endDate, warnings);
-  const envelopes = await loadAllBoards(dates, warnings);
+  const envelopes = await loadAllBoards(dates, warnings, options.latestOnly);
   const datedRows = envelopes
     .map((envelope) => toFuyaoDragonTigerRows(envelope))
     .filter((item) => item.tradeDate && item.rows.length);
@@ -89,6 +89,7 @@ export async function loadFuyaoDragonTigerRange(options: {
 async function loadAllBoards(
   dates: Array<string | undefined>,
   warnings: string[],
+  latestOnly: boolean,
 ): Promise<TFuyaoToolEnvelope[]> {
   const envelopes: TFuyaoToolEnvelope[] = [];
   let failureCount = 0;
@@ -96,7 +97,9 @@ async function loadAllBoards(
 
   for (let start = 0; start < dates.length; start += REQUEST_CONCURRENCY) {
     const batch = dates.slice(start, start + REQUEST_CONCURRENCY);
-    const results = await Promise.allSettled(batch.map((date) => callFuyaoDragonTigerTool('all', date)));
+    const results = await Promise.allSettled(
+      batch.map((date) => callFuyaoDragonTigerTool('all', date, latestOnly)),
+    );
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') {
         envelopes.push(result.value);
@@ -170,8 +173,9 @@ export async function resolveFuyaoMcpConnection(options: {
 async function callFuyaoDragonTigerTool(
   boardType: TFuyaoDragonTigerBoardType,
   date?: string,
+  latestOnly = false,
 ): Promise<TFuyaoToolEnvelope> {
-  const cacheKey = `${boardType}:${date ?? 'latest'}`;
+  const cacheKey = `${latestOnly ? 'latest' : 'historical'}:${boardType}:${date ?? 'latest'}`;
   const cached = responseCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
@@ -204,7 +208,7 @@ async function callFuyaoDragonTigerTool(
     const now = Date.now();
     pruneExpiredCache(now);
     responseCache.set(cacheKey, {
-      expiresAt: now + (date ? HISTORICAL_CACHE_TTL_MS : LATEST_CACHE_TTL_MS),
+      expiresAt: now + (latestOnly ? LATEST_CACHE_TTL_MS : HISTORICAL_CACHE_TTL_MS),
       value: envelope,
     });
     return envelope;

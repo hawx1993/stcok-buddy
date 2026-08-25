@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { ToolCallRecord } from '../../../../shared/types';
 import styles from './index.module.scss';
 import cx from '../../../../shared/cx';
+import { normalizeProgressLabel } from './presentation';
 
 function summarize(value: unknown): string {
   if (value === undefined) return '--';
@@ -29,7 +30,7 @@ export function ToolCalls({ toolCalls }: { toolCalls?: ToolCallRecord[] }) {
             return (
               <div key={tc.id} className={styles['tool-item']}>
                 <div className={styles['tool-item-header']}>
-                  <span className={styles['tool-name']}>{tc.toolName}</span>
+                  <span className={styles['tool-name']}>{normalizeProgressLabel(tc.toolName)}</span>
                   <span className={cx(styles['tool-meta'], tc.error && styles['error'])}>
                     {tc.error ? '失败' : '成功'}
                     {duration !== undefined ? ` · ${duration}ms` : ''}
