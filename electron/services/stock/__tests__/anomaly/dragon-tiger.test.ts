@@ -154,6 +154,35 @@ describe('龙虎榜快照服务', () => {
     }
   });
 
+  it('打包环境可通过显式路径读取外部 MCP 配置中的扶摇连接信息', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'stockbuddy-fuyao-empty-'));
+    const configDir = await mkdtemp(join(tmpdir(), 'stockbuddy-fuyao-config-'));
+    try {
+      const configPath = join(configDir, '.mcp.json');
+      await writeFile(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            'fuyao-a-share': {
+              type: 'http',
+              url: 'https://fuyao.example.test/mcp/a-share',
+              headers: { 'X-api-key': 'external-config-test-key' },
+            },
+          },
+        }),
+        'utf8',
+      );
+
+      await expect(resolveFuyaoMcpConnection({ cwd, env: {}, configPath })).resolves.toEqual({
+        url: 'https://fuyao.example.test/mcp/a-share',
+        apiKey: 'external-config-test-key',
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
   it('扶摇最新请求显式携带已解析交易日，避免回退到前一交易日', async () => {
     const actual = await vi.importActual<typeof import('../../anomaly/fuyao-dragon-tiger.js')>(
       '../../anomaly/fuyao-dragon-tiger.js',

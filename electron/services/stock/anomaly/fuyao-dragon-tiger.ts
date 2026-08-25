@@ -36,6 +36,11 @@ type TFuyaoMcpConnection = {
   apiKey: string;
 };
 
+type TMcpConfigPathOptions = {
+  cwd: string;
+  explicitPath?: string;
+};
+
 const responseCache = new Map<string, TCachedEnvelope>();
 let rpcId = 0;
 
@@ -132,6 +137,7 @@ async function resolveTradingDates(startDate: string, endDate: string, warnings:
 export async function resolveFuyaoMcpConnection(options: {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  configPath?: string;
 } = {}): Promise<TFuyaoMcpConnection> {
   const env = options.env ?? process.env;
   const envApiKey = env.FUYAO_A_SHARE_API_KEY ?? env.FUYAO_API_KEY ?? env.HITHINK_FINANCE_API_KEY;
@@ -142,32 +148,39 @@ export async function resolveFuyaoMcpConnection(options: {
     };
   }
 
-  const configPath = resolve(options.cwd ?? process.cwd(), '.mcp.json');
-  let configText: string;
-  try {
-    configText = await readFile(configPath, 'utf8');
-  } catch (error) {
-    if (errorCode(error) === 'ENOENT') throw missingApiKeyError();
-    throw new Error(`读取项目 MCP 配置失败：${errorMessage(error)}`);
+  const configPaths = resolveMcpConfigPaths({
+    cwd: options.cwd ?? process.cwd(),
+    explicitPath: options.configPath ?? env.FUYAO_A_SHARE_MCP_CONFIG_PATH ?? env.FUYAO_MCP_CONFIG_PATH,
+  });
+  for (const configPath of configPaths) {
+    let configText: string;
+    try {
+      configText = await readFile(configPath, 'utf8');
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') continue;
+      throw new Error(`读取 MCP 配置失败：${errorMessage(error)}`);
+    }
+
+    let configValue: unknown;
+    try {
+      configValue = JSON.parse(configText);
+    } catch (error) {
+      throw new Error(`MCP 配置 ${configPath} 格式无效：${errorMessage(error)}`);
+    }
+    const root = asRecord(configValue);
+    const servers = asRecord(root?.mcpServers);
+    const server = asRecord(servers?.['fuyao-a-share']);
+    const headers = asRecord(server?.headers);
+    const apiKey = caseInsensitiveText(headers, 'X-api-key');
+    if (apiKey) {
+      return {
+        url: text(server, ['url']) || DEFAULT_FUYAO_A_SHARE_MCP_URL,
+        apiKey,
+      };
+    }
   }
 
-  let configValue: unknown;
-  try {
-    configValue = JSON.parse(configText);
-  } catch (error) {
-    throw new Error(`项目 .mcp.json 格式无效：${errorMessage(error)}`);
-  }
-  const root = asRecord(configValue);
-  const servers = asRecord(root?.mcpServers);
-  const server = asRecord(servers?.['fuyao-a-share']);
-  const headers = asRecord(server?.headers);
-  const apiKey = caseInsensitiveText(headers, 'X-api-key');
-  if (!apiKey) throw missingApiKeyError();
-
-  return {
-    url: text(server, ['url']) || DEFAULT_FUYAO_A_SHARE_MCP_URL,
-    apiKey,
-  };
+  throw missingApiKeyError(configPaths);
 }
 
 async function callFuyaoDragonTigerTool(
@@ -403,9 +416,19 @@ function errorCode(error: unknown): string {
   return typeof error.code === 'string' ? error.code : '';
 }
 
-function missingApiKeyError(): Error {
+function resolveMcpConfigPaths(options: TMcpConfigPathOptions): string[] {
+  const paths = [
+    options.explicitPath,
+    resolve(options.cwd, '.mcp.json'),
+    process.resourcesPath ? resolve(process.resourcesPath, '.mcp.json') : undefined,
+  ].filter((item): item is string => Boolean(item));
+  return [...new Set(paths)];
+}
+
+function missingApiKeyError(configPaths: string[] = []): Error {
+  const checked = configPaths.length ? `已检查：${configPaths.join('、')}。` : '';
   return new Error(
-    '缺少扶摇 A 股 MCP API Key，请在项目 .mcp.json 的 fuyao-a-share.headers.X-api-key 或环境变量 FUYAO_A_SHARE_API_KEY 中配置',
+    `缺少扶摇 A 股 MCP API Key，请配置环境变量 FUYAO_A_SHARE_API_KEY，或在 .mcp.json 的 fuyao-a-share.headers.X-api-key 中配置。${checked}`,
   );
 }
 

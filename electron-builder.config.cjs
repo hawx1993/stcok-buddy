@@ -1,6 +1,37 @@
 const appVersion = process.env.STOCKBUDDY_APP_VERSION || '${version}'
 const { execFileSync } = require('node:child_process');
+const { existsSync } = require('node:fs');
 const path = require('node:path');
+
+const extraResources = [
+  {
+    from: 'public/icons/icon.svg',
+    to: 'icons/icon.svg'
+  },
+  {
+    from: 'build/commit-hash.txt',
+    to: 'commit-hash.txt'
+  },
+  {
+    from: 'build/telemetry.json',
+    to: 'telemetry.json'
+  },
+  {
+    from: 'public/store',
+    to: 'public/store'
+  },
+  {
+    from: 'electron/python/a-stock-data.py',
+    to: 'python/a-stock-data.py'
+  }
+];
+
+if (existsSync(path.join(__dirname, '.mcp.json'))) {
+  extraResources.push({
+    from: '.mcp.json',
+    to: '.mcp.json'
+  });
+}
 
 module.exports = {
   appId: 'com.stocksense.desktop',
@@ -19,28 +50,7 @@ module.exports = {
     'dist-electron/**/*',
     'package.json'
   ],
-  extraResources: [
-    {
-      from: 'public/icons/icon.svg',
-      to: 'icons/icon.svg'
-    },
-    {
-      from: 'build/commit-hash.txt',
-      to: 'commit-hash.txt'
-    },
-    {
-      from: 'build/telemetry.json',
-      to: 'telemetry.json'
-    },
-    {
-      from: 'public/store',
-      to: 'public/store'
-    },
-    {
-      from: 'electron/python/a-stock-data.py',
-      to: 'python/a-stock-data.py'
-    }
-  ],
+  extraResources,
   publish: [
     {
       provider: 'github',
