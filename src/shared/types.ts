@@ -449,6 +449,10 @@ export interface BoardConstituent {
   name: string;
   price?: string | number;
   changePercent?: string;
+  marketCap?: string | number;
+  mainNetInflow?: string | number;
+  turnoverRate?: string | number;
+  volume?: string | number;
   turnover?: string;
   amount?: string;
 }
@@ -757,7 +761,7 @@ export interface IDragonTigerSummary {
   netBuyCount: number;
   netSellCount: number;
   topNetBuy?: IDragonTigerLeader;
-  dataSource: 'stock-sdk';
+  dataSource: 'stock-sdk' | 'fuyao-a-share-mcp';
   updatedAt: string;
 }
 
@@ -792,6 +796,7 @@ export interface MarketQuoteRow {
 export interface MarketBoardRow {
   code: string;
   name: string;
+  boardKind?: 'industry' | 'concept';
   price?: number | string;
   changePercent?: number | string;
   volume?: number | string;
@@ -800,6 +805,13 @@ export interface MarketBoardRow {
   turnoverRate?: number | string;
   minutes: KlinePoint[];
   constituents?: BoardConstituent[];
+}
+
+export interface IBoardHeatSnapshot {
+  updatedAt: string;
+  source: 'fuyao-a-share-index' | 'hithink-finance';
+  boards: MarketBoardRow[];
+  warning?: string;
 }
 
 export type MarketSearchResult = (MarketQuoteRow & { kind?: 'stock' }) | (MarketBoardRow & { kind: 'board' });
@@ -1144,6 +1156,7 @@ export interface StocksenseApi {
   cancelMarketDataSync(): Promise<MarketDataSyncStatus>;
   getMarketDataStats(): Promise<MarketDataStats>;
   getMarketPageSnapshot(tab: MarketTab, period?: MarketIndexPeriod): Promise<MarketPageSnapshot>;
+  getBoardHeatSnapshot(): Promise<IBoardHeatSnapshot>;
   getDragonTigerSnapshot(range?: TDragonTigerRange): Promise<IDragonTigerSnapshot>;
   getDiscoverySnapshot(options?: IDiscoverySnapshotOptions): Promise<Record<string, unknown>>;
   getMonitorFeed(options?: {

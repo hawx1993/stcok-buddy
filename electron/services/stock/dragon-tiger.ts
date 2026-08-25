@@ -9,6 +9,7 @@ import type {
 import { pickNumber, pickString } from './format.js';
 import { sdk, withTimeoutReject } from './shared.js';
 import { resolveTradingDate } from '../market-data/trade-date-resolver.js';
+import { loadFuyaoDragonTigerRange } from './fuyao-dragon-tiger.js';
 
 const DRAGON_TIGER_TIMEOUT_MS = 10_000;
 const DRAGON_TIGER_RANK_SIZE = 20;
@@ -43,47 +44,26 @@ type TEastmoneyDatacenterPayload = { result?: { data?: Record<string, unknown>[]
 
 export async function getDragonTigerSnapshot(range: TDragonTigerRange = 'today'): Promise<IDragonTigerSnapshot> {
   const requestRange = await getDragonTigerDateRange(range);
-  const warnings: string[] = [];
-  const detailRows =
-    range === 'today'
-      ? await fetchLatestDragonTigerRowsFromStockSdk(warnings)
-      : await fetchDetailRowsWithFallback(range, requestRange.startDate, requestRange.endDate, warnings);
-  const latestDate = detailRows[0]?.date;
+  const result = await loadFuyaoDragonTigerRange({
+    startDate: toIsoDate(requestRange.startDate),
+    endDate: toIsoDate(requestRange.endDate),
+    latestOnly: range === 'today',
+  });
+  const warnings = [...result.warnings];
+  if (!result.rows.length) warnings.push('扶摇 A 股龙虎榜暂未返回真实上榜记录');
   const effectiveRange =
-    range === 'today' && latestDate
-      ? { startDate: toCompactDate(latestDate), endDate: toCompactDate(latestDate) }
+    range === 'today' && result.tradeDate
+      ? { startDate: toCompactDate(result.tradeDate), endDate: toCompactDate(result.tradeDate) }
       : requestRange;
-  const filteredRows =
-    range === 'today' && latestDate ? detailRows.filter((row) => row.date === latestDate) : detailRows;
-
-  const [institutionResult, branchResult] = await Promise.allSettled([
-    withTimeoutReject(sdk.dragonTiger.institution(effectiveRange), DRAGON_TIGER_TIMEOUT_MS, '龙虎榜机构买卖加载超时'),
-    withTimeoutReject(
-      sdk.dragonTiger.branchRank(toSdkPeriod(range)),
-      DRAGON_TIGER_TIMEOUT_MS,
-      '龙虎榜营业部排行加载超时',
-    ),
-  ]);
-
-  if (institutionResult.status === 'rejected') warnings.push(toWarningMessage('机构买卖', institutionResult.reason));
-  if (branchResult.status === 'rejected') warnings.push(toWarningMessage('营业部排行', branchResult.reason));
-
-  let institutionTop = institutionResult.status === 'fulfilled' ? institutionResult.value.map(toInstitutionRow) : [];
-  if (!institutionTop.length && filteredRows.length) {
-    institutionTop = await fetchInstitutionRowsFromDetails(filteredRows, warnings);
-  }
-  institutionTop = await enrichInstitutionRowsWithQuotes(institutionTop, filteredRows, warnings);
+  const institutionTop = await enrichInstitutionRowsWithQuotes(result.institutions, result.rows, warnings);
 
   return buildDragonTigerSnapshot({
     range,
     startDate: effectiveRange.startDate,
     endDate: effectiveRange.endDate,
-    rows: filteredRows,
+    rows: result.rows,
     institutionTop: institutionTop.slice(0, DRAGON_TIGER_SEAT_RANK_SIZE),
-    branchTop:
-      branchResult.status === 'fulfilled'
-        ? branchResult.value.map(toBranchRow).slice(0, DRAGON_TIGER_SEAT_RANK_SIZE)
-        : [],
+    branchTop: [],
     warnings,
   });
 }
@@ -133,18 +113,6 @@ async function fetchDetailRows(
     '龙虎榜详情加载超时',
   );
   return sortDetailRows(rows.map(toDetailRow));
-}
-
-async function fetchLatestDragonTigerRowsFromStockSdk(warnings: string[]): Promise<IDragonTigerDetailRow[]> {
-  const requestRange = getRecentDragonTigerHistoryRange();
-  try {
-    const rows = await fetchDetailRows('30d', requestRange.startDate, requestRange.endDate);
-    if (rows.length) return rows;
-  } catch (error) {
-    warnings.push(toWarningMessage('stock-sdk 近 30 日龙虎榜详情', error));
-  }
-  warnings.push('stock-sdk 近 30 日龙虎榜详情暂未返回真实上榜记录');
-  return [];
 }
 
 async function fetchDetailRowsWithFallback(
@@ -382,7 +350,7 @@ function buildDragonTigerSnapshot({
             reason: top.reason,
           }
         : undefined,
-      dataSource: 'stock-sdk',
+      dataSource: 'fuyao-a-share-mcp',
       updatedAt,
     },
     topNetBuy,
@@ -538,11 +506,6 @@ function getRecentDragonTigerHistoryRange(): { startDate: string; endDate: strin
   const start = new Date(end);
   start.setDate(end.getDate() - 29);
   return { startDate: formatCompactDate(start), endDate: formatCompactDate(end) };
-}
-
-function toSdkPeriod(range: TDragonTigerRange): '1month' | '3month' | '6month' | '1year' {
-  if (range === '30d') return '1month';
-  return '1month';
 }
 
 function sumRows(rows: IDragonTigerDetailRow[], key: 'netBuyAmount' | 'buyAmount' | 'sellAmount') {

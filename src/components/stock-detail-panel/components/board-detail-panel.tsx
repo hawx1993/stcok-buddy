@@ -1,12 +1,13 @@
 import { message as antdMessage } from 'antd';
 import { ArrowLeft, Layers, RefreshCw } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getStocksenseApi } from '../../../shared/stocksense-api';
 import cx from '../../../shared/cx';
 import { isChinaMarketOpen } from '../../../shared/market-time';
 import type { BoardConstituent, StockDetail } from '../../../shared/types';
 import { useAppDataStore, useAppUiStore } from '../../../store/app-store';
 import { StockKlineChart } from '../../kline-chart';
+import { formatMoney, formatMarketCap, formatPercent, formatVolume } from '../../market-view/market-format';
 import styles from '../index.module.scss';
 
 export function BoardDetailPanel() {
@@ -61,29 +62,33 @@ export function BoardDetailPanel() {
           const byCode = new Map(
             quotes
               .filter((quote) => quote.code)
-              .map((quote) => [quote.code.replace(/^(sh|sz|bj)/i, ''), quote]),
+              .map((quote) => [normalizeBoardStockCode(quote.code), quote]),
           );
           const current = useAppDataStore.getState().selectedBoard;
           if (!current || current.code !== boardCode || !current.constituents?.length) return;
           let changed = false;
           const next = current.constituents.map((row) => {
-            const quote = byCode.get(row.code);
+            const quote = byCode.get(normalizeBoardStockCode(row.code));
             if (!quote) return row;
-            const price = quote.price === undefined || quote.price === '--' ? row.price : quote.price;
-            const changePercent =
-              !quote.changePercent || quote.changePercent === '--' ? row.changePercent : quote.changePercent;
-            const amount = !quote.turnover || quote.turnover === '--' ? row.amount : quote.turnover;
-            const turnover =
-              !quote.turnoverRate || quote.turnoverRate === '--' ? row.turnover : String(quote.turnoverRate);
+            const price = isEmptyQuoteField(quote.price) ? row.price : quote.price;
+            const changePercent = isEmptyQuoteField(quote.changePercent) ? row.changePercent : quote.changePercent;
+            const amount = isEmptyQuoteField(quote.turnover) ? row.amount : quote.turnover;
+            const marketCap = isEmptyQuoteField(quote.marketCap) ? row.marketCap : quote.marketCap;
+            const turnoverRate = isEmptyQuoteField(quote.turnoverRate) ? row.turnoverRate : String(quote.turnoverRate);
+            const volume = isEmptyQuoteField(quote.volume) ? row.volume : quote.volume;
+            const turnover = turnoverRate === undefined ? row.turnover : String(turnoverRate);
             if (
               price === row.price &&
               changePercent === row.changePercent &&
               amount === row.amount &&
+              marketCap === row.marketCap &&
+              turnoverRate === row.turnoverRate &&
+              volume === row.volume &&
               turnover === row.turnover
             )
               return row;
             changed = true;
-            return { ...row, price, changePercent, amount, turnover };
+            return { ...row, price, changePercent, amount, marketCap, turnoverRate, volume, turnover };
           });
           if (changed) setSelectedBoard({ ...current, constituents: next });
         })
@@ -102,8 +107,10 @@ export function BoardDetailPanel() {
     };
   }, [board?.code, board?.constituents?.length, setSelectedBoard]);
 
+  const stocks = board?.constituents ?? [];
+  const sortedStocks = useMemo(() => sortBoardConstituents(stocks), [stocks]);
+  const showMainNetInflow = useMemo(() => hasMainNetInflowData(stocks), [stocks]);
   if (!board) return null;
-  const stocks = board.constituents ?? [];
   const isLoading = initialLoading && !refreshing;
 
   const refreshBoard = async () => {
@@ -127,8 +134,14 @@ export function BoardDetailPanel() {
 
   const openBoardStock = async (stock: BoardConstituent) => {
     const rowSnapshot: StockDetail = {
-      ...stock,
-      turnover: stock.turnover ?? stock.amount,
+      code: stock.code,
+      name: stock.name,
+      price: stock.price,
+      changePercent: stock.changePercent,
+      marketCap: formatMarketCap(stock.marketCap),
+      volume: formatVolume(stock.volume),
+      turnover: formatPlainValue(stock.turnover ?? stock.amount),
+      turnoverRate: stock.turnoverRate,
       summary: `${board.name}板块成分股。`,
     };
     setRightPanelTab('stock');
@@ -206,10 +219,30 @@ export function BoardDetailPanel() {
         <div className={styles['board-stock-list']}>
           {isLoading || refreshing ? (
             <BoardStockSkeleton />
-          ) : stocks.length ? (
-            stocks.map((stock) => (
-              <BoardStockItem key={stock.code} stock={stock} onClick={() => void openBoardStock(stock)} />
-            ))
+          ) : sortedStocks.length ? (
+            <div className={styles['board-stock-table']}>
+              <div className={cx(
+                styles['board-stock-row'],
+                showMainNetInflow && styles['board-stock-row-with-flow'],
+                styles['board-stock-head'],
+              )}>
+                <span className={cx(styles['board-stock-cell'], styles['board-stock-name'])}>名称</span>
+                <span className={styles['board-stock-cell']}>最新价</span>
+                <span className={styles['board-stock-cell']}>涨幅</span>
+                <span className={styles['board-stock-cell']}>总市值</span>
+                {showMainNetInflow ? <span className={styles['board-stock-cell']}>主力净流入</span> : null}
+                <span className={styles['board-stock-cell']}>换手率</span>
+                <span className={cx(styles['board-stock-cell'], styles['board-stock-volume'])}>成交量</span>
+              </div>
+              {sortedStocks.map((stock) => (
+                <BoardStockItem
+                  key={stock.code}
+                  stock={stock}
+                  showMainNetInflow={showMainNetInflow}
+                  onClick={() => void openBoardStock(stock)}
+                />
+              ))}
+            </div>
           ) : (
             <div className={styles['empty-list']}>暂无成分股数据</div>
           )}
@@ -221,23 +254,76 @@ export function BoardDetailPanel() {
 
 interface IBoardStockItemProps {
   stock: BoardConstituent;
+  showMainNetInflow: boolean;
   onClick(): void;
 }
 
-function BoardStockItem({ stock, onClick }: IBoardStockItemProps) {
+function BoardStockItem({ stock, showMainNetInflow, onClick }: IBoardStockItemProps) {
   const trend = trendClass(stock.changePercent);
+  const flowTrend = trendClass(stock.mainNetInflow);
   return (
-    <button className={styles['board-stock-item']} onClick={onClick} type='button'>
-      <span>
+    <button
+      className={cx(styles['board-stock-row'], showMainNetInflow && styles['board-stock-row-with-flow'])}
+      onClick={onClick}
+      type='button'
+    >
+      <span className={cx(styles['board-stock-cell'], styles['board-stock-name'])}>
         <b>{stock.name}</b>
         <em>{stock.code}</em>
       </span>
-      <span className={styles['board-stock-side']}>
-        <strong>{stock.price ?? '--'}</strong>
-        <em className={cx(trend ?? styles['na'])}>{stock.changePercent ?? '--'}</em>
-      </span>
+      <span className={styles['board-stock-cell']}>{formatPlainValue(stock.price)}</span>
+      <span className={cx(styles['board-stock-cell'], trend ?? styles['na'])}>{formatPercent(stock.changePercent)}</span>
+      <span className={styles['board-stock-cell']}>{formatMarketCap(stock.marketCap)}</span>
+      {showMainNetInflow ? (
+        <span className={cx(styles['board-stock-cell'], flowTrend ?? styles['na'])}>{formatMoney(stock.mainNetInflow)}</span>
+      ) : null}
+      <span className={styles['board-stock-cell']}>{formatRatioPercent(stock.turnoverRate ?? stock.turnover)}</span>
+      <span className={cx(styles['board-stock-cell'], styles['board-stock-volume'])}>{formatVolume(stock.volume)}</span>
     </button>
   );
+}
+
+export function hasMainNetInflowData(stocks: BoardConstituent[]) {
+  return stocks.some((stock) => !isMissingBoardValue(stock.mainNetInflow));
+}
+
+export function sortBoardConstituents(stocks: BoardConstituent[]) {
+  return [...stocks].sort(
+    (left, right) =>
+      parseConstituentChange(right.changePercent) - parseConstituentChange(left.changePercent) ||
+      left.code.localeCompare(right.code),
+  );
+}
+
+function parseConstituentChange(value: unknown) {
+  const parsed = Number.parseFloat(String(value ?? '').replace('%', ''));
+  return Number.isFinite(parsed) ? parsed : -Infinity;
+}
+
+function isEmptyQuoteField(value: unknown) {
+  return value === undefined || value === null || value === '' || value === '--';
+}
+
+function isMissingBoardValue(value: unknown) {
+  if (value === undefined || value === null) return true;
+  const text = String(value).trim();
+  return !text || text === '--';
+}
+
+function normalizeBoardStockCode(value: string) {
+  return value.replace(/^(sh|sz|bj)/i, '').replace(/\.(SH|SZ|BJ)$/i, '');
+}
+
+function formatPlainValue(value: unknown) {
+  return value === undefined || value === null || value === '' ? '--' : String(value);
+}
+
+function formatRatioPercent(value: unknown) {
+  if (value === undefined || value === null || value === '') return '--';
+  const text = String(value);
+  if (text === '--' || text.includes('%')) return text;
+  const parsed = Number.parseFloat(text);
+  return Number.isFinite(parsed) ? `${parsed.toFixed(2)}%` : text;
 }
 
 function trendClass(value?: string | number) {

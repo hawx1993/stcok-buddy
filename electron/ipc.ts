@@ -74,6 +74,7 @@ import { getDiscoverySnapshot } from './services/stock/discovery-service.js';
 import { getBoardDashboard } from './services/stock/board-dashboard.js';
 import { getMonitorFeed } from './services/stock/monitor-service.js';
 import { getTradingAdvice } from './services/stock/trading-advice-service.js';
+import { getHithinkBoardHeatSnapshot } from './services/stock/hithink-board-heat.js';
 import { getHotStockHintSource } from './services/stock/hot-stock-hints-service.js';
 import { listSurgeHistoryWithBackfill } from './services/stock/surge-history-service.js';
 import { closeSurgeHistoryInstance, listSurgeDates } from './services/stock-db/surge-history-store.js';
@@ -231,6 +232,7 @@ export function registerIpcHandlers() {
     await ensureMarketDataRuntime();
     return getMarketPageSnapshot(tab, period);
   });
+  ipcMain.handle('market:getBoardHeatSnapshot', () => getHithinkBoardHeatSnapshot());
   ipcMain.handle('dragonTiger:getSnapshot', (_event, range?: TDragonTigerRange) => getDragonTigerSnapshot(range));
   ipcMain.handle('discovery:getSnapshot', (_event, options?: Parameters<typeof getDiscoverySnapshot>[0]) =>
     getDiscoverySnapshot(options),

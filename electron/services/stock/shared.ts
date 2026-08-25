@@ -458,6 +458,7 @@ export function toMarketBoardRow(row: AnyRecord): MarketBoardRow {
   return {
     code,
     name,
+    boardKind: kind,
     price: pickNumber(row, ['f2', 'price', 'latestPrice', 'lastPrice', 'close']),
     changePercent: pickNumber(row, ['f3', 'changePercent', 'pctChg', 'pctChange', 'change_rate']),
     volume: pickNumber(row, ['f5', 'volume']),

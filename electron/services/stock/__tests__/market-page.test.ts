@@ -29,6 +29,7 @@ const shared = vi.hoisted(() => ({
   aggregateKlineByWeek: vi.fn(),
   fetchEastmoneyClist: vi.fn(),
   fetchEastmoneyQuoteRowsByCodes: vi.fn(),
+  getCachedMarketBoardRows: vi.fn().mockResolvedValue([]),
   hasValue: vi.fn((value: unknown) => value !== undefined && value !== null),
   mergeByCode: vi.fn((current: MarketQuoteRow[]) => current),
   normalizeIndustryName: vi.fn((value: string | undefined) => value?.trim() || undefined),

@@ -12,6 +12,7 @@ import type {
   HotFocusItem,
   MarketNewsItem,
   MarketTab,
+  IBoardHeatSnapshot,
   PagedMarketNews,
   StoreItem,
   IHotStockHintSource,
@@ -112,6 +113,10 @@ export function getStocksenseApi(): StocksenseApi {
       if (typeof window.stocksense!.getTradingAdvice === 'function')
         return window.stocksense!.getTradingAdvice(options);
       return Promise.reject(new Error('AI 交易建议不可用，请重启客户端'));
+    },
+    getBoardHeatSnapshot: () => {
+      if (typeof window.stocksense!.getBoardHeatSnapshot === 'function') return window.stocksense!.getBoardHeatSnapshot();
+      return Promise.reject(new Error('板块热度功能不可用，请重启客户端'));
     },
     getDragonTigerSnapshot: (range) => {
       if (typeof window.stocksense!.getDragonTigerSnapshot === 'function')
@@ -622,6 +627,9 @@ const webFallbackApi: StocksenseApi = {
   },
   async getMarketPageSnapshot(tab: MarketTab, period = '1d') {
     return { tab, period, updatedAt: new Date().toISOString(), indices: [], rows: [], boards: [] };
+  },
+  async getBoardHeatSnapshot(): Promise<IBoardHeatSnapshot> {
+    return { updatedAt: new Date().toISOString(), source: 'fuyao-a-share-index', boards: [], warning: '板块热度仅在 Electron 桌面端可用' };
   },
   async getDragonTigerSnapshot(range = 'today') {
     const today = new Date().toISOString().slice(0, 10);

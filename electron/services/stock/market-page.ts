@@ -19,6 +19,7 @@ import {
   aggregateKlineByWeek,
   fetchEastmoneyClist,
   fetchEastmoneyQuoteRowsByCodes,
+  getCachedMarketBoardRows,
   hasValue,
   mergeByCode,
   normalizeIndustryName,
@@ -465,13 +466,16 @@ function tabsWithCachedSnapshots(period: MarketIndexPeriod): MarketTab[] {
 }
 
 async function getRemoteMarketPageSnapshot(tab: MarketTab, period: MarketIndexPeriod): Promise<MarketPageSnapshot> {
-  const indices = await getMarketIndices(period)
+  const [indices, rows, boards] = await Promise.all([
+    getMarketIndices(period)
     .then((fresh) => {
       if (fresh.length) marketIndexCache.set(period, { rows: fresh });
       return fresh;
     })
-    .catch(() => []);
-  const rows = await getRemoteMarketQuotes(tab);
+    .catch(() => []),
+    getRemoteMarketQuotes(tab),
+    getCachedMarketBoardRows(true).catch(() => []),
+  ]);
   if (rows.length) upsertQuoteRows(rows, `market:${tab}`);
   return {
     tab,
@@ -479,7 +483,7 @@ async function getRemoteMarketPageSnapshot(tab: MarketTab, period: MarketIndexPe
     updatedAt: new Date().toISOString(),
     indices: indices.length ? indices : (marketIndexCache.get(period)?.rows ?? fallbackIndices(period)),
     rows,
-    boards: [],
+    boards,
     rowOrderSource: 'remote',
   };
 }
@@ -502,13 +506,14 @@ async function getLocalMarketPageSnapshot(tab: MarketTab, period: MarketIndexPer
   const mergedRows = mergeQuoteRows(localRows, persistedRows);
   const rows = mergedRows.length ? mergedRows : cached?.rows?.length ? cached.rows : await buildRowsFromSecurities(tab);
   const indices = marketIndexCache.get(period)?.rows ?? cached?.indices ?? (await getLocalMarketIndices(period));
+  const boards = await getCachedMarketBoardRows(false).catch(() => []);
   const snapshot: MarketPageSnapshot = {
     tab,
     period,
     updatedAt: cached?.updatedAt ?? new Date().toISOString(),
     indices,
     rows,
-    boards: [],
+    boards,
     rowOrderSource: 'local',
   };
   const key = marketPageKey(tab, period);

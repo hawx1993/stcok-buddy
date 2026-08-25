@@ -15,8 +15,14 @@ const stockSdkInstances = vi.hoisted(
           kline: ReturnType<typeof vi.fn>;
         };
       };
+      fundFlow: {
+        rank: ReturnType<typeof vi.fn>;
+      };
     }>,
 );
+const hithinkBoardHeat = vi.hoisted(() => ({
+  getHithinkBoardConstituents: vi.fn(),
+}));
 
 vi.mock('stock-sdk', () => ({
   default: class StockSDKMock {
@@ -24,6 +30,7 @@ vi.mock('stock-sdk', () => ({
       industry: { constituents: vi.fn(), list: vi.fn(), kline: vi.fn() },
       concept: { constituents: vi.fn(), list: vi.fn(), kline: vi.fn() },
     };
+    fundFlow = { rank: vi.fn() };
 
     constructor() {
       stockSdkInstances.push(this);
@@ -42,6 +49,8 @@ vi.mock('../../stock-db/market-data-store', () => ({
   upsertMarketBoards: vi.fn(),
   writeBoardDetail: vi.fn(),
 }));
+
+vi.mock('../hithink-board-heat.js', () => hithinkBoardHeat);
 
 vi.mock('../shared', async () => {
   const actual = await vi.importActual<typeof import('../shared.js')>('../shared');
@@ -75,6 +84,8 @@ beforeEach(() => {
 
   mockedReadBoardDetail.mockResolvedValue(undefined);
   mockedListMarketBoards.mockResolvedValue([]);
+  hithinkBoardHeat.getHithinkBoardConstituents.mockReset();
+  hithinkBoardHeat.getHithinkBoardConstituents.mockResolvedValue([]);
   mockedGetCachedMarketBoardRows.mockResolvedValue([
     { code: 'BK0725', name: '装饰装修', changePercent: 1.83, minutes: [] },
   ]);
@@ -93,6 +104,7 @@ beforeEach(() => {
       changePercent: 1.2,
       amount: 1000000,
       turnoverRate: 2,
+      marketCap: 5000000000,
     },
   ]);
   mockedListSecurities.mockResolvedValue([
@@ -131,10 +143,12 @@ beforeEach(() => {
     sdk.board.industry.list.mockReset();
     sdk.board.industry.constituents.mockReset();
     sdk.board.industry.kline.mockReset();
+    sdk.fundFlow.rank.mockReset();
     sdk.board.concept.list.mockReset();
     sdk.board.concept.constituents.mockReset();
     sdk.board.concept.kline.mockReset();
     sdk.board.industry.list.mockResolvedValue([{ code: 'BK0725', name: '装饰装修' }]);
+    sdk.fundFlow.rank.mockResolvedValue([{ code: '000001', mainNetInflow: 12345678 }]);
     sdk.board.industry.constituents.mockResolvedValue([
       { code: '000001', name: '样本股', price: 10, changePercent: 1.2 },
     ]);
@@ -170,5 +184,51 @@ describe('getBoardDetail', () => {
     const detail = await getBoardDetail('BK0725', false, '装饰装修');
 
     expect(detail.changePercent).toBe('+1.83%');
+  });
+
+  it('enriches board detail constituents with real quote and fund-flow fields', async () => {
+    const detail = await getBoardDetail('BK0725', true, '装饰装修');
+
+    expect(detail.constituents?.[0]).toMatchObject({
+      code: '000001',
+      name: '样本股',
+      price: 10,
+      changePercent: '+1.20%',
+      marketCap: '50.0亿',
+      mainNetInflow: '+1234.57万',
+      turnoverRate: '2.00%',
+      volume: '100手',
+      amount: '+100.00万',
+      turnover: '2.00%',
+    });
+  });
+
+  it('uses Fuyao THS index constituents for .TI board detail when stock-sdk has no rows', async () => {
+    mockedGetCachedMarketBoardRows.mockResolvedValue([
+      { code: '881169.TI', name: '贵金属', boardKind: 'industry', changePercent: -4.82, minutes: [] },
+    ]);
+    hithinkBoardHeat.getHithinkBoardConstituents.mockResolvedValue([
+      { code: '000426', name: '兴业银锡' },
+      { code: '600489', name: '中金黄金' },
+    ]);
+    for (const sdk of stockSdkInstances) {
+      sdk.board.industry.constituents.mockResolvedValue([]);
+      sdk.board.concept.constituents.mockResolvedValue([]);
+      sdk.board.industry.kline.mockResolvedValue([]);
+      sdk.board.concept.kline.mockResolvedValue([]);
+    }
+
+    const detail = await getBoardDetail('881169.TI', false, '贵金属');
+
+    expect(hithinkBoardHeat.getHithinkBoardConstituents).toHaveBeenCalledWith('881169.TI');
+    expect(detail).toMatchObject({
+      code: '881169.TI',
+      name: '贵金属',
+      changePercent: '-4.82%',
+      constituents: [
+        { code: '000426', name: '兴业银锡' },
+        { code: '600489', name: '中金黄金' },
+      ],
+    });
   });
 });
